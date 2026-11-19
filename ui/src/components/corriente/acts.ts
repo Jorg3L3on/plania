@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type IdeaDecisionInput, type PedidoStop } from "@/lib/api";
+import { arranqueLine } from "@/lib/arranque";
 
 export const SLEEPY = "No se pudo. Si la Mac está dormida, intenta al despertar.";
 
@@ -115,7 +116,7 @@ export function useCorrienteActs() {
     failed,
     stopRun: (id: string) => run(`stop-${id}`, () => api.stopRun(id)),
     resumeRun: (id: string) => run(`resume-${id}`, () => api.resumeRun(id)),
-    start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : (START_WORDS[r.reason] ?? "No arrancó."))),
+    start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : ((r.reason === "fail" && arranqueLine(r.summary)) || (START_WORDS[r.reason] ?? "No arrancó.")))),
     plan: (slug: string, text: string) => run(`${slug}:plan`, () => api.askProject(slug, { text, mode: "ya" }), () => "Se lo pediste al PO."),
     autoAccept: (slug: string, on: boolean) =>
       run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept: on }), () => (on ? "Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba." : "Vuelves a aprobar cada entrega.")),

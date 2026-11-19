@@ -11,6 +11,7 @@
 import type { Decision, DecisionAction, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket } from "./api";
 import { ETAPA_WORD } from "./etapas";
 import { seatName } from "./corriente";
+import { arranqueLine } from "./arranque";
 
 // ---- words
 
@@ -130,6 +131,12 @@ const quote = (s: string) => `«${s}»`;
 const runOn = (key: string, p: OrgProject): string | null => p.team.find((m) => m.state === "running" && m.now?.ticket === key)?.now?.run_id ?? null;
 const workerOn = (key: string, p: OrgProject) => p.team.find((m) => m.state === "running" && m.now?.ticket === key) ?? null;
 
+/** NEWPROJ-5: the teammate whose next start is this step (its hold, else its queue). */
+const starterOf = (key: string, p: OrgProject): string | null =>
+  p.team.find((m) => m.next_start?.key === key)?.agent ?? p.team.find((m) => (m.queue ?? []).some((q) => q.key === key))?.agent ?? null;
+/** NEWPROJ-5: the retry on a step whose run could not start. */
+export const RETRY = "Volver a intentar";
+
 /** The next step that is not done, in phase order then key order. */
 const focusOf = (ts: ProjectTicket[], paused: boolean, tono: TramoTono) =>
   [...ts].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key)).find((t) => tonoOf(t, paused) === tono) ?? null;
@@ -210,6 +217,16 @@ function ticketThing(
   if (other) return out("toca", other.title, TIPO_NAME.decision, decisionLever(other, p), other.at);
   if (base.tipo === "iniciativa" && ctx.canClose) return out("toca", "Todos sus pasos están hechos: ciérrala.", "Lista para cerrar", { kind: "cerrar", key: base.key, version: ctx.version }, null);
 
+  // NEWPROJ-5: a step whose newest run could not start waits on the owner: what happened and what to fix, and a retry
+  // (never «Que empiece ya», nor «arranca sola», while that cause may stand).
+  const roto = [...ts].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key)).find((t) => t.arranque && !t.etapa.live && tonoOf(t, paused) !== "hecho");
+  if (roto) {
+    const line = arranqueLine(roto.arranque!.summary) ?? "No pudo arrancar.";
+    const agent = starterOf(roto.key, p);
+    const palanca: Palanca | null = agent && !paused ? { kind: "jugada", action: { kind: "start", agent, label: RETRY }, decision: null } : null;
+    return out("toca", base.tipo === "iniciativa" ? `${quote(roto.title)}: ${line}` : line, "No pudo arrancar", palanca, roto.arranque!.at ?? since(roto));
+  }
+
   // Se mueve: someone works one of its steps now.
   const vivo = focusOf(ts, paused, "vivo");
   if (vivo) {
@@ -268,6 +285,8 @@ function ideaThing(i: { key: string; title: string; origin: string | null; stop:
   const espera = i.stop === "lista" ? "Lista: el PO la vuelve iniciativa." : `Nadie la trabaja. ${waits && waits !== "Puede avanzar" ? waits : `Está en ${stopName}.`}`;
   return { ...base, grupo: "quieto", hilo: hilo("quieto", "cerrada"), espera, cap: stopName.toUpperCase(), palanca: paused ? null : { kind: "despertar", key: i.key }, since: i.at };
 }
+
+const ESPERA_MOVE: Record<string, string> = { fijar: "Sin meta, el equipo no sabe qué va primero.", planear: "Lo que sigue no está planeado todavía.", arrancar: "Está listo y espera tu señal.", ver: "Míralo cuando puedas.", aceptar: "", publicar: "", responder: "" };
 
 // Te toca: the row carrying the server's move first (it gets the screen's white button and matches the sentence),
 // then the longest waiting.
@@ -406,7 +425,15 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   // The server's move when it is not a decision (start a teammate, plan, set the goal, a link): a Te toca row of its
   // own. An empty project shows its own way in (Pedir, «Arma el plan»), so it gets none.
   const mv = p.next_move;
-  if (mv && mv.origen.kind !== "decision" && out.length > 0)
+  // NEWPROJ-5: a move that starts a teammate on a step that already has a row is that row's lever, not a second row:
+  // a step is listed once. A row that could not start keeps its retry and its reason.
+  const moveKey = mv?.accion.kind === "start" ? (p.team.find((m) => m.agent === (mv.accion as { agent: string }).agent)?.next_start?.key ?? null) : null;
+  const holder = moveKey ? out.find((c) => c.key === moveKey || c.hilo.tramos.some((t) => t.key === moveKey)) : undefined;
+  if (mv && holder) {
+    const step = holder.hilo.tramos.find((t) => t.key === moveKey);
+    const espera = holder.tipo === "iniciativa" && step ? `${quote(step.title)} está listo y espera tu señal.` : ESPERA_MOVE.arrancar!;
+    if (holder.grupo !== "toca") Object.assign(holder, { grupo: "toca", espera, cap: "Te toca".toUpperCase(), palanca: { kind: "jugada", action: mv.accion, decision: null } });
+  } else if (mv && mv.origen.kind !== "decision" && out.length > 0)
     out.push({
       key: "jugada",
       tipo: "jugada",
@@ -414,7 +441,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       title: mv.texto,
       grupo: "toca",
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "construccion" },
-      espera: { fijar: "Sin meta, el equipo no sabe qué va primero.", planear: "Lo que sigue no está planeado todavía.", arrancar: "Está listo y espera tu señal.", ver: "Míralo cuando puedas.", aceptar: "", publicar: "", responder: "" }[mv.verbo] ?? "",
+      espera: ESPERA_MOVE[mv.verbo] ?? "",
       cap: "Te toca",
       palanca: { kind: "jugada", action: mv.accion, decision: null },
       decisions: [],

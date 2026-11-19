@@ -260,7 +260,7 @@ export function askedLine(r: AskResult, project?: string): string {
   // PLA-I54-1: Darle forma lands in the tube, not on the board.
   if (r.mode === "forma") return r.wake === "queued" ? `Entró al tubo como ${r.key}; ${who} le da forma ahora.` : `Entró al tubo como ${r.key}; ${who} la abre en su turno.`;
   if (r.woke?.woke) return `Le llegó ${toWho} y ya está en ello.`;
-  if (r.woke) return `Le llegó ${toWho}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
+  if (r.woke) return `Le llegó ${toWho}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "starting" ? "arranca ahora" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
   return r.wake === "busy" ? `Le llegó ${toWho}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó ${toWho}; lo toma en su turno.` : `Le llegó ${toWho}; lo ve en su próximo turno.`;
 }
 export const RECIBIRIA = "Recibiría tu pedido";

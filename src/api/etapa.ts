@@ -38,6 +38,7 @@ import { probadorGate } from "../captures/probador.js";
 import { JORGE } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
 import { zonasOf, type Zona } from "./zonas.js";
+import { startFailureOf } from "../runner/start-failures.js";
 
 export const ETAPAS = ["despues", "lista", "en_espera", "pospuesto", "bloqueado", "construyendo", "devuelto", "sin_dueno", "en_qa", "en_revision", "te_toca", "integrado", "publicado", "hecho"] as const;
 export type EtapaId = (typeof ETAPAS)[number];
@@ -176,7 +177,10 @@ export const isAhora = (e: Etapa | null) => !!e && (e.etapa === "construyendo" |
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
 
 // zonas (PLA-I53-6): what part of the app the ticket touches, from its areas (src/api/zonas.ts); [] with no areas.
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[] };
+// NEWPROJ-5: arranque, when the step's newest run failed before its process started (src/runner/start-failures.ts):
+// the run's summary and when it ended. Null otherwise, and once a newer run is queued, runs or ends.
+export type Arranque = { summary: string; at: string | null };
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[]; arranque: Arranque | null };
 // A completed initiative (Done), for the board's folded line: no tickets.
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done. can_close: every ticket is Done,
@@ -246,6 +250,14 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       where r.project_id = ${p.id} and r.status = 'running' and r.task_key is not null
       order by r.task_key, r.started_at desc nulls last`)
   ).rows as Row[];
+  // NEWPROJ-5: each step's newest run of any state, to tell a step whose run could not start.
+  const newest = (
+    await db.execute(sql`
+      select distinct on (r.task_key) r.task_key, r.status, r.summary, r.ended_at
+      from ${agentRuns} r
+      where r.project_id = ${p.id} and r.task_key is not null
+      order by r.task_key, coalesce(r.ended_at, r.started_at, r.queued_at) desc, r.queued_at desc`)
+  ).rows as Row[];
   const lanes = (
     await db.execute(sql`
       select distinct on (l.task_id) l.task_id, l.status, l.returned, l.attempt, l.commit, l.created_at, l.started_at, l.ended_at
@@ -302,6 +314,8 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
   const byIdAgent = new Map(roster.map((a) => [a.id, a]));
   const bySlug = new Map(roster.map((a) => [a.slug, a]));
   const runBy = new Map(runs.map((r) => [String(r.task_key), r]));
+  const arranqueBy = new Map<string, Arranque>();
+  for (const r of newest) if (r.status === "fail" && startFailureOf(String(r.summary ?? ""))) arranqueBy.set(String(r.task_key), { summary: String(r.summary), at: iso(date(r.ended_at)) });
   const laneBy = new Map(lanes.map((r) => [String(r.task_id), r]));
   const prBy = new Map(prs.map((r) => [String(r.task_id), r]));
   const waitBy = new Map<string, string[]>();
@@ -347,7 +361,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       photos: !!pr && probadorGate(p, t, (pr.head_sha as string | null) ?? null).pending,
     };
     const etapa = etapaOf(facts, now);
-    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas) });
+    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas), arranque: arranqueBy.get(t.key) ?? null });
   }
 
   const keyNo = (k: string) => Number(/(\d+)$/.exec(k)?.[1] ?? Number.MAX_SAFE_INTEGER);
