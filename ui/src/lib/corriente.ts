@@ -287,6 +287,9 @@ export const PEDIR_PICTURE = "Añadir una imagen";
 export const PEDIR_ERROR = "No se pudo enviar. Si la Mac está dormida, intenta al despertar.";
 /** Paused: one sentence instead of a disabled input. */
 export const pedirHeld = (title: string): string => `En pausa. Reanuda ${title} para pedir algo nuevo; lo que ya pediste sigue aquí.`;
+/** PLA-I3-7: on a phone the mode is one chip; its menu holds the three modes, the picture button and «Lo pedido». */
+export const pedirChipAria = (mode: AskMode): string => `Cómo: ${MODES.find((m) => m.id === mode)?.name ?? ""}`;
+export const PEDIR_MENU = "Cómo pedirlo";
 /** The key hint: `/` at rest, `↵` while the input has focus. */
 export const pedirKeyHint = (focused: boolean): string => (focused ? "↵" : "/");
 /** `/` focuses the input unless a field already has focus, a modifier is held, or a sheet is open. */

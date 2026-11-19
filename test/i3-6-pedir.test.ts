@@ -56,7 +56,8 @@ test("I3-6 #2: the placeholder and the send label follow the mode", () => {
   const out = html(h(bar.PedirBar, { projects: [project()], fixed: project(), onAsk: ask, pedirTo }));
   assert.ok(out.includes(`placeholder="${lib.pedirPlaceholder("forma")}"`));
   assert.match(out, /aria-pressed="true"[^>]*data-mode="forma"/);
-  assert.match(out, /class="cor-btn primary"[^>]*data-pedir-send="true"[^>]*>Pedir</);
+  // PLA-I3-7: the word sits in a span (a phone shows the arrow alone and the button's label names it).
+  assert.match(out, /class="cor-btn primary"[^>]*aria-label="Pedir" data-pedir-send="true"><span class="cor-pedir-send-t">Pedir</);
   // While something waits on the owner, Pedir stays secondary.
   assert.match(html(h(bar.PedirBar, { projects: [project()], fixed: project(), primary: false, onAsk: ask, pedirTo })), /class="cor-btn secondary"[^>]*data-pedir-send/);
   assert.equal(lib.pedirKeyHint(false), "/");

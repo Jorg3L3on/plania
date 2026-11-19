@@ -3,7 +3,8 @@
 // DE m», previous and next (inert at the ends), the full step and Cerrar; the initiative's steps as a strip; the state;
 // the title; the summary; «Qué espera»; the initiative and the priority; «Abrir el paso». ←/→ move while focus is in
 // the panel; Esc closes it and focus goes back to the step's button in its row. Words in lib/lado.ts.
-// On a phone (639 px and under) there is no panel: the step's click goes to the step (phase 7 adds the sheet).
+// On a phone (639 px and under) there is no panel: the step's click goes to the step. PLA-I3-7: there an initiative's
+// card shows its steps as one control that opens a sheet of them (tramos.tsx).
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";

@@ -5,11 +5,13 @@
 // choice, the input (its placeholder is the mode's line), the picture button and «Lo pedido» (both open the Pedir
 // page), a key hint and the send button. `/` focuses the input, Enter sends, Shift+Tab from the input cycles the mode.
 // The confirmation shows inside the container and clears on the next keystroke. Paused: one sentence and «Lo pedido».
+// PLA-I3-7: on a phone (corriente.css) the bar is the mode as one chip, the input and a 44 px send button with an
+// arrow; the chip's menu holds the three modes, the picture button and «Lo pedido». Above 639 px nothing changes.
 // Words and keys: @/lib/corriente.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link } from "react-router";
 import type { AskResult, OrgProject } from "@/lib/api";
-import { ASK_MAX, MODES, PEDIR_ERROR, PEDIR_PAST, PEDIR_PICTURE, nextMode, pedirHeld, pedirKeyHint, pedirPlaceholder, pedirSendLabel, slashFocuses, type AskInput, type AskMode } from "@/lib/corriente";
+import { ASK_MAX, MODES, PEDIR_ERROR, PEDIR_MENU, PEDIR_PAST, PEDIR_PICTURE, nextMode, pedirChipAria, pedirHeld, pedirKeyHint, pedirPlaceholder, pedirSendLabel, slashFocuses, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { Btn, Opt } from "./parts";
 
@@ -39,6 +41,87 @@ const Check = () => (
     <path d="m3.5 8.5 3 3 6-7" />
   </svg>
 );
+
+const Chevron = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4.5 6.5 8 10l3.5-3.5" />
+  </svg>
+);
+const Send = () => (
+  <svg className="cor-pedir-send-i" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M9 14.5v-11M4.5 8 9 3.5 13.5 8" />
+  </svg>
+);
+
+/** PLA-I3-7: the mode as one chip (a phone's bar). Its menu: the three modes, then the picture button and «Lo
+ *  pedido». ↑/↓ move in it; Esc closes it before the page sees the key; a pick closes it and focus goes back to the chip. */
+const ModoChip = ({ mode, onMode, to }: { mode: AskMode; onMode: (m: AskMode) => void; to: string }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const chip = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    box.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setOpen(false);
+      chip.current?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [open]);
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Tab") return setOpen(false);
+    const items = [...(box.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const n = items.length;
+    const j = e.key === "ArrowDown" ? (i + 1) % n : e.key === "ArrowUp" ? (i - 1 + n) % n : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : null;
+    if (j === null || !n) return;
+    e.preventDefault();
+    items[j]?.focus();
+  };
+  const pick = (m: AskMode) => {
+    onMode(m);
+    setOpen(false);
+    chip.current?.focus();
+  };
+  return (
+    <span className="cor-pedir-chip-box" ref={box}>
+      <button ref={chip} type="button" className="cor-pedir-chip" aria-haspopup="menu" aria-expanded={open} aria-label={pedirChipAria(mode)} onClick={() => setOpen((o) => !o)} data-pedir-chip={mode}>
+        <span className="cor-ellipsis">{MODES.find((m) => m.id === mode)?.name}</span>
+        <Chevron />
+      </button>
+      {open && (
+        <div className="cor-pedir-menu" role="menu" aria-label={PEDIR_MENU} onKeyDown={onMenuKey} data-pedir-menu>
+          {MODES.map((m) => (
+            <button key={m.id} type="button" role="menuitemradio" aria-checked={mode === m.id} tabIndex={-1} className="cor-pedir-mi" onClick={() => pick(m.id)} data-menu-mode={m.id}>
+              <b>{m.name}</b>
+              <small>{m.line}</small>
+            </button>
+          ))}
+          <span className="cor-pedir-menu-sep" role="separator" />
+          <Link to={to} role="menuitem" tabIndex={-1} className="cor-pedir-mi row" data-menu-picture>
+            <Picture />
+            {PEDIR_PICTURE}
+          </Link>
+          <Link to={to} role="menuitem" tabIndex={-1} className="cor-pedir-mi row" data-menu-past>
+            <Clock />
+            {PEDIR_PAST}
+          </Link>
+        </div>
+      )}
+    </span>
+  );
+};
 
 /** The two links to the Pedir page: the picture button (icon only) and «Lo pedido». */
 const PedirLinks = ({ to, picture = true }: { to: string; picture?: boolean }) => (
@@ -163,6 +246,7 @@ export const PedirBar = ({
             </Opt>
           ))}
         </span>
+        <ModoChip mode={mode} onMode={setMode} to={pedirTo(project?.slug ?? slug)} />
         <span className="cor-pedir-field">
           <label className="sr-only" htmlFor="cor-pedir-t">
             Lo que pides
@@ -209,8 +293,10 @@ export const PedirBar = ({
         <kbd className="cor-pedir-key" aria-hidden data-pedir-key>
           {pedirKeyHint(focused)}
         </kbd>
-        <Btn kind={primary ? "primary" : "secondary"} type="submit" disabled={off || !text.trim() || sending} data-pedir-send>
-          {pedirSendLabel(mode, sending)}
+        {/* PLA-I3-7: a phone shows the arrow alone; the label names it. */}
+        <Btn kind={primary ? "primary" : "secondary"} type="submit" disabled={off || !text.trim() || sending} aria-label={pedirSendLabel(mode, sending)} data-pedir-send>
+          <span className="cor-pedir-send-t">{pedirSendLabel(mode, sending)}</span>
+          <Send />
         </Btn>
       </div>
       <span id="cor-pedir-line" className="sr-only">

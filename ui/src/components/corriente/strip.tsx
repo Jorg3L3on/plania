@@ -5,6 +5,8 @@
 // waits on the owner); the doors Todo, Archivo, Equipo, Máquinas, Ajustes with their small counts; the project's
 // state («En marcha» with Pausar, or «En pausa» alone). PLA-I3-6: no Pedir here; the bar at the foot is the only one.
 // Reanudar lives under the sentence (todo.tsx) and Borrar in Ajustes. Words: @/lib/barra.
+// PLA-I3-7: on a phone (corriente.css) back, the switcher and the state share the first row and the doors scroll
+// sideways on a row of their own.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
@@ -144,7 +146,8 @@ export const ProjectBar = ({
     <header className="cor-topbar" data-bar={slug}>
       <Link to={back} className="cor-strip-back" data-control="corriente">
         <Chevron d="M9.5 3.5 5 8l4.5 4.5" />
-        Corriente
+        {/* PLA-I3-7: a phone shows the chevron alone; the word stays the link's name. */}
+        <span className="cor-strip-back-t">Corriente</span>
       </Link>
       <Switcher slug={slug} title={title} lanes={lanes} href={projectHref} initialOpen={switcherOpen} />
       <nav className="cor-doors" aria-label={`Puertas de ${title}`}>

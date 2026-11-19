@@ -12,7 +12,8 @@ import { Hilo, HiloHead } from "./hilo";
 import { ladoFits } from "./lado";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
-import { REANUDAR_LINE, pulsoLabel, reanudarLabel, type MetaLine } from "@/lib/barra";
+import { TramosBoton, TramosHoja } from "./tramos";
+import { REANUDAR_LINE, pulsoLabel, pulsoLine, reanudarLabel, type MetaLine } from "@/lib/barra";
 
 export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
@@ -85,12 +86,17 @@ const TokensLine = ({ c }: { c: Cosa }) => {
 /** PLA-I3-5: the step open in the panel beside the list, and how a step's click opens it. */
 export type Lado = { open: string | null; onPaso: (key: string) => void };
 
-const Row = ({ c, links, act, lado }: { c: Cosa; links: TodoLinks; act?: ReactNode; lado?: Lado }) => {
+/** PLA-I3-7: an initiative's steps on a phone: one control on its card, and the sheet it opens. */
+type Tramos = { open: string | null; onOpen: (key: string) => void };
+
+const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?: ReactNode; lado?: Lado; tramos?: Tramos }) => {
   const toca = c.grupo === "toca";
   const navigate = useNavigate();
   const paso = links.paso;
   // PLA-I3-5: the panel where it fits; on a phone the step's page.
   const onOpen = paso ? (k: string) => (lado && ladoFits() ? lado.onPaso(k) : navigate(paso(k))) : undefined;
+  // PLA-I3-7: drawn only at 639 px and under (corriente.css), where it takes the thread's place.
+  const control = !!paso && !!tramos && c.tipo === "iniciativa" && c.hilo.tramos.length > 0;
   return (
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
@@ -104,6 +110,7 @@ const Row = ({ c, links, act, lado }: { c: Cosa; links: TodoLinks; act?: ReactNo
         <TokensLine c={c} />
       </Link>
       <Hilo h={c.hilo} onOpen={onOpen} label={`Pasos de «${c.title}»`} openKey={lado ? lado.open : undefined} />
+      {control && <TramosBoton c={c} open={tramos!.open === c.key} onOpen={() => tramos!.onOpen(c.key)} />}
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
           <span className={cls("cor-label", toca && "amber")}>{c.cap}</span>
@@ -183,6 +190,10 @@ export const TodoList = ({
   const [open, setOpen] = useState<Set<Grupo>>(new Set());
   // PLA-I3-3: the count pressed above the list; a group's count shows that group whole.
   const [filtro, setFiltro] = useState<Filtro>("todo");
+  // PLA-I3-7: the initiative whose steps' sheet is open (a phone's control opens it).
+  const [tramosDe, setTramosDe] = useState<string | null>(null);
+  const tramos = { open: tramosDe, onOpen: setTramosDe };
+  const hojaDe = tramosDe ? (cosas.grupos.flatMap((g) => g.cosas).find((c) => c.key === tramosDe) ?? null) : null;
   const vista = filtrar(cosas, filtro);
   const abiertos: ReadonlySet<Grupo> = filtro === "todo" ? open : new Set<Grupo>([filtro]);
   const paused = companyPaused || p.paused;
@@ -286,7 +297,7 @@ export const TodoList = ({
             {k > 0 && (
               <ul>
                 {g.cosas.slice(0, k).map((c) => (
-                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} lado={lado} />
+                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} lado={lado} tramos={tramos} />
                 ))}
               </ul>
             )}
@@ -333,6 +344,7 @@ export const TodoList = ({
           )}
         </section>
       )}
+      {hojaDe && links.paso && <TramosHoja c={hojaDe} paso={links.paso} onClose={() => setTramosDe(null)} />}
     </div>
   );
 };
@@ -428,6 +440,10 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
           <span>HOY</span>
         </div>
       </div>
+      {/* PLA-I3-7: a phone shows this line instead of the figure and the bars. */}
+      <p className="cor-pulso-line" data-pulso-line>
+        {pulsoLine(pulso.total, pulso.days.length)}
+      </p>
     </figure>
   );
 };

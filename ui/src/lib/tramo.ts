@@ -41,6 +41,22 @@ export function tramoTip(t: Tramo, i: number, n: number, nowMs = Date.now()): Tr
 /** The step a row's single tab stop starts on: the first that is not done, else the first. */
 export const firstOpen = (ts: readonly Pick<Tramo, "tono">[]): number => Math.max(0, ts.findIndex((t) => t.tono !== "hecho"));
 
+// ---- PLA-I3-7 (the project page on a phone): an initiative's steps are one control on its card («3 de 8» beside the
+// segments) that opens a sheet from the foot: «PLA-I3 · 3 DE 8 PASOS», the title, then one row per step (its square,
+// title and tramoState) that opens the step.
+
+/** How many of the steps are done, and how many there are. */
+export const tramosHechos = (ts: readonly Pick<Tramo, "tono">[]): number => ts.filter((t) => t.tono === "hecho").length;
+/** The control's count: «3 de 8». */
+export const tramosCuenta = (ts: readonly Pick<Tramo, "tono">[]): string => `${tramosHechos(ts)} de ${ts.length}`;
+/** The sheet's caps line after the key: «3 DE 8 PASOS». */
+export const tramosPos = (ts: readonly Pick<Tramo, "tono">[]): string => `${tramosCuenta(ts)} ${ts.length === 1 ? "paso" : "pasos"}`.toUpperCase();
+/** The control's accessible name: «Ver los pasos de «Pagos»: 3 de 8 hechos.» */
+export const tramosAria = (title: string, ts: readonly Pick<Tramo, "tono">[]): string => `Ver los pasos de «${title}»: ${tramosCuenta(ts)} ${ts.length === 1 ? "hecho" : "hechos"}.`;
+/** The sheet's list and its close button. */
+export const TRAMOS_LISTA = "Pasos de la iniciativa";
+export const TRAMOS_CERRAR = "Cerrar los pasos";
+
 /** PLA-I3-4: where an arrow key moves the focus inside a row's steps; null when it does not move it. */
 export function rovingNext(key: string, i: number, n: number): number | null {
   if (n === 0) return null;

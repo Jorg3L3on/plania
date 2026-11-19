@@ -35,3 +35,5 @@ export const metaLine = (goal: string | null | undefined, date: string | null | 
 
 /** The pulse's label beside its figure. */
 export const pulsoLabel = (days: number): string => `Pasos hechos en ${days} días`;
+/** PLA-I3-7: on a phone the pulse is one small line instead of the figure and the bars. */
+export const pulsoLine = (total: number, days: number): string => `${total} ${total === 1 ? "paso hecho" : "pasos hechos"} en ${days} días`;
