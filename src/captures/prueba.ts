@@ -6,6 +6,7 @@
 // taken and the Ventana says «En vivo». The process is a registered footprint (port:N, teardown kill -TERM -<pgid>)
 // and stops when Jorge turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
+import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import { exitAfterDrain } from "../ops/shutdown.js";
 import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -27,7 +28,8 @@ import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type Maq
 import { pgSearchPath } from "../lib/pg-bin.js";
 import { supported } from "../lib/system-support.js";
 
-export const BRANCH = "sandbox";
+// PLA-I2-5: the default; a project's test copy sits on its own working branch, startBranchOf(p.settings).
+export const BRANCH = DEFAULT_START_BRANCH;
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
 const READY_MS = 180_000; // a first Next.js compile can take a while
 const POLL_MS = 1_000;
@@ -241,7 +243,7 @@ export async function encender(db: Db, slug: string, opts: { stills?: boolean } 
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
-  const c = newCopy(slug, "sandbox", BRANCH, null, "starting", true);
+  const c = newCopy(slug, "sandbox", startBranchOf(p.settings), null, "starting", true);
   // PLA-I2-4: with no Chrome here the copy still starts and goes En vivo; the Ventana says the stills are unavailable.
   c.stills = opts.stills !== false && supported("stills");
   copies.set(c.id, c);
@@ -414,7 +416,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // Fresh stills, then En vivo.
   c.phase = "capturing";
   try {
-    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor, env: c.dbEnv ?? {} });
+    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: c.ref, actor: ctx().actor, env: c.dbEnv ?? {} });
   } catch (e) {
     c.error = `No se pudo tomar la captura: ${short(e)}`;
   }
@@ -490,7 +492,7 @@ export async function pickPort(db: Db, base: number): Promise<number | null> {
 export function pruebaInfo(slug: string): { command: string | null; commit: string | null; branch: string; worktree: string | null; started_by: string | null } | null {
   const c = copies.get(slug);
   if (!c) return null;
-  return { command: c.command, commit: c.commit, branch: BRANCH, worktree: c.worktree, started_by: c.managed ? "Plania, desde el piso" : null };
+  return { command: c.command, commit: c.commit, branch: c.ref, worktree: c.worktree, started_by: c.managed ? "Plania, desde el piso" : null };
 }
 
 // The kept output (at most TAIL_LINES), with every value of Plania's own environment and every secret-looking
@@ -525,14 +527,14 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
   if (had) {
     had.phase = "capturing";
     had.error = null;
-    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor, env: had.dbEnv ?? {} })
+    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: had.ref, actor: ctx().actor, env: had.dbEnv ?? {} })
       .catch((e) => (had.error = `No se pudo tomar la captura: ${short(e)}`))
       .finally(() => {
         if (copies.get(slug) === had && had.phase === "capturing") had.phase = "live";
       });
     return read(had);
   }
-  const c = newCopy(slug, "sandbox", BRANCH, null, "capturing", false, s.port);
+  const c = newCopy(slug, "sandbox", startBranchOf(p.settings), null, "capturing", false, s.port);
   copies.set(c.id, c);
   void (deps.capture ?? runCapture)(db, { project: slug, checkout: repoPathOf(p.slug, p.settings, env()), base_url: urlOf(s.port), actor: ctx().actor })
     .catch(() => undefined)
@@ -575,7 +577,7 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
   if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
     throw new ToolError("INVALID_FILTER", { field: "branch", hint: "a plain branch name" });
   }
-  if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
+  if (branch === "main" || branch === BRANCH || branch === startBranchOf(p.settings)) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
   if (!supported("test_copy")) return { ...withStills(UNAVAILABLE), key: delivery.key, branch, commit: null, worktree: null };
   const id = idOf(slug, "entrega");
   const had = copies.get(id);

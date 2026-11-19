@@ -13,7 +13,8 @@ import { checks, projects, pullRequests, tasks, threadMessages, type Project } f
 import { loadSettings } from "../runner/limits.js";
 import { resolveThread } from "../runner/threads.js";
 import { decisionsRead, passOnHead, type Decision } from "./company-decisions.js";
-import { MERGE_BASE, threadAction } from "./thread-actions.js";
+import { startBranchOf } from "../runner/start-branch.js";
+import { threadAction } from "./thread-actions.js";
 
 const UUID = /^m-([0-9a-f-]{36})$/;
 const pending = (d: Decision) => d.state === null && d.actions.some((a) => a === "fusionar" || a === "aceptar");
@@ -38,7 +39,8 @@ export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<stri
   const [pr] = url ? await db.select().from(pullRequests).where(eq(pullRequests.url, url)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
   if (!pr) return "Todavía no se lee el PR.";
   if (pr.state !== "open") return "El PR ya no está abierto.";
-  if (pr.baseBranch !== MERGE_BASE) return `El PR va a ${pr.baseBranch ?? "otra rama"}, no a la copia de prueba.`;
+  // PLA-I2-5: the project's start branch, never a branch name on the screen.
+  if (pr.baseBranch !== startBranchOf(p.settings)) return "El PR no va a la rama de trabajo.";
   if (!(await passOnHead(db, t, pr.headSha, pr.headBranch))) return "Falta una prueba que pase en el último commit.";
   return null;
 }

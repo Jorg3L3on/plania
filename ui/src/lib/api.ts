@@ -5,6 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { Listo } from "@/lib/listo";
+import type { Preparacion } from "@/lib/preparar-codigo";
 import type { MachineCheckReading } from "@/lib/falta";
 import type { ReleaseReading } from "@/lib/version";
 import type { FirstStartState } from "@/lib/primer-arranque";
@@ -187,6 +188,10 @@ export const api = {
   ajustes: (slug: string) => request<Ajustes>("GET", `/company/projects/${encodeURIComponent(slug)}/settings`),
   ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),
+  // PLA-I2-5: Plania prepares the code (folder, git, GitHub, the working branch), and makes the working branch alone.
+  prepararCodigo: (slug: string, input: { version: number; repo_path?: string; github: { name?: string; private?: boolean } | null }) =>
+    request<{ setup: Preparacion; saved: boolean; settings: Ajustes }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/preparar`, input),
+  crearRama: (slug: string) => request<{ state: "done" | "already" | "failed"; code: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/rama`, {}),
   ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge" } | null }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
   ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),

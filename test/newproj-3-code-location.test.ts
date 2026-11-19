@@ -212,11 +212,11 @@ test("NEWPROJ-3: set_project takes settings.local (a folder or no_code), validat
 
 test("NEWPROJ-3: the sheet says what to fix for each folder check, in Spanish, with no code in capitals", () => {
   const d = { path: "/repos/viajia", branch: "sandbox" };
-  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta Mac. Revisa la ruta o elige otra opción.");
-  assert.match(nuevoProyectoError("REPO_NOT_GIT", d), /no es un repositorio de git.*git init/);
-  assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no tiene origin\)\. Agrégale el repositorio remoto/);
-  assert.match(nuevoProyectoError("REPO_ORIGIN_UNREACHABLE", d), /no pude leer el repositorio remoto/);
-  assert.match(nuevoProyectoError("REPO_NO_START_BRANCH", d), /no tiene la rama sandbox.*Créala y súbela/);
+  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta, o elige «Todavía no hay código» y prepáralo después desde Ajustes.");
+  assert.match(nuevoProyectoError("REPO_NOT_GIT", d), /tiene archivos pero no es un repositorio/);
+  assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no está conectada a GitHub\. Elige «Todavía no hay código»/);
+  assert.match(nuevoProyectoError("REPO_ORIGIN_UNREACHABLE", d), /no pude leer el repositorio en GitHub/);
+  assert.match(nuevoProyectoError("REPO_NO_START_BRANCH", d), /no tiene la rama de trabajo. Elige «Todavía no hay código»/);
   assert.match(nuevoProyectoError("INVALID_BODY", { field: "github_repo" }), /dueño\/nombre/);
   assert.match(nuevoProyectoError("INVALID_BODY", { field: "repo_path" }), /ruta completa/);
   const lines = ["REPO_FOLDER_MISSING", "REPO_NOT_GIT", "REPO_NO_ORIGIN", "REPO_ORIGIN_UNREACHABLE", "REPO_NO_START_BRANCH"].map((c) => nuevoProyectoError(c, d));

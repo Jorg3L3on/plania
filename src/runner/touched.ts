@@ -14,6 +14,7 @@ import { agentRuns, projects, tasks, type ProjectRunnerSettings } from "../db/sc
 // (areas is text[]; the added paths are bound one by one into an ARRAY[...] literal.)
 import { SYSTEM_ACTOR, writeTx } from "../mcp/tx.js";
 import { areasOverlap } from "../mcp/writes.js";
+import { startBranchOf } from "./start-branch.js";
 import { ALLOWED_BASE, defaultGit, type GitFn } from "./worktree.js";
 
 export const DEFAULT_SHARED_AREAS = [
@@ -37,11 +38,12 @@ export const covers = (area: string, file: string): boolean => {
 export const isShared = (p: string, shared: string[]): boolean => shared.some((s) => covers(s, p) || areasOverlap(s, p));
 
 // Changed paths in a worktree, sorted. [] when it is not a git worktree or git cannot answer.
-export async function changedFiles(cwd: string, git: GitFn = defaultGit): Promise<string[]> {
+// PLA-I2-5: base is the project's start branch (startBranchOf).
+export async function changedFiles(cwd: string, git: GitFn = defaultGit, base: string = ALLOWED_BASE): Promise<string[]> {
   if (!existsSync(path.join(cwd, ".git"))) return [];
   const found = new Set<string>();
   for (const args of [
-    ["diff", "--name-only", `origin/${ALLOWED_BASE}...HEAD`],
+    ["diff", "--name-only", `origin/${base}...HEAD`],
     ["diff", "--name-only", "HEAD"],
     ["ls-files", "--others", "--exclude-standard"],
   ]) {
@@ -62,14 +64,14 @@ export function areasToAdd(current: string[], files: string[]): string[] {
 
 export async function sweepTouched(db: Db, deps: { git?: GitFn } = {}): Promise<{ grown: number }> {
   const live = await db
-    .select({ taskId: tasks.id, key: tasks.key, areas: tasks.areas, cwd: agentRuns.worktreePath, projectId: projects.id, slug: projects.slug })
+    .select({ taskId: tasks.id, key: tasks.key, areas: tasks.areas, cwd: agentRuns.worktreePath, projectId: projects.id, slug: projects.slug, settings: projects.settings })
     .from(agentRuns)
     .innerJoin(tasks, and(eq(tasks.projectId, agentRuns.projectId), eq(tasks.key, agentRuns.taskKey)))
     .innerJoin(projects, eq(projects.id, agentRuns.projectId))
     .where(and(inArray(agentRuns.status, ["starting", "running"]), eq(agentRuns.role, "taller"), eq(agentRuns.lane, "work"), isNotNull(agentRuns.worktreePath), eq(tasks.kind, "ticket")));
   let grown = 0;
   for (const r of live) {
-    const files = await changedFiles(r.cwd!, deps.git);
+    const files = await changedFiles(r.cwd!, deps.git, startBranchOf(r.settings));
     const add = areasToAdd(r.areas ?? [], files);
     if (!add.length) continue;
     await writeTx(db, { id: r.projectId, slug: r.slug }, { actor: SYSTEM_ACTOR, tool: "runner.touched" }, async (tx, emit) => {

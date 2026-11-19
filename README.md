@@ -747,10 +747,19 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
+| `REPO_FOLDER_NOT_EMPTY` | 400 | prepare the code: the folder has files and is not this project's git repository; Plania never initialises or overwrites it |
+| `REPO_GIT_FAILED` | 400 | prepare the code: a git step failed (detail: step) |
+| `REPO_GITHUB_FAILED` | 400 | GitHub: gh failed (detail: step) |
+| `REPO_GITHUB_NO_GH` | 400 | GitHub: gh is not installed on this machine |
+| `REPO_GITHUB_NO_WRITE` | 400 | GitHub: this gh login cannot write to the repository |
+| `REPO_GITHUB_NOT_FOUND` | 400 | GitHub: no repository with that owner/name for this gh login |
+| `REPO_GITHUB_SIGNED_OUT` | 400 | GitHub: gh is not signed in on this machine |
+| `REPO_NO_IDENTITY` | 400 | prepare the code: git has no name and email on this machine and the GitHub login could not give one |
 | `REPO_NO_ORIGIN` | 400 | new project: the folder's git repository has no remote named origin |
-| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
+| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (the project's start_branch, default sandbox; detail: branch) |
 | `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
 | `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
+| `REPO_PUSH_FAILED` | 400 | prepare the code: pushing to origin was refused (access or network) |
 | `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
