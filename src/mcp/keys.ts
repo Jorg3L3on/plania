@@ -6,7 +6,7 @@ import type { Q } from "./tx.js";
 // Server-assigned keys that show what a task is and where it hangs (2.1, requests R-08 and R-33):
 //   initiatives          PREFIX-I<n>            FIL-I1, FIL-I2
 //   ideas                PREFIX-IDEA<n>         WRK-IDEA3
-//   standalone tickets   PREFIX-<nn>            FIL-09 (two digits, like the keys filmia already has)
+//   standalone tickets   PREFIX-<nn>            TND-09 (two digits)
 //   phases / children    <initiative key>-<n>   FIL-I2-3 (phase stays a separate field; no F)
 // One counter per scope, read and bumped under the project's write lock (writeTx), so concurrent
 // creates never collide and a number is never reissued after a rename, move or delete.

@@ -307,7 +307,7 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     run.mutate(passes, {
       onError: (e) => {
         if (e instanceof ApiError && e.code === "BRIEF_RUNNING") return;
-        toast.error(e instanceof ApiError ? `No se pudo generar (${e.code}).` : "No se pudo generar. Si la Mac está dormida, intenta al despertar.");
+        toast.error(e instanceof ApiError ? `No se pudo generar (${e.code}).` : "No se pudo generar. Si la máquina está dormida, intenta al despertar.");
       },
     });
 

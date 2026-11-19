@@ -1,7 +1,7 @@
 // Inicio's city: every open initiative is a tower in its project's district. Windows are its
 // tickets, lit from the ground up as work closes; a crane means agents are on it; a red beacon
 // means it is shipping; scaffolding means it is still being planned; a searchlight means it waits
-// on Jorge. Pure functions over the /api shapes, so test/city.test.ts can load this file.
+// on the owner. Pure functions over the /api shapes, so test/city.test.ts can load this file.
 import type { InboxItem, InitiativeNote } from "./types.js";
 
 export type CityTask = {
@@ -43,9 +43,9 @@ export type Tower = {
   agents: Agent[];
   /** A ticket is En curso or En revisión: only these stand in the skyline. */
   working: boolean;
-  /** Something here waits on Jorge: an inbox item, a ticket in Needs owner, or a next step addressed to him with nobody working. */
+  /** Something here waits on the owner: an inbox item, a ticket in Needs owner, or a next step addressed to them with nobody working. */
   waits: boolean;
-  /** Still on paper and waiting for Jorge's go: planning, and no ticket started yet. */
+  /** Still on paper and waiting for the owner's go: planning, and no ticket started yet. */
   awaitsGo: boolean;
   /** The inbox items that belong to this initiative or its tickets. */
   inbox: InboxItem[];
@@ -146,7 +146,7 @@ export function cityOf(projects: CityProject[], inbox: InboxItem[]): District[] 
 
 /**
  * The skyline: only towers with a ticket En curso or En revisión. The rest stay in Proyectos below;
- * count what waits on Jorge on the full city, so a hidden tower still reaches the headline.
+ * count what waits on the owner on the full city, so a hidden tower still reaches the headline.
  */
 export function workingCity(districts: District[]): District[] {
   return districts.map((d) => ({ ...d, towers: d.towers.filter((t) => t.working) })).filter((d) => d.towers.length > 0);
@@ -177,7 +177,7 @@ export function crewCity(districts: District[], crew: { slug: string; agent: str
     .filter((d) => d.towers.length > 0);
 }
 
-/** Inbox items that belong to no open initiative: they still wait on Jorge, outside the skyline. */
+/** Inbox items that belong to no open initiative: they still wait on the owner, outside the skyline. */
 export function looseInbox(districts: District[], inbox: InboxItem[]): InboxItem[] {
   const placed = new Set(districts.flatMap((d) => d.towers.flatMap((t) => t.inbox.map((i) => i.id))));
   return inbox.filter((i) => !placed.has(i.id));
@@ -197,7 +197,7 @@ export function towerLabel(t: Tower, projectTitle: string): string {
 }
 
 /**
- * What waits on Jorge, for the headline and the project tiles: the inbox, plus each tower with a ticket
+ * What waits on the owner, for the headline and the project tiles: the inbox, plus each tower with a ticket
  * in Needs owner and nothing in the inbox. A next step that only names him lights the tower's
  * searchlight but is not counted: it is a guess from the text, not a request.
  */

@@ -48,8 +48,8 @@ export async function sessionFootprint(db: Q, projectId: string, sessionId: stri
   return rows.filter((r) => !machine || sameMachine(r.machine, machine)).map(footprintShape);
 }
 
-// Host names differ by spelling: the job reads os.hostname() ("MacBook-Air-de-Jorge.local"), an agent
-// token may say "MacBook-Air-de-Jorge" or "macbook-air". Equal ignoring case and a ".local" suffix.
+// Host names differ by spelling: the job reads os.hostname() ("laptop-de-ana.local"), an agent
+// token may say "laptop-de-ana" or "LAPTOP-DE-ANA". Equal ignoring case and a ".local" suffix.
 export const normMachine = (m: string) => m.trim().toLowerCase().replace(/\.local$/, "").replace(/\s+/g, "-");
 export const sameMachine = (a: string, b: string) => normMachine(a) === normMachine(b);
 
@@ -61,7 +61,7 @@ export async function liveTaskFootprint(db: Q, taskId: string) {
 
 const gb = (kb: number) => (kb >= 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
 
-// get_resume's one line about the Mac, over the project's rows: "3 servidores, 1 obsoleto, 9.8 GB de
+// get_resume's one line about the machine, over the project's rows: "3 servidores, 1 obsoleto, 9.8 GB de
 // worktrees". null when the project has nothing on the machine. Gone rows (stopped) and ghosts (never
 // seen) are not running.
 export async function machineLine(db: Q, projectId: string): Promise<string | null> {

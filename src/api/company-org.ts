@@ -35,7 +35,7 @@ const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
 
 export type MemberState = "running" | "idle" | "waiting_owner" | "paused";
-// PLA-I36-1: the worst of, in order: something is Jorge's, a run failed, the work is blocked, the plan is
+// PLA-I36-1: the worst of, in order: something is the owner's, a run failed, the work is blocked, the plan is
 // late, nothing moved in 48 h; else ok. Paused comes first. PLA-21: no budgets, so no "no_budget".
 export type Light = "ok" | "needs_owner" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type LightReason = { text: string; action: { label: string; href: string } | null };
@@ -298,7 +298,7 @@ export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
   };
 }
 
-// PLA-I36-1. paused, then the worst of: Jorge's (an open question, a Needs owner ticket, a
+// PLA-I36-1. paused, then the worst of: the owner's (an open question, a Needs owner ticket, a
 // ceo-owned Ready ticket, a manual step, a release, a message with buttons), a run that failed (a member's
 // last ended run), blocked (readiness blocked), late (the plan's pace), quiet (no event in 48 h); else ok.
 const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
@@ -502,7 +502,7 @@ export async function latestOf(db: Db, p: Project): Promise<LatestLine[]> {
   );
 }
 
-// A request the owner made on screen (origin jorge) that has been Ready for over an hour with no run queued or
+// A request the owner made on screen (origin owner) that has been Ready for over an hour with no run queued or
 // live on it: nobody is going to take it unless it is sent again.
 export const STALE_REQUEST_MIN = 60;
 export type StaleRequest = { key: string; title: string; since: string };

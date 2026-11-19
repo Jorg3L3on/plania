@@ -1,3 +1,4 @@
+import { LOCALE } from "./locale.js";
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
@@ -215,7 +216,7 @@ export function hueOf(slug: string): string {
   for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return HUES[h % HUES.length]!;
 }
-export const initialOf = (title: string) => (title.trim()[0] ?? "?").toLocaleUpperCase("es-MX");
+export const initialOf = (title: string) => (title.trim()[0] ?? "?").toLocaleUpperCase(LOCALE);
 
 const NUM = ["Cero", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
 /** «Tres agentes trabajando.»: a count in words up to ten, then digits. */
@@ -229,12 +230,12 @@ export const thousands = (n: number) => n.toLocaleString("en-US");
 /** «MAR 17 NOV · 15:06» in the screen's time zone. */
 export function clockLine(now: number, timeZone?: string): string {
   const d = new Date(now);
-  const day = new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone })
+  const day = new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short", timeZone })
     .formatToParts(d)
     .filter((p) => p.type !== "literal")
     .map((p) => p.value.replace(".", ""))
     .join(" ");
-  const time = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(d);
+  const time = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(d);
   return `${day} · ${time}`.toUpperCase();
 }
 

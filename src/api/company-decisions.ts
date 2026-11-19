@@ -1,8 +1,8 @@
 // PLA-I35-1: Te toca. The rows of GET /api/company decisions[] and POST /api/company/decisions/:id (screen only).
 // A decision lives in one place; the card and Asistente only point to it. Rows, newest first:
 //   proposal     the PO's latest message in its project thread when it carries numbered options ("1." "2." …)
-//                and Jorge has not written after it. Options parsed with the recommended one ("recomiendo …").
-//                elegir {option: n | [n, m]} posts "Elijo n: <label>" in the project thread as Jorge, through the
+//                and the owner has not written after it. Options parsed with the recommended one ("recomiendo …").
+//                elegir {option: n | [n, m]} posts "Elijo n: <label>" in the project thread as the owner, through the
 //                same path as his own message (ownerPosts): the PO's Ready ticket is made and the PO wakes.
 //                responder {text} posts the text the same way. Either writes action_state on the PO's message.
 //   pr | deliverable  a thread message with Fusionar / Aceptar · Pedir cambios: the thread action, reused.
@@ -325,7 +325,7 @@ const optionsOf = (p: ProposalData): DecisionOption[] =>
   p.options.map((o) => ({ n: o.n, label: o.label, recommended: o.recommended, effect: o.effect || undefined, cost: costText(o.cost) || undefined }));
 
 // PLA-I36-7: a structured proposal stays until answered, whatever the PO writes after it. A prose one is the PO's
-// latest message with numbered options and nothing from Jorge after it (PLA-I35).
+// latest message with numbered options and nothing from the owner after it (PLA-I35).
 async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>): Promise<Decision[]> {
   const out: Decision[] = [];
   const rows = await db.select().from(threads).where(and(eq(threads.kind, "project"), isNotNull(threads.projectId)));
@@ -369,7 +369,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
         asker: await authorOf(db, m),
       });
     }
-    // The PO's latest message in prose; nothing from Jorge after it unless it is his choice on it.
+    // The PO's latest message in prose; nothing from the owner after it unless it is his choice on it.
     const idx = msgs.findIndex((m) => m.authorRole === "product-owner");
     if (idx < 0) continue;
     const m = msgs[idx]!;
@@ -633,7 +633,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
   const ceoTickets = new Set(tickets.filter((d) => !d.state).map((d) => `${d.project}/${d.ref}`));
   const [messages, pasos] = await Promise.all([messageRows(db, since, byId, skip), pasoRows(db, all, inbox, ceoTickets)]);
   const rows = [...proposals, ...messages, ...tickets, ...questionsOut, ...pasos];
-  // What unblocks the team first (a proposal, a question, a delivery), then Jorge's own tickets; newest first.
+  // What unblocks the team first (a proposal, a question, a delivery), then the owner's own tickets; newest first.
   return rows.sort((a, b) => RANK[a.kind] - RANK[b.kind] || b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
 }
 
@@ -855,7 +855,7 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
   return after(db, id, state, extra);
 }
 
-// The words Jorge typed, from the order's scope (`Pedido de Jorge desde …: "texto"`), else its title.
+// The words the owner typed, from the order's scope (`Pedido de the owner desde …: "texto"`), else its title.
 export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
@@ -867,7 +867,7 @@ async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionIn
   const status = input.action === "hecho" ? "Done" : "Backlog";
   const ctx = { ...webCtx, tool: `screen.decision_${input.action}` };
   try {
-    // Hecho is Jorge's word that it is done: his own ticket's open checks are ticked with it.
+    // Hecho is the owner's word that it is done: his own ticket's open checks are ticked with it.
     if (input.action === "hecho") {
       const open = await db.select({ n: checks.n }).from(checks).where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt)));
       for (const c of open) await setCheck(db, { project: p!.slug, key: t.key, n: c.n, done: true } as never, ctx);

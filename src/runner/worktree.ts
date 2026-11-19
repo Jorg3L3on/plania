@@ -6,6 +6,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { PROTECTED_BRANCHES } from "./deny.js";
+import { defaultFolders } from "../folders.js"; // PLA-I2-3: neutral defaults, asked at first start
 import { DEFAULT_START_BRANCH } from "./start-branch.js";
 
 // PLA-I2-5: the default start branch. A project's own is startBranchOf(project.settings) (./start-branch.ts); the
@@ -28,10 +29,10 @@ export const defaultGit: GitFn = (args, cwd) =>
 export const expandHome = (p: string): string => p.replace(/^~(?=$|\/)/, homedir());
 
 export const worktreeRoot = (env: NodeJS.ProcessEnv = process.env): string =>
-  path.resolve(expandHome(env.PLANIA_WORKTREES_ROOT || path.join(homedir(), "Developer", ".plania-worktrees")));
+  path.resolve(expandHome(env.PLANIA_WORKTREES_ROOT || defaultFolders().worktrees));
 
 export const projectsRoot = (env: NodeJS.ProcessEnv = process.env): string =>
-  path.resolve(expandHome(env.PLANIA_PROJECTS_ROOT || path.join(homedir(), "Developer", "Projects")));
+  path.resolve(expandHome(env.PLANIA_PROJECTS_ROOT || defaultFolders().projects));
 
 export const repoPathOf = (slug: string, settings: { local?: { repo_path?: string } } | null, env: NodeJS.ProcessEnv = process.env): string =>
   path.resolve(expandHome(settings?.local?.repo_path || path.join(projectsRoot(env), slug)));

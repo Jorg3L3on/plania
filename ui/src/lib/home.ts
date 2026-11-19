@@ -129,25 +129,25 @@ export function headlineOf(input: {
     a = done > 0 ? `Hoy ${done === 1 ? "se cerró 1 ticket" : `se cerraron ${done} tickets`}` : "Hoy no se cerró nada";
   }
 
-  // b) what waits on Jorge, by the project with most
+  // b) what waits on the owner, by the project with most
   let b: VoicePart;
   if (inbox.count === 0) b = { text: "nada te espera" };
   else {
     const slugs = Object.entries(inbox.by_project)
       .filter(([, c]) => c > 0)
       .sort((x, y) => y[1] - x[1])
-      .map(([slug]) => (slug === "machine" ? "la Mac" : titleOf(slug)));
+      .map(([slug]) => (slug === "machine" ? "la máquina" : titleOf(slug)));
     const shown = slugs.length > 2 ? `${slugs[0]} y ${slugs[1]} y ${slugs.length - 2} más` : joinNames(slugs);
     const verb = slugs.length === 1 ? "te espera" : "te esperan";
     b = { text: `${shown} ${verb} con ${plural(inbox.count, "cosa", "cosas")}`, tone: "owner" };
   }
 
-  // c) what the Mac carries that nobody owns
+  // c) what the machine carries that nobody owns
   const c: string[] = [];
   if (totals && totals.orphan > 0) c.push(`${totals.orphan} sin dueño`);
   if (totals && totals.stale > 0) c.push(plural(totals.stale, "obsoleto", "obsoletos"));
 
-  const voice: VoicePart[] = [{ text: `${a}; ` }, b, { text: c.length ? `, y la Mac tiene ${c.join(" y ")}.` : "." }];
+  const voice: VoicePart[] = [{ text: `${a}; ` }, b, { text: c.length ? `, y la máquina tiene ${c.join(" y ")}.` : "." }];
   return { title, voice };
 }
 
@@ -162,7 +162,7 @@ export type Tile = {
   left: { initiatives: number; tickets: number };
   /** Tickets Done out of all of them, for the bar. */
   progress: { closed: number; total: number };
-  /** Decisions in the inbox waiting on Jorge for this project. */
+  /** Decisions in the inbox waiting on the owner for this project. */
   waiting: number;
   /** Initiatives On hold. */
   onHold: number;
@@ -236,7 +236,7 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
   };
 }
 
-// ---- La Mac: servers en uso
+// ---- La máquina: servers en uso
 
 export type LiveServer = { port: string; owner: string; slug: string | null; up: string };
 

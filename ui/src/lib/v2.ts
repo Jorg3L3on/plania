@@ -5,6 +5,7 @@
 import { ago, tokens, type Tone } from "./compania";
 import type { AskResult, Decision, DecisionState, OrderKind, OrderStage, OrgOrder, OrgPlan, OrgProject, OrgRun, ThreadMessage } from "./api";
 import { roleName } from "./org";
+import { LOCALE } from "./locale.js";
 
 export const TE_TOCA_MAX = 5;
 export const TE_TOCA_EMPTY = "Nada te espera. El equipo sigue; Asistente te avisa cuando haga falta.";
@@ -133,7 +134,7 @@ export const pointerFor = (decisions: Decision[], slug: string): string | null =
 
 // ---- the card as a report
 
-const MONTH = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: "UTC" });
+const MONTH = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone: "UTC" });
 export const shortDate = (day: string) => MONTH.format(new Date(`${day}T12:00:00Z`)).replace(".", "");
 
 export function paceText(plan: OrgPlan): { text: string; tone: Tone } | null {
@@ -193,7 +194,7 @@ export function lightWord(p: OrgProject, base: string, now: number): string {
   return days >= 1 ? `${base} ${days === 1 ? "1 día" : `${days} días`}` : base;
 }
 
-// The PO's last line, when the last message in the thread is not Jorge's.
+// The PO's last line, when the last message in the thread is not the owner's.
 export function poLine(p: OrgProject): { role: string; at: string; body: string } | null {
   const last = p.thread.last;
   if (!last || last.author_role === "ceo" || last.author_role === "owner" || !last.body.trim()) return null;
@@ -262,7 +263,7 @@ export function pausedText(p: OrgProject, now: number): string {
   return days >= 1 ? `${head} · quieto ${days === 1 ? "1 día" : `${days} días`}` : head;
 }
 
-// ---- the company line under the greeting: "Mianovia avanza, cinco proyectos en pausa"
+// ---- the company line under the greeting: "Tienda avanza, cinco proyectos en pausa"
 
 const NUM = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez"];
 const num = (n: number) => NUM[n] ?? String(n);
@@ -283,7 +284,7 @@ export function todayMessages(messages: ThreadMessage[], now: number, timeZone?:
   const today = dayKey(new Date(now).toISOString(), timeZone);
   return messages.filter((m) => dayKey(m.at, timeZone) === today);
 }
-// Asistente's latest message (the answer or the 07:00 brief), not Jorge's.
+// Asistente's latest message (the answer or the 07:00 brief), not the owner's.
 export function latestFromAsistente(messages: ThreadMessage[]): ThreadMessage | null {
   const mine = (m: ThreadMessage) => m.author.agent === "owner" || m.author.role === "ceo" || m.author.role === "owner";
   return [...messages].sort((a, b) => b.at.localeCompare(a.at)).find((m) => !mine(m)) ?? null;

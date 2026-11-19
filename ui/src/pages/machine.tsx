@@ -18,7 +18,7 @@ import { ago, span } from "@/lib/time";
 import type { FootprintItem, FootprintKind, FootprintState, MachineBackup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// What runs and is stored on this Mac for agent work, from the machine job (observed) and from
+// What runs and is stored on this machine for agent work, from the machine job (observed) and from
 // register_footprint (declared). Read-only: it shows the teardown command, it never runs one.
 
 const ICON: Record<FootprintKind, ComponentType<{ className?: string }>> = {
@@ -234,7 +234,7 @@ function BackupLine({ backup, nowMs }: { backup: MachineBackup | undefined; nowM
   );
 }
 
-// What the audit finds about the Mac that no project audit holds: a short list under the header.
+// What the audit finds about the machine that no project audit holds: a short list under the header.
 function Findings({ findings }: { findings: NonNullable<ReturnType<typeof useMachine>["data"]>["findings"] }) {
   if (!findings.length) return null;
   return (
@@ -323,7 +323,7 @@ export function MachinePage() {
   const gone = inTab.filter((i) => i.state === "gone").length;
   const groups = useMemo(() => groupItems(showGone ? inTab : inTab.filter((i) => i.state !== "gone")), [inTab, showGone]);
 
-  // PLA-I62-8: Plomería in La corriente's look (board D3); what runs on the Mac stays below, behind «Ver qué corre».
+  // PLA-I62-8: Plomería in La corriente's look (board D3); what runs on the machine stays below, behind «Ver qué corre».
   const company = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
   const [inventory, setInventory] = useState(() => params.has("tab"));
   const t = machine.data?.totals;
@@ -380,7 +380,7 @@ export function MachinePage() {
       )}
       {machine.isError && <p className="text-sm text-destructive">No se pudo cargar la máquina.</p>}
       {machine.data && items.length === 0 && (
-        <p className="text-sm text-muted-foreground">Todavía no se ha visto nada. El servicio local revisa la Mac cada minuto.</p>
+        <p className="text-sm text-muted-foreground">Todavía no se ha visto nada. El servicio local revisa la máquina cada minuto.</p>
       )}
       {machine.data && items.length > 0 && (
         <div className="grid gap-4">

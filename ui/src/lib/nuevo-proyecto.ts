@@ -40,7 +40,7 @@ export function githubWords(code: string | null, lead = "No se guardó"): string
 }
 
 function restOf(code: string | null, detail: Record<string, unknown>): string {
-  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/viajia.";
+  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/mi-proyecto.";
   if (code === "INVALID_BODY" && detail.field === "repo_path") return "No se creó nada: la carpeta va con su ruta completa, empezando con / o con ~/.";
   if (code === "INVALID_BODY" && detail.field === "no_code") return "No se creó nada: elige solo una opción para el código.";
   if (code === "INVALID_BODY") return "No se creó nada: revisa el nombre y la meta.";
@@ -61,11 +61,11 @@ export const fondoMouseDown =
     if (closes && e.target === e.currentTarget) onClose();
   };
 
-// NEWPROJ-3: where the project's code is. A folder on this Mac (with its GitHub repo if there is one), only a GitHub
+// NEWPROJ-3: where the project's code is. A folder on this machine (with its GitHub repo if there is one), only a GitHub
 // repo, or no code yet. The same shapes the server checks (src/runner/repo-check.ts); GitHub is never called.
 export type CodigoOpcion = "carpeta" | "github" | "ninguno";
 export const CODIGO_OPCIONES: { key: CodigoOpcion; label: string; hint: string }[] = [
-  { key: "carpeta", label: "Ya está en esta Mac", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
+  { key: "carpeta", label: "Ya está en esta máquina", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
   { key: "github", label: "Está en GitHub", hint: "Se guarda el repositorio; la carpeta se busca en la de proyectos con el nombre del proyecto." },
   { key: "ninguno", label: "Todavía no hay código", hint: "Se crea el proyecto sin código. Máquinas lo dirá hasta que tenga carpeta." },
 ];

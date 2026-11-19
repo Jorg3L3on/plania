@@ -10,7 +10,7 @@ import { findProject, findTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Declarations (PLA-I1-4): an agent says what it started that outlives its command, with the command
-// that removes it. The `machine` job (src/jobs/machine) sees the same things on the Mac; a declaration
+// that removes it. The `machine` job (src/jobs/machine) sees the same things on the machine; a declaration
 // for something it already sees merges into that row (source `both`), otherwise it is its own row
 // (source `declared`) until the job sees it. Plania never runs a teardown: it only shows it.
 
@@ -97,7 +97,7 @@ function kindOf(kind: string): FootprintKind {
 // ---- helpers
 
 // The machine string as the job stored it (os.hostname()), when the caller spells it differently
-// ("MacBook-Air-de-the owner" for "MacBook-Air-de-the owner.local"): one machine must be one set of rows.
+// ("laptop-de-ana" for "laptop-de-ana.local"): one machine must be one set of rows.
 async function canonicalMachine(tx: Q, name: string): Promise<string> {
   const known = await tx.selectDistinct({ machine: footprints.machine }).from(footprints);
   return known.find((k) => sameMachine(k.machine, name))?.machine ?? name;

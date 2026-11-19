@@ -11,7 +11,7 @@ import { listEvents, taskShape } from "../mcp/queries.js";
 import { projectSequences } from "../mcp/sequences.js";
 import { iso } from "../mcp/tx.js";
 
-// A whole project as one JSON file: a backup, or a way to move it. Jorge's session or an MCP
+// A whole project as one JSON file: a backup, or a way to move it. The owner's session or an MCP
 // token (read-write or read-only) may download it; the CI token may not.
 export const exporter = new Hono();
 

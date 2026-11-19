@@ -50,7 +50,7 @@ export type ProjectFacts = {
 };
 
 export type CompanyExtras = {
-  // The route only answers Jorge's cookie, so this is always true there. The sheets take it as a prop and
+  // The route only answers the owner's cookie, so this is always true there. The sheets take it as a prop and
   // hide Cambiar and Mover guardia when it is false.
   viewer: { can_edit_limits: boolean };
   prompts: Record<RunnerRole, PromptRef | null>;

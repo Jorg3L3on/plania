@@ -324,7 +324,7 @@ export async function createTask(db: Db, input: CreateInput, ctx: Ctx) {
   return writeTx(db, p, ctx, (tx, emit) => createTaskInTx(tx, emit, p, input, ctx));
 }
 
-// 2.10: the free-text fields a "The owner:" line is parsed from, as they stand on the row. Every write
+// 2.10: the free-text fields an "Owner:" line is parsed from, as they stand on the row. Every write
 // resyncs them all, so one write of any kind turns an old line into a blocker.
 function parsedTexts(t: Task, note?: string): Partial<Record<ParsedField, string | null>> {
   return {
@@ -474,7 +474,7 @@ async function assertChildrenClosed(tx: Q, t: Task): Promise<void> {
 }
 
 export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInput, ctx: Ctx) {
-  // PLA-I2-14: delegated_by_jorge and "Needs Jorge" still read, with an OLD_SPELLING warning.
+  // PLA-I2-14: the old field and status spellings still read, with an OLD_SPELLING warning.
   const { input, warnings: oldSpellings } = readOldSpellings(raw);
   rejectBody(input);
   checkPhase(input.phase);
@@ -683,7 +683,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInp
       changedNames.push("claim");
       await emit("claim.released", u, { owner: t.owner, reason: "status" });
     }
-    // Closing with something still running on the Mac is allowed (agents own Done), but each item is named
+    // Closing with something still running on the machine is allowed (agents own Done), but each item is named
     // with its teardown so the closer, or the owner on the screen, can clean up.
     if (patch.status === "Done" || patch.status === "Won't do") {
       for (const f of await liveTaskFootprint(tx, t.id)) warnings.push({ code: "FOOTPRINT_LIVE", kind: f.kind, locator: f.locator, teardown: f.teardown });

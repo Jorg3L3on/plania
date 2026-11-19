@@ -1,7 +1,7 @@
 // PLA-I62-8: Motores (board D1), the building's console redrawn on the same draft (lib/motores.ts) and «a la vez»
 // counts (lib/a-la-vez.ts). One line per seat with its motor in words and Cambiar; open, the model and the effort as
 // segmented choices and the seat's steps at a time; presets for all; the plan's use, how much work at once (project,
-// per agent, the Mac's ceiling) and the queue on the right; one save bar (PUT /company/motores, all or nothing).
+// per agent, the machine's ceiling) and the queue on the right; one save bar (PUT /company/motores, all or nothing).
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import type { MotoresSave, OrgProject } from "@/lib/api";
@@ -268,9 +268,9 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
               </li>
               <li className="cor-krow">
                 <span>
-                  Tope de la Mac<span className="cor-cap">todos los proyectos juntos</span>
+                  Tope de la máquina<span className="cor-cap">todos los proyectos juntos</span>
                 </span>
-                <Stepper value={counts.ceiling} max={MAX.ceiling} onChange={(v) => setCounts({ ...counts, ceiling: v })} label="Tope de la Mac" />
+                <Stepper value={counts.ceiling} max={MAX.ceiling} onChange={(v) => setCounts({ ...counts, ceiling: v })} label="Tope de la máquina" />
               </li>
             </ul>
           </section>

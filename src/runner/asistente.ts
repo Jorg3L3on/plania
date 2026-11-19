@@ -28,6 +28,7 @@ import { resetScheduleForTests, scheduledBrief } from "../brief/schedule.js";
 import { resumeWaiting } from "../brief/plan.js";
 import type { RunBriefDeps } from "../brief/pipeline.js";
 import { ownerEs } from "../owner.js";
+import { screenLocale } from "../locale.js";
 
 export const CHECK_EVERY_HOURS = 2;
 export const QUIET_HOURS = 48;
@@ -54,7 +55,7 @@ export const checkSlot = (now: Date, tz = screenTz()): string => {
 
 // ---- Findings
 
-const n = (v: number) => v.toLocaleString("es-MX");
+const n = (v: number) => v.toLocaleString(screenLocale());
 const nameOf = (p: { slug: string; title: string }) => p.title || p.slug;
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -276,7 +277,7 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
 
 const actorCtx = (tool: string) => ({ actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool });
 
-// A PO's ticket that the owner asked for (origin jorge), ops or research, In review with every check done or
+// A PO's ticket that the owner asked for (origin owner), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
 export async function routineAccept(db: Db, now: Date): Promise<number> {
   const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`

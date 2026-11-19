@@ -1,4 +1,4 @@
-// PLA-I62-4: Te toca (board A2), the page that replaces the building's Oficina (Jorge's decision). Everything the
+// PLA-I62-4: Te toca (board A2), the page that replaces the building's Oficina (the owner's decision). Everything the
 // company cannot continue without him, from every project, resolved here one at a time: the first card open with its
 // one white button, the rest one line each with Abrir. Beside it the Morning brief's lines and the answers to his
 // questions (Preguntar). A card he answered stays in place saying what was done.

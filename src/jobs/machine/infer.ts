@@ -133,8 +133,8 @@ const norm = (s: string) => s.toLowerCase().replace(/-/g, "_");
 
 export type DbName = { prefix: { projectId: string | null; repo: string | null } | null; testHash: string | null; keyParts: string[] };
 
-// `<project>_<ticket-key>_<purpose>` (zigzag_zig_i5_scratch), `<project>_test_<6 hex>` (plania_test_fadac0)
-// or the bare project/repo name (zigzag). The project may be a repo that is not a project yet (plania).
+// `<project>_<ticket-key>_<purpose>` (tienda_tnd_i5_scratch), `<project>_test_<6 hex>` (plania_test_fadac0)
+// or the bare project/repo name (tienda). The project may be a repo that is not a project yet (plania).
 export function parseDbName(name: string, dir: Directory): DbName {
   const prefixes: { token: string; projectId: string | null; repo: string | null }[] = [
     ...dir.projects.map((p) => ({ token: norm(p.slug), projectId: p.id, repo: dir.repos.find((r) => r.projectId === p.id)?.name ?? p.slug })),
@@ -165,7 +165,7 @@ export function ownerOfDatabase(dir: Directory, name: string, now: Date): Owner 
     const at = path ? ownerOfPath(dir, path, now) : null;
     return { ...base, ...(at && at.via !== "none" ? { taskId: at.taskId, sessionId: at.sessionId } : {}), extra: { test_hash: parsed.testHash, repo_path: path ?? null } };
   }
-  // Longest run of tokens that is a ticket key: zig_i5_scratch → ZIG-I5 + "scratch"; zig_i5_2_copy → ZIG-I5-2.
+  // Longest run of tokens that is a ticket key: tnd_i5_scratch → TND-I5 + "scratch"; tnd_i5_2_copy → TND-I5-2.
   const keys = projectId ? dir.tasksByKey.get(projectId) : undefined;
   for (let n = parsed.keyParts.length; n >= 1 && keys; n--) {
     const task = keys.get(parsed.keyParts.slice(0, n).join("-").toUpperCase());
@@ -188,7 +188,7 @@ export const primaryPgPort = (): number => Number(process.env.PLANIA_PRIMARY_PG_
 //   - a database server (db_server) or a brew service: shared by every project
 //   - a LaunchAgent whose label names a repo (com.plania.server)
 //   - postgres / template0 / template1 anywhere, and a database named exactly like a project slug or a repo
-//     (plania, micasa, zigzag) on the main Postgres server only (PLANIA_PRIMARY_PG_PORT, default 5432)
+//     (plania, tienda, agenda) on the main Postgres server only (PLANIA_PRIMARY_PG_PORT, default 5432)
 // `<project>_test_<hash>` and `<project>_<ticket>_<purpose>` copies are not primary: they are what agents make.
 export function isPrimary(item: Observed, dir: Directory): boolean {
   if (item.self) return true;
@@ -394,7 +394,7 @@ export function spanAgo(ms: number): string {
   return `${Math.round(min / 1440)} d`;
 }
 
-// ---- suggested teardown (shown to Jorge, never run by Plania)
+// ---- suggested teardown (shown to the owner, never run by Plania)
 
 export function suggestTeardown(o: Observed, repoPath: string | null): string {
   const d = o.details;

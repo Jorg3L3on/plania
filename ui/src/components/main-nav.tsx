@@ -1,4 +1,4 @@
-// PLA-I30-2: the nav is Inicio (the logo) · Compañía · Bandeja · Progreso · Máquina (PLA-I63-5: Brief moved into Compañía). On the Mac the four sit in
+// PLA-I30-2: the nav is Inicio (the logo) · Compañía · Bandeja · Progreso · Máquina (PLA-I63-5: Brief moved into Compañía). On the machine the four sit in
 // the header; on a phone they move to a bottom tab bar, so the header never overflows at 390 px.
 // Presentational: the counts come in as props (test/compania-ui.test.ts renders it).
 import { BuildingIcon, CpuIcon, FlameIcon, InboxIcon } from "lucide-react";
@@ -34,7 +34,7 @@ export const Logo = () => (
   </Link>
 );
 
-// The Mac header's five links. Hidden on phones, where TabBar takes over.
+// The machine header's five links. Hidden on phones, where TabBar takes over.
 export const HeaderNav = ({ counts }: { counts: NavCounts }) => (
   <nav aria-label="Principal" className="hidden items-center gap-1 sm:flex" data-nav="header">
     {NAV.map(({ to, label }) => {

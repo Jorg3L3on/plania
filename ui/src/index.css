@@ -397,7 +397,7 @@
   .city-door { grid-column: 1 / -1; justify-self: center; width: 14px; height: 16px; margin-top: 2px; border-radius: 3px 3px 0 0; background: var(--lit); opacity: 0.6; }
   .city-tower[data-stage="planning"] .city-door { opacity: 0.25; }
 
-  /* What waits on Jorge sweeps the sky. */
+  /* What waits on the owner sweeps the sky. */
   .city-beam {
     position: absolute;
     bottom: 100%;

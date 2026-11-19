@@ -3,7 +3,7 @@
 // PLA-I21 org chart, cut to the real roles in PLA-I30-1. Roles and bot labels only: the human row is
 // «CEO», never a person's name. Idempotent. First the retired rows go (their tickets, runs and sessions
 // move to `into` when it is set). A row that already exists keeps its name, title, role, capabilities,
-// note and wake_url (the chart is editable). PLA-I32-2: then the product owners are renamed po-<project>,
+// note and wake_url (the chart is editable). PLA-I32-2: then
 // every project gets its team (PO, Research, Artist, Taller with project_id and role_template), and the
 // shared research, artist and taller rows are retired (status retired; runs and history stay). reports_to is filled only while it is still empty, so a re-parent sticks and a link to a retired row
 // is repaired. Adapter fields are filled while they are still the default (adapter none, empty config,
@@ -42,15 +42,6 @@ export const ORG: OrgRow[] = [
   { slug: "ceo", name: "CEO", role: "human", title: "CEO", kind: "human", reportsTo: null, capabilities: [], adapter: "none", adapterConfig: {}, heartbeatMinutes: null },
   { slug: "asistente", name: "Asistente", role: "chief-of-staff", title: "Chief of Staff", kind: "bot", reportsTo: "ceo", capabilities: ["staff"], ...claude },
 ];
-
-// PLA-I32-2: product owners named after their bot become po-<project>. The old slug stays in the note.
-export const RENAMED: Record<string, string> = {
-  housi: "po-micasa",
-  filmia: "po-filmia",
-  "owner-plania": "po-plania",
-  workia: "po-workia",
-  zigzag: "po-zigzag",
-};
 
 // PLA-I32-2: the shared services give way to one per project. They stay as retired rows, so their runs
 // and history keep their agent; their open tickets move to the same role in the ticket's project.
@@ -97,23 +88,6 @@ export async function retireOrg(db: Db): Promise<{ removed: string[] }> {
 
 const TERMINAL = ["Merged", "Released", "Done", "Won't do"];
 
-// housi → po-micasa and the rest: the row (and with it every run, session and ticket) keeps its id.
-async function renamePos(db: Db): Promise<string[]> {
-  const renamed: string[] = [];
-  for (const [from, to] of Object.entries(RENAMED)) {
-    const old = await bySlug(db, from);
-    if (!old || (await bySlug(db, to))) continue;
-    const note = old.note.includes(`alias: ${from}`) ? old.note : [old.note, `alias: ${from}`].filter(Boolean).join(" · ");
-    const runner = untouchedAdapter(old) ? { adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig } : {};
-    await db
-      .update(agents)
-      .set({ slug: to, note: note.slice(0, 2000), roleTemplate: old.roleTemplate ?? "product-owner", ...runner, updatedAt: sql`now()` })
-      .where(eq(agents.id, old.id));
-    renamed.push(`${from}→${to}`);
-  }
-  return renamed;
-}
-
 // The shared research, artist and taller rows: retired (runs, sessions and history stay on them), out of the
 // runner (adapter none, no cadence), and their open tickets handed to the same role in each ticket's project.
 async function retireShared(db: Db): Promise<string[]> {
@@ -139,7 +113,7 @@ async function retireShared(db: Db): Promise<string[]> {
   return retired;
 }
 
-export async function seedOrg(db: Db): Promise<{ inserted: string[]; removed: string[]; renamed: string[]; retired: string[] }> {
+export async function seedOrg(db: Db): Promise<{ inserted: string[]; removed: string[]; retired: string[] }> {
   const inserted: string[] = [];
   const { removed } = await retireOrg(db);
   for (const row of ORG) {
@@ -188,26 +162,24 @@ export async function seedOrg(db: Db): Promise<{ inserted: string[]; removed: st
     await db.update(agents).set({ reportsTo: parent.id, updatedAt: sql`now()` }).where(eq(agents.id, self.id));
   }
 
-  const renamed = await renamePos(db);
   // Every product owner joins the runner while its adapter is still the default, with or without a project row.
   for (const a of await db.select().from(agents).where(eq(agents.role, "product-owner"))) {
     if (!untouchedAdapter(a)) continue;
     await db.update(agents).set({ adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig, updatedAt: sql`now()` }).where(eq(agents.id, a.id));
   }
-  // Every project gets its four; a PO that existed already (po-mianovia, the renamed ones) is reused.
+  // Every project gets its four; a PO that existed already is reused. (PLA-I2-3: the first install's one-time PO renames are gone.)
   for (const p of await db.select({ id: projects.id, slug: projects.slug, title: projects.title }).from(projects).orderBy(asc(projects.slug))) {
     const { created } = await ensureTeam(db, p);
     inserted.push(...created);
   }
   const retired = await retireShared(db);
-  return { inserted, removed, renamed, retired };
+  return { inserted, removed, retired };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   await withDb(async (db) => {
-    const { inserted, removed, renamed, retired } = await seedOrg(db);
+    const { inserted, removed, retired } = await seedOrg(db);
     if (removed.length) console.log(`removed ${removed.join(", ")}`);
-    if (renamed.length) console.log(`renamed ${renamed.join(", ")}`);
     if (retired.length) console.log(`retired ${retired.join(", ")}`);
     console.log(inserted.length ? `inserted ${inserted.join(", ")}` : "org already present");
   });

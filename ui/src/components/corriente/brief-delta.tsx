@@ -1,6 +1,6 @@
 // PLA-I63-2: the delta (PLA-IDEA26, sketch 2). One stream per project, drawn as an SVG curve into «Tú»; its lights are
 // buttons (44px tall): a spark is a new idea, a violet light with its key is what follows, an amber rhombus with its
-// verb is what waits on Jorge, and a blocker is a dam that cuts the stream (dotted after it). What is settled leaves by
+// verb is what waits on the owner, and a blocker is a dam that cuts the stream (dotted after it). What is settled leaves by
 // the green river of Resuelto, whose lights can be picked too. Particles run along each stream and stop at a dam; the
 // picked light pulses to Tú. Only transform and offset-path move; nothing moves with prefers-reduced-motion.
 import { useEffect, useRef, useState } from "react";

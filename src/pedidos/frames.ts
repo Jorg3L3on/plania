@@ -1,5 +1,5 @@
-// PLA-I61-2 (La idea abierta): Artist's frames on an idea. Artist draws a canvas on the Mac (by default
-// ~/Developer/design-canvases/<KEY>/), exports one image per frame and calls attach_frames with each file's path and
+// PLA-I61-2 (La idea abierta): Artist's frames on an idea. Artist draws a canvas on the machine (by default
+// ~/plania/canvases/<KEY>/), exports one image per frame and calls attach_frames with each file's path and
 // what the frame does and why. Plania copies the bytes into its own store (the request pictures' folder, named by
 // sha256) so the screen can show them; it never reads a path outside the canvases folder. A new call replaces the set.
 import { realpathSync, readFileSync, statSync } from "node:fs";
@@ -12,11 +12,12 @@ import { ToolError } from "../mcp/errors.js";
 import { findProject, requireTask } from "../mcp/queries.js";
 import { writeTx, type Ctx } from "../mcp/tx.js";
 import { MAX_IMAGE_BYTES, imageSize, putImageFile, readImageFile, sniffImage } from "./images.js";
+import { defaultFolders } from "../folders.js";
 
 export const MAX_FRAMES = 40;
 export const FRAMES_ATTACHED = "frames.attached";
 
-export const canvasesRoot = (): string => process.env.PLANIA_CANVASES_ROOT || path.join(os.homedir(), "Developer", "design-canvases");
+export const canvasesRoot = (): string => process.env.PLANIA_CANVASES_ROOT || defaultFolders(os.homedir()).canvases;
 
 export type FrameInput = { id: string; name: string; group?: string; hace?: string; porque?: string; path: string };
 export type FrameView = { id: string; frame: string; name: string; group: string | null; hace: string | null; porque: string | null; url: string; width: number | null; height: number | null };

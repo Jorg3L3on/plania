@@ -8,7 +8,7 @@ import { ToolError } from "./errors.js";
 import { iso, webCtx, type Q } from "./tx.js";
 
 // 2.11 (item 4): Orden, the audit on screen. The audit job keeps its last run per project
-// (audit_runs, every ten minutes); this file says which findings Jorge can clear with one click or a
+// (audit_runs, every ten minutes); this file says which findings the owner can clear with one click or a
 // copied command, runs those fixes as him through the existing tool functions, and picks the chores
 // get_next offers an agent when nothing is claimable.
 
@@ -76,7 +76,7 @@ export async function auditCounts(db: Q): Promise<Map<string, number>> {
 export type FixInput = { code: string; key?: string | null; id: string };
 
 /**
- * POST /api/projects/:slug/audit/fix, as Jorge. The finding must still be there (a fresh audit),
+ * POST /api/projects/:slug/audit/fix, as the owner. The finding must still be there (a fresh audit),
  * then the matching tool runs: retire_decision, or set_env deployed with a screen source. Copy-only
  * findings have nothing to run: the screen shows the command. The audit is stored again afterwards.
  */

@@ -10,6 +10,7 @@ import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type
 import { Hilo, HiloHead } from "./hilo";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
+import { LOCALE } from "@/lib/locale";
 
 export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
@@ -83,7 +84,7 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
   );
 };
 
-const dayOf = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
+const dayOf = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
 
 const HechaRow = ({ h, links, timeZone }: { h: Hecha; links: TodoLinks; timeZone?: string }) => (
   <li className="cor-cosa sm" data-hecha={h.key}>
@@ -353,7 +354,7 @@ export const FraseView = ({ f }: { f: Frase }) => (
   </div>
 );
 
-const shortDay = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`)).replace(".", "").toUpperCase();
+const shortDay = (iso: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`)).replace(".", "").toUpperCase();
 
 /** Steps done per day, the last 14 days; today lit. Read-only; the numbers are said in words for screen readers. */
 export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {

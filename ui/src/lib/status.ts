@@ -1,7 +1,7 @@
 import { statusStageTone } from "./etapas";
 
 // Status colours come from the --status-* tokens in index.css, so both themes share one map.
-// A tone is the meaning on screen: done, now, review, ready, blocked, jorge (waits on Jorge), pending (not started)
+// A tone is the meaning on screen: done, now, review, ready, blocked, owner (waits on the owner), pending (not started)
 // or idle (parked).
 
 export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "owner" | "pending" | "idle";

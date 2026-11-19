@@ -215,6 +215,10 @@ export async function setAdvanced(db: Db, slug: string, input: { version: number
       if (value !== null && !Number.isInteger(value)) return bad;
       patch = { team: value === null ? null : { ...(s.team ?? {}), idle_minutes: value } };
       break;
+    case "identity":
+      if (value !== null && !Number.isInteger(value)) return bad;
+      patch = { identity: value === null ? null : { ...(s.identity ?? {}), order: value } };
+      break;
     case "github_token_env": {
       if (value !== null && (typeof value !== "string" || !ENV_NAME.test(value))) return notName;
       if (!s.github?.repo) return { ...bad, hint: "set the GitHub repository first" };

@@ -152,7 +152,7 @@ function SummaryRow({ label, tone, items, empty, onOpen }: { label: string; tone
   );
 }
 
-/** What a person wants at a glance: what is moving, what comes next, and whether anything waits on Jorge. */
+/** What a person wants at a glance: what is moving, what comes next, and whether anything waits on the owner. */
 function ProjectSummary({ lanes, needsOwner, onOpen }: { lanes: Lane[]; needsOwner: number; onOpen?: Open }) {
   const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : "Tickets sueltos", how });
   const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l)));
@@ -207,7 +207,7 @@ export function ProjectHeader({
         <h1 className="flex items-center gap-3 font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">
           {slug && <ProjectMark slug={slug} className="size-8 sm:size-9" />}
           {title}
-          {/* 2.10: merged tickets waiting for Jorge's sandbox → main; opens the step in the Bandeja. */}
+          {/* 2.10: merged tickets waiting for the owner's sandbox → main; opens the step in the Bandeja. */}
           {slug && (releasePending(release) || releaseUnknown(release)) && (
             <Link
               to={`/inbox?tab=pasos#${slug}`}

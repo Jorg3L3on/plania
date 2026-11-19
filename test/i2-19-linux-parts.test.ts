@@ -1,4 +1,4 @@
-// PLA-I2-19: the Mac-bound parts working on Linux. The machine job reads Linux (ss when lsof is absent, GNU ps,
+// PLA-I2-19: the machine-bound parts working on Linux. The machine job reads Linux (ss when lsof is absent, GNU ps,
 // /proc for a cwd, systemd user units for LaunchAgents); the base lever runs `systemctl --user` for a Postgres a
 // user unit starts; a process's command line comes from /proc; Chrome and Tailscale are found on PATH and in the
 // XDG and Playwright caches; gitleaks says what to do on native Windows. Parsers run on recorded output

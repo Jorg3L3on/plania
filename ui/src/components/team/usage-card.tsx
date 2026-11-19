@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type UsageTotal } from "@/lib/api";
+import { LOCALE } from "@/lib/locale";
 
-const count = (n: number) => n.toLocaleString("es-MX");
+const count = (n: number) => n.toLocaleString(LOCALE);
 
 const UsageRow = ({ row }: { row: UsageTotal }) => (
   <tr className="border-t border-border/70">

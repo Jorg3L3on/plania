@@ -69,7 +69,7 @@ export function PedirHome({ projects }: { projects: { slug: string; title: strin
       void queryClient.invalidateQueries({ queryKey: ["project", slug] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     } catch {
-      toast.error("No se pudo enviar. Si la Mac está dormida, intenta al despertar.");
+      toast.error("No se pudo enviar. Si la máquina está dormida, intenta al despertar.");
     } finally {
       setSending(false);
     }

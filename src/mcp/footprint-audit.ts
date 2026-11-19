@@ -4,7 +4,7 @@ import { describeStale, primaryPgPort, spanAgo } from "../jobs/machine/infer.js"
 import type { Finding } from "./audit.js";
 import type { Q } from "./tx.js";
 
-// The audit findings about what runs on the Mac (PLA-I1-5). Pure reads of `footprints`. A row with a
+// The audit findings about what runs on the machine (PLA-I1-5). Pure reads of `footprints`. A row with a
 // project goes to that project's audit; the ones without (Plania's own repo, shared servers and
 // services, anything nobody owns) are served with GET /api/machine, since no project audit can hold them.
 // fix_hint is the row's teardown when it has one; Plania only shows it, never runs it.

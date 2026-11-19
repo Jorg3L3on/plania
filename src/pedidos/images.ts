@@ -1,4 +1,4 @@
-// PLA-I54-2: pictures on a request. Jorge pastes, drops or picks a screenshot on Pedir; it is stored once per
+// PLA-I54-2: pictures on a request. The owner pastes, drops or picks a screenshot on Pedir; it is stored once per
 // content under <captures dir>/pedidos/<project>/<sha256>.<ext> (the capture store's root, src/captures/store.ts,
 // default ~/plania-captures; never in an app repo) and a task_images row says which request it belongs to.
 // The type comes from the file's first bytes, never its name. 5 MB each, 6 per request. Errors are in Spanish:

@@ -1,4 +1,4 @@
-// PLA-I52-5: En vivo. «Pruébala en vivo» opens the delivery's own copy already signed in, on the Mac and, when the
+// PLA-I52-5: En vivo. «Pruébala en vivo» opens the delivery's own copy already signed in, on the machine and, when the
 // Mac has Tailscale, on the phone. Plania signs the test user in once (a fresh password, never kept), then serves
 // the copy through a small proxy on a loopback port that adds that session to every request. Nothing listens on the
 // LAN: the proxy binds 127.0.0.1 and refuses any other peer; `tailscale serve` forwards the tailnet to it, as it
@@ -86,7 +86,7 @@ export function localLocation(location: string, target: number): string {
 function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
   const server = http.createServer((req, res) => {
     if (!isLoopback(req.socket.remoteAddress)) {
-      res.writeHead(403).end("Solo desde esta Mac o tu tailnet");
+      res.writeHead(403).end("Solo desde esta máquina o tu tailnet");
       return;
     }
     const headers = { ...req.headers, host: `localhost:${live.target}` } as http.OutgoingHttpHeaders;
@@ -129,7 +129,7 @@ function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
   return server;
 }
 
-// The Mac's Tailscale CLI, when there is one: `tailscale serve --bg --https=<port> <to>`, and its DNS name.
+// The machine's Tailscale CLI, when there is one: `tailscale serve --bg --https=<port> <to>`, and its DNS name.
 // PLA-I2-19: then the one on PATH (Linux packages put it in /usr/bin), with the usual folders added.
 export function tailscaleBin(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
   for (const p of [env.PLANIA_TAILSCALE_BIN, "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"]) if (p && exists(p)) return p;
@@ -174,7 +174,7 @@ const listenOn = (server: http.Server, port: number) =>
     });
   });
 
-const PHONE_HINT = "Para abrirla en el teléfono, esta Mac necesita Tailscale (docs/phone-access.md).";
+const PHONE_HINT = "Para abrirla en el teléfono, esta máquina necesita Tailscale (docs/phone-access.md).";
 
 // Starts (or returns) the live copy of a project's delivery. The delivery's copy must be on (F2).
 export async function startVivo(db: Db, slug: string): Promise<VivoRead> {

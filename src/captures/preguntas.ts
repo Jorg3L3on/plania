@@ -1,7 +1,7 @@
 // PLA-I52-6: señalar y preguntar. Two ways for the owner to talk to Taller from El Probador, with no session open.
 //   marcas     pins on a picture travel with «Devolver a Taller»: the note lists each one (view, side, width, where,
 //              what to change) with a crop of the picture around it, kept in the capture store, whose file path on
-//              this Mac Taller can open.
+//              this machine Taller can open.
 //   preguntas  «Pregúntale a Taller»: the question is kept on the ticket and wakes the Taller that built the delivery
 //              for a short read-only run (no edits, no commits, no pushes: the QA deny rules). Taller answers in the
 //              project thread with a message linked to the ticket that starts «Respuesta:»; the card shows it.

@@ -10,11 +10,12 @@ import { Link } from "react-router";
 import { api, type FichaDoc, type OrgProject } from "@/lib/api";
 import { useFicha } from "./listas";
 import { Btn, ReadError } from "./parts";
+import { LOCALE } from "@/lib/locale";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
-const dayShort = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
+const dayShort = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
 const ymd = (d: string) => new Date(`${d}T12:00:00Z`);
-const dayWords = (d: string) => new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(ymd(d)).replace(/\./g, "").toUpperCase();
+const dayWords = (d: string) => new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(ymd(d)).replace(/\./g, "").toUpperCase();
 
 export type ArchivoLinks = { doc: (id: string) => string; pr: (n: number) => string; idea: (key: string) => string; todo: string };
 

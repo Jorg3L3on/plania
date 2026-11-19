@@ -43,7 +43,7 @@ function strings(v: unknown, out: string[] = []): string[] {
 // database whose name any environment (env_states: flags, deploy source) has registered.
 export async function guard(db: Db, a: BaseAddress | null): Promise<BaseAddress> {
   if (!a) throw new MaquinaError("BASE_NOT_FOUND", "el env de la app no nombra una base de Postgres");
-  if (!LOOPBACK.has(a.host)) throw new MaquinaError("BASE_NOT_LOCAL", "solo leo bases en esta Mac (127.0.0.1, localhost, ::1)");
+  if (!LOOPBACK.has(a.host)) throw new MaquinaError("BASE_NOT_LOCAL", "solo leo bases en esta máquina (127.0.0.1, localhost, ::1)");
   const own = planiaDatabase();
   if (own && own.name.toLowerCase() === a.database.toLowerCase() && planiaPorts().has(a.port)) throw new MaquinaError("BASE_REGISTERED", "es la base de Plania");
   if (/^plania(_|$)/i.test(a.database)) throw new MaquinaError("BASE_REGISTERED", "es una base de Plania");

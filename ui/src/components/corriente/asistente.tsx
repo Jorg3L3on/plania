@@ -10,10 +10,11 @@ import { seatName } from "@/lib/corriente";
 import { ACTION_EFFECT, actionStateText, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { plainWords } from "@/lib/plain-words";
 import { Btn, Label, Live, ReadError, You } from "./parts";
+import { LOCALE } from "@/lib/locale";
 
 const LABEL: Record<ThreadAction, string> = { aceptar: "Aceptar", fusionar: "Aceptar", cambios: "Pedir ajuste", responder: "Responder" };
 const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
-const clockOf = (iso: string, timeZone?: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso)).toUpperCase();
+const clockOf = (iso: string, timeZone?: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso)).toUpperCase();
 
 const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: ThreadMessage; timeZone?: string; busy: { id: string; action: ThreadAction } | null; error: string | null; onAction: (m: ThreadMessage, a: ThreadAction, text?: string) => void; workTo: (kind: string, ref: string) => string | null; last: boolean }) => {
   const [open, setOpen] = useState<ThreadAction | null>(null);

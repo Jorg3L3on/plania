@@ -107,7 +107,7 @@ export function shortCommand(command: string | null, fallback = ""): string {
 
 const ENGINE: Record<string, string> = { postgres: "Postgres", redis: "Redis", mysql: "MySQL" };
 
-/** The human form of a row: ":3069 next dev", "zigzag @ :5433", the worktree folder with its branch. */
+/** The human form of a row: ":3069 next dev", "tienda @ :5433", the worktree folder with its branch. */
 export function nameOf(it: FootprintItem): { name: string; detail: string | null } {
   const d = it.details;
   switch (it.kind) {
@@ -202,7 +202,7 @@ export function whyLine(it: FootprintItem, nowMs: number): string | null {
   }
   if (it.state === "ghost") {
     const at = str(it.details.ghost_since);
-    return `declarado y no se ve en la Mac${at ? `, desde ${ago(at, nowMs)}` : ""}; se libera solo`;
+    return `declarado y no se ve en la máquina${at ? `, desde ${ago(at, nowMs)}` : ""}; se libera solo`;
   }
   return null;
 }

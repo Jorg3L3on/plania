@@ -196,7 +196,7 @@ function ideaKey(project: AhoraProject, key: string): boolean {
   return project.tasks.some((t) => t.key === key && t.kind === "idea");
 }
 
-/** Waits that are not on Jorge, then a lease that ran out, a claim the machine dropped, or work with no owner. Ideas never land here. */
+/** Waits that are not on the owner, then a lease that ran out, a claim the machine dropped, or work with no owner. Ideas never land here. */
 export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[], nowMs: number): BlockRow[] {
   const rows: BlockRow[] = [];
   for (const p of projects) {

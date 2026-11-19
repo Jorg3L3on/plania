@@ -1,5 +1,5 @@
 // PLA-I46-6: headless Chrome over the DevTools protocol, with no new dependency: the Chrome already on
-// the Mac (or PLANIA_CHROME_PATH), Node's own WebSocket, a throwaway profile per run. Nothing paid.
+// the machine (or PLANIA_CHROME_PATH), Node's own WebSocket, a throwaway profile per run. Nothing paid.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -26,13 +26,13 @@ export interface Browser {
 export type LaunchBrowser = () => Promise<Browser>;
 
 const NAV_TIMEOUT_MS = 30_000;
-// A cold headless Chrome on the Mac takes 2 to 10 s to open its DevTools port when idle (PLA-I46-16 measured it),
+// A cold headless Chrome on the machine takes 2 to 10 s to open its DevTools port when idle (PLA-I46-16 measured it),
 // and more next to the test suite or a second Chrome. 15 s failed under that load; this is only an upper bound.
 const LAUNCH_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 600; // after load: fonts, client components, a streamed Suspense boundary
 
 // Where Chrome lives: PLANIA_CHROME_PATH, the installed Google Chrome or Chromium, else Playwright's
-// downloaded chromium if one is on the Mac. Null when there is none.
+// downloaded chromium if one is on the machine. Null when there is none.
 // PLA-I2-4: on Linux too: the usual names on PATH (google-chrome, chromium, chromium-browser) and Playwright's
 // Linux cache (~/.cache/ms-playwright/chromium-*/chrome-linux/chrome).
 export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {

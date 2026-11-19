@@ -1,4 +1,4 @@
-// PLA-I32-3: the conversation. One company thread (Jorge and Asistente) and one thread per project (Jorge
+// PLA-I32-3: the conversation. One company thread (the owner and Asistente) and one thread per project (the owner
 // and its PO; the team answers there too). A message is written inside writeTx with a thread.message event,
 // so the event hook (src/runner/events.ts) can wake whoever should answer in the same transaction.
 // Company-thread events live in Asistente's home project (PLANIA_HOME_PROJECT, else plania, else the first
@@ -181,7 +181,7 @@ export type ThreadView = { id: string; kind: "company" | "project"; project: str
 
 const PR_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 
-// What Jorge can do on a message: answer its open question; accept (or merge, for a PR) and send back the
+// What the owner can do on a message: answer its open question; accept (or merge, for a PR) and send back the
 // ticket it links while that ticket is In review. Nothing once he acted, and nothing on his own messages.
 export async function actionsFor(db: Q, msg: ThreadMessage, projectId: string | null): Promise<MessageAction[]> {
   if (msg.actionState || msg.authorAgent === OWNER_AUTHOR.agent) return [];

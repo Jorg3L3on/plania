@@ -1,4 +1,4 @@
-// 2.12 "Hoy": above the city, what changed since Jorge last tapped "Visto" on this device. Per project
+// 2.12 "Hoy": above the city, what changed since the owner last tapped "Visto" on this device. Per project
 // the digest's highlights as chips (hechos, a revisar, PRs, tomados) and what waits on him as links
 // into the Bandeja on the right tab. The cursor lives in localStorage per device; "Visto" stores the
 // digest's cursor there and as the server's bookmark for the screen, and clears the strip.
@@ -34,7 +34,7 @@ function writeNumber(key: string, v: number) {
 
 type Chip = { label: string; keys: string[] };
 
-// The highlights worth a chip, in the order Jorge reads them.
+// The highlights worth a chip, in the order the owner reads them.
 export function chipsOf(h: DigestHighlights): Chip[] {
   const n = (k: string[], one: string, many: string): Chip | null => (k.length ? { label: `${k.length} ${k.length === 1 ? one : many}`, keys: k } : null);
   const prs = (list: number[], one: string, many: string): Chip | null => (list.length ? { label: `${list.length} ${list.length === 1 ? one : many}`, keys: list.map((p) => `#${p}`) } : null);
@@ -48,7 +48,7 @@ export function chipsOf(h: DigestHighlights): Chip[] {
   ].filter((c): c is Chip => c !== null);
 }
 
-// What waits on Jorge and started after the last "Visto" on this device (all of it before the first).
+// What waits on the owner and started after the last "Visto" on this device (all of it before the first).
 export function waitingSince(d: Digest, seenAt: number | undefined, now = Date.now()) {
   return d.needs_owner.filter((i) => i.group !== "limpieza" && (!seenAt || now - i.wait_s * 1000 > seenAt));
 }

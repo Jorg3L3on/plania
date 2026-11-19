@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 
-// The only way the machine job touches the Mac: read-only commands through execFile (no shell, so
+// The only way the machine job touches the machine: read-only commands through execFile (no shell, so
 // no quoting to get wrong), each with a timeout. Injectable so tests feed recorded output.
 
 export type RunResult =

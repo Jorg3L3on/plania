@@ -1,4 +1,4 @@
-// PLA-I36 phases 3-4: the wheel on the card and anyone at the Mac can drive. Levers (PLA-I36-6), proposals as data
+// PLA-I36 phases 3-4: the wheel on the card and anyone at the machine can drive. Levers (PLA-I36-6), proposals as data
 // (PLA-I36-7), one box with plan approval (PLA-I36-8), see it working (PLA-I36-9; stopping a live process is in
 // test/runner.test.ts), evidence before accepting (PLA-I36-10), plain words and the owner's code (PLA-I36-11).
 // Throwaway DB for the payload and the routes, server-rendered UI with fake data. Fake names and numbers only.

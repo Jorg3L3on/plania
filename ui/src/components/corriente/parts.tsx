@@ -1,5 +1,5 @@
 // PLA-I62-1: La corriente's pieces (board D4, Piezas). Buttons 44px tall; one white primary per view; Pedir always
-// secondary; amber only for what waits on Jorge; the project's colour only in its logo. No pills, no clickable divs.
+// secondary; amber only for what waits on the owner; the project's colour only in its logo. No pills, no clickable divs.
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
@@ -68,7 +68,7 @@ export const NotYet = ({ what, to }: { what: string; to: string }) => (
 /** What a part says when it cannot be read. */
 export const ReadError = ({ what, onRetry }: { what: string; onRetry: () => void }) => (
   <div className="cor-empty" role="alert" data-error={what}>
-    <p className="cor-text">No se pudo leer {what}. Si la Mac está dormida, intenta al despertar.</p>
+    <p className="cor-text">No se pudo leer {what}. Si la máquina está dormida, intenta al despertar.</p>
     <Btn kind="secondary" onClick={onRetry}>
       Reintentar
     </Btn>

@@ -184,7 +184,7 @@ export const Pedir = ({
       setMode("forma");
       setFromAnswer(null);
     } catch {
-      setError("No se pudo enviar. Si la Mac está dormida, intenta al despertar.");
+      setError("No se pudo enviar. Si la máquina está dormida, intenta al despertar.");
     } finally {
       setSending(false);
     }

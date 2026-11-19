@@ -507,7 +507,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const po = await projectPo(db, p);
         if (!po) return { error: "NO_PO", hint: `${p.title} has no product owner that runs in Claude Code.` };
         const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? `Nota ${ownerEs("de")}: ${input.note}` : null].filter(Boolean).join("\n");
-        // A Ready ticket owned by the PO, origin jorge; the event hook queues the PO's wake in the same write. A
+        // A Ready ticket owned by the PO, origin owner; the event hook queues the PO's wake in the same write. A
         // busy PO is not lost: when its run ends, wakePoIfWaiting takes its oldest Ready ticket. A paused project
         // keeps the ticket and wakes the PO once when its runs are turned on (project.runs_resumed).
         const made = await createPoTicket(db, p, po, text, "el brief de la mañana");

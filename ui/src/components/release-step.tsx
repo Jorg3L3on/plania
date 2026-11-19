@@ -1,8 +1,8 @@
 // 2.10: the release as a step in the Bandeja's Pasos. One row per project: from → into with how many
 // tickets and migrations it ships, the tickets, the before-steps as a checklist, the open checks,
-// and the command Jorge runs. The row goes away on its own once the poller sees `into` contain `from`.
+// and the command the owner runs. The row goes away on its own once the poller sees `into` contain `from`.
 // 2.13: in merge mode the command gives way to "Lanzar": a confirm sheet repeats the plan and the
-// server merges a PR from → into with a merge commit (gh pr merge --merge) as Jorge.
+// server merges a PR from → into with a merge commit (gh pr merge --merge) as the owner.
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -24,7 +24,7 @@ export function releaseLine(plan: ReleasePlan): string {
   return `${plan.from.branch} → ${plan.into.branch}: ${parts.join(", ")}`;
 }
 
-/** The plan waits on Jorge: from is ahead with merged tickets on it. */
+/** The plan waits on the owner: from is ahead with merged tickets on it. */
 export const releasePending = (plan: ReleasePlan | null | undefined): plan is ReleasePlan => !!plan && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;
 
 /** PLA-03: tickets wait but there is no compare for these heads; unknown, never "nothing to ship". */

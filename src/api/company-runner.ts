@@ -1,7 +1,7 @@
 // PLA-I60-5: what Motores shows about «a la vez» for one project, read-only.
 //   limits   the project's «Agentes a la vez», «Preguntas a la vez», «Por agente» (projects.settings.runner)
 //   live     runs live now in its work lane and its question lane
-//   ceiling  the company's «Tope de la Mac», runs live on the whole Mac (other projects included), slots reserved
+//   ceiling  the company's «Tope de la máquina», runs live on the whole Mac (other projects included), slots reserved
 //            (the Morning brief) and this worker's capacity («memoria para ~N»)
 //   plan     the last 5-hour reading, the guard, and the plan weight per run, so the screen can show what the
 //            queued runs that fit would add (the same weights admission uses, src/runner/admission.ts)

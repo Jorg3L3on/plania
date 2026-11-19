@@ -1,6 +1,6 @@
 // PLA-82 (F-32): after Publicar ships a release that adds database migrations, the app's own local database
 // (settings.capture.database: the one the app's env file names, which the test copies are made from) is migrated
-// to the released branch, after a backup. In PLA-64 nothing did it: mianovia_dev stayed behind main and was migrated
+// to the released branch, after a backup. In PLA-64 nothing did it: tienda_dev stayed behind main and was migrated
 // by hand. Only a local Postgres is ever touched; the migrate command runs in Plania's own checkout of the released
 // branch (<worktrees>/<slug>/_publicado), never in a checkout the owner works in. The outcome is an event, and a
 // failure is said in the project's thread with the backup's path.

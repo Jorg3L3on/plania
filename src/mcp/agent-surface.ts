@@ -76,7 +76,7 @@ async function verifyCheck(
 
 // The muestra check, before the transaction (it reads git). A code delivery on a project Plania photographs
 // (settings.capture) that touches the screen needs a muestra, passed now or stored by an earlier finish. When
-// Plania cannot read the diff (no repo on this Mac, unknown branch) it does not refuse: the warning says so.
+// Plania cannot read the diff (no repo on this machine, unknown branch) it does not refuse: the warning says so.
 async function muestraCheck(
   db: Db,
   p: Awaited<ReturnType<typeof findProject>>,
@@ -143,9 +143,9 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       changed.push("no_pr");
       await emit("task.no_pr", { id: t.id, key: t.key }, { reason: noPr, to: "In review" });
     }
-    // PLA-109 (guided test PLA-86, F-27): a PO that turns one of Jorge's requests into a Taller ticket has nothing to
-    // show; the request went to Jorge as «Aceptar» with nothing behind it. When this session made a ticket for Taller
-    // and the request has no PR, the request closes Done and says where the work went; the delivery Jorge sees is
+    // PLA-109 (guided test PLA-86, F-27): a PO that turns one of the owner's requests into a Taller ticket has nothing to
+    // show; the request went to the owner as «Aceptar» with nothing behind it. When this session made a ticket for Taller
+    // and the request has no PR, the request closes Done and says where the work went; the delivery the owner sees is
     // Taller's.
     let handedTo: string[] = [];
     if (t.origin === "owner" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {

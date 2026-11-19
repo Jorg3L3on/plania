@@ -347,7 +347,7 @@ export function ProjectPage() {
           />
           <ProjectOrg slug={slug} />
           <GoalsProject slug={slug} />
-          {/* Questions agents asked Jorge (Needs owner): answer in place, with an optional line for the decision log. */}
+          {/* Questions agents asked the owner (Needs owner): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
           <ProjectAhora slug={slug} />
 

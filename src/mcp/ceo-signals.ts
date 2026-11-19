@@ -126,7 +126,7 @@ export function buildQueue(
   now: Date,
 ): QueueItem[] {
   const out: QueueItem[] = [];
-  // PLA-I30-8: a Ready ticket Jorge owns (owner ceo) is his step; no bot will take it.
+  // PLA-I30-8: a Ready ticket the owner owns (owner ceo) is his step; no bot will take it.
   for (const t of input.yours ?? []) {
     out.push({
       id: `yours:${t.project}:${t.key}`,
@@ -184,8 +184,8 @@ export function buildQueue(
   return out.sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || b.age_days - a.age_days || (a.key ?? "").localeCompare(b.key ?? ""));
 }
 
-const PROJECT_NAMES: Record<string, string> = { micasa: "MiCasa" };
-export const projectName = (slug: string) => PROJECT_NAMES[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
+// PLA-I2-3: no project is named in code; a slug reads with its first letter up.
+export const projectName = (slug: string) => slug.charAt(0).toUpperCase() + slug.slice(1);
 
 // At most four lines, most urgent first. Numbers only from the queue and the week; nothing invented.
 export function buildBrief(input: { queue: QueueItem[]; finished: number; previous: number }): string[] {
@@ -211,7 +211,7 @@ export function buildBrief(input: { queue: QueueItem[]; finished: number; previo
   if (decisions.length > 0) {
     lines.push(`${plural(decisions.length, "decisión te espera", "decisiones te esperan")}: ${decisions[0]!.title}.`);
   }
-  // PLA-I30-8: a Ready ticket only Jorge can do (owner ceo).
+  // PLA-I30-8: a Ready ticket only the owner can do (owner ceo).
   const yours = input.queue.filter((item) => item.id.startsWith("yours:"));
   if (yours.length > 0) {
     const first = yours[0]!;

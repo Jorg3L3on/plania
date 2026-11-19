@@ -15,8 +15,9 @@ import {
   type Slot,
 } from "./types.js";
 import { ownerGivenName } from "../owner.js";
+import { FALLBACK_TZ, screenTz } from "../locale.js";
 
-export const DEFAULT_TZ = "America/Mexico_City";
+export const DEFAULT_TZ = FALLBACK_TZ; // PLA-I2-3: src/locale.ts
 export const DEFAULT_OWNER = "the owner";
 
 export const DEFAULT_SETTINGS: BriefSettings = Object.freeze({
@@ -123,7 +124,7 @@ export async function saveBriefSettings(db: Q, patch: unknown): Promise<BriefSet
 
 /**
  * A short label for the page: the label set on screen, else the IANA city ("America/Bogota" → "Bogota",
- * "America/Mexico_City" → "Mexico City"). PLA-I44-2: no built-in nicknames, so a fresh install shows the plain city
+ * "Europe/Madrid" → "Madrid"). PLA-I44-2: no built-in nicknames, so a fresh install shows the plain city
  * name; an owner who wants a nickname sets timezone_label.
  */
 export function timezoneLabel(tz: string, label?: string | null): string {
@@ -132,7 +133,7 @@ export function timezoneLabel(tz: string, label?: string | null): string {
 }
 
 export function resolveBriefSettings(s: BriefSettings, env: NodeJS.ProcessEnv = process.env): ResolvedBriefSettings {
-  const tzCandidate = s.timezone || env.PLANIA_TZ || DEFAULT_TZ;
+  const tzCandidate = s.timezone || screenTz(env);
   const timezone = validTimezone(tzCandidate) ? tzCandidate : DEFAULT_TZ;
   return {
     ...s,

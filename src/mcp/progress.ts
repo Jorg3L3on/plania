@@ -1,5 +1,5 @@
 // Mi progreso (PLA-I19). Read-only totals for the screen: what reached a final Done or Merged,
-// bucketed by calendar day in PLANIA_TZ (America/Mexico_City). A reopen clears resolved_at, so a
+// bucketed by calendar day in the screen zone (src/locale.ts). A reopen clears resolved_at, so a
 // ticket that was Done, reopened and Done again counts once, on the day it is Done now.
 // Titles containing [PRUEBA] and Won't do never count. Ideas stay in the bitácora only.
 // The year path groups tasks and pull requests per day in SQL and caches the summary. It does not
@@ -7,6 +7,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ToolError } from "./errors.js";
+import { screenTz } from "../locale.js";
 
 export type Range = "day" | "week" | "year";
 
@@ -14,7 +15,6 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PRUEBA = "[PRUEBA]";
 const PRUEBA_LIKE = `%${PRUEBA}%`;
 const WONT = "Won't do";
-const PROJECT_ORDER = ["micasa", "workia", "filmia", "zigzag", "plania"];
 const WEEK_SHORT = ["L", "M", "M", "J", "V", "S", "D"] as const;
 const WEEK_LONG = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"] as const;
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] as const;
@@ -206,7 +206,7 @@ export function clearProgressCache(): void {
 }
 
 export function progressTz(): string {
-  return process.env.PLANIA_TZ || "America/Mexico_City";
+  return screenTz();
 }
 
 export function isPruebaTitle(title: string): boolean {
@@ -363,10 +363,12 @@ function rangeLabel(range: Range, from: string, to: string, today: string): stri
   return `AÑO ${from.slice(0, 4)}`;
 }
 
+// PLA-I2-3: a project's place comes from its own row (settings.identity.order), else from its slug.
+let projectOrder = new Map<string, number>();
 function projectSort(a: string, b: string): number {
-  const ia = PROJECT_ORDER.indexOf(a);
-  const ib = PROJECT_ORDER.indexOf(b);
-  return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+  const ia = projectOrder.get(a) ?? Number.MAX_SAFE_INTEGER;
+  const ib = projectOrder.get(b) ?? Number.MAX_SAFE_INTEGER;
+  return ia - ib || a.localeCompare(b);
 }
 
 function countsOf(map: Map<string, number>, titles: Titles): ProjectCount[] {
@@ -434,7 +436,8 @@ function cosa(row: TaskAgg): boolean {
 }
 
 async function loadProjects(db: Db): Promise<Titles> {
-  const rows = await q<{ slug: string; title: string }>(db, sql`select slug, title from projects`);
+  const rows = await q<{ slug: string; title: string; ord: number | null }>(db, sql`select slug, title, case when jsonb_typeof(settings->'identity'->'order') = 'number' then (settings->'identity'->>'order')::float8 end as ord from projects`);
+  projectOrder = new Map(rows.filter((r) => r.ord !== null && Number.isFinite(Number(r.ord))).map((r) => [r.slug, Number(r.ord)]));
   return new Map(rows.map((r) => [r.slug, r.title]));
 }
 

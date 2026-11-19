@@ -166,7 +166,7 @@ export const MessageRow = ({
 
 export type SendState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; text: string } | { kind: "error"; message: string };
 
-// PLA-I35-3: suggestions under the box fill it (a question to send, or "Mianovia: " to finish typing).
+// PLA-I35-3: suggestions under the box fill it (a question to send, or "Tienda: " to finish typing).
 export const Composer = ({
   placeholder,
   state,

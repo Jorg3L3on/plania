@@ -197,7 +197,7 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
   const byId = new Map(runs.map((r) => [r.id, r]));
   return rows.map((c, i) => {
     const run = c.runId ? byId.get(c.runId) : undefined;
-    // PLA-69: queued is still in line (it said «Leyendo» while the Mac held it); only a started run reads.
+    // PLA-69: queued is still in line (it said «Leyendo» while the machine held it); only a started run reads.
     const state: ConsultaState = c.answer ? "lista" : !run || run.status === "queued" ? "cola" : run.status === "running" || run.status === "starting" ? "leyendo" : "sin_respuesta";
     const held = state === "cola" && run?.heldCode ? (HELD_TEXT[run.heldCode as HeldCode] ?? null) : null;
     // Only the newest few carry their trail: it is read from a log file each time.

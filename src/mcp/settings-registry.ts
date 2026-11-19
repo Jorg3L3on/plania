@@ -125,6 +125,15 @@ export const SETTINGS = {
     frase: "Los comandos de la base de la app, cuando Plania no los encuentra solo.",
     reason: "Plania finds them in package.json and the repo; set them only when it cannot.",
   },
+  // PLA-I2-3: the project's place in lists; its colour and mark come from its slug.
+  identity: {
+    tier: "advanced",
+    defecto: "Por nombre, en orden alfabético.",
+    control: "ajustes.avanzado",
+    default: "by slug, alphabetically",
+    frase: "En qué lugar sale el proyecto en las listas (menor primero).",
+    reason: "Alphabetical order works until there are enough projects to care.",
+  },
   team: {
     tier: "advanced",
     defecto: "120 minutos.",

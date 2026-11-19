@@ -1,4 +1,4 @@
-// A command for Jorge to run, with a copy button. Plania never runs it.
+// A command for the owner to run, with a copy button. Plania never runs it.
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";

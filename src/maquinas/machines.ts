@@ -152,7 +152,7 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   const reason = !supported("base_lever")
     ? NO_DISPONIBLE
     : !local
-    ? "La base no está en esta Mac"
+    ? "La base no está en esta máquina"
     : planiaPorts().has(port)
       ? "Es el Postgres de Plania; no se apaga desde un piso"
       : !service
@@ -216,7 +216,7 @@ export async function configurar(db: Db, slug: string): Promise<MaquinasRead> {
 }
 
 // The base lever: brew services start|stop of the server's own service. Refused for a remote base, Plania's own
-// Postgres, and a server that is not a brew service on this Mac.
+// Postgres, and a server that is not a brew service on this machine.
 export async function baseLever(db: Db, slug: string, want: "encender" | "apagar"): Promise<BaseRead> {
   const p = await projectOf(db, slug);
   const { env, address } = appEnvOf(p);

@@ -130,7 +130,7 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         <span className="cor-hoja-two">
           <label>
             <span className="cor-text">Nombre</span>
-            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder="Viajia" required />
+            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder="Mi proyecto" required />
           </label>
           <label style={{ flex: 2 }}>
             <span className="cor-text">Meta, en una oración</span>
@@ -150,8 +150,8 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
           {codigo === "carpeta" && (
             <span className="cor-hoja-two">
               <label style={{ flex: 2 }}>
-                <span className="cor-text">Carpeta en esta Mac</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/Developer/Projects/viajia" autoComplete="off" spellCheck={false} required />
+                <span className="cor-text">Carpeta en esta máquina</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/plania/projects/mi-proyecto" autoComplete="off" spellCheck={false} required />
               </label>
               <label>
                 <span className="cor-text">En GitHub (si tiene)</span>
@@ -353,7 +353,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
           </a>
         </p>
       )}
-      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : "No se pudo. Si la Mac está dormida, intenta al despertar."}</p>}
+      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : "No se pudo. Si la máquina está dormida, intenta al despertar."}</p>}
       <div className="cor-acts">
         {done ? (
           <Btn kind="primary" onClick={onClose} data-control="publicar-listo">

@@ -1,4 +1,4 @@
-// PLA-I19: Mi progreso. Derived reads for Jorge's screen.
+// PLA-I19: Mi progreso. Derived reads for the owner's screen.
 // Mounted under the session cookie. A Bearer is a bot: 401, even with a cookie.
 import { Hono, type Context } from "hono";
 import { withDb } from "../db/client.js";

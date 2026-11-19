@@ -47,7 +47,7 @@ const Say = ({ p, m, acts }: { p: OrgProject; m: OrgMember; acts: CorrienteActs 
         acts.refresh();
         setSent("Se lo pediste al PO.");
       } catch (err) {
-        setSent(err instanceof ApiError ? `No se pudo (${err.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar.");
+        setSent(err instanceof ApiError ? `No se pudo (${err.code}).` : "No se pudo. Si la máquina está dormida, intenta al despertar.");
       }
     }
     setText("");
@@ -257,7 +257,7 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
           <Btn kind="secondary" disabled={!role || add.isPending} onClick={() => role && add.mutate({ template: role, packs: pk, motor: model ? { model } : undefined })} data-control="sumar-rol">
             {add.isPending ? "Sumando…" : "Añadir al equipo"}
           </Btn>
-          {add.isError && <p className="cor-state bad">{add.error instanceof ApiError ? `No se pudo sumar (${add.error.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar."}</p>}
+          {add.isError && <p className="cor-state bad">{add.error instanceof ApiError ? `No se pudo sumar (${add.error.code}).` : "No se pudo. Si la máquina está dormida, intenta al despertar."}</p>}
           {added && (
             <p className="cor-state ok" role="status">
               ✓ {added} se suma al equipo.

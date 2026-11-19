@@ -15,7 +15,7 @@ import { notifyQueue } from "../runner/queue.js";
 
 // PLA-I60-5: the same save carries «a la vez»: a seat's own count (max_parallel, null: del piso), the project's
 // floor (max_concurrent, max_per_agent, consulta_slots in projects.settings.runner) and the company's ceiling
-// (runner_settings.max_concurrent, «Tope de la Mac»). The route validated the ranges.
+// (runner_settings.max_concurrent, «Tope de la máquina»). The route validated the ranges.
 export type MotoresInput = {
   project: string;
   seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null; max_parallel?: number | null }[];

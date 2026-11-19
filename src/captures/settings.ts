@@ -3,9 +3,9 @@
 // not stored anywhere; session.password_command sets a fresh one on the seed's test user for each run.
 import { z } from "zod";
 
-// The two widths every page is taken at (Jorge, 13 Nov 2026): desktop 1280, phone 390.
+// The two widths every page is taken at (the owner, 13 Nov 2026): desktop 1280, phone 390.
 export const VIEWPORTS = {
-  // PLA-110 (guided test PLA-86, F-28): the bar is 1440×800, the size Jorge reads Plania and the apps at.
+  // PLA-110 (guided test PLA-86, F-28): the bar is 1440×800, the size the owner reads Plania and the apps at.
   desktop: { width: 1440, height: 800, mobile: false, scale: 1 },
   phone: { width: 390, height: 844, mobile: true, scale: 2 },
 } as const;
@@ -49,7 +49,7 @@ const session = z
 
 export const captureSettingsSchema = z
   .object({
-    // How the test copy starts on the Mac (Encenderla, src/captures/prueba.ts). {port} is replaced; the port
+    // How the test copy starts on the machine (Encenderla, src/captures/prueba.ts). {port} is replaced; the port
     // is the first free one from this one up, so two floors and a runner's dev server never clash.
     start_command: z.string().min(1).max(300),
     port: z.number().int().min(1024).max(65535),

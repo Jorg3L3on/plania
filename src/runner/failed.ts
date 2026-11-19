@@ -2,11 +2,11 @@
 // lease ran out and nothing continued it. Each heartbeat tick this frees those tickets:
 //   first failure in a row    the ticket goes back to Ready and the same agent is queued on it once more
 //                             (the run resumes its session in the same worktree, so it keeps what it did)
-//   second failure in a row   the ticket goes to Blocked with a line for Jorge (a step in his inbox); when he
+//   second failure in a row   the ticket goes to Blocked with a line for the owner (a step in his inbox); when he
 //                             marks it done the ticket returns to Ready and the event hook wakes the role
 // "In a row" counts this agent's finished runs on the ticket, newest first, up to the first that did not
-// fail. Odd: retry. Even: ask. So each time Jorge lets it go on, the agent gets two attempts again.
-// A stopped run is not a failure (Jorge or a switch stopped it). A run that ended ok without closing its
+// fail. Odd: retry. Even: ask. So each time the owner lets it go on, the agent gets two attempts again.
+// A stopped run is not a failure (the owner or a switch stopped it). A run that ended ok without closing its
 // ticket is left to the lease: the reaper wakes the role when it runs out (src/runner/events.ts).
 // The retry waits while the agent is busy or a switch is off: the ticket is freed only once its wake is queued.
 //
@@ -17,7 +17,7 @@
 //   requeueHeld        a Ready ticket whose newest run was stopped or dropped by a limit (budget, switch,
 //                      plan guard, a server restart that dropped the queue) is queued again for the same
 //                      agent once the runner's own checks say it would start. Once: the queued run is then
-//                      the newest. Jorge's Detener is not a limit; Seguir is his.
+//                      the newest. The owner's Detener is not a limit; Seguir is his.
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -140,7 +140,7 @@ export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: 
 
 // ---- PLA-18: runs a limit stopped, and work a limit held
 
-// The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by Jorge).
+// The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by the owner).
 // "budget" is only read from runs made before PLA-21 removed the budgets: those requeue on the next tick.
 export type Limit = "budget" | "switch" | "plan" | "restart";
 export function limitOf(status: string, summary: string, stopReason: string | null): Limit | null {

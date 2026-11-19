@@ -468,7 +468,7 @@ export async function canStart(db: Db, agent: Agent, projectId: string, taskKey:
 // Queued runs start here, from any process: one short transaction under ADMIT_LOCK decides which runs start
 // (status starting, their lock keys taken, worker and lease set); the processes spawn after it commits. Checks, in
 // order: the run's own verdict (switches, goal, base branch, the rest for cadence runs), the company ceiling minus
-// reserved slots, this worker's capacity and the Mac's free memory and disk, the start rate, the plan guard (a
+// reserved slots, this worker's capacity and the machine's free memory and disk, the start rate, the plan guard (a
 // stopped plan ends the run as before; a projection that would cross the guard holds it), the project's lane cap,
 // the agent's cap, the lock keys, and overlapping areas for code runs. A run that waits keeps a held_code the screen
 // reads. `only` admits one run (a wake or the owner's «Que empiece ya»); skipRest and pastGuard apply to it alone.

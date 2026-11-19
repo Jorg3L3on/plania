@@ -252,7 +252,7 @@ function ticketThing(
   return out("fila", allDone ? "Sus pasos están hechos: espera publicarse." : "Sin pasos todavía.", allDone ? "Hecha" : "Sin pasos", null, null);
 }
 
-/** An idea not promoted yet: a pedido (origin jorge) or the team's idea. */
+/** An idea not promoted yet: a pedido (origin owner) or the team's idea. */
 function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null; ordered_at?: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[] }): Cosa {
   const { p, paused } = ctx;
   const tipo: Tipo = i.origin === "owner" ? "pedido" : "idea";

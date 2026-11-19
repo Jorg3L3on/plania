@@ -1,5 +1,5 @@
 // PLA-I1-5: primary things (no teardown, never orphan or stale), the stale and ghost states and their
-// thresholds, the audit findings about the Mac, the resume line and the inbox.
+// thresholds, the audit findings about the machine, the resume line and the inbox.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -519,7 +519,7 @@ describe("stale rows on a whole tick", () => {
     // server (stale), database (stale), worktree 2 GB (stale); the postgres server belongs to no project
     assert.equal(digest.machine, "1 servidor, 3 obsoletos, 2.0 GB de worktrees");
     const filmia = await findProject(db, "filmia");
-    assert.equal((await resumeDigest(db, filmia)).machine, null, "a project with nothing on the Mac has no line");
+    assert.equal((await resumeDigest(db, filmia)).machine, null, "a project with nothing on the machine has no line");
   });
 
   test("inbox: stale and orphan items older than 24h show, younger ones do not", async () => {
@@ -593,7 +593,7 @@ describe("ghost rows", () => {
     assert.equal((await stateOf(raw, "port:4101")).state, "ghost");
   });
 
-  test("a ghost is released an hour later with footprint.released and reason ghost; the Mac is not touched", async () => {
+  test("a ghost is released an hour later with footprint.released and reason ghost; the machine is not touched", async () => {
     const before = (await raw.query("select count(*)::int as n from events where type = 'footprint.released'")).rows[0].n;
     await tick(6 + 59, ["ports"]);
     assert.equal((await stateOf(raw, "port:4101"))?.state, "ghost", "a ghost row is not released before its hour");
@@ -639,7 +639,7 @@ describe("SERVICE_STARTS_AT_LOGIN", () => {
   const w = (brew: World["brew"]): World => ({ listeners: [], dbs: {}, brew, worktrees: [], sizeKb: 1 });
 
   test("what was there when Plania began watching never fires; what appeared afterwards does, with a hint that does not stop it", async () => {
-    // when Plania started watching, the Mac already had Google's updater, an old brew Postgres and Plania's own agent
+    // when Plania started watching, the machine already had Google's updater, an old brew Postgres and Plania's own agent
     for (const f of ["com.google.keystone.agent", "com.plania.server"]) writeFileSync(path.join(fx.agents, `${f}.plist`), "");
     const t0 = new Date();
     await tickAt(db, fx, w([{ name: "postgresql@14", status: "started" }]), t0);

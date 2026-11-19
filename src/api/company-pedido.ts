@@ -27,7 +27,7 @@ import { ownerEs } from "../owner.js";
 export type FichaIdea = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type TrailItem = {
   at: string;
-  // jorge, a runner role (product-owner, research, artist…), or the actor's own name.
+  // owner, a runner role (product-owner, research, artist…), or the actor's own name.
   who: string;
   kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada" | "veredicto" | "marcos" | "despertar";
   // PLA-I61-3: the stop an item belongs to (a doc, an answer), so the idea view links it to that stop.
@@ -140,7 +140,7 @@ export function decisionLine(p: Record<string, unknown>): string {
 }
 const DROPPED = /^Descartada por [^\n]{1,80}? desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
-// PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-mianovia-idea1-…,
+// PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-tienda-idea1-…,
 // research-…, artist-…): the trail names the role, not the runner.
 const SESSION_ROLE: [RegExp, string][] = [
   [/^po-/i, "product-owner"],
@@ -209,7 +209,7 @@ export async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
   return out;
 }
 
-// A request of the owner's in this project: an idea with origin jorge.
+// A request of the owner's in this project: an idea with origin owner.
 async function ideaOf(db: Db, slug: string, key: string): Promise<{ project: { id: string; slug: string }; t: Task } | Refusal> {
   const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };

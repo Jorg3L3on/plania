@@ -1,10 +1,10 @@
-// PLA-I46-8: Encenderla. The floor's Ventana can start a project's test copy on this Mac, and only when Jorge
+// PLA-I46-8: Encenderla. The floor's Ventana can start a project's test copy on this machine, and only when the owner
 // clicks. The test copy is Plania's own worktree of origin/sandbox (<worktrees>/<slug>/_prueba, detached, outside
-// every repo), never main and never Jorge's checkout. It runs settings.capture.start_command on the first free port
+// every repo), never main and never the owner's checkout. It runs settings.capture.start_command on the first free port
 // from settings.capture.port up (skipping ports another copy, a registered server or anything listening already
 // holds), with the shell basics only (checkoutEnv: none of Plania's secrets). Once it answers, fresh stills are
 // taken and the Ventana says «En vivo». The process is a registered footprint (port:N, teardown kill -TERM -<pgid>)
-// and stops when Jorge turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
+// and stops when the owner turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
 import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import { exitAfterDrain } from "../ops/shutdown.js";
@@ -286,7 +286,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   c.worktree = wt;
 
   // The test copy is origin/sandbox (or the delivery's origin/<branch>), detached. Never main, never a checkout
-  // Jorge works in.
+  // The owner works in.
   if ((await g(["fetch", "origin", ref], repo)).code !== 0) return fail(db, c, `No se pudo traer ${ref} de origin`);
   if (existsSync(wt)) {
     const dirty = await g(["status", "--porcelain", "--untracked-files=no"], wt);
@@ -644,7 +644,7 @@ async function stopProcess(db: Db, c: Copy): Promise<void> {
   }
 }
 
-// Turns the copy off (Jorge's Apagar, the idle sweep, Reintentar after a failure). The worktree stays for next time.
+// Turns the copy off (the owner's Apagar, the idle sweep, Reintentar after a failure). The worktree stays for next time.
 export async function apagar(db: Db, slug: string): Promise<PruebaRead> {
   return stopId(db, idOf(slug, "sandbox"));
 }

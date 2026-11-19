@@ -1,7 +1,7 @@
 # Plania on the phone (2.12)
 
-Plania stays bound to `127.0.0.1:3737` on the Mac. The phone reaches it through Tailscale: `tailscale serve`
-terminates HTTPS on the Mac with a real certificate for its tailnet name and forwards to the loopback port.
+Plania stays bound to `127.0.0.1:3737` on the machine. The phone reaches it through Tailscale: `tailscale serve`
+terminates HTTPS on the machine with a real certificate for its tailnet name and forwards to the loopback port.
 Nothing listens on the LAN, and only devices signed in to your tailnet can open it.
 
 HTTPS is what the phone needs: the home-screen app, the service worker and push notifications only work
@@ -10,9 +10,9 @@ in a secure context, and the session cookie is `Secure`.
 ## 1. Expose the server on the tailnet (once)
 
 Prerequisites, in the Tailscale admin console (DNS page): MagicDNS on, and HTTPS Certificates enabled.
-Tailscale installed and signed in on the Mac and on the phone, with the same account.
+Tailscale installed and signed in on the machine and on the phone, with the same account.
 
-On the Mac:
+On the machine:
 
 ```bash
 tailscale serve --bg --https=443 http://127.0.0.1:3737
@@ -39,7 +39,7 @@ tailscale serve --https=443 off
 ### Why this works with the session cookie
 
 `tailscale serve` sends `X-Forwarded-Proto: https` (and `X-Forwarded-Host`) to the server. Plania trusts
-those headers only because the server is bound to `127.0.0.1`: every request comes from this Mac, either a
+those headers only because the server is bound to `127.0.0.1`: every request comes from this machine, either a
 local browser or `tailscaled`. Login marks the cookie `Secure` when the request is HTTPS (directly or per
 `X-Forwarded-Proto`) or comes to a loopback host (`localhost`, `127.0.0.1`), which browsers treat as secure.
 Cookies are per origin, so log in once on the tailnet URL even if you are logged in on `localhost:3737`.
@@ -52,7 +52,7 @@ Push messages are signed with a VAPID key pair that lives in the main checkout's
 pnpm vapid
 ```
 
-It prints three lines. Paste them into `/Users/jorgeleon/Developer/Projects/plania/.env`:
+It prints three lines. Paste them into the `.env` in your Plania folder:
 
 ```
 PLANIA_VAPID_PUBLIC=<the public key it printed>
@@ -90,7 +90,7 @@ permission; allow it. The switch subscribes this device (`POST /api/push/subscri
 unsubscribes it (`DELETE /api/push/subscribe`). Each device has its own switch.
 
 What sends a notification: a question an agent asks, a step that waits on you
-(a `human_action` blocker, typed or parsed from a `Jorge:` line) and a release that is ready to ship.
+(a `human_action` blocker, typed or parsed from a `The owner:` line) and a release that is ready to ship.
 The server looks once a minute and sends one message per device for everything new in that minute, so a
 burst is one notification. Tapping it opens the Bandeja on the right tab (Decisiones or Pasos).
 
@@ -109,8 +109,8 @@ turn the switch on again there. On iPhone, if notifications stop, check Settings
 ## El Probador's live copy (PLA-I52-5)
 
 «Pruébala en vivo» on a delivery opens the delivery's own copy, already signed in as the project's test user.
-Plania serves it through a small proxy on a loopback port (never the LAN; any other peer gets 403). When the Mac
+Plania serves it through a small proxy on a loopback port (never the LAN; any other peer gets 403). When the machine
 has Tailscale, Plania also runs `tailscale serve --bg --https=<that port> http://127.0.0.1:<that port>` so the
 phone opens it at `https://<mac-name>.<tailnet>.ts.net:<port>`, and turns that entry off when the copy stops
 (after 20 minutes unused, or when a newer delivery replaces it). Without Tailscale the card says so and the link
-opens on the Mac only. `PLANIA_TAILSCALE_BIN` points at the CLI when it is not in the usual places.
+opens on the machine only. `PLANIA_TAILSCALE_BIN` points at the CLI when it is not in the usual places.

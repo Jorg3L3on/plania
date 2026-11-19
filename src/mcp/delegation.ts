@@ -340,8 +340,8 @@ export function registerDelegationTools(
   },
 ): void {
   const { db, identity, writeCtx, actor, request_id, run, readOnly, write } = host;
-  const project = z.string().min(1).describe("Project slug, e.g. micasa");
-  const key = z.string().min(1).describe("Human key, e.g. MIC-01");
+  const project = z.string().min(1).describe("Project slug, e.g. tienda");
+  const key = z.string().min(1).describe("Human key, e.g. TND-01");
 
   server.registerTool(
     "comment",

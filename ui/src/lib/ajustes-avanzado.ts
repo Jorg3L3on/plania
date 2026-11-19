@@ -32,6 +32,7 @@ export const AVANZADO_ETIQUETAS: Record<string, string> = {
   release_on: "Qué cuenta como publicado",
   auto_done: "Cerrar solo lo publicado",
   team: "Minutos para «atorado»",
+  identity: "Orden en las listas",
   github_token_env: "Variable con la llave de GitHub",
   vercel: "Vercel",
   resources: "Recursos por turnos",

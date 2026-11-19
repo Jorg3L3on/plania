@@ -129,7 +129,7 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   const [blocking, setBlocking] = useState(false);
   const [reasonFor, setReasonFor] = useState<string | null>(null);
   const statuses = task.kind === "initiative" ? INITIATIVE_STATUSES : task.kind === "idea" ? IDEA_STATUSES : TICKET_STATUSES;
-  // Jorge marks Done after merging: tickets offer it once In review (and PLA-I56-2 once Merged or Released, when a check
+  // The owner marks Done after merging: tickets offer it once In review (and PLA-I56-2 once Merged or Released, when a check
   // or the rule holds them), initiatives while open, ideas from Open.
   const from = { status: task.status, note: task.blocked_note };
   const offerDone = task.kind === "idea" ? task.status === "Open" : task.kind === "initiative" ? !CLOSED_STATUSES.has(task.status) : ["In review", "Merged", "Released"].includes(task.status);

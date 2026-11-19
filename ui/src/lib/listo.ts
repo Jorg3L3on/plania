@@ -42,7 +42,7 @@ export const PALABRAS: Record<string, Palabras> = {
     falta: () => "Plania todavía no tiene la llave con la que entra el equipo, así que ninguna corrida arranca. Se crea al terminar el primer arranque; si ya lo terminaste, reinicia Plania.",
   },
   claude_bin: {
-    titulo: () => "Claude en esta Mac",
+    titulo: () => "Claude en esta máquina",
     nombre: () => "el programa claude",
     listo: () => "Plania encuentra el programa claude.",
     falta: () => "Plania no encuentra el programa claude, así que ninguna corrida arranca. Instala Claude Code con su instalador: Plania lo encuentra solo en su lugar de siempre.",

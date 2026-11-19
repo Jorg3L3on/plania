@@ -24,7 +24,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export type CaptureOptions = { project: string; key: string; role?: string; baseSha?: string; id?: string };
 export type CaptureDeps = { git?: GitFn; env?: NodeJS.ProcessEnv };
 
-// "/Users/jorge/Developer/app" → "~/Developer/app": the case file names no user folder.
+// "/Users/owner/Developer/app" → "~/Developer/app": the case file names no user folder.
 const tilde = (p: string, home: string): string => (p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length).split(path.sep).join("/")}` : p);
 
 async function baseOf(git: GitFn, repo: string, pr: { headSha: string | null; mergeSha: string | null; baseBranch: string | null }): Promise<string> {

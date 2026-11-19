@@ -12,6 +12,7 @@ import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
 import type { Job } from "./index.js";
 import { pgToolFor } from "../lib/pg-bin.js";
+import { screenTz } from "../locale.js";
 
 // The nightly backup (2.9 fix b): once per local day after 03:00 (PLANIA_TZ), `pg_dump --no-owner`
 // of DATABASE_URL, gzipped into ~/plania-backups/plania-<YYYYMMDD>.sql.gz. Keeps the last KEEP daily
@@ -115,7 +116,7 @@ export async function prune(dir: string, keep = KEEP): Promise<string[]> {
 
 // One tick: dumps when today's dump is still missing and it is past 03:00 local time.
 export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promise<{ dumped: number; pruned: number; failed: number }> {
-  const tz = deps.tz ?? (process.env.PLANIA_TZ || "America/Mexico_City");
+  const tz = deps.tz ?? screenTz();
   const { day, hour } = localParts(now, tz);
   const state = await backupState(db);
   if (hour < AFTER_HOUR || state.day === day) return { dumped: 0, pruned: 0, failed: 0 };

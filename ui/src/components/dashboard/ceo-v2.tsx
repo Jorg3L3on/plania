@@ -1,4 +1,4 @@
-// PLA-I28: the CEO screen v2 (canvas A on the phone, B on the Mac). Everything shown comes from GET /api/dashboard;
+// PLA-I28: the CEO screen v2 (canvas A on the phone, B on the machine). Everything shown comes from GET /api/dashboard;
 // the two actions go through POST /api/dashboard/wake and /assign.
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -9,11 +9,12 @@ import { STATUS_DOT, STATUS_WORD } from "@/components/team/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Dashboard, DashboardAgent, DashboardGoal, GoalHealth, QueueItem, QueueKind, ReadyTicket } from "@/components/dashboard/types";
+import { LOCALE } from "@/lib/locale";
 
 const panel = "rounded-2xl bg-card ring-1 ring-foreground/10";
 const heading = "font-display text-xl font-extrabold tracking-tight";
-const count = (n: number) => n.toLocaleString("es-MX");
-const projectLabel = (slug: string | null) => (!slug ? "Empresa" : slug === "micasa" ? "MiCasa" : slug.charAt(0).toUpperCase() + slug.slice(1));
+const count = (n: number) => n.toLocaleString(LOCALE);
+const projectLabel = (slug: string | null) => (!slug ? "Empresa" : slug.charAt(0).toUpperCase() + slug.slice(1));
 const pillPrimary = "inline-flex min-h-10 items-center justify-center rounded-full bg-foreground px-4 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-40";
 const pillGhost = "inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm ring-1 ring-foreground/15 hover:bg-muted disabled:opacity-40";
 

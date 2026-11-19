@@ -71,7 +71,7 @@ export async function generatedHeadline(db: Q, p: Project, d: HeadlineInput): Pr
 
   if (d.claims.length) clauses.push(`En curso: ${some(d.claims.map((c) => (c.owner?.agent ? `${c.key} (${c.owner.agent})` : c.key)), 3)}.`);
 
-  // What waits on Jorge, in the inbox's own words (decisiones and pasos; limpieza is the Mac's).
+  // What waits on the owner, in the inbox's own words (decisiones and pasos; limpieza is the machine's).
   const box = await inboxFor(db, p);
   const decisiones = box.filter((i) => i.group === "decisiones").length;
   const pasos = box.filter((i) => i.group === "pasos").length;

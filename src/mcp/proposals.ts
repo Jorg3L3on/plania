@@ -241,7 +241,7 @@ export const registerProposalTools = (
         "kind choice: title, 2 to 6 options {label, effect (what changes), cost {tickets, days, tokens, delays}, recommended}, recommended_reason, combinable (sets of option numbers that may go together, e.g. [[1, 2]]; omit when they exclude each other). It stays in Te toca until answered, even if you write again.",
         "kind plan: the answer to one of the owner's orders. order (the order ticket's key), understood (one line, plain words), steps [{title, done_when, work_type code|ops|research|bug|debt}], cost. When the project approves plans, do not create tickets: Plania makes one Ready ticket per step when someone presses \"Sí, empiecen\". Otherwise the tickets are made now.",
         "Plan for a leg of the route (the order says «Planea «<title>»»): also pass leg (that initiative's key; found from the title when omitted), at most 4 steps, questions (up to 3 closed ones: {text, options 2 to 4 short answers, suggested: index of the one you recommend}) and checklist (exactly 3 short things QA verifies on every step). It always waits for the owner's «Aprobar el plan»; then the steps are made under that initiative. A postponed (On hold) leg is refused: never plan it to start it.",
-        "No keys, branch names or the word sandbox in title, labels or understood: anyone at the Mac reads them.",
+        "No keys, branch names or the word sandbox in title, labels or understood: anyone at the machine reads them.",
       ].join(" "),
       inputSchema: {
         actor,

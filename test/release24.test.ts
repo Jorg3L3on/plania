@@ -122,7 +122,7 @@ describe("finish", () => {
 
   test("no_pr_reason lets a code ticket through and keeps it out of the audit", async () => {
     await call("start", { ...P, key: "FIL-I1-3" });
-    const r = await call("finish", { ...P, key: "FIL-I1-3", result: { ...pass(), check_ns: [1, 2] }, no_pr_reason: "config-only change applied on the Mac" });
+    const r = await call("finish", { ...P, key: "FIL-I1-3", result: { ...pass(), check_ns: [1, 2] }, no_pr_reason: "config-only change applied on the machine" });
     assert.equal(r.status, "In review");
     assert.ok(r.changed.includes("no_pr"));
     const audit = await call("audit", P);

@@ -5,7 +5,7 @@
 //                                              freed and the ticket notes who stopped it. The project keeps running.
 //   POST /api/company/runs/:id/resume          Seguir: the same agent is woken again on the same ticket.
 //   POST /api/company/projects/:slug/tasks/:key/note {text}   Decirle algo: a note the agent reads at its next step.
-//                  It starts "De Compañía:", never "Jorge:" (that prefix turns a note into a step for Jorge).
+//                  It starts "De Compañía:", never "Owner:" (that prefix turns a note into a step for the owner).
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, events, projects, tasks } from "../db/schema.js";
@@ -77,7 +77,7 @@ export async function stopOneRun(db: Db, id: string): Promise<{ stopped: true; t
   const r = await runRow(db, id);
   if (!r) return { error: "RUN_NOT_FOUND", status: 404, hint: "Esa corrida no existe." };
   if (r.status !== "running") return { error: "RUN_NOT_LIVE", status: 409, hint: "Esa corrida ya terminó." };
-  if (!stopRun(r.id)) return { error: "RUN_NOT_LIVE", status: 409, hint: "Esa corrida no corre en esta Mac." };
+  if (!stopRun(r.id)) return { error: "RUN_NOT_LIVE", status: 409, hint: "Esa corrida no corre en esta máquina." };
   if (r.taskKey) {
     const ctx = { ...webCtx, tool: "screen.run_stop" };
     try {

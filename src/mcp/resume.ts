@@ -16,7 +16,7 @@ import { iso, type Q } from "./tx.js";
 
 // get_resume: generated, never hand-written. One block per open initiative (what is claimed, what is
 // next, what must be kept), the standalone tickets, project-wide pinned decisions, questions waiting
-// for Jorge and the latest events.
+// for the owner and the latest events.
 // Initiatives write their part with set_task next_action / in_progress_note; decisions with add_decision pin.
 
 const CLOSED = ["Done", "Won't do"];
@@ -122,10 +122,10 @@ export async function resumeDigest(db: Q, p: Project) {
     // 2.11: generated from the status block; the note is what set_project headline wrote.
     headline: { generated: await generatedHeadline(db, p, { status, next_claimable, claims: claimed.map(line) }), note: headlineNoteShape(p) },
     status,
-    // What this project's agents have running on the Mac, in one line (null when nothing is).
+    // What this project's agents have running on the machine, in one line (null when nothing is).
     machine: await machineLine(db, p.id),
     claims: claimed.map(line),
-    // 2.12: what Jorge asked for on screen, newest first. Read these before the backlog.
+    // 2.12: what the owner asked for on screen, newest first. Read these before the backlog.
     requests: await openRequests(db, p.id),
     next_claimable,
     initiatives,

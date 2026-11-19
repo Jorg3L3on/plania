@@ -10,7 +10,7 @@ export const borrarRows = (title: string, running: number): [string, string][] =
     running === 0 ? "Nada está corriendo ahora." : running === 1 ? "El agente que está trabajando se detiene antes de borrar." : `Los ${running} agentes que están trabajando se detienen antes de borrar.`,
   ],
   ["Se borra", `${title} en Plania: su plan, sus pasos, sus ideas, sus documentos, su historial y su equipo (PO, Research, Artist y Taller).`],
-  ["Y además", "Las copias de trabajo de sus agentes en esta Mac. Lo que no se subió a GitHub se pierde."],
+  ["Y además", "Las copias de trabajo de sus agentes en esta máquina. Lo que no se subió a GitHub se pierde."],
   ["Se queda", `El código de ${title} y su repositorio, tal cual. Nada se borra en GitHub.`],
 ];
 

@@ -53,7 +53,7 @@ export const api = {
   // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
   patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string; reason?: string; version: number }) =>
     request<TaskDetail>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
-  // 2.12 Pedir: a Backlog ticket as Jorge (origin jorge); the reply is the new task.
+  // 2.12 Pedir: a Backlog ticket as the owner (origin owner); the reply is the new task.
   createTask: (slug: string, input: { title: string; summary?: string; priority?: string; parent_key?: string }) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks`, input),
   release: (slug: string, key: string) =>
@@ -68,12 +68,12 @@ export const api = {
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),
   waiveCheck: (slug: string, key: string, n: number, reason: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
-  // 2.11 Orden: the last audit run, and the one-click fixes (run as Jorge); the reply is the new run.
+  // 2.11 Orden: the last audit run, and the one-click fixes (run as the owner); the reply is the new run.
   audit: (slug: string) => request<Orden>("GET", `/projects/${encodeURIComponent(slug)}/audit`),
   fixAudit: (slug: string, finding: { code: string; key: string | null; id: string }) =>
     request<Orden>("POST", `/projects/${encodeURIComponent(slug)}/audit/fix`, finding),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
-  // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
+  // 2.13: the owner ships the release step (merge mode): a PR from → into, merged with a merge commit.
   // PLA-I36-11: publishing carries the owner's code.
   shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, {}),
   resolveBlocker: (slug: string, id: string, note?: string) =>
@@ -90,7 +90,7 @@ export const api = {
   releaseInfo: () => request<ReleaseReading>("GET", "/release"),
   // PLA-I2-2: first start, before any session: whether it is open, the form, and the machine check it links.
   firstStart: () => request<FirstStartState>("GET", "/first-start"),
-  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-7: the page of limits, built from the real rules.
   limits: () => request<LimitsPage>("GET", "/limits"),
@@ -456,7 +456,7 @@ export type MotorView = { model: string | null; effort: string | null; own_model
 // A part null clears it (the seat inherits again); the whole patch null clears both.
 export type MotorPatch = { model?: string | null; effort?: string | null };
 // PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the
-// company's «Tope de la Mac».
+// company's «Tope de la máquina».
 export type MotoresSave = {
   project: string;
   seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null; max_parallel?: number | null }[];

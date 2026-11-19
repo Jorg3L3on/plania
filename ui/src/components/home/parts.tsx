@@ -1,4 +1,4 @@
-// Inicio's pieces around the city: the headline with its voice line, what the Mac runs, and the
+// Inicio's pieces around the city: the headline with its voice line, what the machine runs, and the
 // projects as a compact rail.
 import { ArrowRightIcon, CalendarIcon, CheckIcon, CpuIcon, MessageCircleQuestionIcon, PauseIcon, RocketIcon, TriangleAlertIcon } from "lucide-react";
 import { Link } from "react-router";
@@ -10,9 +10,10 @@ import type { StationTone } from "@/lib/lanes";
 import { ago } from "@/lib/time";
 import type { Machine } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LOCALE } from "@/lib/locale";
 
-const DATE = new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long" });
-const TIME = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit" });
+const DATE = new Intl.DateTimeFormat(LOCALE, { weekday: "long", day: "numeric", month: "long" });
+const TIME = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit" });
 
 function tint(tone: StationTone, pct = 12) {
   return { background: `color-mix(in oklab, ${toneVar(tone)} ${pct}%, transparent)` };
@@ -38,17 +39,17 @@ function fmtKb(kb: number) {
   return gb >= 1 ? `${gb.toFixed(gb >= 10 ? 0 : 1)} GB` : `${Math.round(kb / 1024)} MB`;
 }
 
-// What the Mac runs for the agents: the live ports, the counts, and the first thing the audit found.
+// What the machine runs for the agents: the live ports, the counts, and the first thing the audit found.
 export function LaMac({ machine, servers, names, nowMs }: { machine: Machine; servers: LiveServer[]; names: (slug: string) => string; nowMs: number }) {
   const t = machine.totals;
   const warn = t.orphan + t.stale + machine.findings.length;
   const seen = machine.items.reduce((m, it) => (it.last_seen_at && it.last_seen_at > m ? it.last_seen_at : m), "");
   return (
-    <section id="la-mac" aria-label="La Mac" className="grid content-start gap-3.5 rounded-[22px] border bg-card px-5 py-5">
+    <section id="la-mac" aria-label="La máquina" className="grid content-start gap-3.5 rounded-[22px] border bg-card px-5 py-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <Kicker className="text-ink-done">
           <CpuIcon className="size-3.5" aria-hidden />
-          La Mac
+          La máquina
         </Kicker>
         {seen && <span className="text-xs text-muted-foreground">vista {ago(seen, nowMs)}</span>}
       </div>

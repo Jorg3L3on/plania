@@ -1,9 +1,9 @@
-// PLA-I31-3: a new project from the company template. Jorge's screen only (POST /api/company/projects).
+// PLA-I31-3: a new project from the company template. The owner's screen only (POST /api/company/projects).
 // A name and a one-sentence goal make: the project (switch off, so it starts paused), its active goal,
 // a product owner on the runner (adapter claude_code, reports to ceo, no cadence) whose prompt is the
 // `Prompt: Product owner` doc or, with none, kit/roles/product-owner.md (NEWPROJ-2). No token limit (PLA-21). PLA-I32-2: the PO comes
 // with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
-// the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
+// the PO's first wake comes when the owner resumes the project (project.runs_resumed, src/runner/events.ts).
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, projects, type ProjectSettings } from "../db/schema.js";

@@ -14,6 +14,7 @@ export const AVANZADO_FIELDS = [
   "release_on",
   "auto_done",
   "team",
+  "identity",
   "github_token_env",
   "vercel",
   "resources",
@@ -32,6 +33,7 @@ export const AVANZADO: Record<AvanzadoField, { key: SettingKey; editor: Avanzado
   release_on: { key: "release_on", editor: "select", options: ["env", "branch"] },
   auto_done: { key: "auto_done", editor: "switch" },
   team: { key: "team", editor: "number" },
+  identity: { key: "identity", editor: "number" }, // PLA-I2-3: the place in lists
   github_token_env: { key: "github", editor: "env" },
   vercel: { key: "vercel", editor: "json" },
   resources: { key: "resources", editor: "json" },
@@ -56,6 +58,8 @@ function avanzadoValue(field: AvanzadoField, s: ProjectSettings): unknown {
   switch (field) {
     case "team":
       return s.team?.idle_minutes ?? null;
+    case "identity":
+      return s.identity?.order ?? null;
     case "github_token_env":
       return s.github?.token_env ?? null;
     case "qa": {

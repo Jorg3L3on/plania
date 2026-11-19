@@ -1,5 +1,5 @@
 // PLA-I62-1: the global header under the app bar (header B of the kit): Compañía, the four global places, the live
-// clock, what waits on Jorge in amber, and Pedir (always secondary: the white button is each page's own action).
+// clock, what waits on the owner in amber, and Pedir (always secondary: the white button is each page's own action).
 import { Link } from "react-router";
 import { clockLine, hrefOf, type View } from "@/lib/corriente";
 import { Live, You } from "./parts";
@@ -17,7 +17,7 @@ export type HeadProps = {
   tocaTo: string;
   /** On the Pedir page the button closes it instead (back to where he was). */
   closeTo?: string;
-  /** What still waits on Jorge in today's brief (open blockers and «te toca»). */
+  /** What still waits on the owner in today's brief (open blockers and «te toca»). */
   briefToca?: number;
 };
 
@@ -49,7 +49,7 @@ export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirT
       <Tab to="/machine" on={view === "plomeria"}>
         Plomería
       </Tab>
-      {/* PLA-I63-5: the Morning brief, after Plomería; its count is what still waits on Jorge in today's brief. */}
+      {/* PLA-I63-5: the Morning brief, after Plomería; its count is what still waits on the owner in today's brief. */}
       <Tab to={hrefOf({ view: "brief" })} on={view === "brief"}>
         Brief
         {briefToca > 0 && <span className="cor-count amber">{briefToca}</span>}

@@ -364,7 +364,7 @@ const MotoresBody = z
       .optional(),
     // PLA-I60-5: the project's «Agentes a la vez», «Por agente», «Preguntas a la vez».
     floor: z.object({ max_concurrent: z.number().int().min(0).max(500).optional(), max_per_agent: z.number().int().min(1).max(50).optional(), consulta_slots: z.number().int().min(0).max(20).optional() }).strict().optional(),
-    // PLA-I60-5: «Tope de la Mac» (the company ceiling) rides with the company default motor.
+    // PLA-I60-5: «Tope de la máquina» (the company ceiling) rides with the company default motor.
     company: MotorBody.extend({ max_concurrent: z.number().int().min(0).max(500).optional() }).strict().optional(),
   })
   .strict();

@@ -1,4 +1,4 @@
-// PLA-I54-2: pictures on a request (src/pedidos/images.ts). Jorge's session cookie only, like the other company
+// PLA-I54-2: pictures on a request (src/pedidos/images.ts). The owner's session cookie only, like the other company
 // routes: a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
 //   POST   /api/company/projects/:slug/tasks/:key/images      one picture: the raw bytes (Content-Type image/*) or
 //          multipart with one file field. PNG, JPEG or WebP by its first bytes; 5 MB; 6 per request.

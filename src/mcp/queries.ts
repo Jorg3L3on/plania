@@ -481,7 +481,7 @@ export async function nextTask(db: Q, projectId: string, initiativeKey?: string)
     .select()
     .from(tasks)
     .where(and(...where))
-    // 2.12: within a priority, what Jorge asked for (origin jorge) comes first.
+    // 2.12: within a priority, what the owner asked for (origin owner) comes first.
     .orderBy(byPriority, sql`case when ${tasks.origin} = 'owner' then 0 else 1 end`, asc(tasks.key))
     .limit(1);
   if (!t) return { task: null };

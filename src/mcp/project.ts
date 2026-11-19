@@ -119,7 +119,7 @@ export async function setProject(
     const settings = input.settings ? mergeSettings(current.settings, input.settings) : undefined;
     if (settings && JSON.stringify(settings) !== JSON.stringify(current.settings)) changes.settings = [current.settings, settings];
     if (!Object.keys(changes).length) return projectShape(current);
-    // 2.10: a Jorge line in the headline only warns; it makes no blocker.
+    // 2.10: an owner line in the headline only warns; it makes no blocker.
     const warnings = changes.headline ? headlineWarnings(headline) : [];
     const [u] = await tx
       .update(projects)

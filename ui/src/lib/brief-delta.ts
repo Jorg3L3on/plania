@@ -1,26 +1,27 @@
 // PLA-I63: the Morning brief as Compañía's delta (PLA-IDEA26, sketch 2 «la desembocadura»). Pure, so the tests call
 // it directly: the words of the page (the date line, the headline that rewrites itself) and the delta's model. One
 // stream per project of the brief (stations() of brief-city.ts, «Entre apps» last): its lights in order (new ideas
-// near the source, what follows, what waits on Jorge, a blocker last as a dam), the stream's width (what is open), the
+// near the source, what follows, what waits on the owner, a blocker last as a dam), the stream's width (what is open), the
 // line under its name; every stream meets at «Tú»; what is settled leaves by the river of Resuelto.
 import { CROSS, type BriefStateReply, type IdeaFate, type Item, type ItemState, type ActionId } from "@/lib/brief";
 import type { Ink } from "@/lib/brief-row";
 import { cardsOf, type CityCard, type Station } from "@/lib/brief-city";
+import { LOCALE } from "./locale.js";
 
 const NUM = ["cero", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve", "veinte", "veintiuna", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve", "treinta"];
 /** A count in words up to thirty, then digits (feminine: «una cosa», «una bloquea»). */
 export const numWord = (n: number): string => NUM[n] ?? String(n);
-export const cap = (s: string): string => (s ? s.charAt(0).toLocaleUpperCase("es-MX") + s.slice(1) : s);
+export const cap = (s: string): string => (s ? s.charAt(0).toLocaleUpperCase(LOCALE) + s.slice(1) : s);
 
 /** «mar 17 nov» for an instant (in the brief's zone) or a local date «2026-11-16». */
 export function dayShort(when: string | number, timeZone?: string): string {
   const isDate = typeof when === "string" && /^\d{4}-\d{2}-\d{2}$/.test(when);
   const d = isDate ? new Date(`${when}T12:00:00Z`) : new Date(when);
   try {
-    return new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: isDate ? "UTC" : timeZone })
+    return new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short", timeZone: isDate ? "UTC" : timeZone })
       .formatToParts(d)
       .filter((p) => p.type !== "literal")
-      .map((p) => p.value.replace(".", "").toLocaleLowerCase("es-MX"))
+      .map((p) => p.value.replace(".", "").toLocaleLowerCase(LOCALE))
       .join(" ");
   } catch {
     return typeof when === "string" ? when.slice(0, 10) : "";
@@ -31,7 +32,7 @@ export function dayShort(when: string | number, timeZone?: string): string {
 export function hhmm(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return "";
   try {
-    return new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso));
+    return new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso));
   } catch {
     return iso.slice(11, 16);
   }
@@ -59,7 +60,7 @@ export function kickOf(k: KickInput): string {
   }
 }
 
-/** a: the second line is amber (something waits on Jorge); q: it is quiet grey. */
+/** a: the second line is amber (something waits on the owner); q: it is quiet grey. */
 export type Headline = { l1: string; l2: string; tone: "a" | "q" };
 export type HeadCounts = { total: number; open: number; blocked: number; needs: number };
 
@@ -85,7 +86,7 @@ export function noBriefHeadline(kind: "empty" | "off" | "failed" | "loading", ru
     case "off":
       return { l1: "El brief está apagado.", l2: "Enciéndelo en Ajustes.", tone: "q" };
     case "failed":
-      return { l1: "No se pudo leer el brief.", l2: "Si la Mac está dormida, intenta al despertar.", tone: "q" };
+      return { l1: "No se pudo leer el brief.", l2: "Si la máquina está dormida, intenta al despertar.", tone: "q" };
     case "loading":
       return { l1: "Leyendo el brief…", l2: "", tone: "q" };
   }
@@ -240,7 +241,7 @@ export function deltaOf(d: DeltaInput): Delta {
     const blocks = rowsAll.filter((c) => kindOfCard(c) === "block");
     const tocas = rowsAll.filter((c) => kindOfCard(c) === "toca");
     const nexts = rowsAll.filter((c) => kindOfCard(c) === "next");
-    // The cap: blockers always (they are the dam), then what waits on Jorge, then what follows.
+    // The cap: blockers always (they are the dam), then what waits on the owner, then what follows.
     const keepRows = [...blocks, ...tocas, ...nexts].slice(0, Math.max(CAP.rows, blocks.length));
     const ideas = ideasAll.slice(0, CAP.ideas);
     const hidden = [...ideasAll.slice(CAP.ideas), ...[...blocks, ...tocas, ...nexts].filter((c) => !keepRows.includes(c))];

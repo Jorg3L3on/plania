@@ -1,4 +1,4 @@
-// Words the Bandeja and Inicio share for what waits on Jorge.
+// Words the Bandeja and Inicio share for what waits on the owner.
 
 /** Words for a logged move the Bandeja shows in the delegated list. */
 export const ACTION_WORD: Record<string, string> = {

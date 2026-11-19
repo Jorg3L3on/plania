@@ -37,15 +37,15 @@ export const ARRANQUE: Record<string, ArranqueWords> = {
   },
   "fetch origin/sandbox": {
     por: "No pudo traer la copia de prueba desde GitHub",
-    arregla: "Revisa que el repositorio tenga su rama de prueba y que la Mac pueda conectarse a GitHub.",
+    arregla: "Revisa que el repositorio tenga su rama de prueba y que la máquina pueda conectarse a GitHub.",
   },
   "worktree add": {
     por: "No pudo crear la carpeta de trabajo",
-    arregla: "Revisa el repositorio en la Mac (espacio en disco, carpetas que ya existen) y vuelve a intentarlo.",
+    arregla: "Revisa el repositorio en la máquina (espacio en disco, carpetas que ya existen) y vuelve a intentarlo.",
   },
   "read copy checkout": {
     por: "No pudo poner al día la copia de lectura",
-    arregla: "Revisa el repositorio en la Mac y vuelve a intentarlo.",
+    arregla: "Revisa el repositorio en la máquina y vuelve a intentarlo.",
   },
   "start lost": {
     por: "Se perdió al arrancar",

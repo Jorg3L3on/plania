@@ -8,7 +8,7 @@ import { iso, type Q } from "./tx.js";
 
 // The status block (R-02): what the server can work out, never typed by anyone. Per environment
 // what runs there and whether it trails the integration branches; per open initiative the counts,
-// the next claimable ticket, what waits on Jorge and what is in review with its PR state; plus the
+// the next claimable ticket, what waits on the owner and what is in review with its PR state; plus the
 // project-wide queues. audit_findings arrives with the audit in 2.3.
 
 const CLOSED = ["Done", "Won't do"];
@@ -89,7 +89,7 @@ export async function statusBlock(db: Q, p: Project) {
     released_waiting_done: released.map((t) => t.key),
     standalone_waiting_on_owner: standaloneWaiting,
     s1_s2_bugs: bugs.map((t) => ({ key: t.key, severity: t.severity, title: t.title, status: t.status })),
-    // 2.10: the release step (settings.release), or null. A merged ticket waits here until Jorge ships it.
+    // 2.10: the release step (settings.release), or null. A merged ticket waits here until the owner ships it.
     release: await releasePlan(db, p),
     audit: await lastAudit(db, p.id),
     audit_findings: (await lastAudit(db, p.id))?.count ?? null,

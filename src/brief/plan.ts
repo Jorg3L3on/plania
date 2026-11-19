@@ -79,7 +79,7 @@ export const targetSlug = (idea: Pick<Idea, "app">, home: string): string => (id
 
 /**
  * Codes grouped by target project, in the order the owner chose them, each group cut into runs of at most BATCH
- * ideas. W1, Z3, W2, X1 with home plania → [workia W1 W2], [zigzag Z3], [plania X1].
+ * ideas. W1, Z3, W2, X1 with home plania → [agenda W1 W2], [tienda Z3], [plania X1].
  */
 export function groupCodes(ideas: Idea[], codes: string[], home: string): PlanGroup[] {
   const byCode = new Map(ideas.map((i) => [i.code, i]));
