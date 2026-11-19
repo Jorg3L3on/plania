@@ -9,6 +9,7 @@ import { verifyPassword } from "../auth/password.js";
 import { firstStart, firstStartOpen, fromLoopback } from "../auth/first-start.js";
 import { clearFailures, noteFailure, waitSeconds } from "../auth/login-limit.js";
 import { storedPasswordHash } from "../install-state.js";
+import { LANGUAGES, installLanguage, languageChosen, saveLanguage } from "../language.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -136,7 +137,7 @@ const remoteAddress = (c: Context): string | undefined =>
 api.get("/first-start", (c) => c.json({ open: firstStartOpen(), loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
 
 api.post("/first-start", async (c) => {
-  const body = await readJson(c, z.object({ code: z.string().max(64), name: z.string().max(200), password: z.string().max(1024), time_zone: z.string().max(64) }).strict());
+  const body = await readJson(c, z.object({ code: z.string().max(64), name: z.string().max(200), password: z.string().max(1024), time_zone: z.string().max(64), projects_root: z.string().max(500).optional(), worktrees_root: z.string().max(500).optional(), language: z.string().max(8).optional() }).strict());
   if (body instanceof Response) return body;
   const out = await withDb((db) => firstStart(db, body, { loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
   if ("error" in out) {
@@ -206,6 +207,10 @@ api.route("/company", companyRoutes);
 // PLA-I32-3: the threads, the same way (src/api/threads.ts).
 api.route("/threads", threadRoutes);
 
+// PLA-I2-10: the install's language (src/language.ts). Read without a session: the login and first-start screens
+// speak it too, and it says nothing private.
+api.get("/language", (c) => c.json({ language: installLanguage(), chosen: languageChosen(), languages: LANGUAGES }));
+
 // Everything below needs a valid session.
 api.use("*", async (c, next) => {
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
@@ -213,6 +218,13 @@ api.use("*", async (c, next) => {
 });
 
 api.get("/session", (c) => c.body(null, 204));
+
+// PLA-I2-10: the owner changes the language in Plomería; the brief follows.
+api.put("/language", async (c) => {
+  const body = await readJson(c, z.object({ language: z.enum(LANGUAGES) }).strict());
+  if (body instanceof Response) return body;
+  return c.json({ language: await withDb((db) => saveLanguage(db, body.language)) });
+});
 
 // ---- Projects
 

@@ -18,6 +18,7 @@ import { NOVEDADES, versionLine } from "@/lib/version";
 import { ACTUALIZAR, pendingKit } from "@/lib/actualizar";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
+import { LanguageSwitch } from "@/components/language-sync";
 import { LOCALE } from "@/lib/locale";
 import { LimitesCorrida } from "./limites-corrida";
 
@@ -361,6 +362,8 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
           {inventory ? "Ocultar lo que corre" : "Ver qué corre"}
         </Btn>
         <ReleaseLine />
+        {/* PLA-I2-10: one language for the screen and the brief. */}
+        <LanguageSwitch />
         {/* PLA-I2-7: the page of limits. */}
         <Link to={LIMITS_PATH} className="cor-text underline underline-offset-2" data-control="limites">
           {LIMITS_LINK}

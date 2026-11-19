@@ -20,12 +20,14 @@ import { clearFailures, noteFailure, waitSeconds } from "./login-limit.js";
 import { hashPassword } from "./password.js";
 import { issueToken } from "./tokens.js";
 import { saveFolders, validFolder } from "../folders.js";
+import { DEFAULT_LANGUAGE, isLanguage, saveLanguage } from "../language.js";
 
 export const PASSWORD_MIN = 12;
 export const SETUP_DOOR = "setup";
 
 // PLA-I2-3: projects_root and worktrees_root are optional; blank keeps the default under the home (src/folders.ts).
-export type FirstStartInput = { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string };
+// PLA-I2-10: language is optional; Spanish when left out.
+export type FirstStartInput = { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string; language?: string };
 export type FirstStartRefusal = {
   error: "FIRST_START_CLOSED" | "NOT_LOOPBACK" | "SETUP_CODE_INVALID" | "TOO_MANY_TRIES" | "INVALID_BODY";
   status: 400 | 403 | 410 | 429;
@@ -82,6 +84,7 @@ export async function firstStart(
   if (!name) return { error: "INVALID_BODY", status: 400, field: "name" };
   if ([...input.password].length < PASSWORD_MIN) return { error: "INVALID_BODY", status: 400, field: "password" };
   if (!validTimeZone(input.time_zone)) return { error: "INVALID_BODY", status: 400, field: "time_zone" };
+  if (input.language !== undefined && input.language !== null && !isLanguage(input.language)) return { error: "INVALID_BODY", status: 400, field: "language" };
   for (const field of ["projects_root", "worktrees_root"] as const) {
     const v = input[field];
     if (v !== undefined && v !== null && String(v).trim() && !validFolder(String(v))) return { error: "INVALID_BODY", status: 400, field };
@@ -107,6 +110,7 @@ export async function firstStart(
       await tx.update(runnerSettings).set({ companyPaused: true, companyPausedAt: new Date(), updatedAt: sql`now()` }).where(eq(runnerSettings.id, 1));
       await setOwnerName(tx, name);
       await saveFolders(tx, { projects: input.projects_root, worktrees: input.worktrees_root });
+      await saveLanguage(tx, isLanguage(input.language) ? input.language : DEFAULT_LANGUAGE);
       const runner = await issueToken(tx, { name: "Runner", agent: "plania-runner", scopes: ["read", "write"] }, WEB_ACTOR);
       const brief = await issueToken(tx, { name: "Morning brief", agent: "morning-brief", scopes: ["read"] }, WEB_ACTOR);
       const values = {
