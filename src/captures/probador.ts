@@ -352,9 +352,10 @@ const onScreen = (e: string) => e.replace(/copia de sandbox/g, "copia de prueba"
 // Only deliveries with a muestra on a project Plania photographs; everything else is unchanged.
 export function probadorGate(p: Project | null, t: Task | null, head: string | null): ProbadorGate {
   if (!p?.settings.capture || !t?.muestra) return { pending: false, hold: null };
-  // PLA-I2-4: no pictures on a system without Chrome or a test copy; the card shows at once and says why.
-  if (!supported("stills") || !supported("test_copy")) return { pending: false, hold: `Fotos: ${NO_DISPONIBLE.toLowerCase()}` };
   const s = t.probador;
+  // PLA-I2-4: no pictures can come on a system without Chrome or a test copy, so the card never waits for them.
+  // A saved error still wins: the owner reads what happened, not only what this machine lacks.
+  if (!supported("stills") || !supported("test_copy")) return { pending: false, hold: s?.error ? `Faltan fotos: ${onScreen(s.error)}` : `Fotos: ${NO_DISPONIBLE.toLowerCase()}` };
   if (!s || s.state === "tomando" || s.state === "fallo") return { pending: true, hold: null };
   if (head && s.commit && !head.startsWith(s.commit.slice(0, 7)) && !s.commit.startsWith(head.slice(0, 7))) return { pending: true, hold: null };
   return { pending: false, hold: s.error ? `Faltan fotos: ${onScreen(s.error)}` : null };
