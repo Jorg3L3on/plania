@@ -87,14 +87,28 @@ after(async () => {
 
 describe("Claude found on PATH (check 6)", () => {
   const bin = path.join(scratch, "pathbin");
-  const claude = path.join(bin, "claude");
+  // The file `claude` on macOS and Linux; on native Windows the one PATHEXT finds (PLA-I2-19).
+  const sh = path.join(bin, "claude");
+  const claude = process.platform === "win32" ? `${sh}.EXE` : sh;
   const home = path.join(scratch, "home-empty");
 
   test("with only PATH, the runner, the brief and the machine check resolve the same file", () => {
     const env = { HOME: home, PATH: [path.join(scratch, "nothing"), bin].join(path.delimiter) };
-    const exists = only([claude]);
-    assert.equal(resolveClaudeBin(env, { exists }), claude);
-    assert.equal(findOnPath("claude", env, exists), claude);
+    const exists = only([sh]);
+    assert.equal(resolveClaudeBin(env, { exists, platform: "linux" }), sh);
+    assert.equal(findOnPath("claude", env, exists, "linux"), sh);
+  });
+
+  test("Windows: claude.exe from the native installer or PATHEXT, never npm's extensionless sh script", () => {
+    const local = path.join(home, ".local", "bin", "claude.exe");
+    const env = { HOME: home, PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+    assert.equal(resolveClaudeBin(env, { exists: only([sh, local]), platform: "win32" }), local);
+    assert.equal(resolveClaudeBin(env, { exists: only([sh, `${sh}.CMD`]), platform: "win32" }), `${sh}.CMD`);
+    assert.equal(resolveClaudeBin(env, { exists: only([sh, `${sh}.EXE`, `${sh}.CMD`]), platform: "win32" }), `${sh}.EXE`);
+    assert.equal(resolveClaudeBin(env, { exists: only([sh]), platform: "win32" }), "claude");
+    assert.equal(findOnPath("claude.exe", env, only([`${sh}.exe`]), "win32", { runnable: true }), `${sh}.exe`);
+    // Other tools keep the plain lookup.
+    assert.equal(findOnPath("claude", env, only([sh]), "win32"), sh);
   });
 
   test("the order: the adapter's variable, CLAUDE_CODE_BIN, ~/.local/bin/claude, then PATH; else the bare name", () => {
@@ -102,7 +116,7 @@ describe("Claude found on PATH (check 6)", () => {
     const env = { HOME: home, PATH: bin, MY_CLAUDE: "/x/mine", CLAUDE_CODE_BIN: "/x/set" };
     assert.equal(resolveClaudeBin(env, { commandEnv: "MY_CLAUDE", exists: only([claude, local]) }), "/x/mine");
     assert.equal(resolveClaudeBin(env, { exists: only([claude, local]) }), "/x/set");
-    assert.equal(resolveClaudeBin({ HOME: home, PATH: bin }, { exists: only([claude, local]) }), local);
+    assert.equal(resolveClaudeBin({ HOME: home, PATH: bin }, { exists: only([claude, local]), platform: "linux" }), local);
     assert.equal(resolveClaudeBin({ HOME: home, PATH: bin }, { exists: only([]) }), "claude");
     // An adapter variable that is not a plain name is ignored.
     assert.equal(resolveClaudeBin({ ...env, "bad name": "/x" }, { commandEnv: "bad name", exists: only([]) }), "/x/set");
@@ -328,7 +342,8 @@ test("PATH lists are joined with the system's separator", () => {
 
 describe("parts this system cannot run say so (check 7)", () => {
   test("what each part needs", () => {
-    assert.equal(support.missingFor("test_copy", { platform: "win32" }), "process groups and /bin/sh (native Windows)");
+    // PLA-I2-19 (audit B5): native Windows runs it through cmd.exe and stops it with taskkill /T.
+    assert.equal(support.missingFor("test_copy", { platform: "win32", exists: () => false }), null);
     assert.equal(support.missingFor("test_copy", { platform: "linux", exists: () => true }), null);
     assert.equal(support.missingFor("stills", { chrome: () => null }), "Chrome or Chromium");
     assert.equal(support.missingFor("stills", { chrome: () => "/usr/bin/chromium" }), null);

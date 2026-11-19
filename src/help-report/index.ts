@@ -17,6 +17,7 @@
 import { existsSync } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { arch, homedir, platform, release } from "node:os";
+import { windowsPaths } from "../packaging/service.js";
 import path from "node:path";
 import { desc, eq, sql } from "drizzle-orm";
 import { defaultExec, type ExecFn } from "../brief/doctor.js";
@@ -73,6 +74,8 @@ const RELEVANT = /^(?:PLANIA_|DATABASE_URL$|MCP_|SESSION_SECRET$|CLAUDE_|ANTHROP
 /** The service's log: the launchd agent writes ~/Library/Logs/plania/server.log; on Linux, ~/.local/state/plania. */
 export function serverLogPath(env: NodeJS.ProcessEnv, home: string, os: string = platform()): string {
   if (env.PLANIA_LOG_FILE?.trim()) return env.PLANIA_LOG_FILE.trim();
+  // PLA-I2-19: the Windows service's supervisor writes %LOCALAPPDATA%\plania\logs\server.log.
+  if (os === "win32") return windowsPaths({ home, localAppData: env.LOCALAPPDATA }).log;
   return os === "darwin" ? path.join(home, "Library", "Logs", "plania", "server.log") : path.join(home, ".local", "state", "plania", "server.log");
 }
 

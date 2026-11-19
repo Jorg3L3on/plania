@@ -18,6 +18,7 @@
 // settings.capture, how to start the test copy and walk through the change in a browser.
 // AUDIT-10: a delivery QA sends back queues one retro (src/runner/retro.ts) when settings.qa.retro is true.
 import { spawn } from "node:child_process";
+import { killTree, shellCommand } from "../lib/proc-tree.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { hostname } from "node:os";
@@ -437,26 +438,25 @@ export function freePort(): Promise<number> {
 
 /** Starts the test copy in the checkout (its own process group), waits until url answers below 500. */
 export const startApp: StartApp = async ({ cwd, command, url, port, timeoutMs }) => {
-  const child = spawn("/bin/sh", ["-c", command], { cwd, env: checkoutEnv({ PORT: String(port) }), detached: true, stdio: "ignore" });
+  // PLA-I2-19 (audit B5): cmd.exe and taskkill /T on Windows (src/lib/proc-tree.ts); sh and the group elsewhere.
+  const env = checkoutEnv({ PORT: String(port) });
+  const sh = shellCommand(command, process.platform, env);
+  const child = spawn(sh.file, sh.args, { ...sh.options, cwd, env, detached: true, stdio: "ignore" });
   let exited = false;
   child.on("exit", () => (exited = true));
   child.on("error", () => (exited = true));
   const stop = async () => {
     if (exited || !child.pid) return;
-    try {
-      process.kill(-child.pid, "SIGTERM");
-    } catch {
-      return;
-    }
+    if (process.platform === "win32") killTree(child.pid, "SIGTERM");
+    else
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        return;
+      }
     const until = Date.now() + 5_000;
     while (!exited && Date.now() < until) await new Promise((r) => setTimeout(r, 200));
-    if (!exited) {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-        // gone
-      }
-    }
+    if (!exited) killTree(child.pid, "SIGKILL");
   };
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {

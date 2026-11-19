@@ -32,6 +32,19 @@ export function exitAfterDrain(code: number, deps: { exit?: (code: number) => vo
   server.closeIdleConnections?.();
 }
 
+// PLA-I2-19 (audit B5): Windows has no SIGTERM. The Windows service's supervisor (src/packaging/win-supervisor.ts)
+// starts the server with an IPC channel and sends this message instead; the channel closing (the supervisor ended)
+// counts the same, so the server never outlives it.
+export const SHUTDOWN_MESSAGE = "plania:shutdown";
+export function drainOnParentRequest(proc: Pick<NodeJS.Process, "send" | "on"> = process, onDrain: () => void = () => exitAfterDrain(143)): boolean {
+  if (!proc.send) return false;
+  proc.on("message", (m: unknown) => {
+    if ((m as { type?: unknown } | null)?.type === SHUTDOWN_MESSAGE) onDrain();
+  });
+  proc.on("disconnect", () => onDrain());
+  return true;
+}
+
 /** Tests only: forget an earlier exit. */
 export function resetShutdown(): void {
   exiting = false;

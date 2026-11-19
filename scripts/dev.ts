@@ -19,7 +19,7 @@ import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { healthUi, readUiBuild, rebuildReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
-import { exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
+import { drainOnParentRequest, exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
 import { GOOD_AFTER_MS, lastGoodFile, recordsGoodStart, writeLastGood } from "../src/ops/last-good.js";
 import { isPackage, readRelease } from "../src/release.js";
 
@@ -111,6 +111,8 @@ if (recordsGoodStart(port)) {
   }, GOOD_AFTER_MS).unref();
 }
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.once(sig, () => exitAfterDrain(sig === "SIGINT" ? 130 : 143));
+// PLA-I2-19: under the Windows service the supervisor asks over IPC (no signals on Windows).
+drainOnParentRequest();
 
 // PLA-I2-14: the owner's display name, read once at start (setOwnerName keeps it current after that).
 void withDb((db) => loadOwnerName(db)).catch((e) => console.log(`[owner] name not loaded: ${e instanceof Error ? e.message : String(e)}`));
