@@ -8,8 +8,8 @@
 //   hecho   finished initiatives and loose steps (a summary, not rows of work)
 // Pure: it reads what GET /api/company (the project, its board, its pedidos, the decisions, the server's move) and
 // GET /api/company/projects/:slug/ficha (open ideas with their state, which idea became which initiative) give.
-import type { Decision, DecisionAction, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket, Tokens } from "./api";
-import { ETAPA_WORD } from "./etapas";
+import type { Decision, DecisionAction, EtapaHolder, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket, Tokens } from "./api";
+import { ETAPA_WORD, wordOf } from "./etapas";
 import { seatName } from "./corriente";
 import { arranqueLine } from "./arranque";
 
@@ -43,7 +43,17 @@ export const GRUPO_NAME: Record<Grupo, string> = { toca: "Te toca", mueve: "Se m
 
 /** One step of the construction part of the thread. */
 export type TramoTono = "hecho" | "vivo" | "toca" | "fila" | "quieto";
-export type Tramo = { key: string; title: string; etapa: EtapaId; tono: TramoTono };
+export type Tramo = {
+  key: string;
+  title: string;
+  etapa: EtapaId;
+  tono: TramoTono;
+  /** PLA-I3-4: what the step's tooltip says about its state: the stage word (wordOf), who holds it, since when.
+   *  Optional: the Hecho rows and older callers build a Tramo without them. */
+  word?: string;
+  holder?: EtapaHolder | null;
+  since?: string | null;
+};
 export type Valvula = "cerrada" | "toca" | "atorada" | "pasando" | "abierta";
 export type Hilo = {
   /** Index of the idea stop it stands at (0 Buzón … 5 Lista); null when it never was an idea here. */
@@ -179,7 +189,7 @@ function ticketThing(
   const { p, paused } = ctx;
   const tramos: Tramo[] = [...ts]
     .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key))
-    .map((t) => ({ key: t.key, title: t.title, etapa: t.etapa.etapa, tono: tonoOf(t, paused) }));
+    .map((t) => ({ key: t.key, title: t.title, etapa: t.etapa.etapa, tono: tonoOf(t, paused), word: wordOf(t.etapa), holder: t.etapa.holder, since: t.etapa.since }));
   const keys = new Set([base.key, ...ts.map((t) => t.key)]);
   const decisions = ctx.mine.filter((d) => refsOf(d).some((r) => keys.has(r)));
   const deliveries = decisions.filter(isDelivery);

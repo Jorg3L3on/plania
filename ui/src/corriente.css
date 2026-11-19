@@ -1290,3 +1290,35 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
   .cor-ajustes .cor-opt { flex: 1 1 100%; justify-content: flex-start; }
   .cor-ajustes-nota-head { flex-direction: column; align-items: stretch; }
 }
+
+/* ---- PLA-I3-4 (board «La fila, de cerca»): each construction step is a button that says its name. The hit area is
+   44 px tall around the 8 px bar and the hit areas touch (the gap is padding inside each button), so the pointer never
+   falls between two steps. The hovered or focused bar grows (transform only); reduced motion keeps it still. */
+.cor-h-sg.pasos { gap: 0; padding: 0; background: none; }
+.cor-paso { position: relative; flex: 1; min-width: 0; height: 44px; margin: -10px 0; padding: 0 1.5px; display: flex; align-items: center; border: 0; border-radius: 0; background: linear-gradient(var(--cor-bg), var(--cor-bg)) center / 100% 10px no-repeat; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.cor-paso:first-child { padding-left: 2px; }
+.cor-paso:last-child { padding-right: 2px; }
+.cor-h-sg .cor-paso i { height: 8px; transition: transform 120ms ease-out; }
+.cor-h-sg .cor-paso i:not([class]) { background: rgba(255, 255, 255, 0.2); }
+.cor-paso:hover i, .cor-paso.on i, .cor-paso:focus-visible i { transform: scaleY(1.75); }
+.cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.34); }
+.cor .cor-h-sg .cor-paso:focus, .cor .cor-h-sg .cor-paso:focus-visible { outline: none; }
+.cor-paso:focus-visible::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 18px; margin-top: -9px; border-radius: 5px; box-shadow: inset 0 0 0 2px var(--cor-violet-4); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .cor-h-sg .cor-paso i { transition: none; }
+  .cor-paso:hover i, .cor-paso.on i, .cor-paso:focus-visible i { transform: none; }
+}
+/* The tooltip lives on <body> (position fixed), so the list's scroll box never clips it; it carries its own colours. */
+.cor-tip { position: fixed; z-index: 1000; left: 0; top: 0; width: max-content; max-width: 280px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 9px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.16); background: #15151c; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); color: #f4f4f6; font-family: "Geist Variable", "Geist", system-ui, sans-serif; font-size: 13px; pointer-events: none; }
+.cor-tip-top { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; letter-spacing: 0.06em; }
+.cor-tip-key { color: #c4b5fd; }
+.cor-tip-pos { color: #9a9aa6; letter-spacing: 0.14em; }
+.cor-tip-t { font-size: 13.5px; font-weight: 500; line-height: 1.3; letter-spacing: -0.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cor-tip-st { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #c9c9d2; }
+.cor-tip-st i { flex: none; width: 10px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.34); }
+.cor-tip.hecho .cor-tip-st i { background: #7c6ad6; }
+.cor-tip.fila .cor-tip-st i { background: #6d5fb0; }
+.cor-tip.vivo .cor-tip-st i { background: #fff; box-shadow: 0 0 8px 2px rgba(139, 92, 246, 0.8); }
+.cor-tip.toca .cor-tip-st { color: #ffb454; }
+.cor-tip.toca .cor-tip-st i { background: #ffb454; }
+.cor-tip-hint { margin-top: 2px; padding-top: 7px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #9a9aa6; }

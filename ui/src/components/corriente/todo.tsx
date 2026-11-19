@@ -3,7 +3,7 @@
 // mueve, En fila, Quieto, Hecho), always in that order. An empty group is one line; a long group folds («Ver las
 // otras N»). A row opens today's view of the thing (the idea, the initiative, the step) and comes back here.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
 import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
@@ -18,6 +18,9 @@ export type TodoLinks = {
   open: (c: Cosa) => string;
   hecha: (key: string) => string;
   idea: (key: string) => string;
+  /** PLA-I3-4: where a step of a row's thread opens (today the step's page; phase 5 opens it beside the list).
+   *  Absent: the thread stays decorative. */
+  paso?: (key: string) => string;
   /** Everything done (the Hecho door). */
   hecho: string;
 };
@@ -79,6 +82,8 @@ const TokensLine = ({ c }: { c: Cosa }) => {
 
 const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) => {
   const toca = c.grupo === "toca";
+  const navigate = useNavigate();
+  const paso = links.paso;
   return (
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
@@ -91,7 +96,7 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
         </b>
         <TokensLine c={c} />
       </Link>
-      <Hilo h={c.hilo} />
+      <Hilo h={c.hilo} onOpen={paso ? (k) => navigate(paso(k)) : undefined} label={`Pasos de «${c.title}»`} />
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
           <span className={cls("cor-label", toca && "amber")}>{c.cap}</span>

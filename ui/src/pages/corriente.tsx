@@ -285,6 +285,7 @@ export const CorrientePage = () => {
                   : hrefOf({ view: "tetoca", extra: { decision: c.decisions[0] ?? "" } }),
         hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
         idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
+        paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }),
         hecho: linkTo({ slug: p.slug, tab: "hecho" }),
       };
       const palancaLinks: PalancaLinks = {
