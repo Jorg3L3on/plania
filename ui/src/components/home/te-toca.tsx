@@ -10,6 +10,8 @@ import { waitText } from "@/lib/inbox";
 import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { HOME_TE_TOCA } from "@/lib/home-pieces-words";
 
 type Names = (slug: string) => string;
 
@@ -22,6 +24,7 @@ const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURICompon
 
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
 function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
+  const w = words(HOME_TE_TOCA);
   const flow = useQuestionAnswer(item.project, item.id);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
@@ -42,9 +45,9 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
           <ProjectWord slug={item.project} names={names} /> ·{" "}
           <Link to={taskHref(item)} className="font-mono underline-offset-4 hover:underline">{item.key}</Link>
           {" · "}
-          {total === 1 ? "una pregunta" : `pregunta ${index + 1} de ${total}`}
+          {total === 1 ? w.oneQuestion : w.questionOf(index + 1, total)}
         </span>
-        <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
+        <span>{when ? `${when} · ` : ""}{w.waits(waitText(item.wait_s))}</span>
       </p>
       <p className="text-[15px] leading-snug whitespace-pre-wrap">{item.why}</p>
       {(item.options?.length ?? 0) > 0 && (
@@ -62,25 +65,25 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
               )}
             >
               <span>{o}</span>
-              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-owner">propuesta</span>}
+              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-owner">{w.proposal}</span>}
             </button>
           ))}
         </div>
       )}
       <form onSubmit={handleSubmitFree} className="flex gap-2">
-        <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
-        <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+        <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder={w.otherAnswer} aria-label={w.otherAnswer} className="bg-background/60" />
+        <Button type="submit" size="sm" disabled={!free.trim() || pending}>{w.answer}</Button>
       </form>
       <Input
         value={decision}
         onChange={(e) => setDecision(e.target.value)}
-        placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
-        aria-label="Decisión"
+        placeholder={w.decisionHint}
+        aria-label={w.decision}
         className="bg-background/60 text-base md:text-xs"
       />
       {total > 1 && (
         <button type="button" onClick={onNext} className="inline-flex min-h-8 w-fit items-center gap-1 justify-self-end text-xs font-semibold text-ink-owner hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-          Siguiente pregunta <ArrowRightIcon className="size-3.5" aria-hidden />
+          {w.nextQuestion} <ArrowRightIcon className="size-3.5" aria-hidden />
         </button>
       )}
     </article>
@@ -104,6 +107,7 @@ function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string
 // What waits on the owner for one tower of the city (or outside every tower): one question at a time,
 // and the owner's own actions counted with a way into the Bandeja.
 export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names: Names; when?: (item: InboxItem) => string | undefined }) {
+  const w = words(HOME_TE_TOCA);
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
@@ -134,10 +138,10 @@ export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names:
             key={slug}
             n={mine.length}
             tone="bg-status-done/12 text-ink-done"
-            title={`${mine.length === 1 ? "acción tuya" : "acciones tuyas"} en ${names(slug)}`}
+            title={w.actionsIn(mine.length, names(slug))}
             detail={word ? `${word} · ${mine[0]!.why}` : mine[0]!.why}
             to={`/inbox?tab=pasos#${slug}`}
-            cta={mine.length === 1 ? "Ver" : `Ver las ${mine.length}`}
+            cta={w.see(mine.length)}
           />
         );
       })}

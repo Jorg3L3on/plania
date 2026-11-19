@@ -1,5 +1,7 @@
 import { useLayoutEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 
 // The list remembers its scroll. A detail opens at the top. Back returns to the same place.
 export const useProgressScroll = () => {
@@ -16,6 +18,7 @@ export const useProgressScroll = () => {
 };
 
 export const DetailBack = ({ title, hint }: { title: string; hint: string }) => {
+  const w = words(PROGRESS_WORDS);
   const navigate = useNavigate();
   const handleBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
@@ -26,7 +29,7 @@ export const DetailBack = ({ title, hint }: { title: string; hint: string }) => 
     <div className="mb-4 flex items-center gap-3">
       <button
         type="button"
-        aria-label="Volver"
+        aria-label={w.back}
         onClick={handleBack}
         className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-lg"
       >

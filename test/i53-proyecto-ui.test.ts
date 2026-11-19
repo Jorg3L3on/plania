@@ -72,5 +72,7 @@ test("I53-5 #2: the Lista view and Líneas de trabajo show the card's word for e
 test("I53-5 #3: /p/<slug> has a visible link to its floor", () => {
   const page = src("pages/project.tsx");
   assert.match(page, /to=\{`\/ceo\?piso=\$\{encodeURIComponent\(slug\)\}`\}/);
-  assert.match(page, /Ver el piso/);
+  // PLA-I2-10: the words live in the page's wording module.
+  assert.match(page, /w\.seeFloor/);
+  assert.match(src("lib/project-page-words.ts"), /Ver el piso/);
 });

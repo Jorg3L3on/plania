@@ -13,7 +13,8 @@ import { CONSULTA_DENY_RULES, DENY_GROUPS, DENY_RULES, PROTECTED_BRANCHES, QA_DE
 import { newInstallSettings } from "../src/runner/isolation.js";
 import { claudeArgs, isolationOf } from "../src/runner/runner.js";
 import { checkBase } from "../src/runner/worktree.js";
-import { DOES_WORDS, GROUP_WORDS, LIMITS_LINK, LIMITS_PATH, OUTBOUND_WORDS, RULES_CANNOT, limitsPage, type LimitsPage } from "../ui/src/lib/limites.js";
+import { LANGUAGES } from "../ui/src/lib/i18n.js";
+import { LIMITS_LINK, LIMITS_PATH, LIMITS_WORDS, RULES_CANNOT, limitsPage, type LimitsPage } from "../ui/src/lib/limites.js";
 (globalThis as { React?: unknown }).React = React;
 const { LimitesView } = (await import(new URL("../ui/src/pages/limites.tsx", import.meta.url).href)) as { LimitesView: React.ComponentType<{ page: LimitsPage }> };
 
@@ -25,20 +26,25 @@ const allText = (p: LimitsPage) => JSON.stringify(p);
 test("I2-7 #1: every deny group and every rule has plain words on the page", () => {
   const ids = DENY_GROUPS.map((g) => g.id);
   assert.deepEqual(ids, ["protected-branches", "force-push", "pull-requests", "production", "plania-writes", "qa", "preguntar", "plania-self"]); // PLA-I2-9 added plania-self
-  for (const g of DENY_GROUPS) {
-    assert.ok(GROUP_WORDS[g.id], `group ${g.id} has no words`);
-    if (!RUN_GROUP_IDS.includes(g.id)) assert.ok(GROUP_WORDS[g.id]!.extra, `group ${g.id} says not when it applies`);
-    for (const r of g.rules) assert.ok(DOES_WORDS[r.does], `rule ${r.rule} (${r.does}) has no words`);
+  // PLA-I2-10: in every language.
+  for (const lang of LANGUAGES) {
+    const { groups: GROUP_WORDS, does: DOES_WORDS } = LIMITS_WORDS[lang];
+    for (const g of DENY_GROUPS) {
+      assert.ok(GROUP_WORDS[g.id], `${lang}: group ${g.id} has no words`);
+      if (!RUN_GROUP_IDS.includes(g.id)) assert.ok(GROUP_WORDS[g.id]!.extra, `${lang}: group ${g.id} says not when it applies`);
+      for (const r of g.rules) assert.ok(DOES_WORDS[r.does], `${lang}: rule ${r.rule} (${r.does}) has no words`);
+    }
+    // No stale words either: every sentence belongs to something real.
+    const used = new Set(DENY_GROUPS.flatMap((g) => g.rules.map((r) => r.does)));
+    assert.deepEqual(Object.keys(DOES_WORDS).filter((k) => !used.has(k)), [], lang);
+    assert.deepEqual(Object.keys(GROUP_WORDS).filter((k) => !ids.includes(k as never)), [], lang);
+    // The page shows every group, and nothing reads as missing.
+    const p = limitsPage(limitsInput({}), lang);
+    assert.deepEqual(p.never.map((g) => g.id), ids);
+    assert.equal(p.never.reduce((n, g) => n + g.rules, 0), DENY_GROUPS.reduce((n, g) => n + g.rules.length, 0));
+    assert.ok(!allText(p).includes(LIMITS_WORDS[lang].missing), lang);
   }
-  // No stale words either: every sentence belongs to something real.
-  const used = new Set(DENY_GROUPS.flatMap((g) => g.rules.map((r) => r.does)));
-  assert.deepEqual(Object.keys(DOES_WORDS).filter((k) => !used.has(k)), []);
-  assert.deepEqual(Object.keys(GROUP_WORDS).filter((k) => !ids.includes(k as never)), []);
-  // The page shows every group, and nothing reads as missing.
-  const p = page();
-  assert.deepEqual(p.never.map((g) => g.id), ids);
-  assert.equal(p.never.reduce((n, g) => n + g.rules, 0), DENY_GROUPS.reduce((n, g) => n + g.rules.length, 0));
-  assert.doesNotMatch(allText(p), /sin palabras/);
+  assert.doesNotMatch(allText(page()), /sin palabras/);
   // The lists the runner hands to Claude are the groups' rules, nothing more.
   assert.deepEqual([...DENY_RULES], DENY_GROUPS.filter((g) => RUN_GROUP_IDS.includes(g.id)).flatMap((g) => g.rules.map((r) => r.rule)));
   assert.deepEqual([...CONSULTA_DENY_RULES], [...QA_DENY_RULES, ...DENY_GROUPS.find((g) => g.id === "preguntar")!.rules.map((r) => r.rule)]);
@@ -93,11 +99,12 @@ test("I2-7 #5: pushes, checkouts, merges and pull requests aimed at master, prod
 test("I2-7 #4: what leaves the machine comes from one list, each entry with words and a real call site", () => {
   const ids = OUTBOUND.map((o) => o.id);
   assert.equal(new Set(ids).size, ids.length);
-  for (const o of OUTBOUND) {
-    assert.ok(OUTBOUND_WORDS[o.id]?.name && OUTBOUND_WORDS[o.id]?.sentence, `${o.id} has no words`);
-    assert.ok(existsSync(path.join(ROOT, o.code)), `${o.id}: ${o.code} is gone`);
+  for (const lang of LANGUAGES) {
+    const OUTBOUND_WORDS = LIMITS_WORDS[lang].outbound;
+    for (const o of OUTBOUND) assert.ok(OUTBOUND_WORDS[o.id]?.name && OUTBOUND_WORDS[o.id]?.sentence, `${lang}: ${o.id} has no words`);
+    assert.deepEqual(Object.keys(OUTBOUND_WORDS).filter((k) => !ids.includes(k as never)), [], lang);
   }
-  assert.deepEqual(Object.keys(OUTBOUND_WORDS).filter((k) => !ids.includes(k as never)), []);
+  for (const o of OUTBOUND) assert.ok(existsSync(path.join(ROOT, o.code)), `${o.id}: ${o.code} is gone`);
   assert.deepEqual(page().outbound.map((o) => o.id), ids);
   // The destinations the ticket names are all there.
   for (const id of ["claude", "github-read", "github-merge", "vercel-read", "push", "qa-browser", "agent-wake", "tailscale"]) assert.ok(ids.includes(id as never), id);
@@ -131,10 +138,12 @@ test("I2-7 #6: the page says the limits are rules the agent follows, not a barri
 });
 
 test("I2-7: the page is in the owner's words: no rule syntax, branch names, ticket keys or the word sandbox", () => {
-  const p = page();
-  const text = [...p.never.flatMap((g) => [g.title, g.lead, g.extra ?? "", ...g.items]), ...p.owner_only, ...p.where.slice(1), ...p.outbound.flatMap((o) => [o.name, o.sentence]), ...p.cannot].join("\n");
-  for (const bad of [/\bmain\b/i, /\bmaster\b/i, /\bprod(uction)?\b/i, /sandbox/i, /Bash\(/, /mcp__/, /\bgit\s/, /\bgh\s/, /PLA-/, /\*/]) {
-    assert.doesNotMatch(text, bad);
+  for (const lang of LANGUAGES) {
+    const p = limitsPage(limitsInput({}), lang);
+    const text = [...p.never.flatMap((g) => [g.title, g.lead, g.extra ?? "", ...g.items]), ...p.owner_only, ...p.where.slice(1), ...p.outbound.flatMap((o) => [o.name, o.sentence]), ...p.cannot].join("\n");
+    for (const bad of [/\bmain\b/i, /\bmaster\b/i, /\bprod(uction)?\b/i, /sandbox/i, /Bash\(/, /mcp__/, /\bgit\s/, /\bgh\s/, /PLA-/, /\*/]) {
+      assert.doesNotMatch(text, bad, lang);
+    }
   }
   // Where agents work names the real folder.
   assert.match(page().where[0]!, new RegExp(limitsInput({}).worktrees.replace(/[\\.*+?^${}()|[\]]/g, "\\$&")));

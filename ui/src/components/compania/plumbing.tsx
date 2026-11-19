@@ -9,11 +9,13 @@ import type { MachinePlumbing } from "@/lib/api";
 import { plumbedOf } from "@/lib/org";
 import { Banners, Dot, EnMarcha, KillSwitch, PlanMeter, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 import { RunList } from "@/components/compania/sheets";
+import { words } from "@/lib/i18n";
+import { COMPANIA_PLUMBING } from "@/lib/compania-words";
 
 // PLA-21: no weekly budgets. The week's tokens per team and for Asistente, shown only (PLA-I46-5: input + output).
 const UsageRow = ({ label, used, paused }: { label: string; used: number; paused?: boolean }) => (
   <li className={cn("flex min-w-0 items-baseline justify-between gap-3 text-sm", paused && "opacity-60")} data-usage={label}>
-    <span className="truncate text-muted-foreground">{paused ? `${label} · en pausa` : label}</span>
+    <span className="truncate text-muted-foreground">{paused ? words(COMPANIA_PLUMBING).paused(label) : label}</span>
     <span className="shrink-0 font-mono tabular-nums">{tokens(used)}</span>
   </li>
 );
@@ -29,31 +31,32 @@ export const weekParts = (plumbing: MachinePlumbing) => {
 
 export const WeekTokens = ({ plumbing }: { plumbing: MachinePlumbing }) => {
   const w = weekParts(plumbing);
+  const t = words(COMPANIA_PLUMBING);
   return (
     <section id="tokens" aria-labelledby="pl-tokens" className={cn(panel, "grid min-w-0 scroll-mt-20 content-start gap-3 p-4")} data-block="tokens">
       <div className="grid gap-0.5">
         <h2 id="pl-tokens" className={heading}>
-          Tokens esta semana
+          {t.weekTokens}
         </h2>
-        <p className="text-xs text-muted-foreground">Entrada + salida · la caché va aparte · sin límite</p>
+        <p className="text-xs text-muted-foreground">{t.weekHint}</p>
       </div>
       <div className="grid gap-1" data-week-main={w.main}>
         <p className="flex min-w-0 items-baseline justify-between gap-3">
-          <span className="text-sm font-medium">Entrada + salida</span>
+          <span className="text-sm font-medium">{t.inOut}</span>
           <span className="shrink-0 font-mono text-xl tabular-nums" data-week="main">
             {tokens(w.main)}
           </span>
         </p>
         <p className="flex min-w-0 items-baseline justify-between gap-3 text-sm" data-week="cache-read">
-          <span className="text-muted-foreground">Lecturas de caché</span>
+          <span className="text-muted-foreground">{t.cacheReads}</span>
           <span className="shrink-0 font-mono tabular-nums">{tokens(w.cache_read)}</span>
         </p>
         <p className="flex min-w-0 items-baseline justify-between gap-3 text-sm" data-week="cache-write">
-          <span className="text-muted-foreground">Escrituras de caché</span>
+          <span className="text-muted-foreground">{t.cacheWrites}</span>
           <span className="shrink-0 font-mono tabular-nums">{tokens(w.cache_create)}</span>
         </p>
       </div>
-      <p className="text-xs text-muted-foreground">Por equipo, entrada + salida</p>
+      <p className="text-xs text-muted-foreground">{t.perTeam}</p>
       <ul className="grid gap-2">
         <UsageRow label="Asistente" used={plumbing.usage.asistente.used} />
         {plumbing.usage.projects.map((p) => (
@@ -78,31 +81,32 @@ export const Guard = ({
   onToggleOverride?: (on: boolean) => void;
 }) => {
   const override = plumbing.plan.override === true;
+  const w = words(COMPANIA_PLUMBING);
   return (
   <section id="guardia" aria-labelledby="pl-guard" className={cn(panel, "grid min-w-0 scroll-mt-20 content-start gap-3 p-4")} data-block="guardia">
     <h2 id="pl-guard" className={heading}>
-      Guardia del plan
+      {w.planGuard}
     </h2>
     <PlanMeter plan={plumbing.plan} timeZone={plumbing.week.timezone} />
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
       <span>
-        Semana del plan <span className="font-mono tabular-nums">{plumbing.plan.seven_day_pct == null ? "—" : `${Math.round(plumbing.plan.seven_day_pct)}%`}</span>
+        {w.planWeek} <span className="font-mono tabular-nums">{plumbing.plan.seven_day_pct == null ? "—" : `${Math.round(plumbing.plan.seven_day_pct)}%`}</span>
       </span>
       {canEdit && (
         <button type="button" className={cn(pillGhost, "min-h-8 px-3 text-xs")} onClick={onMoveGuard} data-control="mover-guardia">
-          Mover guardia
+          {w.moveGuard}
         </button>
       )}
     </div>
     <div className="grid gap-1 border-t border-foreground/10 pt-3" data-part="guardia-ignorada">
       <label className="flex min-h-8 items-center gap-2 text-sm font-semibold">
         <input type="checkbox" checked={override} disabled={!canEdit || !onToggleOverride} onChange={(e) => onToggleOverride?.(e.target.checked)} data-control="seguir-sin-guardia" />
-        Seguir aunque el plan esté alto
+        {w.override}
       </label>
       <p className="text-xs text-muted-foreground" data-state={override ? "ignorado" : "activo"}>
         {override
-          ? "Límite ignorado: los bots arrancan aunque la ventana pase de la guardia. Solo para si el plan responde «rechazado»."
-          : "La guardia detiene las corridas nuevas al llegar al porcentaje."}
+          ? w.overrideOn
+          : w.overrideOff}
       </p>
     </div>
   </section>
@@ -123,40 +127,43 @@ export const Switches = ({
   onResumeCompany: () => void;
   onPauseProject: (p: CompanyProjectRow) => void;
   onResumeProject: (p: CompanyProjectRow) => void;
-}) => (
+}) => {
+  const w = words(COMPANIA_PLUMBING);
+  return (
   <section aria-labelledby="pl-switches" className="grid min-w-0 content-start gap-3" data-block="interruptores">
     <h2 id="pl-switches" className={cn(heading, "sr-only")}>
-      Interruptores
+      {w.switches}
     </h2>
     <KillSwitch company={plumbedOf(plumbing)} onStop={onStopCompany} onResume={onResumeCompany} />
-    <ul className={cn(panel, "grid gap-0 overflow-hidden")} aria-label="Proyectos">
+    <ul className={cn(panel, "grid gap-0 overflow-hidden")} aria-label={w.projects}>
       {plumbing.usage.projects.map((p) => (
         <li key={p.slug} className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5 last:border-0" data-switch={p.slug}>
           <span className="flex min-w-0 items-center gap-2 text-sm">
             <Dot tone={plumbing.company.paused || p.paused ? "idle" : "ok"} />
             <span className="truncate font-semibold">{p.title}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{p.paused ? "en pausa" : plumbing.company.paused ? "detenida" : "en marcha"}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{p.paused ? w.pausedWord : plumbing.company.paused ? w.stopped : w.running}</span>
           </span>
           {canEdit &&
             (p.paused ? (
               <button type="button" className={cn(pillPrimary, "min-h-8 px-3 text-xs")} onClick={() => onResumeProject(p)}>
-                Reanudar
+                {w.resume}
               </button>
             ) : (
               <button type="button" className={cn(pillGhost, "min-h-8 px-3 text-xs")} onClick={() => onPauseProject(p)}>
-                Pausar
+                {w.pause}
               </button>
             ))}
         </li>
       ))}
     </ul>
   </section>
-);
+  );
+};
 
 export const RunLog = ({ log, now, projectTitle }: { log: RunBrief[]; now: number; projectTitle: (slug: string) => string }) => (
   <section aria-labelledby="pl-log" className={cn(panel, "grid min-w-0 content-start gap-3 p-4")} data-block="bitacora">
     <h2 id="pl-log" className={heading}>
-      Bitácora de corridas
+      {words(COMPANIA_PLUMBING).runLog}
     </h2>
     <RunList runs={log} now={now} projectTitle={projectTitle} />
   </section>
@@ -184,15 +191,16 @@ export const PlumbingSection = ({
   onPauseProject: (p: CompanyProjectRow) => void;
   onResumeProject: (p: CompanyProjectRow) => void;
 }) => {
+  const w = words(COMPANIA_PLUMBING);
   const plumbed = plumbedOf(plumbing);
   const titles = new Map(plumbing.usage.projects.map((p) => [p.slug, p.title]));
   const projectTitle = (slug: string) => titles.get(slug) ?? slug;
   return (
     <section aria-labelledby="plomeria" id="plomeria" className="grid min-w-0 scroll-mt-20 gap-4" data-testid="plumbing">
       <div className="grid gap-0.5">
-        <p className={eyebrow}>Plomería</p>
+        <p className={eyebrow}>{w.plumbing}</p>
         <h2 id="plomeria" className="font-display text-2xl font-extrabold tracking-tight">
-          Tokens, guardia e interruptores
+          {w.plumbingTitle}
         </h2>
       </div>
       <Banners
@@ -225,6 +233,6 @@ export const PlumbingSection = ({
 
 export const PlumbingMissing = () => (
   <p className="rounded-[20px] border border-dashed px-4 py-4 text-sm text-muted-foreground" data-empty="plumbing">
-    El servidor todavía no sirve la plomería (tokens, guardia, interruptores). Aparece aquí cuando se actualice.
+    {words(COMPANIA_PLUMBING).missing}
   </p>
 );

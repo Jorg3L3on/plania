@@ -1,13 +1,16 @@
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import { monthsBack } from "@/lib/progress";
 import { cn } from "@/lib/utils";
 
 type Props = { today: string; active: string | null; onJump: (month: string) => void };
 
 export const LogScrubber = ({ today, active, onJump }: Props) => {
+  const w = words(PROGRESS_WORDS);
   const months = monthsBack(today, 12);
   const current = active ?? today.slice(0, 7);
   return (
-    <nav aria-label="Meses del último año" className="absolute top-28 right-0 bottom-4 flex w-9 flex-col items-center justify-between">
+    <nav aria-label={w.monthsLabel} className="absolute top-28 right-0 bottom-4 flex w-9 flex-col items-center justify-between">
       <span aria-hidden className="absolute inset-y-0 left-[15px] w-1 rounded-full bg-gradient-to-b from-[#ff7a2e] via-[#a78bfa] to-[#34d399] opacity-40" />
       {months.map((month) => {
         const on = month.key === current;

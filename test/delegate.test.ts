@@ -60,14 +60,17 @@ test("the Bandeja renders the Delegada badge with the quote and the time", () =>
   const inbox = readFileSync(path.resolve(import.meta.dirname, "../ui/src/pages/inbox.tsx"), "utf8");
   const sheet = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/task-sheet.tsx"), "utf8");
   const sw = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/delegation-switch.tsx"), "utf8");
-  assert.match(badge, /«Delegada»/);
+  // PLA-I2-10: the words live in wording modules (lib/delegation-words.ts, lib/inbox-words.ts).
+  const delegationWords = readFileSync(path.resolve(import.meta.dirname, "../ui/src/lib/delegation-words.ts"), "utf8");
+  const inboxWords = readFileSync(path.resolve(import.meta.dirname, "../ui/src/lib/inbox-words.ts"), "utf8");
+  assert.match(delegationWords, /«Delegada»/);
   assert.match(badge, /quote/);
   assert.match(badge, /localTime\(at\)/);
   assert.match(inbox, /DelegadaBadge/);
-  assert.match(inbox, /Respuestas delegadas/);
+  assert.match(inboxWords, /Respuestas delegadas/);
   assert.match(inbox, /DelegationSwitch/);
   assert.match(sheet, /DelegadaBadge/);
-  assert.match(sw, /El bot puede responder por ti/);
+  assert.match(delegationWords, /El bot puede responder por ti/);
   assert.match(sw, /api\.setDelegation/);
 });
 

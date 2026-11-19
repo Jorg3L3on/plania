@@ -1,4 +1,6 @@
 import { deltaText, cosasCaption } from "@/lib/progress";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressSummary } from "@/lib/types";
 
 type Props = { data: ProgressSummary };
@@ -31,6 +33,7 @@ const Ring = ({ r, value, max, color, track }: { r: number; value: number; max: 
 };
 
 export const RecapHero = ({ data }: Props) => {
+  const w = words(PROGRESS_WORDS);
   const delta = deltaText(data.delta_pct, data.range);
   const max = Math.max(data.bugs, data.prs, data.initiatives, 1);
   const digits = String(data.finished).length;
@@ -49,7 +52,7 @@ export const RecapHero = ({ data }: Props) => {
             ))}
           </g>
           <text x="85" y="80" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800">
-            META
+            {w.goal}
           </text>
           <text x="85" y="98" textAnchor="middle" fill="#fff" fontSize="16" fontWeight="900">
             {data.finished > 0 ? "✓" : "·"}
@@ -68,9 +71,9 @@ export const RecapHero = ({ data }: Props) => {
           </p>
         )}
         <div className="mt-4 grid grid-cols-3 gap-2">
-          <Kpi n={data.bugs} label="Bugs arreglados" mark="🐞" />
-          <Kpi n={data.prs} label="PRs fusionados" mark="🔀" />
-          <Kpi n={data.initiatives} label="Iniciativas" mark="🏁" />
+          <Kpi n={data.bugs} label={w.bugsFixed} mark="🐞" />
+          <Kpi n={data.prs} label={w.prsMerged} mark="🔀" />
+          <Kpi n={data.initiatives} label={w.initiatives} mark="🏁" />
         </div>
       </div>
     </section>
