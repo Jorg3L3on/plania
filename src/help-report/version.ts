@@ -4,10 +4,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExecFn } from "../brief/doctor.js";
+import { readManifest } from "../release.js";
 
 export type PlaniaVersion = { version: string | null; commit: string | null };
 
 export async function planiaVersion(root: string, exec: ExecFn, env: NodeJS.ProcessEnv): Promise<PlaniaVersion> {
+  // PLA-I2-17/PLA-I2-8: a release package names itself in its manifest; git is asked only in a checkout.
+  const m = readManifest(root);
+  if (m) return { version: m.version, commit: m.commit ? m.commit.slice(0, 12) : null };
   let version: string | null = null;
   try {
     const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { version?: unknown };

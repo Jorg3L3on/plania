@@ -334,7 +334,8 @@ committed (`--allow-dirty` packs anyway, and the manifest then names no commit).
 What a package holds: the built screen (`dist/ui`), the server's TypeScript sources (`src/`, and `ui/src/lib/` whose
 words and pure logic the server imports) run through `tsx`, which is a production dependency for that reason;
 `drizzle/migrations/`, `kit/`, `prompts/`, `config/`, `docs/templates/`; the scripts a buyer runs (start, install,
-migrate, service, restart, machine check, password and VAPID tools, project registration, kit, brief); `package.json`
+migrate, service, restart, update, restore, machine check, help report, uninstall, password and VAPID tools,
+project registration, kit, brief, and `seed-org.ts`, which the first start imports); `package.json`
 with only those scripts, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `.env.example`, `README.md`,
 `CHANGELOG.md`, `LICENSE`, a fresh `THIRD_PARTY_NOTICES`, `VERSION` and `release.json`. Never: tests, `spike/`,
 `replay/`, the screen's other sources, build configs, `.env`, `node_modules`.
@@ -366,6 +367,7 @@ The update command (PLA-I2-8) reads this file; its format is a contract. `VERSIO
 | `built_at` | ISO time the package was made. |
 | `node` | The `engines.node` range it needs. |
 | `migrations` | The last migration file it carries, e.g. `0062_owner_neutral.sql`, so an update can tell whether it brings new ones. |
+| `kit` | `{ "<path under kit/>": "<sha256>" }` of every kit file as shipped (line endings normalised). The update tells the buyer's edits from the release's with it; a manifest without it makes the update keep every kit file that differs. |
 
 `GET /health/ui` (no auth) returns `{ version: { version, commit, built_at, packaged }, ui, head }`; in a checkout
 `version` comes from `package.json` and the HEAD commit, with `packaged: false`. `GET /api/release` (session) adds
@@ -387,7 +389,7 @@ or switching Node versions. `pnpm service:uninstall` stops it and removes the se
 | | macOS | Linux (and WSL with systemd) |
 |---|---|---|
 | Service | launchd agent `com.plania.server`, `~/Library/LaunchAgents/com.plania.server.plist` | systemd user unit `~/.config/systemd/user/plania.service` |
-| Logs | `~/Library/Logs/plania/server.log` | the user journal: `journalctl --user -u plania -f` |
+| Logs | `~/Library/Logs/plania/server.log` | `~/.local/state/plania/server.log`, and the user journal (`journalctl --user -u plania -f`) |
 | Starts | at login | at login; `--at-boot` also runs `loginctl enable-linger` so it starts at boot |
 | Restart by hand | `launchctl kickstart -k gui/$(id -u)/com.plania.server` | `systemctl --user restart plania.service` |
 | Stop | `launchctl bootout gui/$(id -u)/com.plania.server` | `systemctl --user stop plania.service` |
@@ -423,14 +425,55 @@ Owner: create a read-only fine-grained token for the plania repo and save it wit
 
 Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
 `~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
-page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
-
-```bash
-createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
-```
+page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To bring one back,
+see "Restoring a backup".
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
+
+## Updating
+
+A new version arrives as a package file (`plania-<version>.tar.gz`, with its `.sha256` beside it). Plania never
+fetches it: download it, then from the installed folder:
+
+```bash
+pnpm update:plania ~/Downloads/plania-0.2.0.tar.gz
+```
+
+Each step says one sentence (PLA-I2-8, `src/update/index.ts`):
+
+1. Refuses while a run, a QA check or a test copy's pass is in flight, as `pnpm server:restart` does.
+2. Opens the package beside the install, checks its `.sha256` when present and its `release.json`, and refuses a
+   version that is not newer.
+3. Installs its production dependencies there (`pnpm install --prod --frozen-lockfile`). Nothing is built.
+4. Backs up the database into the backup folder as `plania-pre-update-<from>-to-<to>-<time>.sql.gz`, which the
+   nightly pruning never removes.
+5. Stops the service. Without one, stop Plania yourself and pass `--no-service`.
+6. Swaps the program files: the install folder becomes `<folder>.previous-<from>` (only the latest is kept) and the
+   new release takes its place. `.env` comes across. Kit files you edited are never overwritten: yours go into the new
+   files, and when the release changed the same file its version is put in `kit.new/` for you to compare.
+7. Checks that a backup from today exists, then applies the new migrations in one transaction.
+8. Role prompts nobody edited in Plania take the release's text (`kit:sync` without `--force`); ones you edited in
+   Plania stay and are reported.
+9. Starts the service and points at the release notes, `http://localhost:3737/novedades`. That page also lists what
+   the update kept of your kit and what to do; Plomería shows a hint while something waits.
+
+A failure before step 5 changes nothing. A failure at step 6 or 7 puts the previous folder back, starts it, and names
+the backup and the restore command. The migration is all or nothing, so the database is as it was and the old
+version passes its start-up check. To go back by hand after a successful update: stop the service, swap the folder
+with `<folder>.previous-<from>`, restore the pre-update backup, start the service.
+
+## Restoring a backup
+
+```bash
+pnpm restore:plania ~/plania-backups/plania-20261016.sql.gz --database plania_restore
+pnpm restore:plania <file> --database plania --overwrite --confirm plania
+```
+
+It creates the named database when it does not exist and loads the dump with `psql` (`ON_ERROR_STOP`; the `psql` of
+the server's major version, `PLANIA_PG_BIN` first). A database that already holds tables is replaced only when asked
+twice, `--overwrite` and its name again in `--confirm`; it is then dropped and made again. Stop Plania before
+replacing the database it uses. `--url` names another server.
 
 ## Morning brief
 
