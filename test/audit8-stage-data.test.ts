@@ -218,7 +218,7 @@ test("the rendered doc passes forwardBlock and the Markdown readers find what th
   assert.equal(forwardBlock("design", { title: "Design", markdown: docs.design }), null);
   assert.equal(forwardBlock("planning", { title: "Plan", markdown: docs.planning }), null);
   assert.match(docs.idea, /^## Assumptions$/m);
-  assert.match(docs.idea, /^1\. \*\*¿El aviso sale por WhatsApp o por correo\?\*\* Se asume «WhatsApp» hasta que Jorge decida: .* Otras opciones: «Correo», «Los dos»\.$/m);
+  assert.match(docs.idea, /^1\. \*\*¿El aviso sale por WhatsApp o por correo\?\*\* Se asume «WhatsApp» hasta que el dueño decida: .* Otras opciones: «Correo», «Los dos»\.$/m);
   assert.doesNotMatch(renderStageDoc("idea", checkStageData("idea", { ...IDEA, decisions: [] })), /Assumptions/);
   assert.deepEqual(numbered(sectionAll(docs.research, "Options")).map((o: Json) => [o.n, o.title]), [[1, "Twilio"], [2, "Meta directo"], [3, "Aviso manual asistido"]]);
   assert.match(sectionAll(docs.research, "Recommendation")!, /^\*\*Opción 2: Meta directo\.\*\* A la larga/);
@@ -239,9 +239,9 @@ test("a decision is assumed until a pick matches its question and one of its opt
   assert.deepEqual(decisionStates(d, picks).map((s) => [s.state, s.chosen]), [["assumed", 0], ["decided", 1]]);
   const md = renderStageDoc("idea", checkStageData("idea", IDEA));
   const out = rewriteDecisionLine(md, 2, d[1]!, 1);
-  assert.match(out, /^2\. \*\*¿Se avisa también a la acompañante\?\*\* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
+  assert.match(out, /^2\. \*\*¿Se avisa también a la acompañante\?\*\* Decidido por el dueño: «Sí»\. El PO recomendaba «No»\.$/m);
   assert.match(out, /^1\. .* Se asume «WhatsApp»/m, "the other line stays");
-  assert.match(rewriteDecisionLine(md, 1, d[0]!, 0), /^1\. .* Decidido por Jorge: «WhatsApp»\.$/m);
+  assert.match(rewriteDecisionLine(md, 1, d[0]!, 0), /^1\. .* Decidido por el dueño: «WhatsApp»\.$/m);
   // A doc someone rewrote by hand: the line is added, under Assumptions when the section is there.
   const hand = rewriteDecisionLine("## Problem\nx\n## Assumptions\n\nNotas sueltas.\n\n## Why now\ny\n", 2, d[1]!, 1);
   assert.match(hand, /Notas sueltas\.\n2\. \*\*¿Se avisa[^\n]*«Sí»[^\n]*\n\n## Why now/);
@@ -309,7 +309,7 @@ test("the idea read carries the data of each stop, the decisions as assumed and 
   const key = await toPlan("Recordatorios de la prueba");
   const d = await detail(key);
   assert.deepEqual(d.stops.map((s: Json) => s.state), ["done", "done", "done", "done", "here", "todo"]);
-  assert.deepEqual(d.stops.map((s: Json) => s.by), ["jorge", "product-owner", "research", "artist", "product-owner", null]);
+  assert.deepEqual(d.stops.map((s: Json) => s.by), ["owner", "product-owner", "research", "artist", "product-owner", null]);
   assert.deepEqual(d.stops.map((s: Json) => !!s.data), [false, true, true, true, true, false]);
   assert.equal(d.stops[1].data.problem, IDEA.problem);
   assert.deepEqual(d.stops[3].data.out_of_scope, DESIGN.out_of_scope);
@@ -360,14 +360,14 @@ test("the owner picks the recommended option: decided, a note, and nothing moves
   assert.equal(await stageOf(key), "planning");
   assert.deepEqual(await queued(key), []);
   const [ev] = await eventsOf(key, "idea.decision");
-  assert.deepEqual([ev!.payload.n, ev!.payload.option, ev!.payload.label, ev!.payload.changed, ev!.actor.agent], [1, 1, "WhatsApp", false, "jorge"]);
+  assert.deepEqual([ev!.payload.n, ev!.payload.option, ev!.payload.label, ev!.payload.changed, ev!.actor.agent], [1, 1, "WhatsApp", false, "owner"]);
   const doc = (await docOf(key, "Idea"))!;
-  assert.match(doc.markdown, /^1\. \*\*¿El aviso sale por WhatsApp o por correo\?\*\* Decidido por Jorge: «WhatsApp»\.$/m);
+  assert.match(doc.markdown, /^1\. \*\*¿El aviso sale por WhatsApp o por correo\?\*\* Decidido por el dueño: «WhatsApp»\.$/m);
   assert.match(doc.markdown, /^2\. .* Se asume «No»/m);
   assert.equal(doc.version, before.version + 1);
   assert.deepEqual([doc.actor, doc.updated_at], [before.actor, before.updated_at], "the delivery is still the PO's, at its time");
   const note = (await eventsOf(key, "note")).at(-1)!.payload.text as string;
-  assert.match(note, /Jorge confirmó \(desde Compañía\)/);
+  assert.match(note, /El dueño confirmó \(desde Compañía\)/);
   const d = await detail(key);
   assert.deepEqual([d.decisions[0].state, d.decisions[0].chosen, typeof d.decisions[0].at], ["decided", 1, "string"]);
   assert.equal(d.decisions[1].state, "assumed");
@@ -375,7 +375,7 @@ test("the owner picks the recommended option: decided, a note, and nothing moves
   assert.deepEqual([entendido.by, entendido.seen], ["product-owner", true]);
   assert.ok(d.stops[1].data, "his pick does not make the delivery's data stale");
   assert.ok(d.trail.some((x: Json) => x.kind === "veredicto" && x.text === "Confirmaste «WhatsApp» en «¿El aviso sale por WhatsApp o por correo?»."), JSON.stringify(d.trail.map((x: Json) => x.text)));
-  assert.ok(!d.trail.some((x: Json) => /Jorge confirmó/.test(x.text)), "the note for the team stays out of his trail");
+  assert.ok(!d.trail.some((x: Json) => /El dueño confirmó/.test(x.text)), "the note for the team stays out of his trail");
   assert.equal((await decide(key, { decision: 1, option: 1 })).status, 409, "already decided that");
 });
 
@@ -390,11 +390,11 @@ test("PLA-88: past the idea stage, another option stays on the stage at work and
   const [ev] = await eventsOf(key, "idea.decision");
   assert.deepEqual([ev!.payload.label, ev!.payload.was, ev!.payload.changed, ev!.payload.text], ["Sí", "No", true, "Casi siempre viene la mamá y es quien confirma"]);
   const note = (await eventsOf(key, "note")).at(-1)!.payload.text as string;
-  assert.match(note, /Jorge decidió \(desde Compañía\) «Sí» en «¿Se avisa también a la acompañante\?», en lugar de «No»/);
+  assert.match(note, /El dueño decidió \(desde Compañía\) «Sí» en «¿Se avisa también a la acompañante\?», en lugar de «No»/);
   assert.match(note, /Sus palabras: «Casi siempre viene la mamá y es quien confirma»/);
   assert.match(note, /La idea sigue en Plan/);
   assert.doesNotMatch(note, /vuelve a mover la idea/);
-  assert.match((await docOf(key, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
+  assert.match((await docOf(key, "Idea"))!.markdown, /^2\. .* Decidido por el dueño: «Sí»\. El PO recomendaba «No»\.$/m);
   const d = await detail(key);
   assert.equal(d.stops.find((s: Json) => s.stop === "plan").state, "here");
   assert.deepEqual([d.decisions[1].state, d.decisions[1].chosen, d.decisions[1].recommended], ["decided", 2, 1]);
@@ -413,7 +413,7 @@ test("PLA-88: past the idea stage, another option stays on the stage at work and
   await raw.query(`delete from agent_runs`);
   const again = await decide(design, { decision: 2, option: 1 });
   assert.deepEqual([again.status, again.body.changed, again.body.stage], [200, true, "design"]);
-  assert.match((await docOf(design, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «No»\.$/m);
+  assert.match((await docOf(design, "Idea"))!.markdown, /^2\. .* Decidido por el dueño: «No»\.$/m);
 
   // On the idea stage the PO redoes it, as before; his pick outlives the new delivery.
   const early = await idea("Avisos de pago a la acompañante");
@@ -423,7 +423,7 @@ test("PLA-88: past the idea stage, another option stays on the stage at work and
   assert.deepEqual([back.status, back.body.changed, back.body.stage], [200, true, "idea"]);
   assert.match((await eventsOf(early, "note")).at(-1)!.payload.text as string, /deliver_stage y vuelve a mover la idea/);
   await deliverStage(db, { project: "micasa", key: early, stage: "idea", data: { ...IDEA, who: "Recepción y la acompañante" } }, RUN("po"));
-  assert.match((await docOf(early, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
+  assert.match((await docOf(early, "Idea"))!.markdown, /^2\. .* Decidido por el dueño: «Sí»\. El PO recomendaba «No»\.$/m);
   const de = await detail(early);
   assert.deepEqual([de.decisions[1].state, de.decisions[1].chosen], ["decided", 2]);
 
@@ -436,16 +436,16 @@ test("PLA-88: past the idea stage, another option stays on the stage at work and
   assert.deepEqual(await queued(fresh), ["po-micasa"]);
 
   // A closed idea takes no pick.
-  await writes.setTask(db, { project: "micasa", key: fresh, status: "Won't do", reason: "ya no", version: await versionOf(fresh) } as never, { actor: { agent: "jorge", session_id: "web", machine: "screen" }, human: true });
+  await writes.setTask(db, { project: "micasa", key: fresh, status: "Won't do", reason: "ya no", version: await versionOf(fresh) } as never, { actor: { agent: "owner", session_id: "web", machine: "screen" }, human: true });
   assert.equal((await decide(fresh, { decision: 1, option: 1 })).status, 409);
 });
 
 test("each stage owner is told to deliver with deliver_stage, and the protocol names it", () => {
   for (const stage of ["idea", "research", "design", "planning"] as const) assert.match(STAGE_REASON[stage], /deliver_stage/, stage);
-  assert.match(STAGE_REASON.idea, /^pedido de Jorge para darle forma/);
+  assert.match(STAGE_REASON.idea, /^pedido del dueño para darle forma/);
   assert.match(STAGE_REASON.research, /^idea stage research/);
   assert.equal(STAGE_REASON.ready, "");
-  assert.equal(PROTOCOL_VERSION, "2.23");
+  assert.equal(PROTOCOL_VERSION, "2.24");
   assert.match(instructions(false), /deliver_stage/);
   assert.ok(instructions(false).split(/\s+/).length < 900);
 });

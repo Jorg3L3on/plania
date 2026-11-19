@@ -335,7 +335,7 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     worktrees_removed: cleaned,
     logs_pruned: pruned,
     retried_after_fail: failed.retried,
-    handed_to_jorge: failed.held,
+    handed_to_owner: failed.held,
     freed_after_stop: freed.freed,
     requeued_held: held.requeued,
     stalled_ideas: stalled,

@@ -456,7 +456,7 @@ test("I46-9: without a QA teammate a delivery reaches the floor as before; the c
     const four = await app.request(`/api/projects/zigzag/qa/${key}/checklist`, { method: "PUT", headers: jorge(), body: JSON.stringify({ items: ["1", "2", "3", "4"] }) });
     assert.equal(four.status, 400);
     const written = (await raw.query(`select actor from events where type = 'po_checks.set' and task_key = $1 order by created_at desc limit 1`, [key])).rows;
-    assert.equal(written[0].actor.agent, "jorge");
+    assert.equal(written[0].actor.agent, "owner");
     const stored = (await raw.query(`select po_checklist from tasks where key = $1`, [key])).rows[0].po_checklist;
     assert.deepEqual(stored.map((c: Json) => [c.n, c.text, c.done]), [[1, "Uno", false], [2, "Dos", false]], "one storage: tasks.po_checklist");
   } finally {

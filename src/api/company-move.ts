@@ -95,7 +95,7 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
   if (returnedDelivery(p.slug, decisions)) return null;
 
   // 2. The light says something is the owner's, without a decision behind it.
-  if (p.light === "needs_jorge" && p.light_reason) {
+  if (p.light === "needs_owner" && p.light_reason) {
     const href = p.light_reason.action?.href ?? "";
     if (href === "#publicar") return { verbo: "publicar", texto: clip(p.light_reason.text, 90), accion: { kind: "publish", label: "Publicar" }, origen: { kind: "light" } };
     if (p.light_reason.action) return { verbo: "ver", texto: clip(p.light_reason.text, 90), accion: { kind: "link", href, label: p.light_reason.action.label }, origen: { kind: "light" } };

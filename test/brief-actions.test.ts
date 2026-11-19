@@ -384,7 +384,7 @@ test("check 6: every action left one brief.action event in its project, as the o
   const ev = await events();
   const done = (await raw.query(`select id, item_id, action from brief_actions`)).rows;
   for (const r of done) assert.ok(ev.some((e) => e.payload.action_id === r.id && !e.payload.undone), `${r.action} ${r.item_id}`);
-  assert.ok(ev.every((e) => e.actor.agent === "jorge"));
+  assert.ok(ev.every((e) => e.actor.agent === "owner"));
   const by = (item: string) => ev.find((e) => e.payload.item_id === item)!.slug;
   assert.equal(by(T.runs), "micasa");
   assert.equal(by(T.release), "zigzag");

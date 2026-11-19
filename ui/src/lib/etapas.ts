@@ -10,7 +10,7 @@ import { acceptWords } from "./evidencia";
 import { ago } from "./time";
 
 export type StationId = "por" | "taller" | "qa" | "rev" | "toca" | "hecho";
-export type StageTone = "pending" | "ready" | "blocked" | "now" | "review" | "jorge" | "done";
+export type StageTone = "pending" | "ready" | "blocked" | "now" | "review" | "owner" | "done";
 export type Station = { id: StationId; name: string; who: string; verb: string; on: string; role: string | null };
 
 export const STATIONS: readonly Station[] = [
@@ -52,7 +52,7 @@ export const ETAPA_TONE: Record<EtapaId, StageTone> = {
   sin_dueno: "blocked",
   en_qa: "now",
   en_revision: "review",
-  te_toca: "jorge",
+  te_toca: "owner",
   integrado: "done",
   publicado: "done",
   hecho: "done",
@@ -96,7 +96,7 @@ const STATUS_ETAPA: Record<string, EtapaId> = {
   Merged: "integrado",
   Released: "publicado",
   Blocked: "bloqueado",
-  "Needs Jorge": "te_toca",
+  "Needs owner": "te_toca",
   Done: "hecho",
 };
 export const statusEtapa = (status: string): EtapaId | null => STATUS_ETAPA[status] ?? null;
@@ -180,7 +180,7 @@ function trackOf(key: string | null, title: string, status: string | null, ticke
 
 // Which windows are lit, and in what colour: QA or Taller at work (now), a returned ticket being fixed (review), an
 // item waiting on the owner (jorge). The first live ticket of a station gives its colour, building before fixing.
-const LIT_ORDER: StageTone[] = ["now", "review", "jorge"];
+const LIT_ORDER: StageTone[] = ["now", "review", "owner"];
 export function litOf(tickets: ProjectTicket[]): Partial<Record<StationId, StageTone>> {
   const lit: Partial<Record<StationId, StageTone>> = {};
   for (const t of tickets) {

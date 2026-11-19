@@ -198,7 +198,7 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
   }
   const max = Math.max(1, ...span.map((d) => d.n));
   const today = !hasta;
-  const fromPedido = h.initiatives.filter((i) => i.origin === "jorge").length;
+  const fromPedido = h.initiatives.filter((i) => i.origin === "owner").length;
   const sentence = [
     `${h.total === 1 ? "Un paso hecho" : `${h.total} pasos hechos`} ${today ? "en 14 días" : `del ${dayShort(`${h.from}T12:00:00Z`, "UTC").toLowerCase()} al ${dayShort(`${h.to}T12:00:00Z`, "UTC").toLowerCase()}`}.`,
     h.initiatives.length ? `${num(h.initiatives.length)} ${h.initiatives.length === 1 ? "iniciativa cerrada" : "iniciativas cerradas"}${fromPedido ? `; ${fromPedido === 1 ? "una nació" : `${num(fromPedido).toLowerCase()} nacieron`} de un pedido tuyo` : ""}.` : "Ninguna iniciativa cerrada.",
@@ -237,7 +237,7 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
                       <span className="cor-ellipsis">
                         <span className="cor-key">{i.key}</span> {i.title}
                       </span>
-                      <span className="cor-cap">{[dayShort(i.done_at, timeZone), `${i.steps} ${i.steps === 1 ? "PASO" : "PASOS"}`, i.idea ? (i.origin === "jorge" ? `ERA TU PEDIDO ${i.idea}` : `ERA ${i.idea}`) : null].filter(Boolean).join(" · ")}</span>
+                      <span className="cor-cap">{[dayShort(i.done_at, timeZone), `${i.steps} ${i.steps === 1 ? "PASO" : "PASOS"}`, i.idea ? (i.origin === "owner" ? `ERA TU PEDIDO ${i.idea}` : `ERA ${i.idea}`) : null].filter(Boolean).join(" · ")}</span>
                     </Link>
                   </li>
                 ))}

@@ -132,7 +132,7 @@ test("I32-5 #1: Jorge's message wakes Asistente; the queued run starts, runs wit
   assert.equal(drained.started, 1, "home project zigzag is paused; Asistente runs anyway");
   const prompt = f.spawned[0]!.args[f.spawned[0]!.args.indexOf("-p") + 1]!;
   assert.match(prompt, /chief of staff/);
-  assert.match(prompt, /Why you woke: message from Jorge\./);
+  assert.match(prompt, /Why you woke: message from the owner\./);
   assert.match(prompt, /thread_read company/);
   // Asistente never merges: the deny rules every run gets hold for it too.
   assert.ok(DENY_RULES.includes("Bash(gh pr merge*)"));
@@ -197,7 +197,7 @@ test("I32-5 #2: a PO's ticket In review that Jorge asked for, with its checks do
   );
   // An unrelated ticket of Taller's in review stays untouched.
   const other = (await writes.createTask(db, { project: "micasa", title: "Código", scope: "s", checks: ["c"], work_type: "ops", owner_agent: "taller-micasa" } as never, A)) as { key: string };
-  await raw.query(`update tasks set status = 'In review', origin = 'jorge' where key = $1`, [other.key]);
+  await raw.query(`update tasks set status = 'In review', origin = 'owner' where key = $1`, [other.key]);
   await raw.query(`update checks set done = true where task_id = (select id from tasks where key = $1)`, [other.key]);
 
   const out = await asistente.runAsistente(db, new Date("2026-11-13T20:00:00Z"), wakesOn);

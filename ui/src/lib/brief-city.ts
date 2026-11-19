@@ -5,7 +5,7 @@
 import { CROSS, type BriefApp, type BriefData, type BriefStateReply, type Idea, type IdeaInMotion, type Item, type Status } from "@/lib/brief";
 import type { CityCounts } from "@/lib/brief-i18n";
 
-export type WindowTone = "blocked" | "jorge" | "ready" | "review" | "lit";
+export type WindowTone = "blocked" | "owner" | "ready" | "review" | "lit";
 export type CityCard = { kind: "item"; id: string; item: Item; open: boolean } | { kind: "idea"; id: string; idea: Idea; open: boolean };
 export type Station = {
   slug: string;
@@ -22,7 +22,7 @@ export type Station = {
 };
 
 const RANK: Record<Status, number> = { blocker: 0, needs_you: 1, next: 2, open_pr: 3 };
-const TONE: Record<Status, WindowTone> = { blocker: "blocked", needs_you: "jorge", next: "ready", open_pr: "ready" };
+const TONE: Record<Status, WindowTone> = { blocker: "blocked", needs_you: "owner", next: "ready", open_pr: "ready" };
 
 export const itemOpen = (item: Item, state: BriefStateReply | undefined) => (state?.items[item.id]?.state ?? "open") === "open";
 /** An idea card is open until it has a fate, was sent to Plania (V1) or checked. */

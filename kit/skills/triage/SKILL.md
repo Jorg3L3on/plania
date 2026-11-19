@@ -42,7 +42,7 @@ Classify each item by where it is, then take the one action for that state.
 | In progress, and `get_running` says `stale` or `quiet` for long | A note on the ticket saying what you saw, then `wake_agent` its owner. Never claim it yourself |
 | Blocked, and the audit says `BLOCKED_BUT_SATISFIED` | Follow the `fix_hint` |
 | Blocked on something real | Name who clears it. If it is the owner and it is not in his inbox, add a `human_action` blocker with `set_task` |
-| Needs Jorge, or anything in `get_inbox` | Nothing to route: it is already his. Report it, oldest first, with how long it has waited |
+| Needs owner, or anything in `get_inbox` | Nothing to route: it is already the owner's. Report it, oldest first, with how long it has waited |
 | In review and passed | The owner's turn. Report it |
 | The same work in two tickets | `comment` on the newer one pointing at the older. Closing one is the owner's: list it for him |
 | A choice between options that only the owner can make | `propose` kind `choice`, with a recommendation |

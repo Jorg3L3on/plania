@@ -6,10 +6,10 @@ import { ToolError, findProject } from "./queries.js";
 import { releasePlan, type ReleasePlan } from "./release-plan.js";
 import { writeTx, type Ctx } from "./tx.js";
 
-// 2.13 (item 2, phase two): Jorge ships the release from the screen. In settings.release.mode "merge"
+// 2.13 (item 2, phase two): the owner ships the release from the screen. In settings.release.mode "merge"
 // the server opens (or reuses) a PR from → into titled "Release: <keys>", merges it with
 // `gh pr merge --merge` (a merge commit: history kept, and the pinned decisions hold because the click
-// is Jorge's), and writes release.merged with the merge sha. The GitHub poller then sees into contain
+// is the owner's), and writes release.merged with the merge sha. The GitHub poller then sees into contain
 // from (release.shipped) and the deploy poller moves the tickets to Released. Agents never get here:
 // the route is the screen's alone and shipRelease refuses anything but a human ctx.
 
@@ -74,7 +74,7 @@ export const releaseTitle = (plan: ReleasePlan) => `Release: ${plan.tickets.map(
 
 export function releaseBody(plan: ReleasePlan): string {
   const lines = [
-    `${plan.from.branch} → ${plan.into.branch}, for ${plan.env}. Shipped from Plania by Jorge.`,
+    `${plan.from.branch} → ${plan.into.branch}, for ${plan.env}. Shipped from Plania by the owner.`,
     "",
     ...plan.tickets.map((t) => `- ${t.key} ${t.title}${t.pr_url ? ` (${t.pr_url})` : ""}`),
   ];
@@ -94,7 +94,7 @@ export function migrateMode(p: { settings: { capture?: { database?: unknown } } 
 export const shipDeps: { migrar?: (db: Db, p: Awaited<ReturnType<typeof findProject>>, into: string, migrations: string[]) => Promise<unknown> } = {};
 
 export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
-  if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only Jorge ships a release, from the screen" });
+  if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only the owner ships a release, from the screen" });
   const p = await findProject(db, slug);
   const plan = await releasePlan(db, p);
   if (!plan) throw new ToolError("RELEASE_NOT_READY", { reason: "no_release", hint: "the project has no settings.release" });
@@ -117,7 +117,7 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
     pr = { number, url };
   }
 
-  // --match-head-commit: merge exactly the head the plan showed Jorge, never one that moved since.
+  // --match-head-commit: merge exactly the head the plan showed the owner, never one that moved since.
   await gh("merge", ["pr", "merge", String(pr.number), "--repo", repo, "--merge", ...(plan.from.head_sha ? ["--match-head-commit", plan.from.head_sha] : [])]);
   const view = JSON.parse(await gh("view", ["pr", "view", String(pr.number), "--repo", repo, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
   const mergeSha = view.mergeCommit?.oid;

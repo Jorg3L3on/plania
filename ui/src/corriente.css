@@ -1,6 +1,6 @@
 /* PLA-I62: La corriente, Compañía's look (PLA-IDEA25, kit v2). Everything lives under .cor and its own cor- classes:
    the global tokens, .edi-* and the rest of the app are not touched. Near black, one violet light for live work,
-   amber only for what waits on Jorge, a project's colour only in its logo. Geist and Geist Mono only. */
+   amber only for what waits on the owner, a project's colour only in its logo. Geist and Geist Mono only. */
 
 /* PLA-72: the large frame lives in a portal on <body> (above the app header); it carries the floor's colours. */
 .cor-portal {

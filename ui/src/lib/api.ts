@@ -384,7 +384,7 @@ export type OrgPedido = {
   unseen?: number;
   unseen_stop?: PedidoStop | null;
 };
-export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
+export type OrgLight = "ok" | "needs_owner" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
@@ -406,7 +406,7 @@ export type OrgOrder = {
   plan?: { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string } | null;
   run?: OrgRun | null;
 };
-export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused";
+export type OrgMemberState = "running" | "idle" | "waiting_owner" | "paused";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
   agent: string;

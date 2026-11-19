@@ -121,7 +121,7 @@ test("I54-1 #1: Darle forma (the default) creates an idea owned by the PO, origi
   assert.equal(out.wake, "queued");
   assert.match(out.key, /^[A-Z]+-IDEA\d+$/);
   const t = (await raw.query(`select t.kind, t.stage, t.status, t.origin, t.title, t.scope, a.slug as owner from tasks t left join agents a on a.id = t.owner_agent where t.key = $1`, [out.key])).rows[0];
-  assert.deepEqual([t.kind, t.stage, t.status, t.origin, t.owner, t.title], ["idea", "idea", "Open", "jorge", "po-micasa", "Que el registro pida menos datos"]);
+  assert.deepEqual([t.kind, t.stage, t.status, t.origin, t.owner, t.title], ["idea", "idea", "Open", "owner", "po-micasa", "Que el registro pida menos datos"]);
   assert.match(t.scope, /Darle forma\): "Que el registro pida menos datos\nHoy son nueve campos\."/);
   assert.match(t.scope, /`Entendí: …`/);
   assert.match(t.scope, /Nunca crees tickets para Taller/);
@@ -135,7 +135,7 @@ test("I54-1 #1: Darle forma (the default) creates an idea owned by the PO, origi
   const prompt = (f.spawned[0] as unknown as { args: string[] }).args[1]!;
   assert.match(prompt, new RegExp(`Ticket: ${out.key}`));
   assert.match(prompt, /This is an idea, not a ticket/);
-  assert.match(prompt, /Why you woke: pedido de Jorge para darle forma/);
+  assert.match(prompt, /Why you woke: pedido del dueño para darle forma/);
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
 });
@@ -145,7 +145,7 @@ test("I54-1 #2: Hacerlo ya is the Ready ticket for the PO plus the wake; an old 
   assert.equal(out.mode, "ya");
   assert.ok(out.woke, "a wake was tried at once");
   const t = (await raw.query(`select kind, status, origin, work_type from tasks where key = $1`, [out.key])).rows[0];
-  assert.deepEqual([t.kind, t.status, t.origin, t.work_type], ["ticket", "Ready", "jorge", "ops"]);
+  assert.deepEqual([t.kind, t.status, t.origin, t.work_type], ["ticket", "Ready", "owner", "ops"]);
   const old = await ask({ text: "Revisa los textos", now: false });
   assert.deepEqual([old.mode, old.woke], ["ya", null]);
   assert.equal((await raw.query(`select kind from tasks where key = $1`, [old.key])).rows[0].kind, "ticket");

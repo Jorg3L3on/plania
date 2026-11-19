@@ -16,6 +16,7 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { stopRun } from "../runner/runner.js";
 import { roleOf } from "../runner/limits.js";
+import { ownerEs } from "../owner.js";
 
 export const ORDERS_MAX = 5;
 const UNTAKEN_HOURS = 24;
@@ -92,7 +93,7 @@ export async function ordersOf(db: Db, p: Project, threadId: string, now = new D
   const mine = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.origin, "jorge")))
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.origin, "owner")))
     .orderBy(desc(tasks.createdAt))
     .limit(20);
   const choices = await db
@@ -176,7 +177,7 @@ export async function cancelOrder(db: Db, slug: string, key: string): Promise<{ 
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [order] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
-  if (!order || order.origin !== "jorge") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
+  if (!order || order.origin !== "owner") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
   const [thread] = await db.execute<{ id: string }>(sql`select id from threads where project_id = ${p.id} and kind = 'project' limit 1`).then((r) => r.rows);
   const plans = thread
     ? await db.select({ proposal: threadMessages.proposal }).from(threadMessages).where(and(eq(threadMessages.threadId, thread.id), isNotNull(threadMessages.proposal)))
@@ -197,7 +198,7 @@ export async function cancelOrder(db: Db, slug: string, key: string): Promise<{ 
       }
     }
     const [fresh] = await db.select({ version: tasks.version }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, k))).limit(1);
-    await setTask(db, { project: slug, key: k, status: "Won't do", version: fresh!.version, reason: "Jorge canceló el pedido desde Compañía." } as never, ctx);
+    await setTask(db, { project: slug, key: k, status: "Won't do", version: fresh!.version, reason: `${ownerEs(undefined, { capital: true })} canceló el pedido desde Compañía.` } as never, ctx);
     closed.push(k);
   }
   return { cancelled: closed };

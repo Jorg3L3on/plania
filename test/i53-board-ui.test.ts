@@ -42,7 +42,7 @@ const ALL: Json[] = [
   tk("DEM-I2-9", "Nueve", etapa("en_qa", { qa: "running", holder: { agent: "qa-demo", role: "qa" }, live: true }), "DEM-I2"),
   tk("DEM-I2-10", "Diez", etapa("en_qa", { qa: "queued", holder: { agent: "qa", role: "qa" } }), "DEM-I2"),
   tk("DEM-I2-11", "Once", etapa("en_revision", { ci: "failure" }), "DEM-I2"),
-  tk("DEM-I2-12", "Doce", etapa("te_toca", { holder: { agent: "jorge", role: "ceo" }, ci: "success" }), "DEM-I2"),
+  tk("DEM-I2-12", "Doce", etapa("te_toca", { holder: { agent: "owner", role: "ceo" }, ci: "success" }), "DEM-I2"),
   tk("DEM-I2-13", "Trece", etapa("integrado", { since: "2026-11-14T10:00:00Z" }), "DEM-I2"),
   tk("DEM-I2-14", "Catorce", etapa("publicado", { since: "2026-11-15T10:00:00Z" }), "DEM-I2"),
   tk("DEM-I2-15", "Quince", etapa("hecho", { since: "2026-11-13T10:00:00Z" }), "DEM-I2"),
@@ -120,13 +120,13 @@ test("I53-3 #1: every open initiative is a track plus Sueltos; the board puts ea
 
 test("I53-3 #1: a station is lit while someone works there, in the stage colour; Te toca lights while something waits", () => {
   const lit = lib.litOf(ALL);
-  assert.deepEqual(lit, { taller: "now", qa: "now", toca: "jorge" });
+  assert.deepEqual(lit, { taller: "now", qa: "now", toca: "owner" });
   const quiet = lib.litOf([tk("A-1", "x", etapa("lista")), tk("A-2", "y", etapa("devuelto", { live: false }))]);
   assert.deepEqual(quiet, {}, "nothing lit while nobody works");
   assert.deepEqual(lib.litOf([tk("A-2", "y", etapa("devuelto", { live: true }))]), { taller: "review" }, "a fix in course lights Taller violet");
   const html = renderToStaticMarkup(h(board.StageBoard, { tablero: tablero(), now: NOW }));
   assert.match(html, /data-station="taller" data-lit="now"/);
-  assert.match(html, /data-station="toca" data-lit="jorge"/);
+  assert.match(html, /data-station="toca" data-lit="owner"/);
   assert.match(html, /data-station="rev">/, "Revisión is not lit: CI is not someone working");
 });
 

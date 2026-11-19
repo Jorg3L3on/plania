@@ -5,10 +5,11 @@ import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { answerInTx, type AnswerDelegation } from "./questions.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { readOldSpellings } from "../owner.js";
 
 /** Old clients still send this. Accepted and ignored for one release. */
 export const LEGACY_APPROVAL_HINT =
-  "ignored approval_id; that step was removed. Won't do and reopening take reason, and an agent also sends delegated_by_jorge {message_id, quote}.";
+  "ignored approval_id; that step was removed. Won't do and reopening take reason, and an agent also sends delegated_by_owner {message_id, quote}.";
 
 // Event ids Jorge has already reviewed. delegated_answers use reviewed_at; these moves do not have that column.
 export const MOVE_SEEN_KEY = "delegated_move_seen";
@@ -166,7 +167,7 @@ export type DelegationInput = {
   approval_id?: string;
   option?: string;
   decision?: "grant" | "reject";
-  delegated_by_jorge?: { message_id?: string; quote?: string };
+  delegated_by_owner?: { message_id?: string; quote?: string };
 };
 
 // The actor stored as evidence. No model and no token: the log must not grow a secret.
@@ -178,7 +179,7 @@ export function delegatingActor(actor: Actor): Actor {
   };
 }
 
-export function parseDelegationEvidence(raw: DelegationInput["delegated_by_jorge"]): { messageId: string; quote: string } {
+export function parseDelegationEvidence(raw: DelegationInput["delegated_by_owner"]): { messageId: string; quote: string } {
   const messageId = typeof raw?.message_id === "string" ? raw.message_id.trim() : "";
   const quote = typeof raw?.quote === "string" ? raw.quote.trim() : "";
   if (!messageId || messageId.length < MESSAGE_ID_MIN || messageId.length > MESSAGE_ID_MAX) {
@@ -230,7 +231,9 @@ export async function assertDelegationHourlyCap(tx: Q): Promise<void> {
   }
 }
 
-export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) {
+export async function answerDelegated(db: Db, raw: DelegationInput, ctx: Ctx) {
+  // PLA-I2-14: delegated_by_jorge still reads, with an OLD_SPELLING warning in the reply.
+  const { input, warnings: oldSpellings } = readOldSpellings(raw);
   const questionId = input.question_id?.trim() || "";
   const legacy = typeof input.approval_id === "string" && input.approval_id.trim().length > 0;
   // The old approval target is not a write. Any caller gets the hint and nothing is stored.
@@ -239,7 +242,7 @@ export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) 
     throw new ToolError("NOT_DELEGABLE", { field: "target", hint: "pass question_id" });
   }
   assertBot(ctx);
-  const evidence = parseDelegationEvidence(input.delegated_by_jorge);
+  const evidence = parseDelegationEvidence(input.delegated_by_owner);
   const delegation: AnswerDelegation = { ...evidence, actor: delegatingActor(ctx.actor) };
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
@@ -248,6 +251,7 @@ export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) 
     const option = input.option ?? "";
     if (!option.trim()) throw new ToolError("INVALID_QUESTION", { field: "option" });
     const answered = await answerInTx(tx, emit, p, { question_id: questionId, answer: option }, ctx, delegation);
-    return legacy ? { ...answered, hint: LEGACY_APPROVAL_HINT } : answered;
+    const out = oldSpellings.length ? { ...answered, warnings: oldSpellings } : answered;
+    return legacy ? { ...out, hint: LEGACY_APPROVAL_HINT } : out;
   });
 }

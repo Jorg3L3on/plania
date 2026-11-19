@@ -79,7 +79,7 @@ test("0041 applies twice on a throwaway copy; threads exist for the company and 
 
     const thread = (await mig.query(`select id from threads where kind = 'company'`)).rows[0].id as string;
     const insert = (body: string, links = "[]") =>
-      mig.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'jorge', 'ceo', $2, $3::jsonb)`, [thread, body, links]);
+      mig.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'owner', 'ceo', $2, $3::jsonb)`, [thread, body, links]);
     await insert("Mianovia: quiero el plan de la semana", `[{"kind":"ticket","ref":"DEM-1","title":"Plan"}]`);
     await assert.rejects(insert(""), /thread_messages_body_check/);
     await assert.rejects(insert("x".repeat(4001)), /thread_messages_body_check/);

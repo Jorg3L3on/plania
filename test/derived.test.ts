@@ -112,8 +112,8 @@ describe("derived initiative state", () => {
         to_release: [],
         to_close: [],
         ready_to_close: false,
-        waiting_on: [{ key: "ZIG-I1-3", on: "Jorge: run it on the phone" }],
-        line: "Fase 3 · 1/3 hechos · en revisión 1 (#7) · espera a Jorge (1)",
+        waiting_on: [{ key: "ZIG-I1-3", on: "Owner: run it on the phone" }],
+        line: "Fase 3 · 1/3 hechos · en revisión 1 (#7) · espera al dueño (1)",
       },
     );
     const summary = await call("get_task", { ...P, key: "ZIG-I1", view: "summary" });

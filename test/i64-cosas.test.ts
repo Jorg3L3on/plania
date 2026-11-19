@@ -60,7 +60,7 @@ const mianovia = () => {
     pedidos: [{ key: "MIA-IDEA2", title: "Usuarios en el panel", stop: "lista", state: "valvula", who: "product-owner", images: 0, understood: null, question: null, guardada: false, at: "2026-11-17T08:53:00Z" }],
   });
   const ficha = {
-    ideas: [fIdea("MIA-IDEA2", { origin: "jorge", stop: "lista", state: "valvula" }), fIdea("MIA-IDEA1", { origin: "jorge", promoted_to: "MIA-I7" })],
+    ideas: [fIdea("MIA-IDEA2", { origin: "owner", stop: "lista", state: "valvula" }), fIdea("MIA-IDEA1", { origin: "owner", promoted_to: "MIA-I7" })],
     promoted: [{ idea: "MIA-IDEA1", initiative: "MIA-I7" }, { idea: "MIA-IDEA0", initiative: "MIA-I1" }],
   };
   return { p, ficha };
@@ -96,7 +96,7 @@ test("I64-1 #1 a valve with a live run moves; a pedido at Lista waits for «Cons
   assert.equal(moving.grupo, "mueve");
   assert.deepEqual(moving.palanca, { kind: "detener", run: "run-po" });
   const p2 = project("mianovia");
-  const f2 = { ideas: [fIdea("MIA-IDEA3", { origin: "jorge", stop: "lista", state: "quieta" }), fIdea("MIA-IDEA4", { stage: "design", stop: "diseno", state: "espera", question: { id: "q1", text: "¿Azul o verde?" } }), fIdea("MIA-IDEA5", { stage: "research", stop: "investigacion", state: "quieta", waits: "Doc Research" }), fIdea("MIA-IDEA6", { stage: null, stop: "buzon", state: "cola", origin: "jorge" })], promoted: [] };
+  const f2 = { ideas: [fIdea("MIA-IDEA3", { origin: "owner", stop: "lista", state: "quieta" }), fIdea("MIA-IDEA4", { stage: "design", stop: "diseno", state: "espera", question: { id: "q1", text: "¿Azul o verde?" } }), fIdea("MIA-IDEA5", { stage: "research", stop: "investigacion", state: "quieta", waits: "Doc Research" }), fIdea("MIA-IDEA6", { stage: null, stop: "buzon", state: "cola", origin: "owner" })], promoted: [] };
   const c = cosasOf({ p: p2, decisions: [], ficha: f2 });
   assert.deepEqual(find(c, "MIA-IDEA3").palanca, { kind: "construir", key: "MIA-IDEA3" });
   assert.equal(find(c, "MIA-IDEA3").grupo, "toca");
@@ -240,11 +240,11 @@ test("I64-7: a server move that is no decision (start, plan, goal) is a Te toca 
 
 test("PLA-62 #4: a stuck pedido's clock is its «Constrúyelo», not the idea's last edit", () => {
   const p = project("mianovia");
-  const ficha = { ideas: [fIdea("MIA-IDEA2", { origin: "jorge", stop: "lista", state: "valvula", updated_at: "2026-11-17T17:00:00Z", ordered_at: "2026-11-17T08:53:00Z" })], promoted: [] };
+  const ficha = { ideas: [fIdea("MIA-IDEA2", { origin: "owner", stop: "lista", state: "valvula", updated_at: "2026-11-17T17:00:00Z", ordered_at: "2026-11-17T08:53:00Z" })], promoted: [] };
   const c = cosasOf({ p, decisions: [], ficha });
   assert.equal(find(c, "MIA-IDEA2").since, "2026-11-17T08:53:00Z");
   assert.equal(fraseOf(p, c, quiet, { now: Date.parse("2026-11-17T13:18:00Z") }).toca, "Tu «Constrúyelo» lleva 4 h sin subir al tablero.");
   // Without the event (an older server) it falls back to the idea's time.
-  const f2 = { ideas: [fIdea("MIA-IDEA2", { origin: "jorge", stop: "lista", state: "valvula", updated_at: "2026-11-17T12:00:00Z" })], promoted: [] };
+  const f2 = { ideas: [fIdea("MIA-IDEA2", { origin: "owner", stop: "lista", state: "valvula", updated_at: "2026-11-17T12:00:00Z" })], promoted: [] };
   assert.equal(find(cosasOf({ p, decisions: [], ficha: f2 }), "MIA-IDEA2").since, "2026-11-17T12:00:00Z");
 });

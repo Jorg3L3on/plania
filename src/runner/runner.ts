@@ -104,6 +104,7 @@ import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowRead
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
+import { personalize } from "../owner.js";
 import { languageLine } from "./owner-language.js";
 
 export type ReadyWork = {
@@ -850,18 +851,18 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
 
 // ---- Start
 
-// PLA-71: the owner's «Cambios que pide Jorge» note (thread-actions changes) that is newer than the ticket's last move
+// PLA-71: the owner's «Cambios que pide …» note (thread-actions changes) that is newer than the ticket's last move
 // to In review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
 export async function ownerChangesOf(db: Db, projectId: string, taskKey: string): Promise<string | null> {
   const rows = await db.execute<{ text: string | null }>(sql`
     select e.payload->>'text' as text from events e
     where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
-      and e.payload->>'text' like 'Cambios que pide Jorge:%'
+      and e.payload->>'text' like 'Cambios que pide %'
       and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
                             and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
     order by e.id desc limit 1`);
   const text = rows.rows[0]?.text ?? null;
-  return text ? text.replace(/^Cambios que pide Jorge:\s*/, "").trim().slice(0, 1500) || null : null;
+  return text ? text.replace(/^Cambios que pide [^:\n]{1,80}:\s*/, "").trim().slice(0, 1500) || null : null;
 }
 
 export function userPrompt(input: {
@@ -875,7 +876,7 @@ export function userPrompt(input: {
   reason?: string | null;
   // PLA-I46-12: the skill packs this role carries, their one line and where the body was written.
   packs?: { name: string; when: string; file: string }[];
-  // PLA-I54-2: absolute paths of the pictures Jorge attached to the request (src/pedidos/images.ts).
+  // PLA-I54-2: absolute paths of the pictures the owner attached to the request (src/pedidos/images.ts).
   images?: string[];
   // AUDIT-3: the same packs delivered as a plugin outside the worktree (src/runner/kit.ts).
   kit?: KitWritten[];
@@ -896,16 +897,16 @@ export function userPrompt(input: {
   ];
   if (company) lines.splice(1, 2, input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the company thread (thread_read company) first.");
   if (input.reason) lines.push(`Why you woke: ${input.reason}.`);
-  // PLA-71: a delivery Jorge sent back. Without this line a fresh session saw only «ticket ready», took the work
+  // PLA-71: a delivery the owner sent back. Without this line a fresh session saw only «ticket ready», took the work
   // for unfinished, re-ran the checks and delivered the same thing again.
   if (input.changes)
     lines.push(
-      `Jorge sent your last delivery of this ticket back. His words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer him. If what he asks is in your muestra (the views Plania shows him), fix the muestra.`,
+      `The owner sent your last delivery of this ticket back. Their words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer them. If what they ask is in your muestra (the views Plania shows them), fix the muestra.`,
     );
-  // PLA-I32-3/5: the conversation is where Jorge reads you.
+  // PLA-I32-3/5: the conversation is where the owner reads you.
   lines.push(
     company
-      ? "Answer Jorge in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
+      ? "Answer the owner in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
       : `End the run with one line in your project's thread (thread_post, thread ${input.project.slug}): what you did, with a link to it, and what you need.`,
     languageLine(),
   );
@@ -926,7 +927,7 @@ export function userPrompt(input: {
     );
   }
   if (input.images?.length) {
-    lines.push("Pictures Jorge attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
+    lines.push("Pictures the owner attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
   }
   // PLA-I49-6: an idea (PREFIX-IDEA<n>) is not a ticket and start refuses it. Research and Artist woken on an idea's
   // stage work on the idea itself: read it, write the stage doc on it, move its stage.
@@ -935,15 +936,15 @@ export function userPrompt(input: {
     idea
       ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, deliver your stage with deliver_stage (key ${input.task!.key}; it checks the content and writes the stage doc), then move its stage with set_task.`
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
-    "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
+    "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only the owner can decide (ask).",
   );
   // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
   if (idea && input.role === "artist") {
     lines.push(
-      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
+      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. The owner sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
     );
   }
-  return lines.join("\n");
+  return personalize(lines.join("\n")); // PLA-I2-14: "the owner" reads as the display name
 }
 
 // AUDIT-2: the role prompt and its version, "<doc version>:<first 12 of its sha256>". The Plania doc is the live copy;

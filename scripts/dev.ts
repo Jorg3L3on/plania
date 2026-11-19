@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { app } from "../src/app.js";
 import { startJobs } from "../src/jobs/index.js";
 import { withDb } from "../src/db/client.js";
+import { loadOwnerName } from "../src/owner.js";
 import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
@@ -94,6 +95,9 @@ const http = serve({ fetch: server.fetch, port, hostname }, () => console.log(`p
 // PLA-111 (F-39): a restart lets the requests in flight finish before the process exits.
 setHttpServer(http as never);
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.once(sig, () => exitAfterDrain(sig === "SIGINT" ? 130 : 143));
+
+// PLA-I2-14: the owner's display name, read once at start (setOwnerName keeps it current after that).
+void withDb((db) => loadOwnerName(db)).catch((e) => console.log(`[owner] name not loaded: ${e instanceof Error ? e.message : String(e)}`));
 
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();

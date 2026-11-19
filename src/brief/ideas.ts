@@ -19,6 +19,7 @@ import { queueWake, serviceAgent } from "../runner/events.js";
 import { homeSlug } from "../runner/threads.js";
 import { PlanError, sendToPlania } from "./plan.js";
 import { CROSS, type Idea } from "./types.js";
+import { ownerEs } from "../owner.js";
 
 export const IDEA_ACTIONS = ["keep", "discard", "research", "sketch", "plan"] as const;
 export type IdeaAction = (typeof IDEA_ACTIONS)[number];
@@ -133,12 +134,12 @@ export async function runIdea(db: Db, brief: MorningBrief, idea: Idea, action: I
           project: k.project,
           title: `Sketch: ${idea.title}`.slice(0, 200),
           status: "Ready",
-          origin: "jorge",
+          origin: "owner",
           work_type: "research",
           priority: "P2",
           owner_agent: artist.slug,
           scope: [
-            `Pedido de Jorge desde el brief de la mañana: un boceto de la idea ${k.key} ("${idea.title}").`,
+            `Pedido ${ownerEs("de")} desde el brief de la mañana: un boceto de la idea ${k.key} ("${idea.title}").`,
             "",
             idea.why,
             "",

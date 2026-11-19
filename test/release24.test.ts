@@ -162,16 +162,16 @@ describe("write-time guards", () => {
     await call("create_task", { ...P, title: "Ask me", scope: "s", checks: ["c"], status: "Ready" }); // FIL-01
     await call("start", { ...P, key: "FIL-01" });
     const r = await call("ask", { ...P, key: "FIL-01", question: "Which poster size?" });
-    assert.equal(r.status, "Needs Jorge");
+    assert.equal(r.status, "Needs owner");
     assert.equal(r.question_id, r.question.id);
-    assert.equal(r.waits, "the ticket waits in Needs Jorge until he answers");
+    assert.equal(r.waits, "the ticket waits in Needs owner until he answers");
   });
 });
 
 describe("protocol 2.13", () => {
   test("three sections under 900 words, naming the six tools first", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.23");
+    assert.equal(PROTOCOL_VERSION, "2.24");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
     assert.match(text, /Never forward an answer/);
     for (const section of ["\nStart\n", "\nWork\n", "\nFinish\n"]) assert.ok(text.includes(section), section);

@@ -55,9 +55,9 @@ const orgProject = (slug: string, title: string, patch: Record<string, unknown> 
 
 const SIX = [
   orgProject("mianovia", "Mianovia", {
-    light: "needs_jorge",
+    light: "needs_owner",
     team: team("mianovia", {
-      "product-owner": { state: "waiting_jorge", waiting: "que aceptes el doc Campos y flujos", produced: { kind: "doc", ref: "d-1", title: "Campos y flujos" } },
+      "product-owner": { state: "waiting_owner", waiting: "que aceptes el doc Campos y flujos", produced: { kind: "doc", ref: "d-1", title: "Campos y flujos" } },
       taller: { state: "running", now: { ticket: "MIA-I3-4", since: "2026-11-08T14:42:00Z" }, last: null },
     }),
     thread: { id: "t-mianovia", unread: 2, last: { at: "2026-11-08T14:50:00Z", author_role: "product-owner", body: "Listo el doc." } },
@@ -85,7 +85,7 @@ const asistenteThread = {
   kind: "company",
   project: null,
   messages: [
-    msg("m1", "2026-11-06T22:00:00Z", { author: { agent: "jorge", role: "jorge" }, body: "Mianovia: quiero compartir la lista por WhatsApp." }),
+    msg("m1", "2026-11-06T22:00:00Z", { author: { agent: "owner", role: "owner" }, body: "Mianovia: quiero compartir la lista por WhatsApp." }),
     msg("m2", "2026-11-08T13:00:00Z", {
       body: "El PO de Mianovia terminó el doc.",
       links: [{ kind: "ticket", ref: "MIA-01", title: "Compartir la lista" }, { kind: "doc", ref: "d-1", title: "Campos y flujos" }],
@@ -183,7 +183,7 @@ const poThread = {
   kind: "project",
   project: "mianovia",
   messages: [
-    msg("p1", "2026-11-08T10:00:00Z", { author: { agent: "jorge", role: "jorge" }, body: "Quiero que la lista se comparta por WhatsApp." }),
+    msg("p1", "2026-11-08T10:00:00Z", { author: { agent: "owner", role: "owner" }, body: "Quiero que la lista se comparta por WhatsApp." }),
     msg("p2", "2026-11-08T11:00:00Z", { author: { agent: "po-mianovia", role: "product-owner" }, body: "La idea pasa a Research." }),
     msg("p3", "2026-11-08T12:00:00Z", { author: { agent: "po-mianovia", role: "product-owner" }, body: "Terminé el doc.", links: [{ kind: "doc", ref: "d-1", title: "Campos y flujos" }], actions: ["aceptar", "cambios"] }),
     msg("p4", "2026-11-08T13:00:00Z", { author: { agent: "taller-mianovia", role: "taller" }, body: "PR del botón.", links: [{ kind: "pr", ref: "https://example.test/pr/12", title: "PR #12" }], actions: ["fusionar", "cambios"] }),
@@ -288,10 +288,10 @@ test("PLA-21: no budget state: however many tokens, the plumbing and project lin
   assert.equal("no_budget" in lib.MEMBER_STATE, false);
 });
 
-test("I33-4 state esperando a Jorge: Te necesita on the card, the message with buttons ringed in the thread", () => {
+test("I33-4 state esperando a Owner: Te necesita on the card, the message with buttons ringed in the thread", () => {
   const thread = html(h(org.ThreadPanel, threadProps()));
   assert.equal(count(thread, /data-waiting="1"/g), 3);
-  assert.ok(thread.includes("ring-status-jorge/60"));
+  assert.ok(thread.includes("ring-status-owner/60"));
 });
 
 test("I33-4 state PR fusionado and pregunta respondida: the result replaces the buttons", () => {

@@ -26,7 +26,7 @@ import { roleOf } from "./limits.js";
 
 export const MAX_BODY = 4000;
 export const MAX_LINKS = 10;
-export const JORGE = { agent: "jorge", role: "ceo" } as const;
+export const OWNER_AUTHOR = { agent: "owner", role: "ceo" } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const homeSlug = (env: NodeJS.ProcessEnv = process.env): string => env.PLANIA_HOME_PROJECT || env.PLANIA_PROMPTS_PROJECT || "plania";
@@ -184,7 +184,7 @@ const PR_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 // What Jorge can do on a message: answer its open question; accept (or merge, for a PR) and send back the
 // ticket it links while that ticket is In review. Nothing once he acted, and nothing on his own messages.
 export async function actionsFor(db: Q, msg: ThreadMessage, projectId: string | null): Promise<MessageAction[]> {
-  if (msg.actionState || msg.authorAgent === JORGE.agent) return [];
+  if (msg.actionState || msg.authorAgent === OWNER_AUTHOR.agent) return [];
   if (msg.questionId) {
     const [q] = await db.select({ answeredAt: questions.answeredAt }).from(questions).where(eq(questions.id, msg.questionId)).limit(1);
     if (q && !q.answeredAt) return ["responder"];
@@ -252,7 +252,7 @@ export async function threadSummary(db: Q, thread: Thread, project: { slug: stri
   const [last] = await db.select().from(threadMessages).where(eq(threadMessages.threadId, thread.id)).orderBy(desc(threadMessages.at), desc(threadMessages.id)).limit(1);
   const unreadWhere = and(
     eq(threadMessages.threadId, thread.id),
-    sql`${threadMessages.authorAgent} <> ${JORGE.agent}`,
+    sql`${threadMessages.authorAgent} <> ${OWNER_AUTHOR.agent}`,
     thread.readAt ? gt(threadMessages.at, thread.readAt) : undefined,
   );
   const [count] = await db.select({ n: sql<number>`count(*)::int` }).from(threadMessages).where(unreadWhere);

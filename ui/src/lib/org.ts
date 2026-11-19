@@ -10,7 +10,7 @@ import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing,
 
 export const LIGHT: Record<OrgLight, { word: string; tone: Tone }> = {
   ok: { word: "Bien", tone: "ok" },
-  needs_jorge: { word: "Te necesita", tone: "stop" },
+  needs_owner: { word: "Te necesita", tone: "stop" },
   failed: { word: "Falló", tone: "stop" },
   blocked: { word: "Bloqueado", tone: "stop" },
   late: { word: "Atrasado", tone: "warn" },
@@ -20,7 +20,7 @@ export const LIGHT: Record<OrgLight, { word: string; tone: Tone }> = {
 export const lightOf = (light: OrgLight) => LIGHT[light] ?? { word: light, tone: "idle" as Tone };
 
 // The worst first (PLA-I36-1), then the rest by name; paused last.
-const LIGHT_RANK: Record<OrgLight, number> = { needs_jorge: 0, failed: 1, blocked: 2, late: 3, quiet: 4, ok: 5, paused: 6 };
+const LIGHT_RANK: Record<OrgLight, number> = { needs_owner: 0, failed: 1, blocked: 2, late: 3, quiet: 4, ok: 5, paused: 6 };
 export const byLight = <T extends { light: OrgLight; slug: string }>(a: T, b: T) =>
   (LIGHT_RANK[a.light] ?? 9) - (LIGHT_RANK[b.light] ?? 9) || a.slug.localeCompare(b.slug);
 
@@ -38,7 +38,7 @@ const ROLE_WORDS: Record<string, string> = {
   marketing: "Marketing",
   data: "Data",
   asistente: "Asistente",
-  jorge: "Jorge",
+  owner: "Tú",
 };
 export const roleName = (role: string) => ROLE_WORDS[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
 const ROLE_ORDER = ["product-owner", "po", "research", "artist", "taller", "qa", "copy", "seguridad", "marketing", "data"];
@@ -58,7 +58,7 @@ export const statusWord = (s: string) => RUN_WORD[s] ?? (statusEtapa(s) ? ticket
 export const MEMBER_STATE: Record<OrgMemberState, { word: string; tone: Tone }> = {
   running: { word: "trabajando", tone: "ok" },
   idle: { word: "libre", tone: "idle" },
-  waiting_jorge: { word: "te espera", tone: "stop" },
+  waiting_owner: { word: "te espera", tone: "stop" },
   paused: { word: "en pausa", tone: "idle" },
 };
 
@@ -154,7 +154,7 @@ export function actionStateText(s: ThreadActionState): string {
 export const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
 
 // A message waits on Jorge while it offers an action nobody took yet.
-export const waitsOnJorge = (m: ThreadMessage) => m.actions.length > 0 && m.action_state === null;
+export const waitsOnOwner = (m: ThreadMessage) => m.actions.length > 0 && m.action_state === null;
 
 const dayKey = (iso: string, timeZone?: string) =>
   new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(new Date(iso));

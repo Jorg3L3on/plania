@@ -24,7 +24,7 @@ export function nuevoProyectoError(code: string | null, detail: Record<string, u
   if (code === "REPO_NO_ORIGIN") return `No se creó nada: ${folder} no está conectada a GitHub (no tiene origin). Agrégale el repositorio remoto y vuelve a intentar.`;
   if (code === "REPO_ORIGIN_UNREACHABLE") return `No se creó nada: no pude leer el repositorio remoto de ${folder}. Revisa la conexión, la dirección del remoto o tu acceso a GitHub.`;
   if (code === "REPO_NO_START_BRANCH") return `No se creó nada: el repositorio remoto de ${folder} no tiene la rama ${branch}, de donde parte el equipo. Créala y súbela, y vuelve a intentar.`;
-  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo jorge/viajia.";
+  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/viajia.";
   if (code === "INVALID_BODY" && detail.field === "repo_path") return "No se creó nada: la carpeta va con su ruta completa, empezando con / o con ~/.";
   if (code === "INVALID_BODY" && detail.field === "no_code") return "No se creó nada: elige solo una opción para el código.";
   if (code === "INVALID_BODY") return "No se creó nada: revisa el nombre y la meta.";

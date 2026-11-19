@@ -169,7 +169,7 @@ export const tasks = pgTable(
     status: text("status").notNull(),
     priority: text("priority"), // tickets only: P0|P1|P2|P3
     workType: text("work_type"), // tickets only: code|ops|research|decision-needed
-    origin: text("origin"), // tickets only: chartered|discovered|jorge (2.12: Jorge asked for it on screen)
+    origin: text("origin"), // tickets only: chartered|discovered|owner (2.12: the owner asked for it on screen)
     baseBranch: text("base_branch"), // initiatives only
     // Initiatives only: their part of the generated resume. Claims and next_claimable are derived.
     inProgressNote: text("in_progress_note").notNull().default(""),
@@ -287,7 +287,7 @@ export const docs = pgTable(
   ],
 );
 
-// v2: questions for Jorge. ask moves a ticket to Needs Jorge; the answer comes back as a decision
+// v2: questions for Jorge. ask moves a ticket to Needs owner; the answer comes back as a decision
 // tied to the task, so another machine's session finds it instead of asking again.
 export const questions = pgTable(
   "questions",
@@ -919,11 +919,11 @@ export const goals = pgTable(
 export type Goal = typeof goals.$inferSelect;
 
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
-export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
+export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs owner", "Done", "Won't do"] as const;
 export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
-// What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
+export const ORIGINS = ["chartered", "discovered", "owner"] as const;
+// What an agent may pass to create_task; "owner" is the screen's alone (POST /api/projects/:slug/tasks).
 export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
 export const KINDS = ["initiative", "ticket", "idea"] as const;
 
@@ -1695,3 +1695,15 @@ export const consultas = pgTable(
   (t) => [index("consultas_project_idx").on(t.projectId, t.askedAt), check("consultas_text_check", sql`char_length(${t.text}) between 3 and 2000`)],
 );
 export type Consulta = typeof consultas.$inferSelect;
+
+// PLA-I2-14: the owner's display name, one row (id 1). Migration 0062. Null = the brief's owner_name, then
+// PLANIA_CEO_NAME, then «el dueño». Written at first start through setOwnerName (src/owner.ts).
+export const ownerProfile = pgTable(
+  "owner_profile",
+  {
+    id: integer("id").primaryKey().default(1),
+    displayName: text("display_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("owner_profile_singleton", sql`${t.id} = 1`), check("owner_profile_name_check", sql`${t.displayName} is null or char_length(${t.displayName}) between 1 and 80`)],
+);

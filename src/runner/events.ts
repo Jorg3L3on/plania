@@ -6,7 +6,7 @@
 //   idea stage → research / → design          wakes Research / Artist, on the idea
 //   project resumed (runs_resumed)            wakes that project's PO (a new project's first wake)
 //   question asked by a PO (not human_only)   wakes Asistente, on that ticket (PLA-I32-5)
-//   thread.message from Jorge, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
+//   thread.message from the owner, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
 //                                             route makes a Ready PO ticket instead, which wakes the PO
 //   ticket → Merged, Released or Done          wakes Taller, on the first Ready ticket it was blocking (PLA-15)
 //   a runner run's lease expired (reaper)      wakes Taller (or the PO that owns it), on that ticket (PLA-16)
@@ -24,6 +24,8 @@ import { loadSettings, roleOf, type RunnerRole } from "./limits.js";
 import { insertRun, kickQueue } from "./queue.js";
 import { STAGE_REASON, stageOwner, type IdeaStage } from "./stages.js";
 import { isRunSession, runPrefixOf } from "./run-session.js";
+import { ownerEs } from "../owner.js";
+import { buildReason } from "../api/company-pedido.js";
 
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
@@ -187,8 +189,8 @@ async function targetOf(
 ): Promise<{ agent: Agent | null; taskKey: string | null; reason: string } | null> {
   if (type === "project.runs_resumed") return { agent: await poOf(tx, project), taskKey: null, reason: "project resumed" };
   if (type === "thread.message") {
-    if (payload.thread_kind !== "company" || payload.author !== "jorge") return null;
-    return { agent: await asistenteAgent(tx), taskKey: null, reason: "message from Jorge" };
+    if (payload.thread_kind !== "company" || payload.author !== "owner") return null;
+    return { agent: await asistenteAgent(tx), taskKey: null, reason: "message from the owner" };
   }
   if (!task) return null;
 
@@ -234,7 +236,7 @@ async function targetOf(
   if (type === "pr.ci_failed" || type === "pr.reviewed") {
     return { agent: await serviceAgent(tx, "taller", project), taskKey: task.key, reason: type === "pr.ci_failed" ? "ci red" : "pr review" };
   }
-  // PLA-I32-5: a PO's question goes to Asistente first; it answers what Plania already says, or leaves it to Jorge.
+  // PLA-I32-5: a PO's question goes to Asistente first; it answers what Plania already says, or leaves it to the owner.
   if (type === "question.asked") {
     const id = typeof payload.question_id === "string" ? payload.question_id : null;
     if (!id || payload.human_only === true) return null;
@@ -293,7 +295,7 @@ async function wakeReadyOwners(tx: Q, project: ProjectRef): Promise<void> {
     .select({ id: tasks.id, key: tasks.key, agent: agents })
     .from(tasks)
     .innerJoin(agents, eq(agents.id, tasks.ownerAgent))
-    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.origin, "jorge")))
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.origin, "owner")))
     .orderBy(asc(tasks.createdAt));
   const seen = new Set<string>();
   for (const r of rows) {
@@ -348,7 +350,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
       and(
         eq(tasks.projectId, project.id),
         eq(tasks.kind, "idea"),
-        eq(tasks.origin, "jorge"),
+        eq(tasks.origin, "owner"),
         eq(tasks.status, "Open"),
         eq(tasks.ownerAgent, agent.id),
         sql`${tasks.promotedTo} is null`,
@@ -358,7 +360,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
     )
     .orderBy(asc(tasks.createdAt))
     .limit(1);
-  if (built) return queueWake(tx, project, built, { agent, taskKey: built.key, reason: "Jorge dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea" }, "run.ended");
+  if (built) return queueWake(tx, project, built, { agent, taskKey: built.key, reason: buildReason() }, "run.ended");
   // PLA-I54-1: an idea the owner asked to shape (Darle forma) whose wake was coalesced waits in the buzón: no run ever
   // took it. The PO takes the oldest one once nothing Ready waits.
   const [idea] = await tx
@@ -368,7 +370,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
       and(
         eq(tasks.projectId, project.id),
         eq(tasks.kind, "idea"),
-        eq(tasks.origin, "jorge"),
+        eq(tasks.origin, "owner"),
         eq(tasks.status, "Open"),
         eq(tasks.stage, "idea"),
         eq(tasks.ownerAgent, agent.id),
@@ -380,7 +382,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
     .orderBy(asc(tasks.createdAt))
     .limit(1);
   if (!idea) return null;
-  return queueWake(tx, project, idea, { agent, taskKey: idea.key, reason: "pedido de Jorge para darle forma" }, "run.ended");
+  return queueWake(tx, project, idea, { agent, taskKey: idea.key, reason: `pedido ${ownerEs("de")} para darle forma` }, "run.ended");
 }
 
 // PLA-104: a wake for Taller that arrived while it was busy (a ticket made Ready for it, «Hacer primero») was coalesced

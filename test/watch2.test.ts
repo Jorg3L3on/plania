@@ -140,23 +140,23 @@ describe("P2.2 ask blocks/urgency and the free-text wait audit", () => {
     const q = inbox.items.find((i: Json) => i.kind === "question");
     assert.deepEqual([q.blocks, q.urgency], [["FIL-I1-3"], "soon"]);
     const d = await call("get_digest", { since: 0, project: "filmia" });
-    const n = d.needs_jorge.find((i: Json) => i.kind === "question");
+    const n = d.needs_owner.find((i: Json) => i.kind === "question");
     assert.deepEqual([n.key, n.blocks, n.urgency], ["FIL-I1-2", ["FIL-I1-3"], "soon"]);
     const asked = (await call("list_events", { project: "filmia", types: ["question.asked"] })).events.at(-1);
     assert.deepEqual([asked.payload.blocks, asked.payload.urgency], [["FIL-I1-3"], "soon"]);
   });
 
-  test("audit: WAITING_ON_JORGE_FREE_TEXT only when nothing reaches the inbox; OVERDUE for a past due_on", async () => {
+  test("audit: WAITING_ON_OWNER_FREE_TEXT only when nothing reaches the inbox; OVERDUE for a past due_on", async () => {
     const { db, close } = makeDb();
     try {
       // A blocked ticket that says it waits on Jorge in free text the 2.10 parser does not catch.
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Blocked", note: "the cache size is Jorge's pick", version: await version("FIL-I1-3") }, ctx);
       const p = await findProject(db, "filmia");
-      const pairs = (await auditProject(db, p)).filter((f) => ["WAITING_ON_JORGE_FREE_TEXT", "OVERDUE"].includes(f.code)).map((f) => `${f.code}:${f.key}`);
-      assert.deepEqual(pairs.sort(), ["OVERDUE:FIL-I1-1", "WAITING_ON_JORGE_FREE_TEXT:FIL-I1", "WAITING_ON_JORGE_FREE_TEXT:FIL-I1-3"]);
+      const pairs = (await auditProject(db, p)).filter((f) => ["WAITING_ON_OWNER_FREE_TEXT", "OVERDUE"].includes(f.code)).map((f) => `${f.code}:${f.key}`);
+      assert.deepEqual(pairs.sort(), ["OVERDUE:FIL-I1-1", "WAITING_ON_OWNER_FREE_TEXT:FIL-I1", "WAITING_ON_OWNER_FREE_TEXT:FIL-I1-3"]);
       // Once the initiative asks properly, its finding goes; the ticket's stays until it does too.
       await ask(db, { project: "filmia", key: "FIL-I1", question: "¿Apruebas el diseño?", urgency: "now" }, ctx);
-      const keys = (await auditProject(db, p)).filter((f) => f.code === "WAITING_ON_JORGE_FREE_TEXT").map((f) => f.key);
+      const keys = (await auditProject(db, p)).filter((f) => f.code === "WAITING_ON_OWNER_FREE_TEXT").map((f) => f.key);
       assert.deepEqual(keys, ["FIL-I1-3"]);
       const overdue = (await auditProject(db, p)).find((f) => f.code === "OVERDUE")!;
       assert.match(overdue.detail, /still Ready/);
@@ -173,7 +173,7 @@ describe("P2.3 session heartbeat and digest collapse", () => {
       await claim(db, { project: "filmia", key: "FIL-I1-1", ttl_minutes: 5 }, ctx);
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Ready", version: await version("FIL-I1-3") }, ctx);
       await claim(db, { project: "filmia", key: "FIL-I1-3", ttl_minutes: 5 }, ctx);
-      await claim(db, { project: "filmia", key: "FIL-I1-2", ttl_minutes: 5 }, { actor: { ...A, session_id: "s2" } }).catch(() => undefined); // Needs Jorge: not claimable; fine
+      await claim(db, { project: "filmia", key: "FIL-I1-2", ttl_minutes: 5 }, { actor: { ...A, session_id: "s2" } }).catch(() => undefined); // Needs owner: not claimable; fine
     } finally {
       await close();
     }

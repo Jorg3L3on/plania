@@ -171,7 +171,7 @@ function Reasons({ total }: { total: ScoreGroup }) {
   );
 }
 
-const KIND_TONE: Record<ReadItem["kind"], string> = { failed: "text-ink-blocked", returned: "text-ink-review", sent_back: "text-ink-jorge" };
+const KIND_TONE: Record<ReadItem["kind"], string> = { failed: "text-ink-blocked", returned: "text-ink-review", sent_back: "text-ink-owner" };
 
 function Quote({ who, children, mono }: { who: string; children: ReactNode; mono?: boolean }) {
   return (

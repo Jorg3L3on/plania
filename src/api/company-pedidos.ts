@@ -15,6 +15,7 @@ import { webCtx, writeTx } from "../mcp/tx.js";
 import { createTaskInTx } from "../mcp/writes.js";
 import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { understoodOf } from "./company-orders.js";
+import { ownerEs } from "../owner.js";
 
 export type PedidoMode = "forma" | "ya";
 export type PedidoStop = "buzon" | "entendido" | "investigacion" | "diseno" | "plan" | "lista";
@@ -54,15 +55,15 @@ export const stopOf = (stage: string | null, understood: boolean): PedidoStop =>
 // What the PO reads on the idea (its scope). The PO's run prompt says it is an idea, not a ticket (runner.ts).
 export function ideaScope(sentence: string, from = "Compañía"): string {
   return [
-    `Pedido de Jorge desde ${from} (Darle forma): "${sentence}"`,
+    `Pedido ${ownerEs("de")} desde ${from} (Darle forma): "${sentence}"`,
     "",
-    "Para el PO: esto es una idea, no un ticket. Jorge la sigue en el tubo de su piso y la forma contigo.",
+    `Para el PO: esto es una idea, no un ticket. ${ownerEs(undefined, { capital: true })} la sigue en el tubo de su piso y la forma contigo.`,
     "1. Escribe una nota `Entendí: …` sobre esta idea (set_task note) con lo que entendiste, en una línea.",
     // AUDIT-8: the stage is delivered as data, and what is unclear goes with it as closed questions that nothing waits on.
-    "2. Lo que no esté claro va como `decisions` en tu entrega: una pregunta cerrada, de 2 a 4 opciones y la que recomiendas. Se aplica tu recomendación salvo que Jorge la cambie en la pantalla; nada lo espera. Usa `ask` solo cuando no puedas recomendar ninguna opción.",
+    "2. Lo que no esté claro va como `decisions` en tu entrega: una pregunta cerrada, de 2 a 4 opciones y la que recomiendas. Se aplica tu recomendación salvo que " + ownerEs() + " la cambie en la pantalla; nada lo espera. Usa `ask` solo cuando no puedas recomendar ninguna opción.",
     "3. Entrega tus etapas con `deliver_stage`: en idea, problem, who, why_now y decisions; en planning, steps (cada uno con done_when y try_it), risks y size. Plania revisa lo que dicen y escribe el doc; no lo escribas con attach_doc.",
     "4. Mueve la etapa (set_task stage) cuando esté entregada: idea → research → design → planning → ready. Research y Artist despiertan solos en sus etapas.",
-    "5. Nunca crees tickets para Taller ni una iniciativa desde esta idea, y no pongas promoted_to: en Lista se queda quieta. Solo Jorge la manda construir con «Constrúyelo» en la pantalla; entonces Plania te despierta con esa orden.",
+    "5. Nunca crees tickets para Taller ni una iniciativa desde esta idea, y no pongas promoted_to: en Lista se queda quieta. Solo " + ownerEs() + " la manda construir con «Constrúyelo» en la pantalla; entonces Plania te despierta con esa orden.",
   ].join("\n");
 }
 
@@ -80,9 +81,9 @@ export async function createPoIdea(db: Db, slug: string, po: Agent, text: string
   return writeTx(db, p, { ...webCtx, tool: "company.ask" }, async (tx, emit) => {
     const out = (await createTaskInTx(tx, emit, p, { project: slug, kind: "idea", title, scope: ideaScope(sentence, from), owner_agent: po.slug }, { ...webCtx, tool: "company.ask" })) as { key: string };
     // origin is a ticket field on create_task; on screen an idea the owner asked for carries it too (the tube's filter).
-    const [t] = await tx.update(tasks).set({ origin: "jorge" }).where(and(eq(tasks.projectId, p.id), eq(tasks.key, out.key))).returning({ id: tasks.id, key: tasks.key });
+    const [t] = await tx.update(tasks).set({ origin: "owner" }).where(and(eq(tasks.projectId, p.id), eq(tasks.key, out.key))).returning({ id: tasks.id, key: tasks.key });
     if (!eventWakesEnabled()) return { key: out.key, title, wake: "off" as const };
-    const w = await queueWake(tx, p, t!, { agent: po, taskKey: out.key, reason: "pedido de Jorge para darle forma" }, "company.ask");
+    const w = await queueWake(tx, p, t!, { agent: po, taskKey: out.key, reason: `pedido ${ownerEs("de")} para darle forma` }, "company.ask");
     return { key: out.key, title, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
   });
 }
@@ -111,7 +112,7 @@ export async function openIdeasOf(db: Db, projectId: string): Promise<Task[]> {
   return db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "idea"), eq(tasks.origin, "jorge"), eq(tasks.status, "Open"), isNull(tasks.promotedTo)))
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "idea"), eq(tasks.origin, "owner"), eq(tasks.status, "Open"), isNull(tasks.promotedTo)))
     .orderBy(asc(tasks.createdAt));
 }
 

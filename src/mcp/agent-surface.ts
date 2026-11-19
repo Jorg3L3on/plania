@@ -148,7 +148,7 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
     // and the request has no PR, the request closes Done and says where the work went; the delivery Jorge sees is
     // Taller's.
     let handedTo: string[] = [];
-    if (t.origin === "jorge" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {
+    if (t.origin === "owner" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {
       const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
       if (owner && roleOf(owner) === "product-owner") {
         const made = await tx

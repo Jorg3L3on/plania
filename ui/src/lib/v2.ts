@@ -183,8 +183,8 @@ export function thisWeekText(p: OrgProject, now: number): string {
   return w.last_at ? `Esta semana: nada · la última vez, ${ago(w.last_at, now)}` : "Esta semana: nada todavía";
 }
 
-export const ownerChip = (owner: string): { text: string; jorge: boolean } =>
-  owner === "jorge" ? { text: "te toca", jorge: true } : { text: owner === "po" ? "PO" : roleName(owner), jorge: false };
+export const ownerChip = (owner: string): { text: string; mine: boolean } =>
+  owner === "owner" ? { text: "te toca", mine: true } : { text: owner === "po" ? "PO" : roleName(owner), mine: false };
 
 // "Quieto 3 días" from the last event.
 export function lightWord(p: OrgProject, base: string, now: number): string {
@@ -196,7 +196,7 @@ export function lightWord(p: OrgProject, base: string, now: number): string {
 // The PO's last line, when the last message in the thread is not Jorge's.
 export function poLine(p: OrgProject): { role: string; at: string; body: string } | null {
   const last = p.thread.last;
-  if (!last || last.author_role === "ceo" || last.author_role === "jorge" || !last.body.trim()) return null;
+  if (!last || last.author_role === "ceo" || last.author_role === "owner" || !last.body.trim()) return null;
   return { role: last.author_role, at: last.at, body: last.body };
 }
 
@@ -204,11 +204,11 @@ export function poLine(p: OrgProject): { role: string; at: string; body: string 
 // PLA-I36-1: a member whose last run failed says so ("su última corrida falló").
 export function nowLines(p: OrgProject): { role: string; text: string; tone: Tone; since: string | null }[] {
   return p.team
-    .filter((m) => m.state === "running" || m.state === "waiting_jorge" || (m.state !== "paused" && m.last?.status === "fail"))
+    .filter((m) => m.state === "running" || m.state === "waiting_owner" || (m.state !== "paused" && m.last?.status === "fail"))
     .map((m) =>
       m.state === "running"
         ? { role: roleName(m.role), text: "trabaja", tone: "ok" as Tone, since: m.now?.since ?? null }
-        : m.state === "waiting_jorge"
+        : m.state === "waiting_owner"
           ? { role: roleName(m.role), text: m.waiting ? `espera: ${m.waiting}` : "te espera", tone: "stop" as Tone, since: null }
           : { role: roleName(m.role), text: "su última corrida falló", tone: "stop" as Tone, since: m.last?.at ?? null },
     );
@@ -227,7 +227,7 @@ export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: b
           ? "hay cambios listos para publicar"
           : "el PO espera tu elección";
   if (!p.next) return "sin trabajo listo";
-  if (p.next.owner === "jorge") return "lo siguiente es tuyo";
+  if (p.next.owner === "owner") return "lo siguiente es tuyo";
   return "lo siguiente arranca en su turno";
 }
 
@@ -285,7 +285,7 @@ export function todayMessages(messages: ThreadMessage[], now: number, timeZone?:
 }
 // Asistente's latest message (the answer or the 07:00 brief), not Jorge's.
 export function latestFromAsistente(messages: ThreadMessage[]): ThreadMessage | null {
-  const mine = (m: ThreadMessage) => m.author.agent === "jorge" || m.author.role === "ceo" || m.author.role === "jorge";
+  const mine = (m: ThreadMessage) => m.author.agent === "owner" || m.author.role === "ceo" || m.author.role === "owner";
   return [...messages].sort((a, b) => b.at.localeCompare(a.at)).find((m) => !mine(m)) ?? null;
 }
 export const foldLine = (n: number) => `Conversación de hoy · ${n === 1 ? "1 mensaje" : `${n} mensajes`}`;

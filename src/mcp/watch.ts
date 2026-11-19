@@ -35,7 +35,7 @@ async function ticketCountsByProject(db: Q) {
       open: sql<number>`count(*) filter (where ${tasks.status} not in ('Done', 'Won''t do', 'Released'))::int`,
       in_progress: sql<number>`count(*) filter (where ${tasks.status} = 'In progress')::int`,
       in_review: sql<number>`count(*) filter (where ${tasks.status} = 'In review')::int`,
-      needs_jorge: sql<number>`count(*) filter (where ${tasks.status} = 'Needs Jorge')::int`,
+      needs_owner: sql<number>`count(*) filter (where ${tasks.status} = 'Needs owner')::int`,
       blocked: sql<number>`count(*) filter (where ${tasks.status} = 'Blocked')::int`,
       done: sql<number>`count(*) filter (where ${tasks.status} = 'Done')::int`,
       overdue: sql<number>`count(*) filter (where ${tasks.dueOn} < (now() at time zone 'UTC')::date and ${tasks.status} not in ('Done', 'Won''t do', 'Merged', 'Released'))::int`,
@@ -43,10 +43,10 @@ async function ticketCountsByProject(db: Q) {
     .from(tasks)
     .where(eq(tasks.kind, "ticket"))
     .groupBy(tasks.projectId);
-  return new Map(rows.map((r) => [r.projectId, { open: r.open, in_progress: r.in_progress, in_review: r.in_review, needs_jorge: r.needs_jorge, blocked: r.blocked, done: r.done, overdue: r.overdue }]));
+  return new Map(rows.map((r) => [r.projectId, { open: r.open, in_progress: r.in_progress, in_review: r.in_review, needs_owner: r.needs_owner, blocked: r.blocked, done: r.done, overdue: r.overdue }]));
 }
 
-const ZERO_COUNTS = { open: 0, in_progress: 0, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 };
+const ZERO_COUNTS = { open: 0, in_progress: 0, in_review: 0, needs_owner: 0, blocked: 0, done: 0, overdue: 0 };
 
 export async function listProjects(db: Q) {
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
@@ -225,7 +225,7 @@ async function latestCursor(db: Q): Promise<number> {
 // remember: false reads from the reader's bookmark without moving it (the screen moves it on "Visto").
 export type DigestInput = { since?: number; project?: string; max_events_per_project?: number; reader?: string; remember?: boolean };
 
-type Highlights = { done: string[]; to_review: string[]; blocked: string[]; needs_jorge: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
+type Highlights = { done: string[]; to_review: string[]; blocked: string[]; needs_owner: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
 
 function highlight(h: Highlights, e: { type: string; task_key: string | null; payload: Record<string, unknown> }) {
   const k = e.task_key;
@@ -235,9 +235,9 @@ function highlight(h: Highlights, e: { type: string; task_key: string | null; pa
     if (to === "Done" || to === "Merged" || to === "Released") push(h.done, k);
     if (to === "In review") push(h.to_review, k);
     if (to === "Blocked") push(h.blocked, k);
-    if (to === "Needs Jorge") push(h.needs_jorge, k);
+    if (to === "Needs owner") push(h.needs_owner, k);
   }
-  if (e.type === "question.asked") push(h.needs_jorge, k);
+  if (e.type === "question.asked") push(h.needs_owner, k);
   if (e.type === "claim.acquired") push(h.claims, k);
   const n = typeof e.payload.number === "number" ? e.payload.number : null;
   if (e.type === "pr.opened" && n !== null && !h.prs_opened.includes(n)) h.prs_opened.push(n);
@@ -274,7 +274,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
   }
 
   const [running, box, overdue] = await Promise.all([getRunning(db), inbox(db, "all"), overdueTasks(db, only ? scoped[0]?.id : undefined)]);
-  const needsJorge = (box.items as InboxItem[])
+  const needsOwner = (box.items as InboxItem[])
     .filter((i) => !only || i.project === only)
     .map((i) => ({ project: i.project, kind: i.kind, group: i.group, key: i.key, title: i.title, why: i.why, options: i.options, blocks: i.blocks, urgency: i.urgency, wait_s: i.wait_s, pr_url: i.pr_url, action_hint: i.action_hint }));
 
@@ -288,7 +288,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
       continue;
     }
     const d = await resumeDigest(db, p);
-    const h: Highlights = { done: [], to_review: [], blocked: [], needs_jorge: [], prs_opened: [], prs_merged: [], claims: [] };
+    const h: Highlights = { done: [], to_review: [], blocked: [], needs_owner: [], prs_opened: [], prs_merged: [], claims: [] };
     for (const e of meaningful) highlight(h, e);
     const lines = collapseChanges(meaningful);
     out.push({
@@ -315,7 +315,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
     since_from: from,
     as_of: running.as_of,
     truncated: feed.more,
-    needs_jorge: needsJorge,
+    needs_owner: needsOwner,
     overdue,
     running: running.running.filter((r) => !only || r.project === only),
     projects: out,

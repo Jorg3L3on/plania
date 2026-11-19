@@ -255,7 +255,7 @@ function ticketThing(
 /** An idea not promoted yet: a pedido (origin jorge) or the team's idea. */
 function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null; ordered_at?: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[] }): Cosa {
   const { p, paused } = ctx;
-  const tipo: Tipo = i.origin === "jorge" ? "pedido" : "idea";
+  const tipo: Tipo = i.origin === "owner" ? "pedido" : "idea";
   const worker = workerOn(i.key, p);
   const live = !!worker && !paused;
   const decisions = ctx.mine.filter((d) => refsOf(d).includes(i.key));
@@ -323,7 +323,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
         {
           key: i.key,
           title: i.summary || i.title,
-          origin: i.origin ?? (pd ? "jorge" : null),
+          origin: i.origin ?? (pd ? "owner" : null),
           stop: i.stop ?? pd?.stop ?? STAGE_STOP[i.stage ?? "idea"] ?? "entendido",
           state: i.state ?? pd?.state ?? null,
           question: i.question ?? pd?.question ?? null,
@@ -342,7 +342,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       guardadasList.push({ key: pd.key, title: pd.title });
       continue;
     }
-    out.push(ideaThing({ key: pd.key, title: pd.title, origin: "jorge", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine }));
+    out.push(ideaThing({ key: pd.key, title: pd.title, origin: "owner", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine }));
   }
 
   // Open initiatives and loose steps from the board.

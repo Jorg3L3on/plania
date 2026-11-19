@@ -69,7 +69,7 @@ test("I30-6 #1 #2: a request becomes a Ready ticket the PO owns, origin jorge, a
   const t = (
     await raw.query(`select t.status, t.origin, t.work_type, a.slug as owner, t.title from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [body.key])
   ).rows[0];
-  assert.deepEqual(t, { status: "Ready", origin: "jorge", work_type: "ops", owner: "po-micasa", title: "Arma el borrador de Campos y flujos con la propuesta" });
+  assert.deepEqual(t, { status: "Ready", origin: "owner", work_type: "ops", owner: "po-micasa", title: "Arma el borrador de Campos y flujos con la propuesta" });
   assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: body.key }]);
 });
 

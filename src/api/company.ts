@@ -3,7 +3,7 @@
 // PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
 // (src/api/company-org.ts); POST /api/company/projects/:slug/team {template} adds a team member; the runner's
 // plumbing (switches, guard, runs, log) is read from GET /api/machine. The writes below stay.
-// PLA-I29: the runner's screen routes. Jorge's session cookie only, like the delegation switch:
+// PLA-I29: the runner's screen routes. The owner's session cookie only, like the delegation switch:
 // a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
 //   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
@@ -71,7 +71,7 @@ export const companyRoutes = new Hono();
 
 companyRoutes.use("*", async (c, next) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "FORBIDDEN", hint: "the runner's settings and kill switches are Jorge's screen only" }, 403);
+    return c.json({ error: "FORBIDDEN", hint: "the runner's settings and kill switches are the owner's screen only" }, 403);
   }
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   await next();

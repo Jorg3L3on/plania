@@ -26,7 +26,7 @@ export function Titular({ headline, nowMs }: { headline: Headline; nowMs: number
       <h1 className="font-display text-4xl leading-[0.98] font-extrabold tracking-[-0.03em] sm:text-5xl lg:text-[56px]">{headline.title}</h1>
       <p className="font-voice text-2xl leading-[1.15] text-foreground/75 italic sm:text-[28px]">
         {headline.voice.map((part, i) => (
-          <span key={i} className={cn(part.tone === "jorge" && "text-ink-jorge")}>{part.text}</span>
+          <span key={i} className={cn(part.tone === "owner" && "text-ink-owner")}>{part.text}</span>
         ))}
       </p>
     </div>
@@ -99,7 +99,7 @@ function TileCard({ t, index }: { t: Tile; index: number }) {
   const allDone = t.left.initiatives === 0 && t.left.tickets === 0;
   // What needs a look, most urgent first; nothing here means nothing waits.
   const signals = [
-    t.waiting > 0 && { icon: MessageCircleQuestionIcon, text: `${t.waiting} ${many(t.waiting, "decisión te espera", "decisiones te esperan")}`, cls: "text-ink-jorge font-semibold" },
+    t.waiting > 0 && { icon: MessageCircleQuestionIcon, text: `${t.waiting} ${many(t.waiting, "decisión te espera", "decisiones te esperan")}`, cls: "text-ink-owner font-semibold" },
     t.onHold > 0 && { icon: PauseIcon, text: `${t.onHold} ${many(t.onHold, "iniciativa en pausa", "iniciativas en pausa")}`, cls: "text-foreground/75" },
     t.orden > 0 && { icon: TriangleAlertIcon, text: `${t.orden} ${many(t.orden, "cosa por ordenar", "cosas por ordenar")}`, cls: "text-amber-700 dark:text-amber-400", title: "Lo que encontró la última revisión de Orden" },
   ].filter((x): x is { icon: typeof PauseIcon; text: string; cls: string; title?: string } => Boolean(x));

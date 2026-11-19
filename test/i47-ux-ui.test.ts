@@ -28,7 +28,7 @@ const project = (patch: Json = {}): Json => ({
   slug: "lumen",
   title: "Lumen",
   paused: false,
-  light: "needs_jorge",
+  light: "needs_owner",
   light_reason: { text: "Una entrega espera tu visto bueno.", action: { label: "Ver en Te toca", href: "#te-toca" } },
   goal: null,
   rumbo: { goal_id: "g", goal: "Vender sesiones", why: "", target_on: "2026-12-05", forecast_on: "2026-12-05", weeks_behind: 0, missing: false },

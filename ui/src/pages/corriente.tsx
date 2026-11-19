@@ -313,7 +313,7 @@ export const CorrientePage = () => {
           }
           top={(cosas) => {
             const line = nowLine(p, decisions, now, { companyPaused: paused, timeZone });
-            const reason = p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" ? p.light_reason : null;
+            const reason = p.light_reason && p.light !== "ok" && p.light !== "needs_owner" ? p.light_reason : null;
             // When nothing waits on him: the building's nudge (start a teammate, past the guard too) or the light's.
             const nudge =
               line.state !== "you" && line.action ? (
@@ -489,7 +489,7 @@ export const CorrientePage = () => {
         <Asistente
           threadId={company.asistente.thread_id}
           unread={company.asistente.unread ?? 0}
-          waiting={company.asistente.state === "waiting_jorge"}
+          waiting={company.asistente.state === "waiting_owner"}
           timeZone={timeZone}
           invalidate={[["company"]]}
           pedirTo={pedirTo(null)}

@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 import type { Digest, DigestHighlights } from "@/lib/types";
 
 const CURSOR_KEY = "plania.hoy.cursor";
-// needs_jorge is what waits now, not what changed: after "Visto" only what started waiting later shows.
+// needs_owner is what waits now, not what changed: after "Visto" only what started waiting later shows.
 const SEEN_AT_KEY = "plania.hoy.seen_at";
 
 function readNumber(key: string): number | undefined {
@@ -50,7 +50,7 @@ export function chipsOf(h: DigestHighlights): Chip[] {
 
 // What waits on Jorge and started after the last "Visto" on this device (all of it before the first).
 export function waitingSince(d: Digest, seenAt: number | undefined, now = Date.now()) {
-  return d.needs_jorge.filter((i) => i.group !== "limpieza" && (!seenAt || now - i.wait_s * 1000 > seenAt));
+  return d.needs_owner.filter((i) => i.group !== "limpieza" && (!seenAt || now - i.wait_s * 1000 > seenAt));
 }
 
 export function hoyIsEmpty(d: Digest, seenAt?: number, now = Date.now()): boolean {
@@ -114,7 +114,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
 
       {waiting.length > 0 && (
         <div className="grid grid-cols-1 gap-1.5">
-          <p className="text-xs font-semibold tracking-wide text-ink-jorge uppercase">Te espera</p>
+          <p className="text-xs font-semibold tracking-wide text-ink-owner uppercase">Te espera</p>
           <ul className="grid grid-cols-1 gap-1">
             {waiting.slice(0, 6).map((i, n) => (
               <li key={`${i.project}-${i.kind}-${i.key ?? n}-${n}`}>

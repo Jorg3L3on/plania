@@ -202,7 +202,7 @@ export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[],
   for (const p of projects) {
     for (const i of p.initiatives ?? []) {
       for (const w of i.waiting_on ?? []) {
-        if (w.on.startsWith("Jorge")) continue;
+        if (w.on.startsWith("Owner:") || w.on.startsWith("Jorge")) continue; // PLA-I2-14: "Jorge" from servers before protocol 2.24
         if (ideaKey(p, w.key)) continue;
         rows.push({ slug: p.slug, title: p.title, key: w.key, on: w.on, kind: "wait" });
       }

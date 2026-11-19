@@ -78,7 +78,7 @@ export function OrdenSection({ slug, onOpen }: { slug: string; onOpen: (key: str
         </SectionTitle>
       </summary>
       <div className="mt-3 grid gap-4">
-        <Group title="Lo tuyo" items={findings.filter((f) => f.owner === "jorge")} slug={slug} onOpen={onOpen} />
+        <Group title="Lo tuyo" items={findings.filter((f) => f.owner === "owner")} slug={slug} onOpen={onOpen} />
         <Group title="De los agentes" items={findings.filter((f) => f.owner === "agents")} slug={slug} onOpen={onOpen} />
       </div>
     </details>

@@ -482,7 +482,7 @@ export async function nextTask(db: Q, projectId: string, initiativeKey?: string)
     .from(tasks)
     .where(and(...where))
     // 2.12: within a priority, what Jorge asked for (origin jorge) comes first.
-    .orderBy(byPriority, sql`case when ${tasks.origin} = 'jorge' then 0 else 1 end`, asc(tasks.key))
+    .orderBy(byPriority, sql`case when ${tasks.origin} = 'owner' then 0 else 1 end`, asc(tasks.key))
     .limit(1);
   if (!t) return { task: null };
   const parent = t.parentId
@@ -500,7 +500,7 @@ export async function nextTask(db: Q, projectId: string, initiativeKey?: string)
       blocked_by: await blockerList(db, t),
       stale_claim: t.status === "In progress",
       workspace: t.workspace,
-      request: t.origin === "jorge",
+      request: t.origin === "owner",
     },
   };
 }

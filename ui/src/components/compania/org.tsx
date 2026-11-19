@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { plainWords } from "@/lib/plain-words";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
+import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
 // ---- the one-line plumbing link to Máquina
@@ -68,8 +68,8 @@ export const MessageRow = ({
   const [open, setOpen] = useState<ThreadAction | null>(null);
   const [text, setText] = useState("");
   const [full, setFull] = useState(false);
-  const mine = message.author.role === "jorge" || message.author.agent === "jorge";
-  const waiting = waitsOnJorge(message);
+  const mine = message.author.role === "owner" || message.author.agent === "owner";
+  const waiting = waitsOnOwner(message);
   const busyHere = busy?.id === message.id;
   // The one approve button on a message says what it does, in one line under the buttons.
   const effect = message.actions.map((a) => ACTION_EFFECT[a]).find(Boolean);
@@ -85,7 +85,7 @@ export const MessageRow = ({
     <li
       data-message={message.id}
       data-waiting={waiting ? "1" : undefined}
-      className={cn("grid min-w-0 gap-1.5 rounded-2xl p-3", className, mine ? "ml-6 bg-muted/70" : "bg-card ring-1 ring-foreground/10", waiting && !readOnly && "ring-2 ring-status-jorge/60")}
+      className={cn("grid min-w-0 gap-1.5 rounded-2xl p-3", className, mine ? "ml-6 bg-muted/70" : "bg-card ring-1 ring-foreground/10", waiting && !readOnly && "ring-2 ring-status-owner/60")}
     >
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="min-w-0 truncate">
@@ -277,7 +277,7 @@ export const ThreadPanel = ({
 }) => {
   const { messages, hidden } = visibleMessages(thread?.messages ?? [], shown);
   const items = threadItems(messages, now, timeZone);
-  const waiting = (thread?.messages ?? []).filter(waitsOnJorge).length;
+  const waiting = (thread?.messages ?? []).filter(waitsOnOwner).length;
   const total = thread?.messages.length ?? 0;
   // The newest message is at the bottom: open there, and follow new ones.
   const list = useRef<HTMLOListElement>(null);
@@ -292,7 +292,7 @@ export const ThreadPanel = ({
           {title}
         </h2>
         {waiting > 0 && !readOnly && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-jorge" data-waiting-count={waiting}>
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-owner" data-waiting-count={waiting}>
             <Dot tone="stop" /> {waiting === 1 ? "1 te espera" : `${waiting} te esperan`}
           </span>
         )}
@@ -393,7 +393,7 @@ export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember
                   <Chip href={produced.href}>{produced.label}</Chip>
                 </span>
               )}
-              {m.waiting && <span className="line-clamp-2 text-xs text-ink-jorge">espera: {m.waiting}</span>}
+              {m.waiting && <span className="line-clamp-2 text-xs text-ink-owner">espera: {m.waiting}</span>}
             </span>
           </li>
         );

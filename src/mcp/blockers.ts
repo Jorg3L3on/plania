@@ -1,13 +1,14 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { blockers, envCommits, envStates, projectMetrics, projects, taskAliases, taskBlockers, tasks, type Actor, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
-import { gatingSql, isGating } from "./jorge-lines.js";
+import { gatingSql, isGating } from "./owner-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
+import { neutralAssignee } from "../owner.js";
 
 // blocked_by: a ticket (a key, or {task}) that must reach In review or later, or a typed blocker
 // the server evaluates (R-15):
 //   {env, condition, value}            contains_commit <sha> | migration_gte <n> | deployed_after [ISO]
-//   {human_action: {assignee, text}}   cleared by Jorge from the inbox
+//   {human_action: {assignee, text}}   cleared by the owner from the inbox
 //   {env_flag: {env, flag, equals}}    a flag set with set_env
 //   {time_after: ISO}                  the clock
 //   {metric_gte: {name, value}}        a metric reported with set_metric or on a result
@@ -59,7 +60,7 @@ function typedBlocker(b: Exclude<BlockerInput, string | { task: string } | { env
   const bad = (type: string, hint: string) => new ToolError("INVALID_BLOCKER", { type, hint });
   if ("human_action" in b) {
     const text = b.human_action?.text?.trim();
-    if (!text) throw bad("human_action", "text says what Jorge has to do");
+    if (!text) throw bad("human_action", "text says what the owner has to do");
     // A file the session may not write (e.g. .env.example): the lines go with it, and Compañía commits them to the PR.
     const file = b.human_action.file;
     if (file && (typeof file.path !== "string" || !file.path.trim() || typeof file.append !== "string" || !file.append.trim()))
@@ -67,7 +68,7 @@ function typedBlocker(b: Exclude<BlockerInput, string | { task: string } | { env
     return {
       type: "human_action",
       spec: {
-        assignee: b.human_action.assignee?.trim() || "jorge",
+        assignee: neutralAssignee(b.human_action.assignee).assignee,
         text,
         ...(b.human_action.before_release ? { before_release: true } : {}),
         ...(file ? { file: { path: file.path.trim(), append: file.append } } : {}),
@@ -126,7 +127,7 @@ export async function resolveTaskBlockers(db: Q, projectId: string, keys: string
 export async function replaceBlockers(tx: Q, taskId: string, blockerIds: string[], typed: TypedBlocker[]): Promise<void> {
   await tx.delete(taskBlockers).where(eq(taskBlockers.taskId, taskId));
   // A human action already cleared stays cleared when the same list is written again.
-  // 2.10: blockers parsed from a "Jorge:" line belong to their text, not to blocked_by: they stay, and
+  // 2.10: blockers parsed from a "The owner:" line belong to their text, not to blocked_by: they stay, and
   // a human action in the list with the same text as one of them is not written twice.
   const existing = await tx.select().from(blockers).where(eq(blockers.taskId, taskId));
   const parsedTexts = new Set(existing.filter((e) => e.spec.source === "parsed").map((e) => String(e.spec.text)));
@@ -331,7 +332,7 @@ export async function projectsWithChainedReady(tx: Q): Promise<{ projectId: stri
     .where(chainedReady);
 }
 
-// Jorge resolves a human action (the inbox); the ticket may move to Ready right away.
+// The owner resolves a human action (the inbox); the ticket may move to Ready right away.
 export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, blockerId: string, by: Actor, note?: string) {
   const [b] = await tx
     .select({ b: blockers, taskKey: tasks.key, taskId: tasks.id })
@@ -344,13 +345,13 @@ export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, b
     await tx.update(blockers).set({ satisfiedAt: sql`now()`, satisfiedBy: by }).where(eq(blockers.id, b.b.id));
     await emit("blocker.resolved", { id: b.taskId, key: b.taskKey }, { blocker_id: b.b.id, text: (b.b.spec as { text: string }).text });
   }
-  // 2.10: what Jorge says about it lands in the ticket's log as his note.
+  // 2.10: what the owner says about it lands in the ticket's log as his note.
   if (note?.trim()) await emit("note", { id: b.taskId, key: b.taskKey }, { text: note.trim(), blocker_id: b.b.id }, by);
   await promoteUnblocked(tx, emit, projectId);
   return { blocker_id: b.b.id, key: b.taskKey };
 }
 
-// Human actions waiting on Jorge, for the inbox.
+// Human actions waiting on the owner, for the inbox.
 export async function openHumanActions(db: Q, projectId: string) {
   return db
     .select({ b: blockers, t: tasks })

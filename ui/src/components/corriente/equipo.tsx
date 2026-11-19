@@ -82,7 +82,7 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
           <span className="cor-cap">{ROLE_LINE[m.role] ?? ""}</span>
         </div>
         <div className="cor-lit-now">
-          <span className={`cor-state ${live ? "live" : ""}`}>{live ? `Trabajando · ${mins(m.now?.since, now)} min` : m.state === "waiting_jorge" ? "Te espera" : "Libre"}</span>
+          <span className={`cor-state ${live ? "live" : ""}`}>{live ? `Trabajando · ${mins(m.now?.since, now)} min` : m.state === "waiting_owner" ? "Te espera" : "Libre"}</span>
           <span className="cor-ellipsis">
             {/* PLA-67 (F-6): what a seat works on opens from here, an idea or a step. */}
             {m.now?.ticket && (
@@ -158,7 +158,7 @@ const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProje
   const n = m.next_start;
   const start = n && (n.hold === "rest" || n.hold === "usage" || n.hold === "unqueued") ? { label: n.hold === "usage" ? "Seguir de todos modos" : "Que empiece ya", past: n.hold === "usage" } : null;
   const c = caption(m, now, { timeZone });
-  const line = n ? startsLine(n, now, timeZone) : m.state === "waiting_jorge" ? c.sub : m.role === "product-owner" ? "Recibiría el siguiente pedido que hagas." : c.doing;
+  const line = n ? startsLine(n, now, timeZone) : m.state === "waiting_owner" ? c.sub : m.role === "product-owner" ? "Recibiría el siguiente pedido que hagas." : c.doing;
   return (
     <li className="cor-trow" data-member={m.agent}>
       <i className="cor-ring" aria-hidden />
@@ -166,7 +166,7 @@ const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProje
         <b>{seatName(m.role)}</b>
         <span className="cor-cap">{ROLE_LINE[m.role] ?? ""}</span>
       </button>
-      <State tone={m.state === "waiting_jorge" ? "amber" : undefined}>{p.paused ? "En pausa" : m.state === "waiting_jorge" ? "Te espera" : "Libre"}</State>
+      <State tone={m.state === "waiting_owner" ? "amber" : undefined}>{p.paused ? "En pausa" : m.state === "waiting_owner" ? "Te espera" : "Libre"}</State>
       <span className="cor-text cor-clamp2">{line}</span>
       {start && !p.paused && (
         <Btn kind="secondary" onClick={() => acts.start(p.slug, m.agent, start.past)} disabled={acts.busy === `${p.slug}:start`} data-control="arrancar">

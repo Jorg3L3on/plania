@@ -54,8 +54,8 @@ describe("etapaOf: one stage per status", () => {
     assert.equal(e.reason, "Espera a «Primer paso»");
   });
   test("bloqueado: Ready with an open typed blocker; Blocked by something other than tickets, with its note", () => {
-    assert.equal(of({ held: "Jorge: crear la cuenta de prueba" }).etapa, "bloqueado");
-    assert.equal(of({ status: "Blocked", blockedNote: "Falta la llave", held: "Jorge: crear la llave", waitsOn: ["Otro paso"] }).etapa, "bloqueado");
+    assert.equal(of({ held: "Owner: crear la cuenta de prueba" }).etapa, "bloqueado");
+    assert.equal(of({ status: "Blocked", blockedNote: "Falta la llave", held: "Owner: crear la llave", waitsOn: ["Otro paso"] }).etapa, "bloqueado");
     const e = of({ status: "Blocked", blockedNote: "Falta la llave de prueba" });
     assert.equal(e.etapa, "bloqueado");
     assert.equal(e.reason, "Falta la llave de prueba");
@@ -116,11 +116,11 @@ describe("etapaOf: one stage per status", () => {
   test("te_toca: delivered (the delivery message waits on the owner), CI green", () => {
     const e = of({ status: "In review", qa: { applies: true, lane: lane("pass") }, pr: { state: "open", ci: "success", head: "abc1234" }, delivery: { returned: false, open: true, at: ago(9) } });
     assert.equal(e.etapa, "te_toca");
-    assert.deepEqual(e.holder, { agent: "jorge", role: "ceo" });
+    assert.deepEqual(e.holder, { agent: "owner", role: "ceo" });
     assert.equal(e.since, ago(9).toISOString());
   });
-  test("te_toca: Needs Jorge", () => {
-    assert.equal(of({ status: "Needs Jorge" }).etapa, "te_toca");
+  test("te_toca: Needs owner", () => {
+    assert.equal(of({ status: "Needs owner" }).etapa, "te_toca");
   });
   test("te_toca: QA failed again on a later attempt (revísala tú)", () => {
     const e = of({ status: "In review", qa: { applies: true, lane: lane("fail", { attempt: 2 }) } });
@@ -174,7 +174,7 @@ test("every stage id is reachable from some facts", () => {
     { status: "In progress", lease: deadLease },
     { status: "In review", qa: { applies: true, lane: null } },
     { status: "In review", pr: { state: "open", ci: "failure", head: null } },
-    { status: "Needs Jorge" },
+    { status: "Needs owner" },
     { status: "Merged" },
     { status: "Released" },
     { status: "Done" },

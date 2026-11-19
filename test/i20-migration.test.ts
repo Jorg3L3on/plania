@@ -9,7 +9,7 @@ import { PG_USER } from "./helpers.js";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 const sql0032 = readFileSync(path.join(migrationsDir, "0032_drop_gates_approvals.sql"), "utf8");
-const ACTOR = JSON.stringify({ agent: "jorge", session_id: "web", machine: "screen" });
+const ACTOR = JSON.stringify({ agent: "owner", session_id: "web", machine: "screen" });
 
 test("migration 0032 archives old rows, drops them, and is safe to run twice", async () => {
   const name = "plania_mig_0032";

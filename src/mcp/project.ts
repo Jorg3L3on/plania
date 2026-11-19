@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects, type Project, type ProjectSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
-import { headlineWarnings } from "./jorge-lines.js";
+import { headlineWarnings } from "./owner-lines.js";
 import { checkReleaseSettings } from "./release-plan.js";
 import { parseCaptureSettings } from "../captures/settings.js";
 import { parseQaSettings } from "../runner/qa-settings.js";

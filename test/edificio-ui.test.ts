@@ -276,7 +276,7 @@ const release = (patch: Json = {}): Json =>
     release: { from: "sandbox", into: "main", env: "prod", ahead: 9, tickets: [{ key: "WRK-1", title: "Opciones y reglas" }, { key: "WRK-2", title: "Pantalla en dos secciones" }], open_checks: 0, before: 0 },
     ...patch,
   });
-const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
+const waitingRelease = project({ light: "needs_owner", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
 
 
 

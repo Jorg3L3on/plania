@@ -153,7 +153,7 @@ function SummaryRow({ label, tone, items, empty, onOpen }: { label: string; tone
 }
 
 /** What a person wants at a glance: what is moving, what comes next, and whether anything waits on Jorge. */
-function ProjectSummary({ lanes, needsJorge, onOpen }: { lanes: Lane[]; needsJorge: number; onOpen?: Open }) {
+function ProjectSummary({ lanes, needsOwner, onOpen }: { lanes: Lane[]; needsOwner: number; onOpen?: Open }) {
   const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : "Tickets sueltos", how });
   const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l)));
   // Initiatives nobody has started, and loose tickets that are ready even while another one moves
@@ -163,12 +163,12 @@ function ProjectSummary({ lanes, needsJorge, onOpen }: { lanes: Lane[]; needsJor
     .map((l) => item(l, !l.initiative ? `${l.next.length} ${l.next.length === 1 ? "listo" : "listos"}` : l.state === "blocked" ? "bloqueada" : ""));
   const shownNext = next.slice(0, 3);
   if (next.length > 3) shownNext.push({ key: null, name: `y ${next.length - 3} más`, how: "" });
-  const jorge: SummaryItem[] = needsJorge > 0 ? [{ key: null, name: needsJorge === 1 ? "1 pregunta" : `${needsJorge} preguntas`, how: "abajo" }] : [];
+  const mine: SummaryItem[] = needsOwner > 0 ? [{ key: null, name: needsOwner === 1 ? "1 pregunta" : `${needsOwner} preguntas`, how: "abajo" }] : [];
   return (
     <dl className="mt-2 grid max-w-3xl gap-1.5">
       <SummaryRow label="En marcha" tone="now" items={moving} empty="Nada ahora mismo" onOpen={onOpen} />
       <SummaryRow label="Siguiente" tone="ready" items={shownNext} empty="Nada en cola" onOpen={onOpen} />
-      <SummaryRow label="Te espera" tone="jorge" items={jorge} empty="Nada; lo demás avanza solo" />
+      <SummaryRow label="Te espera" tone="owner" items={mine} empty="Nada; lo demás avanza solo" />
     </dl>
   );
 }
@@ -188,7 +188,7 @@ export function ProjectHeader({
   title: string;
   lanes: Lane[];
   progress: { closed: number; total: number };
-  counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
+  counts: { inProgress: number; inReview: number; ready: number; needsOwner: number; blocked: number };
   headline?: Headline;
   version?: number;
   release?: ReleasePlan | null;
@@ -197,7 +197,7 @@ export function ProjectHeader({
   const legend = [
     { n: counts.inProgress, label: "en curso", tone: "now" as const },
     { n: counts.inReview, label: "en revisión", tone: "review" as const },
-    { n: counts.needsJorge, label: counts.needsJorge === 1 ? "te espera" : "te esperan", tone: "jorge" as const },
+    { n: counts.needsOwner, label: counts.needsOwner === 1 ? "te espera" : "te esperan", tone: "owner" as const },
     { n: counts.ready, label: counts.ready === 1 ? "listo para empezar" : "listos para empezar", tone: "ready" as const },
     { n: counts.blocked, label: counts.blocked === 1 ? "bloqueado" : "bloqueados", tone: "blocked" as const },
   ].filter((l) => l.n > 0);
@@ -212,14 +212,14 @@ export function ProjectHeader({
             <Link
               to={`/inbox?tab=pasos#${slug}`}
               title={`${release.from.branch} → ${release.into.branch}`}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-jorge transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-owner transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               Para lanzar <span className="tabular-nums">{release.tickets.length}</span>
               {release.ahead === null && <span className="font-normal text-muted-foreground">· sin datos de GitHub</span>}
             </Link>
           )}
         </h1>
-        <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
+        <ProjectSummary lanes={lanes} needsOwner={counts.needsOwner} onOpen={onOpen} />
         {slug && headline && version !== undefined && <HeadlineBlock slug={slug} headline={headline} version={version} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-[20px] border bg-card/60 px-5 py-3">

@@ -7,7 +7,7 @@
 //
 // The rules, first match wins (Design doc of PLA-I53; the initiative's table where the doc says nothing):
 //   Done → hecho · Released → publicado · Merged → integrado · Won't do → null (no stage)
-//   Needs Jorge → te_toca
+//   Needs owner → te_toca
 //   Blocked → en_espera when only unfinished tickets hold it, else bloqueado (reason: blocked_note, else the blocker)
 //   In review →
 //     a QA run is running, or the latest QA lane is checking/reviewing → en_qa running
@@ -35,7 +35,7 @@ import { SETTLED_STATUSES, typedBlockerOpen } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 import { qaAgentOf, qaTicket, sameCommit } from "../runner/qa.js";
 import { probadorGate } from "../captures/probador.js";
-import { JORGE } from "../runner/threads.js";
+import { OWNER_AUTHOR } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
 import { zonasOf, type Zona } from "./zonas.js";
 import { startFailureOf } from "../runner/start-failures.js";
@@ -116,8 +116,8 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
       return make("integrado");
     case "Won't do":
       return null;
-    case "Needs Jorge":
-      return make("te_toca", { holder: { ...JORGE }, reason: "Necesita tu decisión." });
+    case "Needs owner":
+      return make("te_toca", { holder: { ...OWNER_AUTHOR }, reason: "Necesita tu decisión." });
     case "Blocked":
       if (!f.held && f.waitsOn.length > 0) return make("en_espera", { reason: `Espera a ${quoted(f.waitsOn[0]!)}` });
       return make("bloqueado", { reason: f.blockedNote || f.held || (f.waitsOn[0] ? `Espera a ${quoted(f.waitsOn[0])}` : null) });
@@ -131,16 +131,16 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
       }
       if (lane?.status === "fail") {
         if (lane.returned || lane.attempt === 1) return make("devuelto", { holder: worker?.holder ?? f.owner, live: !!worker, since: iso(lane.endedAt) ?? at, reason: "QA encontró fallas y la devolvió." });
-        return make("te_toca", { holder: { ...JORGE }, since: iso(lane.endedAt) ?? at, reason: "QA encontró fallas otra vez: revísala tú." });
+        return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(lane.endedAt) ?? at, reason: "QA encontró fallas otra vez: revísala tú." });
       }
-      if (lane?.status === "error") return make("te_toca", { holder: { ...JORGE }, since: iso(lane.endedAt) ?? at, reason: "QA no pudo terminar: revísala tú." });
+      if (lane?.status === "error") return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(lane.endedAt) ?? at, reason: "QA no pudo terminar: revísala tú." });
       if (f.pr?.state === "merged") return make("integrado");
       if (f.pr?.state === "open" && (ci === "pending" || ci === "failure")) {
         return make("en_revision", { reason: ci === "failure" ? "Las pruebas del PR fallan." : "Las pruebas del PR corren." });
       }
       // PLA-52: no card is raised before the pictures exist, so it is not the owner's turn yet either.
       if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: "Plania toma las fotos de la entrega." });
-      if (f.delivery?.open) return make("te_toca", { holder: { ...JORGE }, since: iso(f.delivery.at) ?? at, reason: "Entregada: espera que la aceptes." });
+      if (f.delivery?.open) return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(f.delivery.at) ?? at, reason: "Entregada: espera que la aceptes." });
       return make("en_revision", { reason: f.pr?.state === "closed" ? "El PR se cerró sin fusionar." : null });
     }
   }
@@ -292,7 +292,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       select distinct on (l->>'ref') l->>'ref' as ref, m.action_state, m.at
       from ${threadMessages} m join ${threads} th on th.id = m.thread_id
       cross join lateral jsonb_array_elements(m.links) l
-      where th.project_id = ${p.id} and l->>'kind' = 'ticket' and m.author_agent <> ${JORGE.agent}
+      where th.project_id = ${p.id} and l->>'kind' = 'ticket' and m.author_agent <> ${OWNER_AUTHOR.agent}
         and m.question_id is null and m.proposal is null
       order by l->>'ref', m.at desc`)
   ).rows as Row[];

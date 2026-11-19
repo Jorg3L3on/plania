@@ -29,6 +29,7 @@ import { setTask } from "../mcp/writes.js";
 import { queueWake } from "./events.js";
 import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
+import { OWNER_LINE_PREFIX } from "../owner.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
 // Released (SYSTEM_MOVES in src/mcp/lifecycle.ts), and Ready → Blocked is an ordinary ticket move.
@@ -100,7 +101,7 @@ async function hold(db: Db, p: Project, agent: Agent, row: Held): Promise<boolea
         key: row.key,
         status: "Blocked",
         version: freed.version,
-        note: `Jorge: ${agent.name} falló dos veces seguidas en este paso (${failureWords(row.summary)}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
+        note: `${OWNER_LINE_PREFIX} ${agent.name} falló dos veces seguidas en este paso (${failureWords(row.summary)}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
       } as never,
       ctx(),
     );

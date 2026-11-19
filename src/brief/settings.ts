@@ -14,6 +14,7 @@ import {
   type ResolvedBriefSettings,
   type Slot,
 } from "./types.js";
+import { ownerGivenName } from "../owner.js";
 
 export const DEFAULT_TZ = "America/Mexico_City";
 export const DEFAULT_OWNER = "the owner";
@@ -137,7 +138,7 @@ export function resolveBriefSettings(s: BriefSettings, env: NodeJS.ProcessEnv = 
     ...s,
     timezone,
     timezone_label: timezoneLabel(timezone, s.timezone_label),
-    owner_name: s.owner_name || env.PLANIA_CEO_NAME?.trim() || DEFAULT_OWNER,
+    owner_name: s.owner_name || ownerGivenName(env) || DEFAULT_OWNER,
   };
 }
 

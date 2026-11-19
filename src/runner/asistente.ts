@@ -3,7 +3,7 @@
 //   (src/brief/schedule.ts): brief_settings.enabled and run_at, once per local date with catch-up, waiting for a
 //   running build with no cutoff, and at fallback_at a facts-only brief from buildBrief(). No Asistente run writes
 //   the brief any more; "Brief de hoy" is the pipeline's 0-token asistente.brief projection.
-// - Every 2 hours: routine acceptance (a PO's ticket In review that Jorge asked for, ops or research, with
+// - Every 2 hours: routine acceptance (a PO's ticket In review that the owner asked for, ops or research, with
 //   every check done → Done, with a line in the project thread), the weekly proposal wake of an idle PO with
 //   a goal (2-3 ideas, at most once a week), and the findings below; when they change an Asistente run is
 //   queued to write them up, or the server posts them when it cannot run.
@@ -27,6 +27,7 @@ import { setTask } from "../mcp/writes.js";
 import { resetScheduleForTests, scheduledBrief } from "../brief/schedule.js";
 import { resumeWaiting } from "../brief/plan.js";
 import type { RunBriefDeps } from "../brief/pipeline.js";
+import { ownerEs } from "../owner.js";
 
 export const CHECK_EVERY_HOURS = 2;
 export const QUIET_HOURS = 48;
@@ -275,13 +276,13 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
 
 const actorCtx = (tool: string) => ({ actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool });
 
-// A PO's ticket that Jorge asked for (origin jorge), ops or research, In review with every check done or
+// A PO's ticket that the owner asked for (origin jorge), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
 export async function routineAccept(db: Db, now: Date): Promise<number> {
   const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`
     select t.id, t.key, t.title, t.version, p.slug as project, p.id as project_id, t.owner_agent as owner
     from tasks t join projects p on p.id = t.project_id
-    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'jorge' and t.work_type in ('ops', 'research') and t.owner_agent is not null
+    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'owner' and t.work_type in ('ops', 'research') and t.owner_agent is not null
       and not exists (select 1 from checks c where c.task_id = t.id and not c.done and c.waived_at is null)
     order by t.key`);
   let n = 0;
@@ -289,7 +290,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     const [owner] = await db.select().from(agents).where(eq(agents.id, r.owner)).limit(1);
     if (!owner || roleOf(owner) !== "product-owner") continue;
     try {
-      await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: "Aceptado por Asistente: lo pidió Jorge y sus checks están hechos." } as never, actorCtx("jobs.asistente.accept"));
+      await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: `Aceptado por Asistente: lo pidió ${ownerEs()} y sus checks están hechos.` } as never, actorCtx("jobs.asistente.accept"));
     } catch {
       continue;
     }
@@ -314,10 +315,10 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
   return n;
 }
 
-const OPEN_FOR_PO = ["Ready", "In progress", "Needs Jorge"];
+const OPEN_FOR_PO = ["Ready", "In progress", "Needs owner"];
 
-// A PO with a goal and nothing to do (no Ready, In progress or Needs Jorge ticket of its own, no run going)
-// is woken once a week at most to put 2-3 ideas in its project thread and ask Jorge which one.
+// A PO with a goal and nothing to do (no Ready, In progress or Needs owner ticket of its own, no run going)
+// is woken once a week at most to put 2-3 ideas in its project thread and ask the owner which one.
 export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): Promise<number> {
   if (!eventWakesEnabled(env)) return 0;
   let n = 0;
@@ -339,7 +340,7 @@ export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): 
       .limit(1);
     if (recent) continue;
     const queued = await writeTx(db, p, actorCtx("jobs.asistente.propose"), async (tx, emit) => {
-      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask Jorge to pick one", now, trigger: "cadence" });
+      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask the owner to pick one", now, trigger: "cadence" });
       if (out.kind !== "queued") return false;
       await emit("po.propose_queued", null, { agent: po.slug, run_id: out.runId });
       return true;

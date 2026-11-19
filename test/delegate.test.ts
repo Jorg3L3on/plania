@@ -45,7 +45,7 @@ async function call(name: string, args: Json = {}): Promise<Json> {
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
 }
 
-const evidence = (message = MESSAGE, quote = QUOTE) => ({ delegated_by_jorge: { message_id: message, quote } });
+const evidence = (message = MESSAGE, quote = QUOTE) => ({ delegated_by_owner: { message_id: message, quote } });
 
 // A human_only question with named options: what answer_delegated may close (gates were removed in 2.17).
 async function gate(title: string) {
@@ -133,12 +133,12 @@ describe("answer_delegated", () => {
     const before = await raw.query("select count(*)::int as n from delegated_answers");
     for (const args of [
       { question_id: g.id, option: "pursue" },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { quote: QUOTE } },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { message_id: "", quote: QUOTE } },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { message_id: "short", quote: QUOTE } },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { message_id: MESSAGE, quote: "" } },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { message_id: MESSAGE, quote: "corto" } },
-      { question_id: g.id, option: "pursue", delegated_by_jorge: { message_id: MESSAGE, quote: "x".repeat(281) } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { quote: QUOTE } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { message_id: "", quote: QUOTE } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { message_id: "short", quote: QUOTE } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { message_id: MESSAGE, quote: "" } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { message_id: MESSAGE, quote: "corto" } },
+      { question_id: g.id, option: "pursue", delegated_by_owner: { message_id: MESSAGE, quote: "x".repeat(281) } },
     ]) {
       const refused = await call("answer_delegated", { ...args, actor: BOT });
       assert.equal(refused.__error, "DELEGATION_EVIDENCE", JSON.stringify(args));
@@ -167,7 +167,7 @@ describe("answer_delegated", () => {
     const reserved = await call("answer_delegated", {
       question_id: g.id,
       option: "pursue",
-      actor: { agent: "jorge", session_id: "web", machine: "screen" },
+      actor: { agent: "owner", session_id: "web", machine: "screen" },
       ...evidence(),
     });
     assert.equal(reserved.__error, "RESERVED_ACTOR");
@@ -396,7 +396,7 @@ describe("answer_delegated", () => {
   test("the screen answer route does not accept a delegated body", async () => {
     const g = await gate("Ruta");
     const res = await req("POST", `/api/projects/workia/questions/${g.id}/answer`, {
-      body: { answer: "pursue", delegated_by_jorge: { message_id: MESSAGE, quote: QUOTE } },
+      body: { answer: "pursue", delegated_by_owner: { message_id: MESSAGE, quote: QUOTE } },
     });
     assert.equal(res.status, 400);
     assert.equal(((await res.json()) as Json).error, "INVALID_BODY");

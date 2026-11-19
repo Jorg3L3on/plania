@@ -118,7 +118,7 @@ test("I35-1 #1: GET /api/company has plan, this_week, next and work per project 
     forecast_on: null,
   });
   assert.deepEqual([mia.this_week.done, mia.this_week.docs, mia.this_week.prs], [3, 1, 0]);
-  assert.deepEqual(mia.next, { title: "Kickoff con la boutique", key: "MIA-I1-1", owner: "jorge", due: null });
+  assert.deepEqual(mia.next, { title: "Kickoff con la boutique", key: "MIA-I1-1", owner: "owner", due: null });
   assert.deepEqual(mia.work, { open: 2, in_progress: 0 });
   assert.equal(c.projects.find((p: Json) => p.slug === "filmia").plan, null, "no Active initiative, no plan");
 
@@ -162,10 +162,10 @@ test("I35-1 #2: Elegir posts 'Elijo n' in the project thread, makes the PO's Rea
   assert.equal(out.created.kind, "ticket");
   const msgs = (await (await app.request("/api/threads/mianovia", { headers: jorge() })).json()) as { messages: Json[] };
   const mine = msgs.messages.at(-1)!;
-  assert.equal(mine.author.agent, "jorge");
+  assert.equal(mine.author.agent, "owner");
   assert.equal(mine.body, "Elijo 1: Planear el formulario con las respuestas por defecto del borrador, provisional");
   const ticket = (await raw.query(`select t.status, t.origin, a.slug from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [out.created.key])).rows[0];
-  assert.deepEqual(ticket, { status: "Ready", origin: "jorge", slug: "po-mianovia" });
+  assert.deepEqual(ticket, { status: "Ready", origin: "owner", slug: "po-mianovia" });
   assert.equal((await raw.query(`select count(*)::int as n from events where type = 'wake.queued' and payload->>'agent' = 'po-mianovia'`)).rows[0].n >= 1, true);
 
   const again = await act(id, { action: "elegir", option: 2 });

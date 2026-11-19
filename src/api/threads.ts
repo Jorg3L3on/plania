@@ -1,8 +1,8 @@
-// PLA-I32-3: the threads, on Jorge's screen. Cookie only, like the company routes: a Bearer (any agent
+// PLA-I32-3: the threads, on the owner's screen. Cookie only, like the company routes: a Bearer (any agent
 // token) is 403 even with a cookie, no cookie is 401. Bots read and write through MCP thread_read/thread_post.
 //   GET  /api/threads                     every thread with its unread count and last message
 //   GET  /api/threads/:id?after=          one thread's messages (after: an ISO time or a message id); marks it read
-//   POST /api/threads/:id/messages {body} Jorge writes. In the company thread it wakes Asistente (event
+//   POST /api/threads/:id/messages {body} the owner writes. In the company thread it wakes Asistente (event
 //        thread.message). In a project thread it also makes a Ready ticket for the PO, origin jorge (as
 //        Pedirle al PO does), whose creation wakes the PO; the message links that ticket.
 //        → 201 {message, created: {kind, key} | null, wake}
@@ -18,7 +18,7 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { asistenteAgent, eventWakesEnabled } from "../runner/events.js";
 import { loadSettings } from "../runner/limits.js";
-import { JORGE, listThreads, markRead, messageView, postMessage, readThread, resolveThread, type ThreadRef } from "../runner/threads.js";
+import { OWNER_AUTHOR, listThreads, markRead, messageView, postMessage, readThread, resolveThread, type ThreadRef } from "../runner/threads.js";
 import { createPoTicket, projectPo } from "./company-actions.js";
 import { threadAction } from "./thread-actions.js";
 
@@ -26,7 +26,7 @@ export const threadRoutes = new Hono();
 
 threadRoutes.use("*", async (c, next) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "FORBIDDEN", hint: "threads are Jorge's screen; bots use thread_read and thread_post" }, 403);
+    return c.json({ error: "FORBIDDEN", hint: "threads are the owner's screen; bots use thread_read and thread_post" }, 403);
   }
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   await next();
@@ -74,22 +74,22 @@ async function asistenteWake(db: Db): Promise<WakeWord> {
 
 export type PostResult = { message: Awaited<ReturnType<typeof messageView>>; created: { kind: "ticket"; key: string } | null; wake: WakeWord };
 
-export async function jorgePosts(db: Db, ref: ThreadRef, text: string): Promise<PostResult> {
+export async function ownerPosts(db: Db, ref: ThreadRef, text: string): Promise<PostResult> {
   if (ref.thread.kind === "company" || !ref.project) {
-    const msg = await postMessage(db, ref, { author: JORGE, body: text }, { ...webCtx, tool: "screen.thread_post" });
+    const msg = await postMessage(db, ref, { author: OWNER_AUTHOR, body: text }, { ...webCtx, tool: "screen.thread_post" });
     return { message: await messageView(db, msg, null), created: null, wake: await asistenteWake(db) };
   }
   const project = ref.project;
   const po = await projectPo(db, project);
   if (!po) {
-    const msg = await postMessage(db, ref, { author: JORGE, body: text }, { ...webCtx, tool: "screen.thread_post" });
+    const msg = await postMessage(db, ref, { author: OWNER_AUTHOR, body: text }, { ...webCtx, tool: "screen.thread_post" });
     return { message: await messageView(db, msg, project.id), created: null, wake: "no_agent" };
   }
   const made = await createPoTicket(db, project, po, text, "el hilo del proyecto");
   const msg = await postMessage(
     db,
     ref,
-    { author: JORGE, body: text, links: [{ kind: "ticket", ref: made.key, title: made.title }] },
+    { author: OWNER_AUTHOR, body: text, links: [{ kind: "ticket", ref: made.key, title: made.title }] },
     { ...webCtx, tool: "screen.thread_post" },
   );
   const settings = await loadSettings(db);
@@ -104,7 +104,7 @@ threadRoutes.post("/:id/messages", async (c) => {
   if (input instanceof Response) return input;
   try {
     return c.json(
-      await withDb(async (db) => jorgePosts(db, await resolveThread(db, c.req.param("id")), input.body)),
+      await withDb(async (db) => ownerPosts(db, await resolveThread(db, c.req.param("id")), input.body)),
       201,
     );
   } catch (e) {

@@ -66,7 +66,7 @@ describe("issuing", () => {
     assert.deepEqual(list.map((t) => t.name).sort(), ["cloud-codex", "mac-claude", "planner"]);
     assert.ok(!JSON.stringify(list).includes(secrets["mac-claude"]!));
     assert.equal(list[0]!.prefix.length, 10);
-    assert.equal((await api("POST", "/api/tokens", { name: "x", agent: "jorge", scopes: ["read"] })).status, 400);
+    assert.equal((await api("POST", "/api/tokens", { name: "x", agent: "owner", scopes: ["read"] })).status, 400);
     assert.equal((await api("POST", "/api/tokens", { name: "x", agent: "a", scopes: ["admin"] })).status, 400);
     assert.equal((await app.request("/api/tokens")).status, 401, "cookie only");
   });

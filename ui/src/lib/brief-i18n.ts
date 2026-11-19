@@ -79,7 +79,7 @@ export type BriefLabels = {
 /** PLA-I51: counts that make the voice line and a tower's accessible name. */
 export type CityCounts = { blocked: number; needs: number; next: number; ideas: number };
 /** One piece of the voice line; tone colours it (blocked red, jorge orange). */
-export type VoicePart = { text: string; tone?: "blocked" | "jorge" };
+export type VoicePart = { text: string; tone?: "blocked" | "owner" };
 
 /** PLA-I51: the city at dawn's labels (city.tsx retired in PLA-I63-5; the brief in Compañía reuses them). */
 export type CityLabels = {
@@ -560,7 +560,7 @@ const en: BriefLabels = {
     voice: (c) => {
       const parts: VoicePart[] = [];
       if (c.blocked) parts.push({ text: c.blocked === 1 ? "one blocker goes first" : `${c.blocked} blockers go first`, tone: "blocked" });
-      if (c.needs) parts.push({ text: c.needs === 1 ? "one thing is your turn" : `${c.needs} things are your turn`, tone: "jorge" });
+      if (c.needs) parts.push({ text: c.needs === 1 ? "one thing is your turn" : `${c.needs} things are your turn`, tone: "owner" });
       if (c.next) parts.push({ text: c.next === 1 ? "one is next" : `${c.next} are next` });
       if (c.ideas) parts.push({ text: c.ideas === 1 ? "there is one new idea" : `there are ${c.ideas} new ideas` });
       return joinVoice(parts, ", ", " and ");
@@ -868,7 +868,7 @@ const es: BriefLabels = {
     voice: (c) => {
       const parts: VoicePart[] = [];
       if (c.blocked) parts.push({ text: c.blocked === 1 ? "un bloqueo va primero" : `${NUM_ES[c.blocked] ?? c.blocked} bloqueos van primero`, tone: "blocked" });
-      if (c.needs) parts.push({ text: c.needs === 1 ? "una cosa te toca" : `${NUM_ES[c.needs] ?? c.needs} cosas te tocan`, tone: "jorge" });
+      if (c.needs) parts.push({ text: c.needs === 1 ? "una cosa te toca" : `${NUM_ES[c.needs] ?? c.needs} cosas te tocan`, tone: "owner" });
       if (c.next) parts.push({ text: c.next === 1 ? "una sigue" : `${NUM_ES[c.next] ?? c.next} siguen` });
       if (c.ideas) parts.push({ text: c.ideas === 1 ? "hay una idea nueva" : `hay ${NUM_ES[c.ideas] ?? c.ideas} ideas nuevas` });
       return joinVoice(parts, ", ", " y ");

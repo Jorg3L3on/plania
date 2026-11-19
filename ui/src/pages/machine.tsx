@@ -47,7 +47,7 @@ const KIND_WORD: Record<FootprintKind, string> = {
 // Literal class names so Tailwind generates every one.
 const STATE_CLASS: Record<FootprintState, string> = {
   live: "bg-status-done/12 text-ink-done",
-  orphan: "bg-status-jorge/14 text-ink-jorge",
+  orphan: "bg-status-owner/14 text-ink-owner",
   stale: "bg-status-now/16 text-ink-now",
   ghost: "bg-status-pending/25 text-muted-foreground",
   gone: "bg-muted text-muted-foreground",
@@ -206,7 +206,7 @@ function Totals({ machine }: { machine: NonNullable<ReturnType<typeof useMachine
       <li className={cn(pill, "bg-status-done/12 text-ink-done")}>{t.servers === 1 ? "1 servidor" : `${t.servers} servidores`}</li>
       <li className={cn(pill, "bg-status-ready/12 text-ink-ready")}>{t.databases === 1 ? "1 base de datos" : `${t.databases} bases de datos`}</li>
       <li className={cn(pill, "bg-muted text-foreground/80")}>{formatKb(t.worktree_kb)} en worktrees</li>
-      {t.orphan > 0 && <li className={cn(pill, "bg-status-jorge/14 text-ink-jorge")}>{t.orphan} sin dueño</li>}
+      {t.orphan > 0 && <li className={cn(pill, "bg-status-owner/14 text-ink-owner")}>{t.orphan} sin dueño</li>}
       {t.stale > 0 && <li className={cn(pill, "bg-status-now/16 text-ink-now")}>{t.stale === 1 ? "1 obsoleto" : `${t.stale} obsoletos`}</li>}
     </ul>
   );

@@ -21,7 +21,7 @@ import { footprintFindings } from "../mcp/footprint-audit.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
-import { gatingSql } from "../mcp/jorge-lines.js";
+import { gatingSql } from "../mcp/owner-lines.js";
 import { etapaRow, projectEtapas, tableroOf, zonasRow } from "./etapa.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
@@ -48,6 +48,7 @@ import { machineCheckRoutes } from "./machine-check.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
+import { isOwnerAgent } from "../owner.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -415,7 +416,7 @@ api.post("/projects/:slug/tasks", async (c) => {
           summary: body.summary || undefined,
           priority: body.priority ?? "P2",
           parent_key: body.parent_key || undefined,
-          origin: "jorge",
+          origin: "owner",
           status: "Backlog",
         },
         screenCtx,
@@ -665,7 +666,7 @@ api.post("/tokens", async (c) => {
     }),
   );
   if (body instanceof Response) return body;
-  if (body.agent.toLowerCase() === "jorge") return c.json({ error: "RESERVED_ACTOR" }, 400);
+  if (isOwnerAgent(body.agent)) return c.json({ error: "RESERVED_ACTOR" }, 400);
   const out = await withDb((db) => issueToken(db, body, WEB_ACTOR));
   return c.json(out, 201);
 });

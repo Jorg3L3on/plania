@@ -81,7 +81,7 @@ function TowerView({ t, projectTitle, index }: { t: Tower; projectTitle: string;
       )}
       {t.agents.length > 0 && <Crane lights={t.agents.length} />}
       {t.awaitsGo && (
-        <span className="mb-2 rounded-full border border-dashed border-status-jorge/55 px-2 py-0.5 text-[10.5px] font-semibold whitespace-nowrap text-ink-jorge">espera tu go</span>
+        <span className="mb-2 rounded-full border border-dashed border-status-owner/55 px-2 py-0.5 text-[10.5px] font-semibold whitespace-nowrap text-ink-owner">espera tu go</span>
       )}
       {t.stage === "shipping" && t.agents.length === 0 && <span className="city-beacon" aria-hidden />}
       <span className="city-bld" aria-hidden>
@@ -129,7 +129,7 @@ function Legend() {
       <li className="flex items-center gap-1.5">{win("dark")}backlog</li>
       <li className="flex items-center gap-1.5"><span className="city-dot" aria-hidden />grúa = agentes</li>
       <li className="flex items-center gap-1.5">
-        <span aria-hidden className="h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-status-jorge/70" />haz = te toca
+        <span aria-hidden className="h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-status-owner/70" />haz = te toca
       </li>
     </ul>
   );
@@ -159,7 +159,7 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
             {loose.length > 0 && (
               <Link
                 to="/inbox"
-                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-jorge/45 bg-status-jorge/12 px-3 text-xs font-semibold text-ink-jorge transition hover:bg-status-jorge/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-owner/45 bg-status-owner/12 px-3 text-xs font-semibold text-ink-owner transition hover:bg-status-owner/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 {loose.length} {loose.length === 1 ? "cosa suelta te espera" : "cosas sueltas te esperan"}
               </Link>
@@ -227,7 +227,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
             <h1 className="font-display text-[26px] leading-[1.02] font-extrabold tracking-[-0.03em] text-balance md:text-[34px]" data-city-title>{headline.title}</h1>
             <p className="font-voice text-lg leading-tight text-foreground/75 italic md:text-xl" data-city-voice>
               {headline.voice.map((part, i) => (
-                <span key={i} className={part.tone === "jorge" ? "text-ink-jorge" : undefined}>{part.text}</span>
+                <span key={i} className={part.tone === "owner" ? "text-ink-owner" : undefined}>{part.text}</span>
               ))}
             </p>
             {links && <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1.5" data-city-links>{links}</div>}

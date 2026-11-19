@@ -121,7 +121,7 @@ test("I39-1 #3: now and last carry the ticket's title, and null when the run has
 test("I39-1 #4: asistente.unread counts the company thread's unread messages", async () => {
   const before = (await company()).asistente;
   assert.equal(before.unread, 0);
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'asistente', 'asistente', 'Uno', '[]'), ($1, 'asistente', 'asistente', 'Dos', '[]'), ($1, 'jorge', 'jorge', 'Mío', '[]')`, [before.thread_id]);
+  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'asistente', 'asistente', 'Uno', '[]'), ($1, 'asistente', 'asistente', 'Dos', '[]'), ($1, 'owner', 'owner', 'Mío', '[]')`, [before.thread_id]);
   assert.equal((await company()).asistente.unread, 2);
   await raw.query(`update threads set read_at = now() + interval '1 second' where id = $1`, [before.thread_id]);
   assert.equal((await company()).asistente.unread, 0);

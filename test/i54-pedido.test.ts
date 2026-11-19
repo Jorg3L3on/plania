@@ -70,7 +70,7 @@ test("I54-3 #1: the detail carries the owner's words, the trail (events, docs, q
   assert.deepEqual([d.key, d.mode, d.stop, d.status, d.text], [key, "forma", "investigacion", "Open", "Compartir la ficha por enlace\nSin crear cuenta."]);
   assert.deepEqual(
     d.trail.map((e: Json) => [e.who, e.kind]),
-    [["jorge", "pedido"], ["product-owner", "entendi"], ["product-owner", "doc"], ["product-owner", "etapa"], ["product-owner", "doc"]],
+    [["owner", "pedido"], ["product-owner", "entendi"], ["product-owner", "doc"], ["product-owner", "etapa"], ["product-owner", "doc"]],
   );
   assert.equal(d.trail[3].text, "La pasó a Investigación.");
   assert.equal(d.trail[2].doc.title, "Idea");
@@ -100,7 +100,7 @@ test("I54-3 #2: answering the PO's question in place clears «Te espera» and wa
   d = await detail(key);
   assert.notEqual(d.state, "espera");
   assert.equal(d.question, null);
-  assert.deepEqual(d.trail.slice(-2).map((e: Json) => [e.who, e.kind, e.text]), [["product-owner", "pregunta", "Preguntó: ¿Quitamos el segundo teléfono?"], ["jorge", "respuesta", "Opcional"]]);
+  assert.deepEqual(d.trail.slice(-2).map((e: Json) => [e.who, e.kind, e.text]), [["product-owner", "pregunta", "Preguntó: ¿Quitamos el segundo teléfono?"], ["owner", "respuesta", "Opcional"]]);
   assert.notEqual((await card()).pedidos.find((x: Json) => x.key === key).state, "espera");
   const woke = (await raw.query(`select r.summary from agent_runs r join agents a on a.id = r.agent_id where a.slug = 'po-micasa' and r.task_key = $1 and r.status = 'queued'`, [key])).rows;
   assert.equal(woke.length, 1);
@@ -115,7 +115,7 @@ test("I54-3 #3: a note is stored on the idea and shows in the trail", async () =
   assert.equal(notes.length, 1);
   const d = await detail(key);
   const lastItem = d.trail.at(-1)!;
-  assert.deepEqual([lastItem.who, lastItem.kind, lastItem.text], ["jorge", "nota", "A las 6 de la tarde, no antes."]);
+  assert.deepEqual([lastItem.who, lastItem.kind, lastItem.text], ["owner", "nota", "A las 6 de la tarde, no antes."]);
 });
 
 test("I54-3 #4: Guardar takes it off the tube to Guardadas and Restaurar brings it back; Descartar closes it with its reason", async () => {
@@ -138,7 +138,7 @@ test("I54-3 #4: Guardar takes it off the tube to Guardadas and Restaurar brings 
   const t = (await raw.query(`select status from tasks where key = $1`, [other])).rows[0];
   assert.equal(t.status, "Won't do");
   const note = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [other])).rows[0].text;
-  assert.equal(note, "Descartada por Jorge desde Compañía: Ya no hace falta");
+  assert.equal(note, "Descartada por el dueño desde Compañía: Ya no hace falta");
   assert.equal(((await card()).pedidos as Json[]).some((p) => p.key === other), false);
   assert.equal((await post(`/api/company/projects/micasa/pedidos/${other}/guardar`)).status, 409);
   assert.equal((await post(`/api/company/projects/micasa/pedidos/${other}/descartar`)).status, 409);

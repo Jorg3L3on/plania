@@ -71,7 +71,7 @@ export function obrasOf(p: Card, opts: { companyPaused?: boolean } = {}): Obra[]
 export const seatOf = (m: Pick<OrgMember, "agent">, obras: Obra[]): Obra | null => obras.find((o) => o.agent === m.agent) ?? null;
 
 // The seat stations' light: building and testing before fixing, as the board's own rule (etapas.ts litOf).
-const LIT_ORDER: StageTone[] = ["now", "review", "jorge"];
+const LIT_ORDER: StageTone[] = ["now", "review", "owner"];
 export function litOf(obras: Obra[]): Partial<Record<StationId, StageTone>> {
   const lit: Partial<Record<StationId, StageTone>> = {};
   for (const o of obras) {

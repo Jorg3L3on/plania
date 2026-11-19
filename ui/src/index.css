@@ -26,7 +26,7 @@
     --color-status-review: var(--status-review);
     --color-status-ready: var(--status-ready);
     --color-status-blocked: var(--status-blocked);
-    --color-status-jorge: var(--status-jorge);
+    --color-status-owner: var(--status-owner);
     --color-status-pending: var(--status-pending);
     --color-status-idle: var(--status-idle);
     /* Text in a status colour uses ink, which is darker than the fill in light mode (4.5:1). */
@@ -35,7 +35,7 @@
     --color-ink-review: var(--ink-review);
     --color-ink-ready: var(--ink-ready);
     --color-ink-blocked: var(--ink-blocked);
-    --color-ink-jorge: var(--ink-jorge);
+    --color-ink-owner: var(--ink-owner);
     --color-surface-raised: var(--surface-raised);
     --color-surface-sunken: var(--surface-sunken);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -134,7 +134,7 @@
     --status-review: #6d4fe0;
     --status-ready: #0a6fa8;
     --status-blocked: #c22a52;
-    --status-jorge: #ea7a12;
+    --status-owner: #ea7a12;
     --status-pending: #b8bdcb;
     --status-idle: #8a90a2;
     --orb-1: rgb(255 95 162 / 0.10);
@@ -143,7 +143,7 @@
     --ink-review: #6d4fe0;
     --ink-ready: #0a6fa8;
     --ink-blocked: #c22a52;
-    --ink-jorge: #a34a00;
+    --ink-owner: #a34a00;
     --accent-ink: 42%;
     --orb-2: rgb(94 200 255 / 0.12);
 }
@@ -195,7 +195,7 @@
     --status-review: #b094ff;
     --status-ready: #5ec8ff;
     --status-blocked: #ff6b8a;
-    --status-jorge: #ff9f43;
+    --status-owner: #ff9f43;
     --status-pending: #4a5068;
     --status-idle: #8d94aa;
     --orb-1: rgb(255 95 162 / 0.20);
@@ -204,7 +204,7 @@
     --ink-review: var(--status-review);
     --ink-ready: var(--status-ready);
     --ink-blocked: var(--status-blocked);
-    --ink-jorge: var(--status-jorge);
+    --ink-owner: var(--status-owner);
     --accent-ink: 100%;
     --orb-2: rgb(94 200 255 / 0.13);
 }
@@ -391,7 +391,7 @@
   .city-win[data-tone="review"] { background: var(--status-review); box-shadow: 0 0 8px color-mix(in oklab, var(--status-review) 50%, transparent); }
   .city-win[data-tone="ready"] { background: var(--status-ready); box-shadow: 0 0 8px color-mix(in oklab, var(--status-ready) 45%, transparent); }
   .city-win[data-tone="blocked"] { background: var(--status-blocked); box-shadow: 0 0 8px color-mix(in oklab, var(--status-blocked) 50%, transparent); }
-  .city-win[data-tone="jorge"] { background: var(--status-jorge); box-shadow: 0 0 8px color-mix(in oklab, var(--status-jorge) 55%, transparent); }
+  .city-win[data-tone="owner"] { background: var(--status-owner); box-shadow: 0 0 8px color-mix(in oklab, var(--status-owner) 55%, transparent); }
   .city-win[data-tone="dark"] { background: rgb(255 255 255 / 0.03); border: 1px solid rgb(255 255 255 / 0.13); }
   .city-tower[data-stage="planning"] .city-win[data-tone="dark"] { background: transparent; border-style: dashed; border-color: rgb(255 255 255 / 0.22); }
   .city-door { grid-column: 1 / -1; justify-self: center; width: 14px; height: 16px; margin-top: 2px; border-radius: 3px 3px 0 0; background: var(--lit); opacity: 0.6; }
@@ -408,7 +408,7 @@
     pointer-events: none;
     transform-origin: 50% 100%;
     clip-path: polygon(50% 100%, 16% 0, 84% 0);
-    background: linear-gradient(to top, color-mix(in oklab, var(--status-jorge) 55%, transparent), transparent 88%);
+    background: linear-gradient(to top, color-mix(in oklab, var(--status-owner) 55%, transparent), transparent 88%);
     animation: city-sweep 7s ease-in-out infinite alternate;
   }
   /* Shipping: a red light on the roof. */
@@ -487,7 +487,7 @@
   /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
 
   /* PLA-23: "Ver la pregunta" marks where it landed for a moment. */
-  [data-flash] { outline: 3px solid var(--status-jorge); outline-offset: 4px; transition: outline-color 0.6s; }
+  [data-flash] { outline: 3px solid var(--status-owner); outline-offset: 4px; transition: outline-color 0.6s; }
   @media (prefers-reduced-motion: reduce) { [data-flash] { transition: none; } }
 
   /* lobby, street, basement */

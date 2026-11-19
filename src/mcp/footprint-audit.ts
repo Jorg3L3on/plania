@@ -42,14 +42,14 @@ export async function footprintFindings(db: Q, scope: Scope, now = new Date()): 
     const d = f.details;
     if (f.state === "orphan") {
       const seen = f.firstSeenAt ? ` (visto hace ${spanAgo(now.getTime() - f.firstSeenAt.getTime())})` : "";
-      out.push({ code: "FOOTPRINT_ORPHAN", key, detail: `${label}: nadie lo declaró y no se sabe de quién es${seen}`, fix_hint: hint(f.teardown, "register_footprint with its purpose and teardown if it is yours, or ask Jorge") });
+      out.push({ code: "FOOTPRINT_ORPHAN", key, detail: `${label}: nadie lo declaró y no se sabe de quién es${seen}`, fix_hint: hint(f.teardown, "register_footprint with its purpose and teardown if it is yours, or ask the owner") });
     }
     if (f.state === "stale") {
       const why = describeStale(d, now) ?? "obsoleto";
       if (f.kind === "worktree") {
         out.push({ code: "WORKTREE_MERGED_NOT_REMOVED", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "remove the worktree once nothing in it is needed"), id: f.locator, ...(f.teardown ? { command: f.teardown } : {}) });
       } else {
-        out.push({ code: "FOOTPRINT_STALE", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "release_footprint once it is gone, or ask Jorge") });
+        out.push({ code: "FOOTPRINT_STALE", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "release_footprint once it is gone, or ask the owner") });
       }
     }
     // A <project>_test_<hash> database the tests of a checkout made: the hash is the checkout's path
@@ -65,7 +65,7 @@ export async function footprintFindings(db: Q, scope: Scope, now = new Date()): 
         code: "SECONDARY_DB_SERVER",
         key,
         detail: `${label}: servidor de bases secundario (principal :${primaryPgPort()}) que ningún proyecto declaró`,
-        fix_hint: "register_footprint kind db_server with its purpose and teardown, or ask Jorge whether it should stay",
+        fix_hint: "register_footprint kind db_server with its purpose and teardown, or ask the owner whether it should stay",
       });
     }
     // Started at login, not attributed to a repo, and first seen after Plania began watching.
@@ -77,7 +77,7 @@ export async function footprintFindings(db: Q, scope: Scope, now = new Date()): 
           key,
           detail: `${label}: apareció hace ${spanAgo(now.getTime() - f.firstSeenAt.getTime())} y arranca al iniciar sesión; ningún proyecto lo declaró`,
           // Never a stop command: it may hold a database someone uses. Declare it, or ask.
-          fix_hint: "register_footprint kind service with its purpose and teardown, or ask Jorge whether it should stay",
+          fix_hint: "register_footprint kind service with its purpose and teardown, or ask the owner whether it should stay",
         });
       }
     }

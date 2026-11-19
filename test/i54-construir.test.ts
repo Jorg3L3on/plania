@@ -89,9 +89,9 @@ test("I54-4 #1: Constrúyelo records the order and wakes the PO with the promote
   assert.equal(res.status, 200, await res.clone().text());
   assert.deepEqual((await res.json()) as Json, { key, state: "valvula", wake: "queued" });
   const order = (await raw.query(`select type, actor->>'agent' as who, payload from events where task_key = $1 and type in ('pedido.construir', 'note') order by id`, [key])).rows;
-  assert.deepEqual(order.map((r) => [r.type, r.who]), [["pedido.construir", "jorge"], ["note", "jorge"]]);
+  assert.deepEqual(order.map((r) => [r.type, r.who]), [["pedido.construir", "owner"], ["note", "owner"]]);
   assert.equal(order[0].payload.stage, "ready");
-  assert.equal(order[1].payload.text, pedido.BUILD_NOTE_TEXT);
+  assert.equal(order[1].payload.text, pedido.buildNoteText());
   const woke = await queuedFor(key);
   assert.equal(woke.length, 1);
   assert.match(woke[0]!.summary, /Constrúyelo/);
@@ -127,7 +127,7 @@ test("I54-4 #3: an owner's idea at Lista is never promoted without the order; th
   await toLista(key);
   // The prompt the PO reads says it stays.
   const scope = (await raw.query(`select scope from tasks where key = $1`, [key])).rows[0].scope as string;
-  assert.match(scope, /no pongas promoted_to: en Lista se queda quieta\. Solo Jorge la manda construir con «Constrúyelo»/);
+  assert.match(scope, /no pongas promoted_to: en Lista se queda quieta\. Solo el dueño la manda construir con «Constrúyelo»/);
   // The server holds it too.
   const ini = (await writes.createTask(db, { project: "micasa", kind: "initiative", title: "Sin conexión", scope: "s" } as never, PO)) as Json;
   await assert.rejects(writes.setTask(db, { project: "micasa", key, promoted_to: ini.key, version: await versionOf(key) } as never, PO), (e: Json) => e.code === "PEDIDO_SIN_ORDEN");
@@ -144,5 +144,5 @@ test("I54-4 #3: an owner's idea at Lista is never promoted without the order; th
   await writes.setTask(db, { project: "micasa", key: own.key, promoted_to: ini2.key, version: await versionOf(own.key) } as never, PO);
   // The catalog names the new error, and the coalesced wake's words are the route's.
   assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /`PEDIDO_SIN_ORDEN` \| 409/);
-  assert.ok(readFileSync(new URL("../src/runner/events.ts", import.meta.url), "utf8").includes(pedido.BUILD_REASON));
+  assert.ok(readFileSync(new URL("../src/runner/events.ts", import.meta.url), "utf8").includes("reason: buildReason()"));
 });

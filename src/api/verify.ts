@@ -9,6 +9,7 @@ import { agentRuns, agents, projects, type Task } from "../db/schema.js";
 import { enqueueWake } from "../runner/events.js";
 import { roleOf } from "../runner/limits.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
+import { ownerEs } from "../owner.js";
 
 /** The owner as the card says it. */
 export const whoWord = (role: string | null | undefined) => (role === "taller" ? "Taller" : role === "product-owner" ? "El PO" : role === "research" ? "Research" : role === "artist" ? "Artist" : "Su dueño");
@@ -30,7 +31,7 @@ export async function verifyingOf(db: Db, t: Task | null): Promise<Verifying | n
 }
 
 export const verifyReason = (t: Task, head: string | null, branch: string | null) =>
-  `Jorge asks for a fresh test run on ${t.key}, no code change: the pass on record is on an older commit than the PR's head` +
+  `The owner asks for a fresh test run on ${t.key}, no code change: the pass on record is on an older commit than the PR's head` +
   `${head ? ` (${head.slice(0, 7)})` : ""}. Pull ${branch ?? "the ticket's branch"}, run the ticket's checks on its latest commit, ` +
   "add_result with that commit and the counts, and set the ticket back to In review. If something fails, say what in the thread.";
 
@@ -49,7 +50,7 @@ export async function requestVerify(db: Db, t: Task, head: string | null, branch
     const out = await enqueueWake(tx, { agent: owner, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: verifyReason(t, head, branch) });
     // PLA-I60: a run already on this ticket takes the request too (its reason, or one retry after it ends).
     wake = out.kind === "queued" || out.reason === "coalesced" ? "queued" : out.reason;
-    await emit("note", { id: t.id, key: t.key }, { text: `Jorge pidió volver a correr las pruebas en el último commit${head ? ` (${head.slice(0, 7)})` : ""}.` });
+    await emit("note", { id: t.id, key: t.key }, { text: `${ownerEs(undefined, { capital: true })} pidió volver a correr las pruebas en el último commit${head ? ` (${head.slice(0, 7)})` : ""}.` });
   });
   if (wake !== "queued") {
     const hint = /paused/.test(wake)
