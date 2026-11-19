@@ -970,7 +970,7 @@ export const COR_WORDS: Record<BriefLanguage, CorWords> = {
     send: "Enviar nota",
   },
   en: {
-    verbs: { accept_pr: "Accept", request_changes: "Ask for a change", publish: "Publish" },
+    verbs: { accept_pr: "Accept", request_changes: "Ask for changes", publish: "Publish" },
     stamps: { accept_pr: "Accepted", request_changes: "Sent back" },
     kinds: { ticket: "Step", pr: "Delivery" },
     ev: { ticket: "Step" },
