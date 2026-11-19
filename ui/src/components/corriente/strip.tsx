@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
-import { PEERS_LABEL, SWITCHER_MENU, TE_ESPERA, peerTitle,archivoCount, barState, switcherLabel, todoCount } from "@/lib/barra";
+import { SWITCHER_MENU, TE_ESPERA, peerTitle,archivoCount, barState, switcherLabel, todoCount } from "@/lib/barra";
 import { useFicha } from "./listas";
 import { Logo } from "./parts";
 
@@ -102,24 +102,30 @@ export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { sl
   );
 };
 
-/** PLA-I3-2: the other projects at a glance, as the old strip gave them: each one's mark and mini stream, a link to
- *  the same door there. Nothing with one project; the switcher's menu still lists them all by name. */
-export const Peers = ({ slug, lanes, href }: { slug: string; lanes: Lane[]; href: (slug: string) => string }) => {
-  const others = lanes.filter((l) => l.slug !== slug);
-  if (others.length === 0) return null;
-  return (
-    <nav className="cor-peers" aria-label={PEERS_LABEL} data-peers>
-      {others.map((l, i) => (
+/** PLA-I3-2: the strip on top, as it was: back to Corriente and one chip per project (its mark, its name and its
+ *  mini stream), the open one marked. A chip opens that project on the same door. Chips keep a set width, so one
+ *  project is not a bar-wide box. A phone hides the strip and keeps back and the switcher in the bar. */
+export const Strip = ({ slug, lanes, href, back }: { slug: string; lanes: Lane[]; href: (slug: string) => string; back: string }) => (
+  <nav className="cor-strip" aria-label={SWITCHER_MENU} data-strip>
+    <Link to={back} className="cor-strip-back" data-control="corriente">
+      <Chevron d="M9.5 3.5 5 8l4.5 4.5" />
+      Corriente
+    </Link>
+    <div className="cor-chips">
+      {lanes.map((l, i) => (
         <Link
           key={l.slug}
           to={href(l.slug)}
-          className={`cor-peer ${l.pace !== "live" ? "quiet" : ""}`}
-          title={peerTitle(l.title, l.you.length > 0)}
+          className={`cor-chip ${l.pace !== "live" ? "quiet" : ""}`}
+          aria-current={l.slug === slug ? "page" : undefined}
           aria-label={peerTitle(l.title, l.you.length > 0)}
-          data-peer={l.slug}
+          data-chip={l.slug}
           style={{ "--cor-speed": `${6 + (i % 3) * 2}s`, "--cor-delay": `-${i * 1.7}s` } as CSSProperties}
         >
-          <Logo slug={l.slug} title={l.title} size="sm" />
+          <span className="cor-chip-name">
+            <Logo slug={l.slug} title={l.title} size="sm" />
+            <span className="cor-ellipsis">{l.title}</span>
+          </span>
           <span className={`cor-mini ${l.pace === "off" ? "off" : ""}`} aria-hidden>
             {COLUMNS.map((c) => (
               <span key={c} className={`t ${l.you.some((y) => y.col === c) ? "yo" : l.agents.some((a) => a.col === c) ? "ag" : l.cells[c].length ? "on" : ""}`} />
@@ -127,9 +133,9 @@ export const Peers = ({ slug, lanes, href }: { slug: string; lanes: Lane[]; href
           </span>
         </Link>
       ))}
-    </nav>
-  );
-};
+    </div>
+  </nav>
+);
 
 export const BAR_DOORS =["todo", ...DOORS] as const;
 
@@ -172,8 +178,11 @@ export const ProjectBar = ({
   const state = barState(paused);
   const todo = open === undefined ? null : todoCount(open);
   return (
+    <>
+    <Strip slug={slug} lanes={lanes} href={projectHref} back={back} />
     <header className="cor-topbar" data-bar={slug}>
-      <Link to={back} className="cor-strip-back" data-control="corriente">
+      {/* The strip above carries the way back; a phone has no strip and keeps it here. */}
+      <Link to={back} className="cor-strip-back" data-control="corriente-tel">
         <Chevron d="M9.5 3.5 5 8l4.5 4.5" />
         {/* PLA-I3-7: a phone shows the chevron alone; the word stays the link's name. */}
         <span className="cor-strip-back-t">Corriente</span>
@@ -190,7 +199,6 @@ export const ProjectBar = ({
         ))}
       </nav>
       <div className="cor-topbar-end">
-        <Peers slug={slug} lanes={lanes} href={projectHref} />
         <span className={`cor-topbar-state ${paused ? "off" : "on"}`} data-estado={paused ? "pausa" : "marcha"}>
           <i aria-hidden />
           {state.label}
@@ -202,5 +210,6 @@ export const ProjectBar = ({
         )}
       </div>
     </header>
+    </>
   );
 };

@@ -15,9 +15,7 @@ export const SWITCHER_MENU = "Proyectos";
 /** Said after a project's name in the menu when something waits on the owner there. */
 export const TE_ESPERA = ", te espera";
 
-/** The other projects' mini streams at the bar's right: the group's name, and each one's (its title, and whether
- *  something waits on the owner there). */
-export const PEERS_LABEL = "Los otros proyectos";
+/** A project's chip in the strip on top: its title, and whether something waits on the owner there. */
 export const peerTitle = (title: string, waits: boolean): string => (waits ? `${title}${TE_ESPERA}` : title);
 
 /** Todo's count beside its door: the open things, nothing when there are none. */

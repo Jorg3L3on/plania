@@ -291,13 +291,12 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-topbar .cor-doors { margin-left: 8px; }
 .cor-topbar .cor-door { min-height: 55px; margin-bottom: -1px; white-space: nowrap; }
 .cor-topbar-end { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
-/* PLA-I3-2: the other projects at a glance (the old strip's chips, small): a mark and its mini stream each. */
-.cor-peers { display: flex; align-items: center; gap: 2px; margin-right: 8px; }
-.cor-peer { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border-radius: 10px; }
-.cor-peer:hover { background: rgba(255, 255, 255, 0.05); }
-.cor-peer .cor-mini { width: 56px; }
-.cor-peer.quiet .cor-mini::after { opacity: 0.35; animation-duration: 14s; }
-@media (max-width: 1100px) { .cor-peers { display: none; } }
+/* PLA-I3-2: the strip on top, as it was: back and one chip per project. A chip keeps a set width. */
+.cor-strip { position: relative; display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 32px; border-bottom: 1px solid var(--cor-line); }
+.cor-chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.cor-chips > .cor-chip { flex: 0 1 220px; }
+@media (min-width: 640px) { .cor-topbar > .cor-strip-back { display: none; } }
+@media (max-width: 639px) { .cor-strip { display: none; } }
 .cor-topbar-state { display: inline-flex; align-items: center; gap: 8px; font-family: var(--cor-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cor-body); white-space: nowrap; }
 .cor-topbar-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-3); box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
 .cor-topbar-state.off i { background: rgba(255, 255, 255, 0.28); box-shadow: none; }
