@@ -3,7 +3,7 @@
 //   GET  /api/threads                     every thread with its unread count and last message
 //   GET  /api/threads/:id?after=          one thread's messages (after: an ISO time or a message id); marks it read
 //   POST /api/threads/:id/messages {body} the owner writes. In the company thread it wakes Asistente (event
-//        thread.message). In a project thread it also makes a Ready ticket for the PO, origin jorge (as
+//        thread.message). In a project thread it also makes a Ready ticket for the PO, origin owner (as
 //        Pedirle al PO does), whose creation wakes the PO; the message links that ticket.
 //        → 201 {message, created: {kind, key} | null, wake}
 //   POST /api/threads/:id/actions {message_id, action, text?}  PLA-I32-4 (src/api/thread-actions.ts) → {ok, action_state}

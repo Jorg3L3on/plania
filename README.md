@@ -1,10 +1,10 @@
 # Plania
 
-Source of the plan for Jorge and his agents. A generated resume per project on screen, the rest over MCP.
+Source of the plan for the owner and his agents. A generated resume per project on screen, the rest over MCP.
 The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
 sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
-- App: Hono on Node, one long-lived process on this Mac (`scripts/dev.ts`, the launchd service).
+- App: Hono on Node, one long-lived process on this machine (`scripts/dev.ts`, the launchd service).
 - DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
@@ -107,15 +107,10 @@ pnpm project:add <slug> --title "<Title>" [--prefix <PFX>] [--repo owner/name] [
 pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
-`--path` is the repo on this Mac (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
+`--path` is the repo on this machine (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
 `--repo` is its GitHub `owner/name`. Both are safe to rerun.
 
-`pnpm seed` is the original owner's setup: it loads their day-one projects `micasa`, `workia`, `filmia`, `zigzag`.
-Skip it on a new install. It is safe to rerun:
-
-- Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
-- Each project's handoff "must keep" line is added once as a pinned decision.
-- Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
+Projects come from first start, the screen or `pnpm project:add`; nothing is preloaded.
 
 ### Upgrading to 2.3 (audit, context, handoff)
 
@@ -128,7 +123,7 @@ Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `
 `branches`, `resources`, `quota_usage`, `pull_requests`, `poll_state`, `project_metrics`, the structured result
 columns, env `flags`/`migrations`/`deploy_source`, and the bug and debt fields. Then, per project, set what the
 pollers need (`set_project settings`): `github: {repo}`, `vercel: {project_id, team_id?}`, `release_target`,
-`branch_pattern` (filmia: `^jl/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
+`branch_pattern` (e.g. `^feat/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
 set; otherwise the poller reads `~/.config/plania/github-token` (one line, mode `0600`, see GitHub token file). Put `VERCEL_TOKEN`
 in `.env`. The settings only name the variables.
 
@@ -141,8 +136,8 @@ project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standal
 stays as an alias and each rename is a `task.rekeyed` event:
 
 ```bash
-pnpm rekey --project filmia            # dry run: prints the plan
-pnpm rekey --project filmia --apply    # writes it, in one transaction
+pnpm rekey --project tienda            # dry run: prints the plan
+pnpm rekey --project tienda --apply    # writes it, in one transaction
 ```
 
 ### Upgrading to 2.9 (backups, v1 cleanup)
@@ -162,8 +157,8 @@ names and the old one only the old, so apply the migration right before the rest
 
 ### Upgrading to 2.12 (intent and the day)
 
-Migration `0025` adds `push_subscriptions`; nothing else changes shape (Jorge's requests reuse `tasks.origin` with the
-new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
+Migration `0025` adds `push_subscriptions`; nothing else changes shape (the owner's requests reuse `tasks.origin` with the
+new value `owner`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
 so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
 stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
 
@@ -268,7 +263,7 @@ Questions asked before 2.17 that carried a letter (A, B or C) are history in `qu
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_owner.message_id` (8 to 200 characters) and `delegated_by_owner.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the machine he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_owner.message_id` (8 to 200 characters) and `delegated_by_owner.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `owner` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
 
 Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_owner` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
 
@@ -276,9 +271,9 @@ The answer or decision is stored as the owner's (the screen actor). `delegated_a
 
 Limits: 10 delegated answers and agent Won't do or reopen moves per hour, and one answer per question (`DELEGATION_LIMIT`). The kill switch defaults on. Off, the tool and those agent moves return `DELEGATION_OFF`. The switch is `POST /api/delegation` with the session cookie. No cookie is 401. A Bearer is 403, with or without the cookie. MCP, `/hooks` and `/bot/v1` cannot toggle it, and the bot cannot raise its own limit.
 
-Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the Mac share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
+Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the machine share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
 
-What proves a human on this Mac answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
+What proves a human on this machine answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
 
 ## Dev
 
@@ -421,7 +416,7 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 
 ## Morning brief
 
-A daily brief of every project, made by a headless `claude -p` on this Mac with the owner's own Claude subscription
+A daily brief of every project, made by a headless `claude -p` on this machine with the owner's own Claude subscription
 (no API key, nothing paid) and shown in Compañía (`/ceo?v=brief`). It runs once a day at `run_at` (default 07:00, local time) and on
 "Generate now". Passes A (brief) and B (ideas) are read-only: they read Plania with a read token and each repo with
 `git`, and write nothing.
@@ -558,9 +553,9 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_owner, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_owner, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on the owner (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
-| `get_inbox` | Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
+| `get_inbox` | Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the machine). |
 | `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_OWNER_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
-| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the machine (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
@@ -614,7 +609,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 Rules every write follows:
 
 - **Keys.** The server assigns them (omit `key`): `PREFIX-I<n>` for an initiative, `PREFIX-IDEA<n>` for an idea
-  (`WRK-IDEA3`), `PREFIX-<nn>` for a standalone ticket,
+  (`TND-IDEA3`), `PREFIX-<nn>` for a standalone ticket,
   `<initiative>-<n>` for a phase (`phase` stays a field). One counter per scope, bumped under the project lock, so
   concurrent creates never collide and a number is never reissued. An explicit key is accepted for imports: when it fits
   its scope's pattern it must be at or above the counter (`KEY_BELOW_COUNTER`); otherwise it only warns. Moving a ticket
@@ -630,7 +625,7 @@ Rules every write follows:
   default. Another live initiative setting the same branch is `BRANCH_IN_USE` unless it passes `share_branch` with a
   `share_reason`; a ticket on a branch its initiative does not own or share is refused too. Names must match the
   project's `settings.branch_pattern` (`BRANCH_NAME_INVALID`). The GitHub poller fills heads, merges and deletions.
-- **Blockers.** Besides tickets and env conditions, `blocked_by` takes `{human_action: {text}}` (Jorge's inbox),
+- **Blockers.** Besides tickets and env conditions, `blocked_by` takes `{human_action: {text}}` (the owner's inbox),
   `{env_flag: {env, flag, equals}}`, `{time_after: ISO}` and `{metric_gte: {name, value}}`. `get_next` never offers a
   ticket with an unsatisfied blocker (and only Ready ones when `settings.claim_from` is `ready`); when every blocker of
   a Blocked ticket holds, the server moves it to Ready (`blocker.satisfied`).
@@ -654,7 +649,7 @@ Rules every write follows:
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
   without a deploy time, drift, Blocked tickets whose blockers hold, scopes that say to wait without a typed blocker, expired
   claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
-- **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command Jorge runs) or `merge`:
+- **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command the owner runs) or `merge`:
   the row shows "Lanzar", and `POST /api/projects/:slug/release/ship` (the screen's cookie only; any Bearer is `403`)
   opens or reuses a PR `from → into` titled "Release: <keys>", merges it with `gh pr merge --merge --match-head-commit`
   and writes `release.merged`; the pollers do the rest. It is refused (`RELEASE_NOT_READY`) while a before-step or a
@@ -665,11 +660,11 @@ Rules every write follows:
   `regression`; `debt` carries `cost_note`. S1 and S2 bugs show in the status block.
 - **Actor.** `actor: {agent?, session_id, machine?, model?}` lands in the event log; `session_id` owns leases.
   An agent token fills `agent` and `machine` and refuses values that disagree (`ACTOR_MISMATCH`); with a static token
-  `agent` is required (`ACTOR_REQUIRED`). `jorge` is reserved for the screen. Every event records `token_id`.
+  `agent` is required (`ACTOR_REQUIRED`). `owner` is reserved for the screen. Every event records `token_id`.
 - **Tokens.** Issued on screen at `/tokens`, shown once, stored hashed: name, agent, machine and scopes `read`
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
-- **Won't do and reopening.** Jorge's. On screen, `set_task` with a `reason`. An agent sends `reason` and
+- **Won't do and reopening.** The owner's. On screen, `set_task` with a `reason`. An agent sends `reason` and
   `delegated_by_owner` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
   (`task.delegated_move`) and an agent's quote is listed under delegated in the inbox. `waive_check` is the reason
   alone. `lease_resource` does not wait. `approval_id` is ignored for one release. Old rows stay as history.
@@ -679,7 +674,7 @@ Rules every write follows:
 - **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
   `no_pr_reason` (logged as `task.no_pr`, and the audit stops flagging it). The pollers and the screen are exempt.
 - **Checks.** Entering In review, Merged, Released or Done needs every check done or waived (`CHECKS_OPEN` lists the
-  numbers and each open check's text), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
+  numbers and each open check's text), the owner included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
 - **Headline.** One line (≤ 280 chars) on where the project stands, written with `set_project` or on screen and
   versioned; the server marks it `stale` when an env changes, an initiative moves or a ticket reaches Done after it.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
@@ -695,7 +690,7 @@ Rules every write follows:
   Done is the agents' once the work is finished: code, bug and debt tickets from Merged or Released; ops and research
   from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open
   status once its tickets are closed. Elsewhere it is `INVALID_TRANSITION` with `allowed_from`. Won't do and reopening
-  are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_owner`.
+  are the owner's: on screen with a reason, or by an agent with a reason and `delegated_by_owner`.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
@@ -873,7 +868,7 @@ Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <
 ## Export
 
 `GET /api/export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
-env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
+env, reservations, every event). The owner's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
 `GET /api/export-all` gives every project in one file (`plania-export-all`, one `plania-export` entry per project),
 with the same access.
 
@@ -907,7 +902,7 @@ network: `gh auth status`, the short `claude -p` and `git ls-remote` are skipped
 ## Clients
 
 `PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
-On this Mac all three clients are already set up.
+On this machine all three clients are already set up.
 
 Claude Code, available in every project:
 
@@ -929,7 +924,7 @@ url = "http://localhost:3737/mcp"
 bearer_token_env_var = "PLANIA_MCP_TOKEN"
 ```
 
-The local configs on this Mac hold the token literally, because apps launched from the Dock do not see shell variables.
+The local configs on this machine hold the token literally, because apps launched from the Dock do not see shell variables.
 
 ### In a product repo
 
@@ -950,9 +945,9 @@ system themes. Times arrive as UTC and show in the browser's local time.
   pulse. Task rows carry `waits_on` (unsettled ticket blockers) and `held` (any other open blocker) for this. The
   rules live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
-  for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
+  for the owner. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
   show their generated line. A "Te toca a ti" strip lists Needs owner tickets across projects.
-- `/inbox` lists everything waiting on Jorge: open questions, human actions, a release and footprint.
+- `/inbox` lists everything waiting on the owner: open questions, human actions, a release and footprint.
   The header shows the count. `/tokens` issues and revokes agent tokens.
 - `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
@@ -962,7 +957,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
   struck through. A link downloads the project as JSON.
 - `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
   closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
-- Status and priority change from menus on each row, as Jorge: any move is allowed, Done included, and leases do
+- Status and priority change from menus on each row, as the owner: any move is allowed, Done included, and leases do
   not stop him. Each change carries the version on screen; if an agent changed the task meanwhile, nothing is
   overwritten and a toast says so. Blocked asks for its note. Every change offers Undo for 8 seconds.
 - A ticket with a live lease shows who holds it and until when; Liberar frees it.
@@ -971,7 +966,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
 - **Ajustes** (NEWPROJ-6): a project's settings, a door beside Archivo, Equipo and Máquinas in Compañía
   (`/ceo?proyecto=<slug>&t=ajustes`), also linked from the readiness list and from `/p/<slug>`. It sets where the code
-  is (a folder on this Mac, checked with git before it is saved; a GitHub repo; or no code yet), the release step
+  is (a folder on this machine, checked with git before it is saved; a GitHub repo; or no code yet), the release step
   (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
@@ -1000,7 +995,7 @@ and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with 
 - **Install:** iOS Safari → Compartir → Agregar a inicio. Android Chrome → menu → Instalar app.
 - **Reaching it from the phone** (2.12): the server listens on 127.0.0.1 only and `tailscale serve --bg --https=443
   http://127.0.0.1:3737` puts it on the tailnet with a real certificate. The session cookie is `Secure` when the request
-  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this Mac can
+  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this machine can
   reach the port), or comes to a loopback host. A home-screen app on iOS keeps its own cookies, so you sign in once
   inside it. Steps in [docs/phone-access.md](docs/phone-access.md).
 - **Push** (2.12): "Avisarme cuando me toque" in the "⋯" menu subscribes the device (`ui/src/lib/push.ts`); `ui/sw.js`
@@ -1021,16 +1016,16 @@ the UI refetches what changed.
 | `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on`, `held` and `created_at` on each task) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape; each result with `stale_for_head` and `ticked_checks` (the sheet's evidence timeline) |
 | `PATCH /api/projects/:slug` | `{ headline, version }`: the note beside the generated headline |
-| `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`jorge` or `agents`) |
-| `POST /api/projects/:slug/audit/fix` | `{ code, key?, id }`: the one-click fixes as Jorge (retire the decision, mark the env deployed); answers with the new run |
-| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
+| `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`owner` or `agents`) |
+| `POST /api/projects/:slug/audit/fix` | `{ code, key?, id }`: the one-click fixes as the owner (retire the decision, mark the env deployed); answers with the new run |
+| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as the owner through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
-| `GET /api/machine` | What runs and is stored on this Mac for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
-| `GET /api/inbox?project=` | Everything waiting on Jorge: questions, human actions, a release, footprint |
+| `GET /api/machine` | What runs and is stored on this machine for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
+| `GET /api/inbox?project=` | Everything waiting on the owner: questions, human actions, a release, footprint |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
 | `POST /api/projects/:slug/release/ship` | 2.13 Lanzar (merge mode): PR `from → into`, `gh pr merge --merge`, `release.merged`. Any `Authorization: Bearer` is refused with 403 |
-| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
+| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as the owner with `origin: "owner"` |
 | `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
 | `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |
 | `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }`. Cookie only. Any `Authorization: Bearer`, or an actor in the body or a header, is refused. The stored actor is the screen actor |
@@ -1054,15 +1049,15 @@ the UI refetches what changed.
 ## Deviations from the handoff
 
 - The handoff says "SDK MCP v2". No 2.x of `@modelcontextprotocol/sdk` is published.
-  Plania uses the latest 1.x with `@hono/mcp`, approved by Jorge on 2026-10-06.
+  Plania uses the latest 1.x with `@hono/mcp`, approved by the owner on 2026-10-06.
 - Contract errors listed as HTTP codes are returned inside the MCP tool result,
   because JSON-RPC calls share one HTTP 200 response. Only a missing Bearer is a real HTTP 401.
-- **v2 (approved by Jorge on 2026-10-06)** replaces the handoff's single-operator rules: the 12-tool ceiling,
+- **v2 (approved by the owner on 2026-10-06)** replaces the handoff's single-operator rules: the 12-tool ceiling,
   claims as notes with last write winning, the hand-written resume card, one markdown body per task, text-only
   criteria, and ADRs only in the product repo. `update_resume`, `create_initiative` and `set_initiative` are gone
   (`create_task` and `set_task` cover initiatives; the resume is generated).
 
-- **UI v2, decided by Jorge on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
+- **UI v2, decided by the owner on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
   and it changes status and priority inline. That adds a cookie-only JSON API under `/api` and a server-sent event
   stream, which the handoff did not have. Counts are still not on screen.
 
@@ -1076,6 +1071,6 @@ the UI refetches what changed.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
   before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint and the nightly backup.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
-- Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
+- Not built from one project's early requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
   results), runbooks with approval steps (R-23), rule proposals (R-26), and shared rules across projects (R-27).
   The v1 data cleanup (R-32) shipped in 2.9.

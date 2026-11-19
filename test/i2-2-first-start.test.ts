@@ -297,11 +297,12 @@ test("I2-2 #3: after first start a request on a new project starts a run, with n
 
 test("I2-2: the first-start screen's words and rules (ui/src/lib/primer-arranque.ts)", async () => {
   const ui = await import("../ui/src/lib/primer-arranque.js");
-  const ok = { code: CODE, name: "Ana", password: PASSWORD, repeat: PASSWORD, time_zone: "Europe/Madrid" };
+  const ok = { code: CODE, name: "Ana", password: PASSWORD, repeat: PASSWORD, time_zone: "Europe/Madrid", projects_root: ui.DEFAULT_PROJECTS_ROOT, worktrees_root: ui.DEFAULT_WORKTREES_ROOT };
   assert.equal(ui.formProblem(ok), null);
   assert.match(ui.formProblem({ ...ok, password: "corta", repeat: "corta" })!, /12 caracteres/);
   assert.match(ui.formProblem({ ...ok, repeat: "otra" })!, /no son iguales/);
   assert.match(ui.formProblem({ ...ok, code: " " })!, /código/);
+  assert.match(ui.formProblem({ ...ok, projects_root: " " })!, /carpetas/); // PLA-I2-3
   assert.equal(ui.waitText(30), "Demasiados intentos. Espera 30 segundos y vuelve a probar.");
   assert.equal(ui.refusalText("TOO_MANY_TRIES", { retry_after: 1 }), "Demasiados intentos. Espera 1 segundo y vuelve a probar.");
   assert.match(ui.refusalText("SETUP_CODE_INVALID"), /instalación/);

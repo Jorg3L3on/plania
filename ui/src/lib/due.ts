@@ -1,8 +1,9 @@
+import { LOCALE } from "./locale.js";
 // 2.10: dates on screen. due_on is a calendar day (YYYY-MM-DD); time_after an instant. Both read in
 // the browser's time zone. Closed or merged work is never overdue.
 
-const DAY = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
-const DAY_YEAR = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", year: "numeric" });
+const DAY = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" });
+const DAY_YEAR = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 const NOT_DUE = ["Done", "Won't do", "Merged", "Released"];
 
 /** The browser's today as YYYY-MM-DD. */

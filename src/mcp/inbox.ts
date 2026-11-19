@@ -7,16 +7,16 @@ import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
 import { delegationChores } from "./delegation.js";
 import { iso, type Q } from "./tx.js";
 
-// Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
-// open questions, human actions a ticket is blocked on, and what agents left running on the Mac
+// The owner's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
+// open questions, human actions a ticket is blocked on, and what agents left running on the machine
 // that nobody claims (orphan) or that is stale for a day. Released tickets are not his: agents
 // close them. Logged Won't do and reopen moves sit in `delegated`, not in this list.
 // 2.10: three tones. decisiones (questions) and pasos (human actions, releases) are what count;
 // limpieza (footprints) is a chore, counted apart in `chores`.
 
-// How long something on the Mac has to sit orphan or stale before it asks for Jorge.
+// How long something on the machine has to sit orphan or stale before it asks for the owner.
 export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
-// The pseudo-project the Mac's items without a project (Plania's repo, nobody's) are listed under in "all".
+// The pseudo-project the machine's items without a project (Plania's repo, nobody's) are listed under in "all".
 export const MACHINE_INBOX_PROJECT = "machine";
 
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";

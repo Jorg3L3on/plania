@@ -1,4 +1,4 @@
-// "Te toca": what waits on Jorge, decided from Inicio's city. One question at a time with its
+// "Te toca": what waits on the owner, decided from Inicio's city. One question at a time with its
 // options, and the rest (your own actions) counted with a way into the Bandeja.
 import { ArrowRightIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
@@ -101,8 +101,8 @@ function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string
   );
 }
 
-// What waits on Jorge for one tower of the city (or outside every tower): one question at a time,
-// and Jorge's own actions counted with a way into the Bandeja.
+// What waits on the owner for one tower of the city (or outside every tower): one question at a time,
+// and the owner's own actions counted with a way into the Bandeja.
 export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names: Names; when?: (item: InboxItem) => string | undefined }) {
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {

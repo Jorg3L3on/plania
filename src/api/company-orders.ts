@@ -1,6 +1,6 @@
-// PLA-I36-3: Tus órdenes. What Jorge asked a project for and what he chose in Te toca, newest first, five at most.
-//   order   a ticket with origin jorge (Pedir, a message in the project thread, Dile al PO).
-//   choice  a PO proposal Jorge answered in Te toca (action_state elegir or responder on the PO's message).
+// PLA-I36-3: Tus órdenes. What the owner asked a project for and what he chose in Te toca, newest first, five at most.
+//   order   a ticket with origin owner (Pedir, a message in the project thread, Dile al PO).
+//   choice  a PO proposal the owner answered in Te toca (action_state elegir or responder on the PO's message).
 //           The ticket that answer made is the choice's own state, not a second row.
 // State: entregada (Done, Merged or Released; the link is its PR, else its newest doc), en_curso (In progress or
 // In review, or a run on it; who names the role), entendida (the PO wrote "Entendí: …" on it), sin_tomar (Ready

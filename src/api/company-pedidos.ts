@@ -1,10 +1,10 @@
 // PLA-I54-1 (Pedidos con recorrido, design doc of PLA-IDEA19): Pedir's «Darle forma». The owner's request becomes an
-// idea (kind idea, stage idea, origin jorge, owned by the project's PO) that the PO shapes with him watching, and the
+// idea (kind idea, stage idea, origin owner, owned by the project's PO) that the PO shapes with him watching, and the
 // floor draws the project's open ones as capsules in a tube under the stage board.
 //   Stops   buzon (stage idea, no «Entendí» note), entendido (stage idea with it), investigacion, diseno, plan, lista
 //           (stages research, design, planning, ready).
 //   States  espera (an open question on it), trabajando (a live run on it), cola (in the buzón and no run ever took
-//           it), quieta (the rest). PLA-I54-4 adds valvula (Jorge said «Constrúyelo»; not promoted yet).
+//           it), quieta (the rest). PLA-I54-4 adds valvula (the owner said «Constrúyelo»; not promoted yet).
 // The trail is the idea's own event log, docs and questions: no new table (only F2's images have one).
 // An idea that was promoted (promoted_to set), dropped (Won't do) or done leaves the tube.
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
@@ -198,7 +198,7 @@ export async function factsOf(db: Db, projectId: string, rows: Task[]) {
   };
 }
 
-// The company payload's pedidos for one project: open ideas with origin jorge, oldest first, shelved ones included
+// The company payload's pedidos for one project: open ideas with origin owner, oldest first, shelved ones included
 // (guardada: true) so the tube can count Guardadas.
 export async function pedidosOf(db: Db, projectId: string): Promise<Pedido[]> {
   const rows = await openIdeasOf(db, projectId);

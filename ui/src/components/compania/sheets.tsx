@@ -69,7 +69,7 @@ export const PromptDocBody = ({ doc }: { doc: { title: string; version: number; 
   </div>
 );
 
-// ---- Jorge-only number editor: the plan guard.
+// ---- the owner-only number editor: the plan guard.
 
 // PLA-21: the only limit left on screen is the plan guard (no token budgets).
 export type LimitTarget = { kind: "guard"; current: number };

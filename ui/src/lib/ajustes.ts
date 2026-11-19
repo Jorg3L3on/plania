@@ -105,7 +105,7 @@ export function ajustesError(code: string | null, detail: Record<string, unknown
   const folder = typeof detail.path === "string" && detail.path ? `la carpeta ${detail.path}` : "esa carpeta";
   switch (code) {
     case "REPO_FOLDER_MISSING":
-      return `No se guardó: ${folder} no existe en esta Mac. Revisa la ruta.`;
+      return `No se guardó: ${folder} no existe en esta máquina. Revisa la ruta.`;
     case "REPO_NOT_GIT":
       return `No se guardó: ${folder} no es un repositorio de git. Ábrela en la terminal y corre git init, o elige la carpeta correcta.`;
     case "REPO_NO_ORIGIN":
@@ -132,7 +132,7 @@ export function ajustesError(code: string | null, detail: Record<string, unknown
       if (detail.field === "no_code") return "No se guardó: elige solo una opción para el código.";
       return "No se guardó: algún valor no es válido.";
     case null:
-      return "No se guardó: no hubo respuesta. Si la Mac está dormida, intenta al despertar.";
+      return "No se guardó: no hubo respuesta. Si la máquina está dormida, intenta al despertar.";
     default:
       return "No se guardó. Recarga la página y vuelve a intentar.";
   }

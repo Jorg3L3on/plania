@@ -3,6 +3,7 @@
 // the two lights by the level switch. Pure, so the tests drive it with fake reads.
 import type { PruebaRead } from "./ventana";
 import { NO_DISPONIBLE, NO_DISPONIBLE_POR } from "./sistema";
+import { LOCALE } from "./locale.js";
 
 export type Nivel = "trabajo" | "maquinas";
 export const nivelOf = (search: string): Nivel => (new URLSearchParams(search).get("nivel") === "maquinas" ? "maquinas" : "trabajo");
@@ -70,7 +71,7 @@ export type MaqView = {
 const LIVE = new Set(["live", "running", "capturing"]);
 
 // NEWPROJ-3: what Máquinas says for a project created with «Todavía no hay código».
-export const NO_CODE_SAY = "Este proyecto todavía no tiene código. Cuando tenga su carpeta en esta Mac, aquí se podrá encender.";
+export const NO_CODE_SAY = "Este proyecto todavía no tiene código. Cuando tenga su carpeta en esta máquina, aquí se podrá encender.";
 /** The line under the app's window when it has no picture: what is missing, or why there is nothing to do. */
 export function setupLine(r: MaquinasRead): string {
   if (!r.configured && r.no_code) return NO_CODE_SAY;
@@ -94,7 +95,7 @@ export function maqView(r: MaquinasRead): MaqView {
     lever: baseNone || !r.base.lever.can ? null : baseOn ? { act: "apagar", label: "Apagar", on: true } : { act: "encender", label: "Encender", on: false },
     reason: r.base.lever.can ? null : r.base.lever.reason,
     // The server is shared by every floor on it: the lever says so (Plan, decision 2).
-    warn: r.base.lever.can && baseOn ? ["Este Postgres es de toda la Mac.", shared].filter(Boolean).join(" ") : null,
+    warn: r.base.lever.can && baseOn ? ["Este Postgres es de toda la máquina.", shared].filter(Boolean).join(" ") : null,
   };
   const server = (word: string, sub: string, lever: MaqView["server"]["lever"]): MaqView["server"] => ({ light: serverLight, word, sub, lever, outside });
   const common = { base, lights: { server: serverLight, base: baseLight }, drawers: baseOn };
@@ -113,7 +114,7 @@ export function maqView(r: MaquinasRead): MaqView {
     const lever = outside ? null : { act: "apagar" as const, label: "Apagar", on: true };
     if (!baseOn && !baseNone)
       return { ...common, state: "base-down", word: "Base caída", say: "La app está encendida, pero no llega a su base.", server: server("Encendida", sub, lever), pipes: { window: "lit", base: "red" }, window: "live" };
-    return { ...common, state: "on", word: "Encendida", say: outside ? "La encendiste fuera de Plania; aquí solo se mira." : "La app corre en tu Mac.", server: server("Encendida", sub, lever), pipes: { window: "lit", base: baseOn ? "lit" : "dark" }, window: "live" };
+    return { ...common, state: "on", word: "Encendida", say: outside ? "La encendiste fuera de Plania; aquí solo se mira." : "La app corre en tu máquina.", server: server("Encendida", sub, lever), pipes: { window: "lit", base: baseOn ? "lit" : "dark" }, window: "live" };
   }
   return { ...common, state: "off", word: "Apagada", say: "Nada arranca sin tu clic.", server: server("Apagada", `puerto ${port ?? "libre desde el suyo"}`, { act: "encender", label: "Encender", on: false }), pipes: { window: "dark", base: baseOn ? "lit" : "dark" }, window: "blinds" };
 }
@@ -127,7 +128,7 @@ export const bytes = (n: number | null): string => {
   if (n < 1024 ** 3) return `${(n / 1024 / 1024).toFixed(1)} MB`;
   return `${(n / 1024 ** 3).toFixed(1)} GB`;
 };
-export const filas = (n: number) => (n === 1 ? "1 fila" : `${n.toLocaleString("es-MX")} filas`);
+export const filas = (n: number) => (n === 1 ? "1 fila" : `${n.toLocaleString(LOCALE)} filas`);
 
 // The tablero (frame 10): rows in the building's order, the count in the link, and what Apagar todo stops.
 export function tableroView(t: TableroRead) {

@@ -1,3 +1,4 @@
+import { LOCALE } from "./locale.js";
 // PLA-I30 Compañía's model, kept for the plumbing (week tokens, plan, runs) that moved to Máquina in PLA-I33
 // and for the shared words and numbers. The organization's shapes (PLA-I33) are in api.ts and org.ts.
 // Pure and relative imports only, so test/compania.test.ts loads it with node:test. Tokens, never money.
@@ -115,7 +116,7 @@ const ROLE_SHORT: Record<string, string> = { asistente: "As", "product-owner": "
 export const roleInitials = (role: string) => ROLE_SHORT[role] ?? role.slice(0, 2);
 export const roleWord = (role: string) => (role === "product-owner" ? "PO" : (ROLE_LABEL[role as RunnerRole] ?? role));
 
-// 1.18M, 640k, 820. es-MX writes the decimal point as ".".
+// 1.18M, 640k, 820. The fallback locale writes the decimal point as ".".
 export function tokens(n: number): string {
   const v = Math.max(0, Math.round(n));
   if (v >= 1_000_000) return `${trim(v / 1_000_000)}M`;
@@ -130,7 +131,7 @@ export type Tone = "ok" | "warn" | "stop" | "idle";
 
 export function clock(iso: string | null, timeZone?: string): string {
   if (!iso) return "—";
-  return new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(new Date(iso));
+  return new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(new Date(iso));
 }
 
 // 0:42, 14:32, 1:02:45. Never wraps.

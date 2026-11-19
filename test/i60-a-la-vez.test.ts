@@ -570,7 +570,7 @@ test("I60-5 #1: the preview says what Guardar would start and offers the number 
   let c = alv.countsOf(r, team)!;
   let p = alv.previewAdmission(r, c, team, "Mianovia");
   assert.equal(p.verdicts[0]!.code, "ceiling");
-  assert.equal(p.verdicts[0]!.fix!.label, "Subir el tope de la Mac a 4");
+  assert.equal(p.verdicts[0]!.fix!.label, "Subir el tope de la máquina a 4");
   assert.equal(p.verdicts[1]!.code, "areas", "same files is not something a number fixes");
   assert.equal(p.verdicts[1]!.fix, null);
   // Apply each fix in turn, as the owner would from the queue card.

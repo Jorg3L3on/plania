@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlaniaMark } from "@/components/plania-mark";
 import { ApiError, api } from "@/lib/api";
-import { WORDS, browserTimeZone, formProblem, refusalText, type FirstStartForm } from "@/lib/primer-arranque";
+import { DEFAULT_PROJECTS_ROOT, DEFAULT_WORKTREES_ROOT, WORDS, browserTimeZone, formProblem, refusalText, type FirstStartForm } from "@/lib/primer-arranque";
 import { FaltaPage } from "@/pages/falta";
 
 // PLA-I2-2: the first-start screen. Shown only while Plania has no owner (GET /api/first-start); once it is done,
@@ -36,12 +36,12 @@ export function PrimerArranquePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const state = useQuery({ queryKey: ["first-start"], queryFn: () => api.firstStart() });
-  const [form, setForm] = useState<FirstStartForm>(() => ({ code: "", name: "", password: "", repeat: "", time_zone: browserTimeZone() }));
+  const [form, setForm] = useState<FirstStartForm>(() => ({ code: "", name: "", password: "", repeat: "", time_zone: browserTimeZone(), projects_root: DEFAULT_PROJECTS_ROOT, worktrees_root: DEFAULT_WORKTREES_ROOT }));
   const [shown, setShown] = useState<string | null>(null);
   const set = (k: keyof FirstStartForm) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const finish = useMutation({
-    mutationFn: () => api.finishFirstStart({ code: form.code, name: form.name, password: form.password, time_zone: form.time_zone }),
+    mutationFn: () => api.finishFirstStart({ code: form.code, name: form.name, password: form.password, time_zone: form.time_zone, projects_root: form.projects_root, worktrees_root: form.worktrees_root }),
     // Removed, not invalidated: a refetched `open: false` would send this page to /login before navigate runs,
     // and the old UNAUTHORIZED session would do the same on the company page.
     onSuccess: () => {
@@ -90,6 +90,8 @@ export function PrimerArranquePage() {
             <Field id="password" label={WORDS.password} hint={WORDS.passwordHint} type="password" autoComplete="new-password" value={form.password} onChange={set("password")} />
             <Field id="repeat" label={WORDS.repeat} type="password" autoComplete="new-password" value={form.repeat} onChange={set("repeat")} />
             <Field id="time_zone" label={WORDS.timeZone} hint={WORDS.timeZoneHint} value={form.time_zone} onChange={set("time_zone")} />
+            <Field id="projects_root" label={WORDS.projectsRoot} hint={WORDS.projectsRootHint} value={form.projects_root} onChange={set("projects_root")} />
+            <Field id="worktrees_root" label={WORDS.worktreesRoot} hint={WORDS.worktreesRootHint} value={form.worktrees_root} onChange={set("worktrees_root")} />
             <p className="text-sm text-muted-foreground">{WORDS.paused}</p>
             {shown ? <p className="text-sm text-destructive">{shown}</p> : null}
             <Button type="submit" disabled={finish.isPending}>

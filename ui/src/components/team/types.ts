@@ -45,11 +45,6 @@ const PREFERRED = [
   "artist",
   "research",
   "coach",
-  "housi",
-  "workia",
-  "filmia",
-  "zigzag",
-  "owner-plania",
   "cursor",
   "claude-code",
 ];

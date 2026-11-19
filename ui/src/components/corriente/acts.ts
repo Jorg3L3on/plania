@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type IdeaDecisionInput, type PedidoStop } from "@/lib/api";
 import { arranqueLine } from "@/lib/arranque";
 
-export const SLEEPY = "No se pudo. Si la Mac está dormida, intenta al despertar.";
+export const SLEEPY = "No se pudo. Si la máquina está dormida, intenta al despertar.";
 
 export const STEER_REFUSAL: Record<string, string> = {
   PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo primero.",
@@ -180,7 +180,7 @@ export function useCorrienteActs() {
       }),
     visto: (slug: string, key: string, stop: PedidoStop) => void api.ideaVisto(slug, key, stop).then(() => client.invalidateQueries({ queryKey: ["idea", slug, key] }), () => undefined),
     pause: (slug: string) => run(`${slug}:pause`, () => api.setProjectPaused(slug, true)),
-    // PLA-I64-4: Pasar a Lista (a step that only sits in Backlog goes to Ready, as Jorge would on the board) and
+    // PLA-I64-4: Pasar a Lista (a step that only sits in Backlog goes to Ready, as the owner would on the board) and
     // Cerrar iniciativa from the list (the board's call, PLA-I56-2).
     aLista: (slug: string, key: string) =>
       run(

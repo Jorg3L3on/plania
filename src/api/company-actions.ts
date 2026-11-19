@@ -1,5 +1,5 @@
 // PLA-I30-6/7: the two actions on a project sheet, on the cookie-only company routes (src/api/company.ts).
-//   POST /api/company/projects/:slug/ask  {text}  Pedirle al PO: a Ready ticket owned by po-<slug>, origin jorge.
+//   POST /api/company/projects/:slug/ask  {text}  Pedirle al PO: a Ready ticket owned by po-<slug>, origin owner.
 //        The event hook (src/runner/events.ts) queues the PO's wake in the same write.
 //   POST /api/company/projects/:slug/wake         Despertar ahora: one wake of po-<slug> through wakeAgent,
 //        only when the PO has Ready work in this project; otherwise {woke: false, reason: "idle"} and no run.
@@ -62,7 +62,7 @@ export type AskMode = "forma" | "ya" | "pregunta";
 // PLA-I57-1: mode pregunta keeps a question (consulta) and creates no task: key is "" and consulta is its id.
 export type AskResult = { key: string; title: string; po: string; mode: AskMode; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null; consulta?: string };
 
-// A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
+// A Ready ticket owned by the project's PO, origin owner; the event hook queues the PO's wake in the same
 // write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
 export async function createPoTicket(
   db: Db,

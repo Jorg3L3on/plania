@@ -141,7 +141,7 @@ export function postgresDataDir(command: string): string | null {
   return /(?:^|\s)-D\s+(\S+)/.exec(command)?.[1] ?? null;
 }
 
-// Single-quotes a value for the teardown commands shown to Jorge. Nothing here is ever executed.
+// Single-quotes a value for the teardown commands shown to the owner. Nothing here is ever executed.
 export function shq(v: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`;
 }

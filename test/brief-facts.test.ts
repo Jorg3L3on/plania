@@ -147,7 +147,7 @@ const proj = (slug: string) => facts.projects.find((p) => p.slug === slug)!;
 
 test("facts: window, settings, project order (included projects only)", () => {
   assert.deepEqual(facts.window, { from: FROM.toISOString(), to: NOW.toISOString() });
-  assert.equal(facts.timezone, "America/Mexico_City");
+  assert.equal(facts.timezone, "UTC");
   assert.deepEqual(facts.hidden_refs, ["PLA-I16"]);
   assert.deepEqual(facts.projects.map((p) => p.slug), ["workia", "zigzag", "filmia", "micasa"]);
 });

@@ -97,7 +97,7 @@ export type SetCheckInput = {
 
 // Marks one check done or not, amends its text (the old text stays in the log) or lifts a waiver.
 // Commutative: needs no version and does not bump it. While another session holds a live lease,
-// only the owner (or Jorge) touches its checks.
+// only the owner (or the owner) touches its checks.
 export async function setCheckInTx(
   tx: Q,
   emit: Emit,

@@ -24,15 +24,16 @@ import { Corriente } from "./rio";
 import { CX0, PX, STOP_IDS, STOP_NAMES, SX, VX, W, rioOf, type Chan, type RioModel } from "./rio-geo";
 import { busyOf, run, useCerrar } from "./tablero";
 import { firstStop, stopLine, whoName } from "./idea";
+import { LOCALE } from "@/lib/locale";
 
 export type Sel = PedidoStop | "construccion" | "publicado";
 const SEL_IDS: Sel[] = [...STOP_IDS, "construccion", "publicado"];
 const SEL_NAME: Record<Sel, string> = { buzon: "Buzón", entendido: "Entendido", investigacion: "Investigación", diseno: "Diseño", plan: "Plan", lista: "Lista", construccion: "Construcción", publicado: "Publicado" };
 const ANSWERABLE: PedidoStop[] = ["entendido", "investigacion", "diseno", "plan"];
 const pct = (x: number) => `${(x / W) * 100}%`;
-const hm = (iso: string, timeZone?: string) => new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso));
+const hm = (iso: string, timeZone?: string) => new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso));
 export const dayHm = (iso: string, now: number, timeZone?: string) => {
-  const day = (t: number) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "");
+  const day = (t: number) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "");
   return day(Date.parse(iso)) === day(now) ? `hoy ${hm(iso, timeZone)}` : `${day(Date.parse(iso))} ${hm(iso, timeZone)}`;
 };
 const isOpen = (d: IdeaDetail) => d.status === "Open" && !d.promoted_to && d.kind !== "initiative";

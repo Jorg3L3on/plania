@@ -179,7 +179,7 @@ function trackOf(key: string | null, title: string, status: string | null, ticke
 }
 
 // Which windows are lit, and in what colour: QA or Taller at work (now), a returned ticket being fixed (review), an
-// item waiting on the owner (jorge). The first live ticket of a station gives its colour, building before fixing.
+// item waiting on the owner (owner). The first live ticket of a station gives its colour, building before fixing.
 const LIT_ORDER: StageTone[] = ["now", "review", "owner"];
 export function litOf(tickets: ProjectTicket[]): Partial<Record<StationId, StageTone>> {
   const lit: Partial<Record<StationId, StageTone>> = {};

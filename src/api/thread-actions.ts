@@ -1,4 +1,4 @@
-// PLA-I32-4: what Jorge does on a message, from the screen only (POST /api/threads/:id/actions, cookie only).
+// PLA-I32-4: what the owner does on a message, from the screen only (POST /api/threads/:id/actions, cookie only).
 //   aceptar   a linked ticket In review: Done (a doc, a plan, ops or research work). On a code ticket with a PR
 //             (the button says fusionar; both words are accepted) the PR is merged into sandbox with
 //             `gh pr merge --merge` through releaseGh (src/mcp/release-ship.ts, the token in

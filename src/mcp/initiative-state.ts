@@ -22,7 +22,7 @@ export type InitiativeState = {
   to_close: string[];
   /** PLA-I56-1: every ticket is Done (Won't do aside): the owner can close the initiative. */
   ready_to_close: boolean;
-  /** What the initiative itself and its open tickets wait on: another ticket, Jorge (a step, a question), an env, a flag, a time, a metric. */
+  /** What the initiative itself and its open tickets wait on: another ticket, the owner (a step, a question), an env, a flag, a time, a metric. */
   waiting_on: { key: string; on: string }[];
   /** The same in one Spanish line, for the screen and the resume. */
   line: string;

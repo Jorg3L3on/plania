@@ -14,7 +14,7 @@ const REFUSAL: Record<string, string> = {
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
   MERGE_CONFLICT: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
 };
-const refusal = (e: unknown, what: string) => (e instanceof ApiError ? (REFUSAL[e.code] ?? `${what} (${e.code}).`) : `${what}. Si la Mac está dormida, intenta al despertar.`);
+const refusal = (e: unknown, what: string) => (e instanceof ApiError ? (REFUSAL[e.code] ?? `${what} (${e.code}).`) : `${what}. Si la máquina está dormida, intenta al despertar.`);
 
 export function sentText(r: ThreadPostResult, who: "Asistente" | "el PO"): string {
   const made = r.created ? ` · ${r.created.kind === "idea" ? "idea" : "ticket"} ${r.created.key}` : "";

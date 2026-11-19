@@ -19,11 +19,13 @@ import { homeSlug } from "../runner/threads.js";
 import { clearFailures, noteFailure, waitSeconds } from "./login-limit.js";
 import { hashPassword } from "./password.js";
 import { issueToken } from "./tokens.js";
+import { saveFolders, validFolder } from "../folders.js";
 
 export const PASSWORD_MIN = 12;
 export const SETUP_DOOR = "setup";
 
-export type FirstStartInput = { code: string; name: string; password: string; time_zone: string };
+// PLA-I2-3: projects_root and worktrees_root are optional; blank keeps the default under the home (src/folders.ts).
+export type FirstStartInput = { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string };
 export type FirstStartRefusal = {
   error: "FIRST_START_CLOSED" | "NOT_LOOPBACK" | "SETUP_CODE_INVALID" | "TOO_MANY_TRIES" | "INVALID_BODY";
   status: 400 | 403 | 410 | 429;
@@ -80,6 +82,10 @@ export async function firstStart(
   if (!name) return { error: "INVALID_BODY", status: 400, field: "name" };
   if ([...input.password].length < PASSWORD_MIN) return { error: "INVALID_BODY", status: 400, field: "password" };
   if (!validTimeZone(input.time_zone)) return { error: "INVALID_BODY", status: 400, field: "time_zone" };
+  for (const field of ["projects_root", "worktrees_root"] as const) {
+    const v = input[field];
+    if (v !== undefined && v !== null && String(v).trim() && !validFolder(String(v))) return { error: "INVALID_BODY", status: 400, field };
+  }
 
   const passwordHash = await hashPassword(input.password);
   const slug = homeSlug(env);
@@ -100,6 +106,7 @@ export async function firstStart(
       await loadSettings(tx);
       await tx.update(runnerSettings).set({ companyPaused: true, companyPausedAt: new Date(), updatedAt: sql`now()` }).where(eq(runnerSettings.id, 1));
       await setOwnerName(tx, name);
+      await saveFolders(tx, { projects: input.projects_root, worktrees: input.worktrees_root });
       const runner = await issueToken(tx, { name: "Runner", agent: "plania-runner", scopes: ["read", "write"] }, WEB_ACTOR);
       const brief = await issueToken(tx, { name: "Morning brief", agent: "morning-brief", scopes: ["read"] }, WEB_ACTOR);
       const values = {

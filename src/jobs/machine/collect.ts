@@ -21,7 +21,7 @@ import { okOut, partialOut, type Run, type RunResult } from "./run.js";
 // The collectors: a thin runner (commands through `run`) over a pure parser (parse.ts). Each returns
 // the groups that ran and what they saw. A group that did not run (tool missing, command failed or
 // timed out) is skipped: its existing rows are left alone and nothing throws out of the job.
-// Everything here is read-only on the Mac.
+// Everything here is read-only on the machine.
 
 export type Collected = { ran: string[]; items: Observed[] };
 const none = (): Collected => ({ ran: [], items: [] });

@@ -4,7 +4,7 @@ import * as schema from "./schema.js";
 
 export type Db = NodePgDatabase<typeof schema>;
 
-// One pool for the whole process (Plania runs as one long-lived server on the Mac).
+// One pool for the whole process (Plania runs as one long-lived server on the machine).
 // Created on first use, so tests can set DATABASE_URL before anything connects.
 let shared: { pool: pg.Pool; db: Db } | null = null;
 

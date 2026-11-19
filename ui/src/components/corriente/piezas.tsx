@@ -69,7 +69,7 @@ export const Piezas = () => (
         </div>
         <div>
           <div className="cor-mono" style={{ fontSize: 12, letterSpacing: "0.14em", color: "#c9c9d2" }}>
-            CONSTRUCCIÓN · FIL-42
+            CONSTRUCCIÓN · TND-42
           </div>
           <Cap>Geist Mono · 10.5 a 12 · etiquetas, claves, números</Cap>
         </div>
@@ -126,7 +126,7 @@ export const Piezas = () => (
         </div>
         <div className="cor-light-row">
           <span>
-            <Logo slug="filmia" title="Filmia" />
+            <Logo slug="proyecto" title="Proyecto" />
           </span>
           <div>
             <div style={{ fontSize: 14 }}>Logo del proyecto</div>

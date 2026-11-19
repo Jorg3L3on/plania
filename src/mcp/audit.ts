@@ -345,7 +345,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       });
     }
   }
-  // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
+  // What this project's agents left running on the machine (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));
   // PLA-I60-6: the runner's rules (one active run per work item, caps, lock keys), reported on Plania's own project.
   if (p.slug === (process.env.PLANIA_HOME_PROJECT || "plania")) {

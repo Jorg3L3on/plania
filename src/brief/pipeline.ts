@@ -478,8 +478,8 @@ export const AUTH_PREFIX = "sign-in: ";
 
 export function signInText(lang: string, detail: string): string {
   return lang === "es"
-    ? `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la Mac, escribe /login y pulsa Generar ahora.`
-    : `Claude could not sign in (${detail}). Run \`claude\` on the Mac, type /login, then press Generate now.`;
+    ? `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la máquina, escribe /login y pulsa Generar ahora.`
+    : `Claude could not sign in (${detail}). Run \`claude\` on the machine, type /login, then press Generate now.`;
 }
 
 export function ceilingText(lang: string, fallbackAt: string, because: string): string {

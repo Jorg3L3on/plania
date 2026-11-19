@@ -1,5 +1,5 @@
 // 2.11 Orden: the audit on screen, at the bottom of the project page. Collapsed with its count;
-// "Lo tuyo" holds what Jorge clears with one click or a copied command, "De los agentes" the rest
+// "Lo tuyo" holds what the owner clears with one click or a copied command, "De los agentes" the rest
 // (an agent picks those up from get_next when nothing is claimable).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRightIcon } from "lucide-react";

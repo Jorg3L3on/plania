@@ -12,7 +12,7 @@ import { iso, type Q } from "./tx.js";
 // get_context (R-03): one call for a session opening a worktree. From the branch (and machine /
 // worktree) it finds the initiative or tickets on it, the caller's live claims, the pinned decisions
 // that apply, unanswered questions on those tickets, and the events since the
-// cursor that touch them, plus the footprint on the Mac (src/mcp/footprint.ts) of those tickets and of the calling session. UNKNOWN_BRANCH when nothing is on that branch.
+// cursor that touch them, plus the footprint on the machine (src/mcp/footprint.ts) of those tickets and of the calling session. UNKNOWN_BRANCH when nothing is on that branch.
 
 export async function getContext(
   db: Q,
@@ -51,7 +51,7 @@ export async function getContext(
         .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), sql`${questions.taskId} in ${[...ticketIds]}`))
     : [];
   const events = input.since_cursor !== undefined ? await listEvents(db, p.id, { since: input.since_cursor, limit: 500 }) : null;
-  // What is running on the Mac for these tickets (each row says which), and what this session registered.
+  // What is running on the machine for these tickets (each row says which), and what this session registered.
   const footprint = await footprintsOf(db, [...family]);
   const keyById = new Map([...tickets, ...(initiative ? [initiative] : [])].map((t) => [t.id, t.key]));
   const keys = new Set([...tickets.map((t) => t.key), ...(initiative ? [initiative.key] : [])]);
@@ -63,7 +63,7 @@ export async function getContext(
     initiative: initiativeSummary,
     // PLA-I22: task → initiative → project goal → company goal, when the initiative has a goal.
     why_chain: initiativeSummary?.why_chain ?? ticketSummaries.find((t) => t.why_chain)?.why_chain ?? null,
-    // 2.12: what Jorge asked for on screen, newest first, whatever the branch.
+    // 2.12: what the owner asked for on screen, newest first, whatever the branch.
     requests: await openRequests(db, p.id),
     tickets: ticketSummaries,
     my_claims: await Promise.all(

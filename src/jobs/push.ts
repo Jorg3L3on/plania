@@ -5,8 +5,8 @@ import { inbox, type InboxItem } from "../mcp/inbox.js";
 import { sendToAll, vapidConfig, webPushSender, type PushPayload, type Sender } from "../push.js";
 import type { Job } from "./index.js";
 
-// 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: a question,
-// a human_action created or parsed from a Jorge: line, a release that became ready)
+// 2.12 push: once a minute, what is new in the owner's inbox (decisiones and pasos: a question,
+// a human_action created or parsed from a the owner: line, a release that became ready)
 // goes to every subscribed phone as one notification, so a burst is one message. The inbox is the
 // source rather than the event feed because it already says what waits on him, whatever wrote it,
 // and drops what was answered in the same minute. What was seen lives in machine_state (key "push"):

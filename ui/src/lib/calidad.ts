@@ -2,6 +2,7 @@
 // shows for them. No React here, so the wording is testable on its own.
 import { ARRANQUE, arranqueLine } from "./arranque";
 import { ApiError } from "@/lib/api";
+import { LOCALE } from "./locale.js";
 
 export const GROUPS = ["role", "model", "prompt_version", "skills", "resumed"] as const;
 export type GroupBy = (typeof GROUPS)[number];
@@ -159,8 +160,8 @@ export const KIND_WORD: Record<ReadItem["kind"], string> = { failed: "Falló la 
 
 // ---- Numbers
 
-const whole = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
-const oneDecimal = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 1 });
+const whole = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+const oneDecimal = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
 export const NONE = "—";
 export const count = (n: number): string => whole.format(n);
 export const pct = (rate: Rate): string => (rate === null ? NONE : `${whole.format(rate * 100)} %`);

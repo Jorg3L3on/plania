@@ -1,4 +1,4 @@
-// PLA-I36-11: the owner's code. Anyone signed in at the Mac can ask, approve a plan, stop a run and accept work
+// PLA-I36-11: the owner's code. Anyone signed in at the machine can ask, approve a plan, stop a run and accept work
 // into the test copy; publishing to main, raising a limit and deleting a project need the owner's code: a TOTP
 // from an authenticator app (secret in the macOS keychain, service plania-owner, src/auth/owner-store.ts).
 // The code is never stored or logged. A time step once accepted cannot be spent again (machine_state

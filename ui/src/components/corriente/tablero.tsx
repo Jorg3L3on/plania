@@ -9,6 +9,7 @@ import { ETAPA_WORD, statusWord } from "@/lib/etapas";
 import type { LogEntry } from "@/lib/types";
 import type { CorrienteActs } from "./acts";
 import { Btn, Key, Label, ReadError, State } from "./parts";
+import { LOCALE } from "@/lib/locale";
 
 export type BoardLinks = { paso: (key: string) => string; iniciativa: (key: string) => string; entrega: (d: Decision) => string; sueltos: string; doc: (id: string) => string };
 
@@ -58,7 +59,7 @@ function logLine(e: LogEntry): string {
   if (s("cite")) return s("cite")!;
   return e.type.replace(/^task\./, "").replace(/_/g, " ");
 }
-const dayOf = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(new Date(iso)).toUpperCase().replace(".", "");
+const dayOf = (iso: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" }).format(new Date(iso)).toUpperCase().replace(".", "");
 
 const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; k: string; onCerrar: (version: number) => void; busy: boolean; links: BoardLinks; here: string | null }) => {
   const init = p.tablero?.initiatives.find((i) => i.key === k);

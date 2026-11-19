@@ -1,5 +1,5 @@
 // Screen shape of GET /api/dashboard. Role is the label CEO.
-// name is the greeting (PLANIA_CEO_NAME, default Jorge). The roster row stays CEO.
+// name is the greeting (PLANIA_CEO_NAME, default the owner). The roster row stays CEO.
 
 export type DashboardClaim = { project: string; key: string; title: string };
 

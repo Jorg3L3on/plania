@@ -17,6 +17,7 @@ import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { NOVEDADES, versionLine } from "@/lib/version";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
+import { LOCALE } from "@/lib/locale";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -36,7 +37,7 @@ export function plumbingHead(p: MachinePlumbing): { title: string; sub: string; 
 }
 
 const RUN_WORD: Record<string, [string, "ok" | "bad" | undefined]> = { ok: ["Terminó bien", "ok"], fail: ["Falló", "bad"], stopped: ["La detuviste", undefined], skipped: ["No arrancó", "bad"], running: ["Corriendo", undefined] };
-const hm = (iso: string | null, tz?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(new Date(iso)) : "");
+const hm = (iso: string | null, tz?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(new Date(iso)) : "");
 const mins = (a: string | null, b: string | null) => (a && b ? Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / 60_000)) : null);
 
 const OwnerCode = () => {
@@ -130,7 +131,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
   const appRun = useMutation({
     mutationFn: async (x: { key: string; call: () => Promise<unknown> }) => x.call(),
     onMutate: (x) => setBusy(x.key),
-    onError: () => toast.error("No se pudo. Si la Mac está dormida, intenta al despertar."),
+    onError: () => toast.error("No se pudo. Si la máquina está dormida, intenta al despertar."),
     onSettled: () => (setBusy(null), refresh(), void client.invalidateQueries({ queryKey: ["maquinas"] })),
   });
   const head = plumbingHead(plumbing);
@@ -261,9 +262,9 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
             </span>
           </label>
         </section>
-        <section aria-label="Proyectos, agentes y app en tu Mac" data-block="proyectos">
+        <section aria-label="Proyectos, agentes y app en tu máquina" data-block="proyectos">
           <div className="cor-side-head">
-            <Label as="h2">Proyectos · agentes y app en tu Mac</Label>
+            <Label as="h2">Proyectos · agentes y app en tu máquina</Label>
             {tv && tv.stoppable.length > 0 && (
               <Btn kind="quiet" disabled={busy === "todo"} onClick={() => appRun.mutate({ key: "todo", call: () => Promise.all(tv.stoppable.map((slug) => api.prueba(slug, "apagar"))) })} data-control="apagar-todo">
                 Apagar todas las apps
@@ -345,7 +346,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
       <div className="cor-pl-foot">
         <OwnerCode />
         <span className="cor-text">
-          <b>En tu Mac</b> · {macLine}
+          <b>En tu máquina</b> · {macLine}
         </span>
         <Btn kind="link" aria-expanded={inventory} onClick={onInventory} data-control="ver-que-corre">
           {inventory ? "Ocultar lo que corre" : "Ver qué corre"}

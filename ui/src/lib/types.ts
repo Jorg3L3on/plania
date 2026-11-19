@@ -49,7 +49,7 @@ export type InitiativeNote = {
   key: string;
   in_progress: string;
   next_action: string;
-  /** Derived waits (initiative state). Absent on older payloads; Ahora drops the ones that start with "Jorge". */
+  /** Derived waits (initiative state). Absent on older payloads; Ahora drops the ones that start with "The owner". */
   waiting_on?: { key: string; on: string }[];
 };
 
@@ -122,7 +122,7 @@ export type Question = {
 
 
 // get_resume: generated from the data, never hand-written.
-/** 2.12: an open ticket Jorge asked for on screen (origin jorge), newest first. */
+/** 2.12: an open ticket the owner asked for on screen (origin owner), newest first. */
 export type Request = {
   key: string;
   kind: string;
@@ -159,7 +159,7 @@ export type Resume = {
   open_questions: Question[];
   /** Newest first. The summary sheet reads the first one when the headline is empty. */
   recent?: { at: string; type: string; task_key: string | null; agent: string }[];
-  /** One line about what the project's agents have running on the Mac, or null. */
+  /** One line about what the project's agents have running on the machine, or null. */
   machine?: string | null;
   /** The generated status block; the screen reads only the release step from it. */
   status?: { release?: ReleasePlan | null };
@@ -211,7 +211,7 @@ export type OrdenFinding = {
 };
 export type Orden = { project: string; at: string | null; count: number; findings: OrdenFinding[] };
 
-// Everything waiting on Jorge (GET /api/inbox).
+// Everything waiting on the owner (GET /api/inbox).
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
 export type InboxItem = {
   id: string;
@@ -224,7 +224,7 @@ export type InboxItem = {
   title: string | null;
   why: string;
   options?: string[];
-  /** Questions only: how soon Jorge is needed (now | soon | whenever). */
+  /** Questions only: how soon the owner is needed (now | soon | whenever). */
   urgency?: string | null;
   /** Questions only: the screen must answer it, by a click. */
   human_only?: boolean;
@@ -369,7 +369,7 @@ export type WhyLink = {
 
 // The get_task shape.
 export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
-  /** Set by a status change: strings, or FOOTPRINT_LIVE for something still running on the Mac. */
+  /** Set by a status change: strings, or FOOTPRINT_LIVE for something still running on the machine. */
   warnings?: (string | { code: string; kind?: string; locator?: string; teardown?: string })[];
   aliases: string[];
   scope: string;
@@ -408,7 +408,7 @@ export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const CLOSED_STATUSES = new Set(["Done", "Won't do"]);
 
-// GET /api/machine: what runs and is stored on this Mac for agent work (src/jobs/machine).
+// GET /api/machine: what runs and is stored on this machine for agent work (src/jobs/machine).
 export type FootprintKind = "worktree" | "server" | "db_server" | "database" | "container" | "browser" | "service" | "tunnel" | "cache";
 export type FootprintState = "live" | "orphan" | "stale" | "ghost" | "gone" | "released" | "self" | "system";
 
@@ -440,7 +440,7 @@ export type FootprintItem = {
 };
 
 export type MachineTotals = { servers: number; databases: number; worktree_kb: number; orphan: number; stale: number };
-/** An audit finding about the Mac that no project audit holds (rows without a project). */
+/** An audit finding about the machine that no project audit holds (rows without a project). */
 export type MachineFinding = { code: string; key: string | null; detail: string; fix_hint: string };
 export type MachineBackup = { at: string | null; path: string | null; bytes: number | null; error: string | null; attempted_at: string | null };
 export type Machine = { machine: string; totals: MachineTotals; backup?: MachineBackup; findings: MachineFinding[]; items: FootprintItem[] };

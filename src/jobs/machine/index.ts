@@ -24,11 +24,12 @@ import {
 import { isPrimary, ownerOfDatabase, ownerOfPath, type Directory, type Observed, type Owner, type TaskLite } from "./infer.js";
 import { reconcile, type Inferred } from "./reconcile.js";
 import { execRun, type Run } from "./run.js";
+import { defaultFolders } from "../../folders.js";
 
-// PLA-I1-2: the machine job. Every minute it reads the Mac (listening ports, helper processes,
+// PLA-I1-2: the machine job. Every minute it reads the machine (listening ports, helper processes,
 // containers), every 5 minutes the slow things (databases, brew services, LaunchAgents, worktrees)
 // and every 30 minutes the disk size of each worktree, then reconciles the result with the
-// `footprints` table. Read-only on the Mac: lsof, ps, git, du, brew, docker and SELECTs on Postgres.
+// `footprints` table. Read-only on the machine: lsof, ps, git, du, brew, docker and SELECTs on Postgres.
 
 export const SLOW_MS = 5 * 60_000;
 export const DU_MS = 30 * 60_000;
@@ -50,7 +51,7 @@ export type MachineDeps = {
 
 function defaultDeps(): MachineDeps {
   const home = homedir();
-  const root = process.env.PLANIA_PROJECTS_ROOT?.replace(/^~(?=$|\/)/, home) ?? path.join(home, "Developer", "Projects");
+  const root = process.env.PLANIA_PROJECTS_ROOT?.replace(/^~(?=$|\/)/, home) ?? defaultFolders(home).projects;
   return {
     run: execRun,
     listDatabases: pgListDatabases(userInfo().username),
@@ -221,7 +222,7 @@ export const machineJob: Job = {
   runOnce: (db, now) => runMachineTick(db, now),
 };
 
-// What is on the Mac now: every unreleased row (gone ones for a day, so a stopped server is still
+// What is on the machine now: every unreleased row (gone ones for a day, so a stopped server is still
 // visible) with its project slug, ticket key and the initiative above it. For the Machine page and
 // `GET /api/machine`. A server on a port someone leased (lease_resource port:N) carries `lease`,
 // joined at read time so it cannot go stale: the lease's holder, purpose and expiry.

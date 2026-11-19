@@ -245,10 +245,10 @@ test("I33-4 state carga: a skeleton per block", () => {
   assert.equal(loading.includes("data-message"), false);
 });
 
-test("I33-4 state error por bloque: the thread says the Mac may be asleep and offers Reintentar; the box stays", () => {
+test("I33-4 state error por bloque: the thread says the machine may be asleep and offers Reintentar; the box stays", () => {
   const out = html(h(org.ThreadPanel, threadProps({ thread: undefined, error: true })));
   assert.ok(out.includes("No se pudo cargar el hilo."));
-  assert.ok(out.includes("Si la Mac está dormida"));
+  assert.ok(out.includes("Si la máquina está dormida"));
   assert.ok(out.includes("Reintentar"));
   assert.ok(out.includes("Dile a Asistente…"));
   const team = html(h(parts.BlockError, { what: "el equipo", onRetry: noop }));

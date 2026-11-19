@@ -11,6 +11,7 @@ import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { installState } from "./db/schema.js";
 import type { Q } from "./mcp/tx.js";
+import { loadFolders } from "./folders.js";
 
 export type InstallState = typeof installState.$inferSelect;
 
@@ -23,6 +24,7 @@ export async function loadInstallState(db: Q, env: NodeJS.ProcessEnv = process.e
   const wasOn = wakesOn(env);
   cached = row ?? null;
   if (cached?.timeZone && !env.PLANIA_TZ?.trim()) env.PLANIA_TZ = cached.timeZone;
+  await loadFolders(db, env); // PLA-I2-3: the folders answered at first start, the same way
   if (!wasOn && wakesOn(env)) for (const fn of wakeListeners) fn();
   return cached;
 }

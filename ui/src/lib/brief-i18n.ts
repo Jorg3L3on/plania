@@ -78,7 +78,7 @@ export type BriefLabels = {
 
 /** PLA-I51: counts that make the voice line and a tower's accessible name. */
 export type CityCounts = { blocked: number; needs: number; next: number; ideas: number };
-/** One piece of the voice line; tone colours it (blocked red, jorge orange). */
+/** One piece of the voice line; tone colours it (blocked red, owner orange). */
 export type VoicePart = { text: string; tone?: "blocked" | "owner" };
 
 /** PLA-I51: the city at dawn's labels (city.tsx retired in PLA-I63-5; the brief in Compañía reuses them). */
@@ -330,7 +330,7 @@ const en: BriefLabels = {
   failed: "Couldn't load the brief.",
   refreshFailed: "Couldn't refresh",
   runFailedAt: (time) => `Couldn't update at ${time}`,
-  signInFix: "Claude is not signed in. Run `claude` on the Mac, type /login, then press Generate now.",
+  signInFix: "Claude is not signed in. Run `claude` on the machine, type /login, then press Generate now.",
   pastDay: "A past brief, read-only.",
   needLine: (n) => (n === 1 ? "1 thing needs you" : `${n} things need you`),
   nothingNeeds: "Nothing needs you",
@@ -610,10 +610,10 @@ const en: BriefLabels = {
     genIdeas: ["Ideas only", "2 min · the part that uses most of your plan"],
     howToFix: "How to fix it",
     hide: "Hide",
-    fixAuth: ["Open Terminal on the Mac.", "Type claude, then /login.", "Come back here and press Retry."],
-    fixOther: ["On the Mac, run pnpm brief:doctor to see what failed.", "Come back here and press Retry."],
+    fixAuth: ["Open Terminal on the machine.", "Type claude, then /login.", "Come back here and press Retry."],
+    fixOther: ["On the machine, run pnpm brief:doctor to see what failed.", "Come back here and press Retry."],
     failedAt: (t) => `Couldn't update at ${t}.`,
-    authReason: "Claude lost its sign-in on this Mac, so no new rows or ideas came in.",
+    authReason: "Claude lost its sign-in on this machine, so no new rows or ideas came in.",
     stillShowing: (t) => `You are still seeing the brief of ${t}.`,
     partial: { brief: "Claude's rows did not come in; the rows from Plania's own data still work.", ideas: "Today's ideas did not come in.", both: "Claude's part did not come in: these rows are Plania's own data.", github: "GitHub data did not come in; PRs may be out of date." },
     keys: "J K move · ← → project · Enter first action · L later · X not relevant · Z undo",
@@ -638,7 +638,7 @@ const es: BriefLabels = {
   failed: "No se pudo cargar el brief.",
   refreshFailed: "No se pudo actualizar",
   runFailedAt: (time) => `No se pudo actualizar a las ${time}`,
-  signInFix: "Claude no tiene sesión iniciada. Corre `claude` en la Mac, escribe /login y pulsa Generar ahora.",
+  signInFix: "Claude no tiene sesión iniciada. Corre `claude` en la máquina, escribe /login y pulsa Generar ahora.",
   pastDay: "Un brief pasado, solo lectura.",
   needLine: (n) => (n === 1 ? "1 cosa te necesita" : `${n} cosas te necesitan`),
   nothingNeeds: "Nada te necesita",
@@ -918,10 +918,10 @@ const es: BriefLabels = {
     genIdeas: ["Solo ideas", "2 min · la parte que más usa tu plan"],
     howToFix: "Cómo arreglarlo",
     hide: "Ocultar",
-    fixAuth: ["Abre Terminal en la Mac.", "Escribe claude y luego /login.", "Vuelve aquí y pulsa Reintentar."],
-    fixOther: ["En la Mac, corre pnpm brief:doctor para ver qué falló.", "Vuelve aquí y pulsa Reintentar."],
+    fixAuth: ["Abre Terminal en la máquina.", "Escribe claude y luego /login.", "Vuelve aquí y pulsa Reintentar."],
+    fixOther: ["En la máquina, corre pnpm brief:doctor para ver qué falló.", "Vuelve aquí y pulsa Reintentar."],
     failedAt: (t) => `No se pudo actualizar a las ${t}.`,
-    authReason: "Claude perdió su sesión en esta Mac, así que no llegaron pendientes ni ideas nuevas.",
+    authReason: "Claude perdió su sesión en esta máquina, así que no llegaron pendientes ni ideas nuevas.",
     stillShowing: (t) => `Sigues viendo el brief de las ${t}.`,
     partial: { brief: "No llegaron los pendientes de Claude; los que salen de los datos de Plania sí funcionan.", ideas: "No llegaron las ideas de hoy.", both: "No llegó la parte de Claude: estos pendientes salen de los datos de Plania.", github: "No llegaron los datos de GitHub; los PR pueden estar desactualizados." },
     keys: "J K mover · ← → proyecto · Enter primera acción · L después · X no aplica · Z deshacer",

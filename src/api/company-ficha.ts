@@ -35,7 +35,7 @@ export type FichaIdea = {
   // PLA-I61-3: the summary the PO wrote, the stops it passed (stage index) and what the owner has not opened.
   summary: string;
   unseen: number;
-  // PLA-I64-1: the initiative it became (then it is not a row of its own), who asked (jorge: a pedido), and for an
+  // PLA-I64-1: the initiative it became (then it is not a row of its own), who asked (owner: a pedido), and for an
   // idea not promoted yet its stop and state as the tube reads them (src/api/company-pedidos.ts), shelf and question.
   promoted_to: string | null;
   origin: string | null;

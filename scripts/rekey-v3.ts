@@ -1,7 +1,7 @@
 // One-time rekey to the 2.1 scheme (R-33): initiatives PREFIX-I<n>, phases <initiative>-<n>,
 // standalone tickets unchanged. Old keys become aliases, every rename is a task.rekeyed event.
-//   pnpm rekey --project filmia            # dry run: prints the plan
-//   pnpm rekey --project filmia --apply    # writes it, in one transaction
+//   pnpm rekey --project tienda            # dry run: prints the plan
+//   pnpm rekey --project tienda --apply    # writes it, in one transaction
 // Counters are reseeded from the new keys and the aliases, so no number is handed out twice.
 import { parseArgs } from "node:util";
 import { asc, eq, sql } from "drizzle-orm";

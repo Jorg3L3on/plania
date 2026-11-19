@@ -7,9 +7,9 @@ import { listEvents } from "./queries.js";
 import { resumeDigest, resumeLine } from "./resume.js";
 import { iso, type Q } from "./tx.js";
 
-// 2.7 Watch API: cross-project reads for an assistant that keeps Jorge updated with one cheap call.
+// 2.7 Watch API: cross-project reads for an assistant that keeps the owner updated with one cheap call.
 // list_projects (every project in one line with counts), get_running (every live claim with a
-// derived liveness) and get_digest (what changed since a cursor, what runs, what waits on Jorge).
+// derived liveness) and get_digest (what changed since a cursor, what runs, what waits on the owner).
 // Everything here reads tables other tools already write; agents emit nothing new.
 
 // A lease is "quiet" after this long without a heartbeat or an event from its session.

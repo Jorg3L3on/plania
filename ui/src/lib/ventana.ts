@@ -50,7 +50,7 @@ export const VENTANA = {
   errorCaptura: "No se pudo tomar la captura",
   errorEncender: "No se pudo encender",
   errorLeer: "No se pudo abrir la ventana",
-  vivo: "En vivo en tu Mac",
+  vivo: "En vivo en tu máquina",
 } as const;
 
 const shown = (p: CapturePage) => !!(p.desktop.still || p.phone.still || p.desktop.error || p.phone.error);

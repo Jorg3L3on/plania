@@ -85,8 +85,8 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
           <span className="cor-hoja-two">
             {opcion === "carpeta" && (
               <label style={{ flex: 2 }}>
-                <span className="cor-text">Carpeta en esta Mac</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/Developer/Projects/nombre" autoComplete="off" spellCheck={false} data-campo="carpeta" />
+                <span className="cor-text">Carpeta en esta máquina</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/plania/projects/nombre" autoComplete="off" spellCheck={false} data-campo="carpeta" />
               </label>
             )}
             <label>

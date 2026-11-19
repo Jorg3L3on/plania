@@ -1,22 +1,13 @@
-// Display helpers for Mi progreso. Colours are a fixed palette (the API does not send them).
-// Days are calendar dates already bucketed in America/Mexico_City by the server.
+// Display helpers for Mi progreso. Colours come from a palette by slug (the API does not send them).
+// Days are calendar dates already bucketed in the install's zone by the server.
 import type { ProgressRange } from "./types.js";
-
-export const PROJECT_COLOR: Record<string, string> = {
-  micasa: "#34d399",
-  workia: "#60a5fa",
-  filmia: "#f472b6",
-  zigzag: "#fbbf24",
-  plania: "#a78bfa",
-};
 
 const FALLBACK = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185", "#22d3ee"];
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] as const;
 const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"] as const;
 
 export const projectColor = (slug: string): string => {
-  const known = PROJECT_COLOR[slug];
-  if (known) return known;
+  // PLA-I2-3: derived from the slug alone (a stable hash into the palette), so any project gets one.
   let n = 0;
   for (const ch of slug) n = (n + ch.charCodeAt(0)) % FALLBACK.length;
   return FALLBACK[n] ?? "#a1a1aa";

@@ -44,7 +44,7 @@ export type IdeaStop = {
   stop: PedidoStop;
   // done: behind the idea; here: where it is; todo: ahead (what it has is redone when it gets there).
   state: "done" | "here" | "todo";
-  // Who delivered it (a role, or jorge for the request), and when.
+  // Who delivered it (a role, or owner for the request), and when.
   by: string | null;
   at: string | null;
   delivered: boolean;
@@ -83,7 +83,7 @@ export type IdeaDetail = Pedido & {
   status: string;
   stage: string | null;
   promoted_to: string | null;
-  // His own request (origin jorge): the view carries Constrúyelo, Guardar and Descartar.
+  // His own request (origin owner): the view carries Constrúyelo, Guardar and Descartar.
   pedido: boolean;
   question_options: string[];
   stops: IdeaStop[];

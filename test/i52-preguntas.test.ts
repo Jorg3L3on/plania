@@ -76,7 +76,7 @@ describe("señalar", () => {
     const png = readFileSync(path.join(TMP, "zigzag", crops[0].file));
     assert.equal(decodePng(png)?.width, Math.round(1280 * 0.36), "a third of the picture around the pin");
     assert.ok(existsSync(path.join(TMP, "zigzag", crops[1].file)));
-    assert.match(String(note), new RegExp(`foto: ${TMP.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/zigzag/[0-9a-f]{64}\\.png`), "a file path Taller can open on this Mac");
+    assert.match(String(note), new RegExp(`foto: ${TMP.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/zigzag/[0-9a-f]{64}\\.png`), "a file path Taller can open on this machine");
   });
 
   test("pins are cleaned: unknown views, out-of-range spots and extra fields are dropped or clamped", () => {

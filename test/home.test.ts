@@ -54,11 +54,11 @@ describe("headlineOf", () => {
   const wrk = project("workia", "Workia");
   const text = (h: ReturnType<typeof headlineOf>) => h.voice.map((v) => v.text).join("");
 
-  test("two agents: who moves, who waits, what the Mac carries", () => {
+  test("two agents: who moves, who waits, what the machine carries", () => {
     const flights = flightsOf([zig, fil], []);
     const h = headlineOf({ projects: [fil, wrk, zig], flights, inbox: { count: 15, by_project: { workia: 15 } }, totals: { orphan: 0, stale: 1 }, nowMs: NOW });
     assert.equal(h.title, "Dos agentes trabajan ahora.");
-    assert.equal(text(h), "Zigzag y Filmia avanzan solas; Workia te espera con 15 cosas, y la Mac tiene 1 obsoleto.");
+    assert.equal(text(h), "Zigzag y Filmia avanzan solas; Workia te espera con 15 cosas, y la máquina tiene 1 obsoleto.");
     assert.equal(h.voice[1]!.tone, "owner");
   });
 
@@ -73,7 +73,7 @@ describe("headlineOf", () => {
     assert.equal(h.title, "Nadie trabaja ahora.");
     assert.equal(text(h), "Hoy se cerró 1 ticket; Zigzag y Workia y 1 más te esperan con 4 cosas.");
     const quiet = headlineOf({ projects: [wrk], flights: [], inbox: { count: 1, by_project: { machine: 1 } }, totals: { orphan: 2, stale: 0 }, nowMs: NOW });
-    assert.equal(text(quiet), "Hoy no se cerró nada; la Mac te espera con 1 cosa, y la Mac tiene 2 sin dueño.");
+    assert.equal(text(quiet), "Hoy no se cerró nada; la máquina te espera con 1 cosa, y la máquina tiene 2 sin dueño.");
   });
 });
 

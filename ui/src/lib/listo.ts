@@ -41,7 +41,7 @@ export const PALABRAS: Record<string, Palabras> = {
     falta: () => "Falta PLANIA_RUNNER_TOKEN en el .env de Plania, así que ninguna corrida arranca. Agrégala y reinicia Plania.",
   },
   claude_bin: {
-    titulo: () => "Claude en esta Mac",
+    titulo: () => "Claude en esta máquina",
     nombre: () => "el programa claude",
     listo: () => "Plania encuentra el programa claude.",
     falta: () => "Plania no encuentra el programa claude, así que ninguna corrida arranca. Instálalo, o pon su ruta en CLAUDE_CODE_BIN en el .env de Plania.",
@@ -52,7 +52,7 @@ export const PALABRAS: Record<string, Palabras> = {
     listo: (i) => `${carpeta(i)} está lista: existe, tiene git y está conectada a GitHub.`,
     falta: (i) => {
       const c = carpeta(i);
-      if (i.why === "REPO_FOLDER_MISSING") return `${c} no existe en esta Mac, así que Taller no puede trabajar. Crea la carpeta o corrige la ruta.`;
+      if (i.why === "REPO_FOLDER_MISSING") return `${c} no existe en esta máquina, así que Taller no puede trabajar. Crea la carpeta o corrige la ruta.`;
       if (i.why === "REPO_NOT_GIT") return `${c} no es un repositorio de git, así que Taller no puede trabajar. Ábrela en la terminal y corre git init.`;
       if (i.why === "REPO_NO_ORIGIN") return `${c} no está conectada a GitHub (no tiene origin), así que Taller no puede trabajar. Agrégale el repositorio remoto.`;
       if (i.why === "REPO_ORIGIN_UNREACHABLE") return `No pude leer el repositorio remoto de ${c.toLowerCase()}. Revisa la conexión o tu acceso a GitHub.`;

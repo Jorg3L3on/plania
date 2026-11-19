@@ -285,7 +285,7 @@ export async function onWriteEvent(
 ): Promise<EventWake | null> {
   if (!WATCHED.has(type) || !eventWakesEnabled(env)) return null;
   // PLA-I49-6: a project's runs coming back also wake the Artist or Research who own a Ready request of the owner's
-  // there (origin jorge: a sketch asked from the brief while the project was paused), once each. The PO wakes as before.
+  // there (origin owner: a sketch asked from the brief while the project was paused), once each. The PO wakes as before.
   if (type === "project.runs_resumed") await wakeReadyOwners(tx, project);
   const target = await targetOf(tx, project, type, task, payload);
   if (!target) return null;

@@ -127,7 +127,7 @@ export async function resolveTaskBlockers(db: Q, projectId: string, keys: string
 export async function replaceBlockers(tx: Q, taskId: string, blockerIds: string[], typed: TypedBlocker[]): Promise<void> {
   await tx.delete(taskBlockers).where(eq(taskBlockers.taskId, taskId));
   // A human action already cleared stays cleared when the same list is written again.
-  // 2.10: blockers parsed from a "The owner:" line belong to their text, not to blocked_by: they stay, and
+  // 2.10: blockers parsed from an "Owner:" line belong to their text, not to blocked_by: they stay, and
   // a human action in the list with the same text as one of them is not written twice.
   const existing = await tx.select().from(blockers).where(eq(blockers.taskId, taskId));
   const parsedTexts = new Set(existing.filter((e) => e.spec.source === "parsed").map((e) => String(e.spec.text)));

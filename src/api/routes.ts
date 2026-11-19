@@ -55,6 +55,7 @@ import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
 import { isOwnerAgent } from "../owner.js";
+import { screenTz } from "../locale.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -75,7 +76,7 @@ const ACTIVITY_DAYS = 7;
 // Events per project per day in the screen's time zone, the last ACTIVITY_DAYS days, oldest first.
 // One query for every project; the index draws one small bar per day.
 async function activityByProject(db: Db): Promise<Map<string, number[]>> {
-  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const tz = screenTz();
   const rows = (
     await db.execute<{ project_id: string; d: string; n: number }>(sql`
       select project_id, to_char(created_at at time zone ${tz}, 'YYYY-MM-DD') as d, count(*)::int as n
@@ -184,7 +185,7 @@ api.post("/delegation", async (c) => {
   return c.json({ enabled });
 });
 
-// PLA-06: Jorge marks the delegated answers he saw. Same rule as the kill switch: the
+// PLA-06: the owner marks the delegated answers he saw. Same rule as the kill switch: the
 // screen cookie only, never a Bearer, and no MCP tool, so a bot cannot hide its own answers.
 api.post("/delegated/reviewed", async (c) => {
   const refused = delegationAuth(c);
@@ -287,7 +288,7 @@ api.get("/projects", async (c) => {
           // 2.11: Orden's count (the last audit run), shown on the tile when above zero.
           audit_count: audits.get(p.id) ?? 0,
           // Inicio's city: what each open initiative says it is doing and what it needs next.
-          // Ahora's Bloqueado reads waiting_on (already derived for the resume) and drops what starts with "Jorge".
+          // Ahora's Bloqueado reads waiting_on (already derived for the resume) and drops what starts with "The owner".
           initiatives: digest.initiatives.map((i) => ({
             key: i.key,
             in_progress: i.in_progress.note,
@@ -310,7 +311,7 @@ const DATE_DONE = ["Done", "Won't do", "Merged", "Released"];
 // Per project for Inicio's "Próximo": due dates and time_after blockers within UPCOMING_DAYS, and the
 // keys past their due date. Days are the screen's (PLANIA_TZ); time_after keeps its instant.
 export function datesOf(rows: { key: string; title: string; status: string; due_on: string | null; time_after: string | null }[], now = new Date()) {
-  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const tz = screenTz();
   const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
   const today = day(now);
   const until = day(new Date(now.getTime() + UPCOMING_DAYS * 86_400_000));
@@ -419,7 +420,7 @@ api.patch("/projects/:slug", async (c) => {
   }
 });
 
-// 2.11 Orden: the last audit run with can_fix per finding, and the one-click fixes, run as Jorge.
+// 2.11 Orden: the last audit run with can_fix per finding, and the one-click fixes, run as the owner.
 api.get("/projects/:slug/audit", async (c) => {
   try {
     return c.json(await withDb(async (db) => projectAudit(db, await findProject(db, c.req.param("slug")))));
@@ -438,7 +439,7 @@ api.post("/projects/:slug/audit/fix", async (c) => {
   }
 });
 
-// 2.12 Pedir: Jorge asks for something. A Backlog ticket as Jorge with origin jorge and a
+// 2.12 Pedir: the owner asks for something. A Backlog ticket as the owner with origin owner and a
 // server-assigned key; agents read it first (requests) and get_next offers it before its priority's
 // other tickets. A sentence is enough: the agent that takes it writes the scope and the checks.
 const requestBody = z.object({
@@ -491,7 +492,7 @@ api.get("/projects/:slug/tasks/:key", async (c) => {
 // Writes from the screen ask for the full task back (verbose), so the panel can refresh in place.
 const screenCtx = { ...webCtx, verbose: true };
 
-// Status and priority changes from the screen go through the same set_task path agents use, as Jorge:
+// Status and priority changes from the screen go through the same set_task path agents use, as the owner:
 // any move is allowed (Done included) and leases do not stop him, but the version shown must be current.
 const taskPatch = z.object({
   status: z.string().optional(),
@@ -506,14 +507,14 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) => setTask(db, { project: c.req.param("slug"), key: c.req.param("key"), ...body }, screenCtx));
-    // warnings ride along: closing a ticket that still has things running on the Mac names each one.
+    // warnings ride along: closing a ticket that still has things running on the machine names each one.
     return c.json(result.warnings?.length ? { ...result.task, warnings: result.warnings } : result.task);
   } catch (e) {
     return errorResponse(c, e);
   }
 });
 
-// Jorge waives a check (no approval needed on screen); the note says why.
+// The owner waives a check (no approval needed on screen); the note says why.
 api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
   const body = await readJson(c, z.object({ reason: z.string().trim().min(1) }));
   if (body instanceof Response) return body;
@@ -527,9 +528,9 @@ api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
   }
 });
 
-// Jorge marks a human action done (a ticket blocked on him); the ticket may go back to Ready at once.
+// The owner marks a human action done (a ticket blocked on him); the ticket may go back to Ready at once.
 api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
-  // 2.10: an optional note goes to the ticket's log as Jorge's. A body is optional.
+  // 2.10: an optional note goes to the ticket's log as the owner's. A body is optional.
   const raw = c.req.header("Content-Type")?.startsWith("application/json") ? await c.req.json().catch(() => ({})) : {};
   const parsed = z.object({ note: z.string().max(2000).optional() }).safeParse(raw ?? {});
   if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
@@ -544,10 +545,10 @@ api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
   }
 });
 
-// 2.13: Jorge ships the release (settings.release.mode "merge"): a PR from → into, merged with
+// 2.13: the owner ships the release (settings.release.mode "merge"): a PR from → into, merged with
 // gh pr merge --merge. The screen's cookie only: a request that carries any Bearer token is refused,
 // so no agent token, CI token or MCP client can ever merge into `into`, whatever else it holds.
-// PLA-24: no owner's code (Jorge, who never enrolled one: "remove it from there"); the cookie-only guard above stays.
+// PLA-24: no owner's code (the owner, who never enrolled one: "remove it from there"); the cookie-only guard above stays.
 api.post("/projects/:slug/release/ship", async (c) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the release ships from the screen only" }, 403);
   try {
@@ -557,7 +558,7 @@ api.post("/projects/:slug/release/ship", async (c) => {
   }
 });
 
-// Jorge frees a lease held by a session that is gone.
+// The owner frees a lease held by a session that is gone.
 api.post("/projects/:slug/tasks/:key/release", async (c) => {
   try {
     const result = await withDb((db) =>
@@ -583,7 +584,7 @@ function rejectBotAnswer(c: Context): Response | null {
   return null;
 }
 
-// Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
+// The owner answers a question an agent asked; with decision_text the answer is also logged as a decision.
 // A human_only question is answered here. The stored actor is always the screen actor, not anything in the body.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
   const refused = rejectBotAnswer(c);
@@ -615,7 +616,7 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
 
 // ---- Inbox
 
-// Everything waiting on Jorge, for one project or all of them.
+// Everything waiting on the owner, for one project or all of them.
 api.get("/inbox", async (c) => {
   const which = c.req.query("project") || "all";
   try {
@@ -677,7 +678,7 @@ api.delete("/push/subscribe", async (c) => {
 
 // ---- Machine
 
-// What runs and is stored on this Mac for agent work (the machine job's footprints plus declarations),
+// What runs and is stored on this machine for agent work (the machine job's footprints plus declarations),
 // every unreleased row with its project, initiative, ticket and session, and the header totals.
 // Read-only: the screen never stops or deletes anything.
 api.get("/machine", async (c) => {

@@ -7,7 +7,7 @@ import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { Claim, Decision, NextTicket, Question, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// The generated resume, the questions agents asked Jorge, and the decision log.
+// The generated resume, the questions agents asked the owner, and the decision log.
 
 function Row({ label, items }: { label: string; items: ReactNode[] }) {
   const shown = items.filter(Boolean);

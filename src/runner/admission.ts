@@ -6,7 +6,7 @@
 //   lock keys  one live run per folder, branch and ticket (run_locks primary key).
 //   weights    each run's share of the 5-hour plan, from the motor it starts with, so admission can stop before
 //              the guard instead of after it.
-//   machine    free memory and disk on this Mac; a worker with a live run starts no more when either is low.
+//   machine    free memory and disk on this machine; a worker with a live run starts no more when either is low.
 import { execFile } from "node:child_process";
 import { statfs } from "node:fs/promises";
 import { freemem, hostname, platform, totalmem } from "node:os";
@@ -169,8 +169,8 @@ export async function freeDiskGb(dir: string): Promise<number> {
 export const HELD_TEXT: Record<HeldCode, string> = {
   project_cap: "Esperando lugar en el proyecto",
   agent_cap: "Esperando: este puesto ya hace lo que su tope permite",
-  ceiling: "Esperando lugar en la Mac",
-  machine: "La Mac está corta de memoria o disco",
+  ceiling: "Esperando lugar en la máquina",
+  machine: "La máquina está corta de memoria o disco",
   start_rate: "Arrancando de a poco",
   plan: "El plan va alto; sigue cuando baje",
   rest: "Descansa entre corridas",

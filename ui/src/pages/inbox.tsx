@@ -17,14 +17,14 @@ import { localTime } from "@/lib/time";
 import type { DelegatedReview, InboxGroup, InboxItem, Question } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Everything waiting on Jorge, in three tabs (2.10): Decisiones (questions to answer), Pasos
+// Everything waiting on the owner, in three tabs (2.10): Decisiones (questions to answer), Pasos
 // (what only he can do: human actions and releases, each with Hecho) and Limpieza (what agents
-// left on the Mac). Logged moves sit in the delegated list, not in a group.
+// left on the machine). Logged moves sit in the delegated list, not in a group.
 
 const TABS: { id: InboxGroup; label: string; empty: string }[] = [
   { id: "decisiones", label: "Decisiones", empty: "Nada que decidir." },
   { id: "pasos", label: "Pasos", empty: "Ningún paso tuyo pendiente." },
-  { id: "limpieza", label: "Limpieza", empty: "La Mac está limpia." },
+  { id: "limpieza", label: "Limpieza", empty: "La máquina está limpia." },
 ];
 
 function Tabs({ tab, counts, onChange }: { tab: InboxGroup; counts: Record<InboxGroup, number>; onChange: (t: InboxGroup) => void }) {
@@ -73,7 +73,7 @@ function ActionRow({ item }: { item: InboxItem }) {
   );
 }
 
-// Something left on the Mac that nobody claims, or whose ticket is long done: the command is for Jorge to run.
+// Something left on the machine that nobody claims, or whose ticket is long done: the command is for the owner to run.
 function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: () => void; busy: boolean }) {
   const what = item.action ? actionWord(item.action) : "Pregunta";
   const choice = item.answer;

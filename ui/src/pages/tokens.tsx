@@ -72,7 +72,7 @@ export function TokensPage() {
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="tk-machine">Máquina (opcional)</Label>
-              <Input id="tk-machine" value={machine} onChange={(e) => setMachine(e.target.value)} placeholder="MacBook-Air" />
+              <Input id="tk-machine" value={machine} onChange={(e) => setMachine(e.target.value)} placeholder="laptop" />
             </div>
             <Button type="submit" disabled={!name.trim() || !agent.trim() || !scopes.size || create.isPending}>Crear</Button>
             <div className="flex flex-wrap gap-3 sm:col-span-4">

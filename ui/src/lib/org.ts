@@ -5,6 +5,7 @@ import { statusEtapa, statusWord as ticketWord } from "./etapas";
 import type { Plumbed, Usage } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
 import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
+import { LOCALE } from "./locale.js";
 
 // ---- the light of a team (card and project header)
 
@@ -153,7 +154,7 @@ export function actionStateText(s: ThreadActionState): string {
 // Pedir cambios and Responder need words; the approve buttons do not.
 export const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
 
-// A message waits on Jorge while it offers an action nobody took yet.
+// A message waits on the owner while it offers an action nobody took yet.
 export const waitsOnOwner = (m: ThreadMessage) => m.actions.length > 0 && m.action_state === null;
 
 const dayKey = (iso: string, timeZone?: string) =>
@@ -162,7 +163,7 @@ export function dayLabel(iso: string, now: number, timeZone?: string): string {
   const key = dayKey(iso, timeZone);
   if (key === dayKey(new Date(now).toISOString(), timeZone)) return "Hoy";
   if (key === dayKey(new Date(now - 86_400_000).toISOString(), timeZone)) return "Ayer";
-  return new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long", timeZone })
+  return new Intl.DateTimeFormat(LOCALE, { weekday: "long", day: "numeric", month: "long", timeZone })
     .format(new Date(iso))
     .replace(/^./, (l) => l.toUpperCase());
 }

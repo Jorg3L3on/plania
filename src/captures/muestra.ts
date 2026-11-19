@@ -73,7 +73,7 @@ export function uiFiles(files: string[], globs: readonly string[] = DEFAULT_UI_G
   return files.filter((f) => !NOT_UI.some((n) => n.test(f)) && res.some((r) => r.test(f)));
 }
 
-// The files a branch changes against its base, read from the project's repo on this Mac. It fetches both first
+// The files a branch changes against its base, read from the project's repo on this machine. It fetches both first
 // (best effort) and reads origin's refs, falling back to local ones. null when it cannot tell.
 export async function changedFiles(git: GitFn, repo: string, base: string, branch: string): Promise<string[] | null> {
   await git(["fetch", "--quiet", "origin", base, branch], repo).catch(() => null);

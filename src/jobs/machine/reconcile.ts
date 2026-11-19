@@ -15,9 +15,9 @@ import { GHOST_RELEASE_MS, computeVerdict, ownerFacts, suggestTeardown, type Dir
 //   its collector did not run (tool missing, command failed, not due) → the row is left alone
 //   declared and both rows are never `gone`: when their collector ran and did not see them they become
 //     `ghost` (declared and never seen for 5 minutes, or seen before and missed twice), and a ghost row is
-//     released (bookkeeping, nothing on the Mac) an hour later with footprint.released reason ghost
+//     released (bookkeeping, nothing on the machine) an hour later with footprint.released reason ghost
 //   the state of a row that was seen is recomputed every tick: live / system / orphan, or stale (infer.ts)
-// Plania never touches the Mac here: this only writes the footprints table.
+// Plania never touches the machine here: this only writes the footprints table.
 
 export const GONE_AFTER = 2;
 const GONE_KEEP_MS = 24 * 60 * 60 * 1000; // a gone row is released (kept for history, out of the inventory) a day after last seen

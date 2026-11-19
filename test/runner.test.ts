@@ -752,7 +752,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
   assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "claude_sign_in", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.usage).sort(), ["last_week", "used"]);
-  assert.equal(state.week.timezone, "America/Mexico_City");
+  assert.equal(state.week.timezone, "UTC");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };
   const plan = machine.plumbing.plan;
   assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "override", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);

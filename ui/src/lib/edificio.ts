@@ -10,6 +10,7 @@ import { obrasOf, seatOf, type Obra } from "./ahora-piso";
 import { ETAPA_WORD } from "./etapas";
 import { byLight, byRole, roleName } from "./org";
 import { pending, waitingPlan } from "./v2";
+import { LOCALE } from "./locale.js";
 
 // PLA-I46-10: back is violet, a delivery sent back that Taller is fixing (never from the server's state alone).
 export type WindowState = "work" | "ask" | "idle" | "off" | "back";
@@ -304,7 +305,7 @@ export type NowLine = {
   word: string;
   say: string;
   why: string;
-  // Who holds the work: a teammate's agent, "owner" when it waits on Jorge, null when nobody does.
+  // Who holds the work: a teammate's agent, "owner" when it waits on the owner, null when nobody does.
   holder: string | null;
   starts_at: string | null;
   action: NowAction | null;
@@ -485,7 +486,7 @@ export function whenWord(iso: string, now: number, timeZone?: string): string {
   const t = Date.parse(iso);
   if (dayKey(t, timeZone) === dayKey(now, timeZone)) return `hoy ${clockAt(t, timeZone)}`;
   if (dayKey(t, timeZone) === dayKey(now - DAY_MS, timeZone)) return "ayer";
-  return `el ${new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "")}`;
+  return `el ${new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "")}`;
 }
 
 // ---- under the route (PLA-I40-6): what runs without the owner, what only he does, and the last things that happened

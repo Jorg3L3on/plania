@@ -1,7 +1,7 @@
 // PLA-I46-9: a delivery's QA evidence, for the floor's evidence card, and the PO's check list. Mounted under
 // /api/projects after the session check, so the screen cookie opens it and nothing else does.
 //   GET /api/projects/:slug/qa/:key[?commit=<sha>]  the latest QA pass on the ticket (or the one on that commit)
-//   PUT /api/projects/:slug/qa/:key/checklist         {items: string[] (≤ 3)}: Jorge edits the PO's check list
+//   PUT /api/projects/:slug/qa/:key/checklist         {items: string[] (≤ 3)}: the owner edits the PO's check list
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";

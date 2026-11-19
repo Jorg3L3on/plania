@@ -55,7 +55,7 @@ A step is too big when any of these holds. Split it.
 Never both for the same order: either the plan is proposed, or the tickets are created.
 
 `understood` is one plain line saying what you understood of the order. No ticket keys, branch names or
-the word sandbox in `title`, step titles or `understood`: anyone at the Mac reads them.
+the word sandbox in `title`, step titles or `understood`: anyone at the machine reads them.
 
 `cost` is honest: `tickets`, `days`, `tokens`, and `delays` when this pushes other work back.
 

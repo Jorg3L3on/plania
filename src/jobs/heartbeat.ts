@@ -48,7 +48,7 @@ export type ReadyWork = {
   ownerAgent: string | null;
   // PLA-I29-10: the project's runs_paused switch. A paused project offers no work to anyone.
   paused?: boolean;
-  // PLA-I36-6: Jorge picked this ticket to go first in its project (settings.next_first).
+  // PLA-I36-6: the owner picked this ticket to go first in its project (settings.next_first).
   first?: boolean;
 };
 
@@ -294,7 +294,7 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   // PLA-I29: switches stop live runs first, then queued runs take free slots.
   const stopped = await enforceLive(db, now);
   // PLA-16: a run that failed holding its ticket is retried once (queued here, started by the drain below),
-  // or its ticket is handed to Jorge after a second failure in a row.
+  // or its ticket is handed to the owner after a second failure in a row.
   const failed = await sweepFailedRuns(db);
   // PLA-18: a run a limit stopped lets go of its ticket, and work a limit held is queued again once the
   // runner's checks say it would start.

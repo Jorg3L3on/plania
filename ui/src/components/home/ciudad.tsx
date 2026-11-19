@@ -1,7 +1,7 @@
 // La ciudad: Inicio's night skyline. Each open initiative is a tower in its project's district;
 // its windows are its tickets, lit from the ground up as they close. A crane means agents are on
 // it, a red beacon that it is shipping, scaffolding that it is still being planned, and a
-// searchlight that it waits on Jorge. Tapping a tower opens the initiative on its project page.
+// searchlight that it waits on the owner. Tapping a tower opens the initiative on its project page.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";

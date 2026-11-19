@@ -1,4 +1,4 @@
-// "Hecho": Jorge marks a human action done, with an optional note that lands in the ticket's log.
+// "Hecho": the owner marks a human action done, with an optional note that lands in the ticket's log.
 // The Bandeja's Pasos tab and the ticket sheet's "Te toca" use the same control.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";

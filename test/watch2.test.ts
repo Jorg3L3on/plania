@@ -272,7 +272,7 @@ describe("P3.1 GET /bot/v1/stream", () => {
 });
 
 describe("P3.3 machine ↔ claim reconciliation", () => {
-  test("a live claim whose worktree is gone from the Mac gets one claim.stale; get_running says stale", async () => {
+  test("a live claim whose worktree is gone from the machine gets one claim.stale; get_running says stale", async () => {
     const { db, close } = makeDb();
     try {
       const mic = await findProject(db, "micasa");
@@ -306,7 +306,7 @@ describe("P3.3 machine ↔ claim reconciliation", () => {
     }
     const stale = (await call("list_events", { project: "micasa", types: ["claim.stale"] })).events;
     assert.equal(stale.length, 1);
-    assert.equal(stale[0].summary, "MIC-01: el worktree de claude-code ya no está en la Mac (/repos/micasa/.worktrees/mic-01)");
+    assert.equal(stale[0].summary, "MIC-01: el worktree de claude-code ya no está en la máquina (/repos/micasa/.worktrees/mic-01)");
     const running = (await call("get_running")).running.find((r: Json) => r.key === "MIC-01");
     assert.deepEqual([running.liveness, running.gone_on_machine], ["stale", true]);
     // A new lease on the same ticket starts clean.

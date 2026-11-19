@@ -73,7 +73,7 @@ export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: st
 export const BlockError = ({ what, onRetry }: { what: string; onRetry: () => void }) => (
   <div role="alert" className="grid gap-2 rounded-[20px] bg-status-blocked/10 p-4 ring-1 ring-status-blocked/40">
     <p className="text-sm font-semibold text-ink-blocked">No se pudo cargar {what}.</p>
-    <p className="text-sm text-muted-foreground">Plania no responde. Si la Mac está dormida, nada corre hasta que despierte.</p>
+    <p className="text-sm text-muted-foreground">Plania no responde. Si la máquina está dormida, nada corre hasta que despierte.</p>
     <div>
       <button type="button" className={pillGhost} onClick={onRetry}>
         Reintentar

@@ -22,7 +22,7 @@ import { api, ApiError } from "@/lib/api";
 import type { Check, TaskDetail, WhyLink } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// One Done when item: done, waived (with why), or open with a way for Jorge to waive it.
+// One Done when item: done, waived (with why), or open with a way for the owner to waive it.
 function CheckLine({ slug, taskKey, check }: { slug: string; taskKey: string; check: Check }) {
   const queryClient = useQueryClient();
   const [waiving, setWaiving] = useState(false);

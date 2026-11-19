@@ -93,10 +93,10 @@ async function run(fn: () => Promise<unknown>): Promise<CallToolResult> {
   }
 }
 
-const project = z.string().min(1).describe("Project slug, e.g. micasa");
+const project = z.string().min(1).describe("Project slug, e.g. tienda");
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
 const write = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
-const key = z.string().min(1).describe("Human key, e.g. MIC-01-F2");
+const key = z.string().min(1).describe("Human key, e.g. TND-01-F2");
 
 const blockedBy = z
   .array(
@@ -445,7 +445,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     ({ project, parent_key, work_type, updated_since, severity, ...raw }) =>
       run(async () => {
         const p = await findProject(db, project);
-        const { input: f, warnings } = readOldSpellings(raw); // PLA-I2-14: status "Needs Jorge" still reads
+        const { input: f, warnings } = readOldSpellings(raw); // PLA-I2-14: the old status spelling still reads
         return {
           tasks: await listTasks(db, p.id, { ...f, parentKey: parent_key, workType: work_type, severity, updatedSince: updated_since }),
           ...(warnings.length ? { warnings } : {}),
@@ -591,7 +591,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last",
         `${QUIET_MIN} min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). last_activity_at = the newest of last_seen_at, claimed_at and an event by the same session on the ticket.`,
-        "Includes the owner, workspace (branch, worktree) and what the ticket has running on the Mac (footprint). Use it to tell a working session from a dead one.",
+        "Includes the owner, workspace (branch, worktree) and what the ticket has running on the machine (footprint). Use it to tell a working session from a dead one.",
       ].join(" "),
       inputSchema: {},
       annotations: readOnly,
@@ -689,7 +689,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Create a ticket (default), an initiative, or an idea.",
-        "Idea: kind idea, key PREFIX-IDEA<n> (WRK-IDEA3), status Open, stage idea. It is not claimed, not offered by get_next, and not counted in the release plan.",
+        "Idea: kind idea, key PREFIX-IDEA<n> (TND-IDEA3), status Open, stage idea. It is not claimed, not offered by get_next, and not counted in the release plan.",
         "Initiative: starts in Planning; scope holds the PRD and the phased plan; base_branch defaults to main; next_action optional. Then create one ticket per phase.",
         "Ticket with parent_key: a phase of that initiative, with phase N, its scope (without copying the PRD) and checks (the Done when list, one string each). Without parent_key: a standalone spec.",
         "Tickets: priority defaults to P2, status to Backlog (or Ready), work_type to code. origin defaults to discovered when the parent is Active or Shipping, otherwise chartered.",
@@ -793,7 +793,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Artist: put the design's frames on an idea so the owner sees them on the screen (the idea's Diseño stop and its review table).",
         "One image per frame (PNG, JPEG or WebP, 5 MB each, up to 40), each with a short id (T, A1, B3), a name, an optional group, what it does (hace) and why (porque), in the order to show them.",
-        "path is a file inside the canvases folder on this Mac (PLANIA_CANVASES_ROOT, by default ~/Developer/design-canvases); anything else is FRAME_INVALID.",
+        "path is a file inside the canvases folder on this machine (PLANIA_CANVASES_ROOT, by default ~/plania/canvases); anything else is FRAME_INVALID.",
         "A new call replaces the idea's whole set. Deliver the design stage itself with deliver_stage (approach, scope, out_of_scope), which writes the Design doc.",
       ].join(" "),
       inputSchema: {
@@ -986,7 +986,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), release_on (env | branch: what Released means; unset, branch when the project has no Vercel and no commit for release_target), auto_done (false keeps released tickets from closing themselves), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
-        "resources ({'port:*': {ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch the owner ships into another, e.g. sandbox → main for prod; mode command (default: they run the command) or merge (they press Lanzar on screen)). capture ({start_command, port, ready_path, pages [{key, path, label, session, follow, full_page}], session {login_path, user (a test address on a reserved domain), user_field, password_field, password_command, after_login_prefix}}: how Plania takes stills of the running app). local ({repo_path, no_code}: the repo folder on the Mac, an absolute path, or no_code true for a project with no code yet; never both). A needs_approval flag on an old settings row is ignored. Never a secret: integrations name env vars.",
+        "resources ({'port:*': {ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch the owner ships into another, e.g. sandbox → main for prod; mode command (default: they run the command) or merge (they press Lanzar on screen)). capture ({start_command, port, ready_path, pages [{key, path, label, session, follow, full_page}], session {login_path, user (a test address on a reserved domain), user_field, password_field, password_command, after_login_prefix}}: how Plania takes stills of the running app). local ({repo_path, no_code}: the repo folder on the machine, an absolute path, or no_code true for a project with no code yet; never both). A needs_approval flag on an old settings row is ignored. Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -1058,7 +1058,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_inbox",
     {
       description: [
-        "Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
+        "Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the machine).",
         "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs them.",
         "delegated lists answers plania-bot recorded and Won't do or reopen moves an agent logged (quote, message id, time), so they can review them.",
       ].join(" "),
@@ -1088,7 +1088,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
-        "the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). approvals is always an empty list. UNKNOWN_BRANCH when nothing is on the branch.",
+        "the pinned decisions that apply, open questions on those tickets, the footprint they have on the machine (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). approvals is always an empty list. UNKNOWN_BRANCH when nothing is on the branch.",
       ].join(" "),
       inputSchema: {
         project,
@@ -1163,12 +1163,12 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "register_footprint",
     {
       description: [
-        "Declare something you started that outlives the command: a dev server, a database or a copy of one, a container, a service, a tunnel, a worktree. Plania also watches the Mac itself;",
+        "Declare something you started that outlives the command: a dev server, a database or a copy of one, a container, a service, a tunnel, a worktree. Plania also watches the machine itself;",
         "a declaration for something it already sees merges into that row (source both) and adds who, why and how to remove it. Needs actor.machine (or an agent token with a machine).",
         "locator by kind: server port:3069 (3069 and :3069 work); db_server postgres:5433; database name@host:port (name alone means @127.0.0.1:5432);",
         "worktree an absolute path; browser and tunnel pid:N; service brew:<formula> or launchagent:<label>; container docker:<name>; cache free text.",
         "teardown is the command that removes it (Plania never runs it). task_key defaults to your only live claim in the project (none or several: no ticket; pass task_key).",
-        "Name databases <project>_<ticket key lowercased, - to _>_<purpose>, e.g. zigzag_zig_i5_scratch. FOOTPRINT_HELD when another live session declared it. Registering again updates your own.",
+        "Name databases <project>_<ticket key lowercased, - to _>_<purpose>, e.g. tienda_tnd_i5_scratch. FOOTPRINT_HELD when another live session declared it. Registering again updates your own.",
         "Short commands (tests, builds) are not registered. What nobody registered and no claim explains shows as orphan, and what outlives its ticket as stale, in the audit. Closing a ticket with footprint still registered warns FOOTPRINT_LIVE per item with its teardown; handoff carries the list to the next session.",
       ].join(" "),
       inputSchema: {
@@ -1178,7 +1178,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         kind: z.enum(FOOTPRINT_KINDS),
         locator: z.string().min(1),
         purpose: z.string().min(1).describe("What it is for, in a line"),
-        teardown: z.string().min(1).describe("The command that removes it, e.g. kill 41152 or dropdb zigzag_zig_i5_scratch"),
+        teardown: z.string().min(1).describe("The command that removes it, e.g. kill 41152 or dropdb tienda_tnd_i5_scratch"),
         task_key: key.optional(),
         details: z.record(z.string(), z.unknown()).optional().describe("Anything worth showing: port, path, branch, size"),
       },

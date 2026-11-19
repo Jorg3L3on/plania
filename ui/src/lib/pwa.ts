@@ -6,7 +6,7 @@
 // and every 15 minutes; the new worker takes over (skipWaiting + clients.claim in ui/sw.js) and the
 // page reloads once onto the new build: at once when it is in the background, else at its next
 // visibility change (leaving, or coming back before anything is typed), so a half-written Pedir is
-// never wiped under Jorge's fingers.
+// never wiped under the owner's fingers.
 const CHECK_EVERY_MS = 15 * 60_000;
 
 export function registerServiceWorker() {

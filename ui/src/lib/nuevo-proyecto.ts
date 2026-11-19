@@ -19,12 +19,12 @@ export function nuevoProyectoError(code: string | null, detail: Record<string, u
   // NEWPROJ-3: the folder's checks, one sentence each, saying what to fix.
   const folder = typeof detail.path === "string" && detail.path ? `la carpeta ${detail.path}` : "esa carpeta";
   const branch = typeof detail.branch === "string" && detail.branch ? detail.branch : "sandbox";
-  if (code === "REPO_FOLDER_MISSING") return `No se creó nada: ${folder} no existe en esta Mac. Revisa la ruta o elige otra opción.`;
+  if (code === "REPO_FOLDER_MISSING") return `No se creó nada: ${folder} no existe en esta máquina. Revisa la ruta o elige otra opción.`;
   if (code === "REPO_NOT_GIT") return `No se creó nada: ${folder} no es un repositorio de git. Ábrela en la terminal y corre git init, o elige la carpeta correcta.`;
   if (code === "REPO_NO_ORIGIN") return `No se creó nada: ${folder} no está conectada a GitHub (no tiene origin). Agrégale el repositorio remoto y vuelve a intentar.`;
   if (code === "REPO_ORIGIN_UNREACHABLE") return `No se creó nada: no pude leer el repositorio remoto de ${folder}. Revisa la conexión, la dirección del remoto o tu acceso a GitHub.`;
   if (code === "REPO_NO_START_BRANCH") return `No se creó nada: el repositorio remoto de ${folder} no tiene la rama ${branch}, de donde parte el equipo. Créala y súbela, y vuelve a intentar.`;
-  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/viajia.";
+  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/mi-proyecto.";
   if (code === "INVALID_BODY" && detail.field === "repo_path") return "No se creó nada: la carpeta va con su ruta completa, empezando con / o con ~/.";
   if (code === "INVALID_BODY" && detail.field === "no_code") return "No se creó nada: elige solo una opción para el código.";
   if (code === "INVALID_BODY") return "No se creó nada: revisa el nombre y la meta.";
@@ -45,11 +45,11 @@ export const fondoMouseDown =
     if (closes && e.target === e.currentTarget) onClose();
   };
 
-// NEWPROJ-3: where the project's code is. A folder on this Mac (with its GitHub repo if there is one), only a GitHub
+// NEWPROJ-3: where the project's code is. A folder on this machine (with its GitHub repo if there is one), only a GitHub
 // repo, or no code yet. The same shapes the server checks (src/runner/repo-check.ts); GitHub is never called.
 export type CodigoOpcion = "carpeta" | "github" | "ninguno";
 export const CODIGO_OPCIONES: { key: CodigoOpcion; label: string; hint: string }[] = [
-  { key: "carpeta", label: "Ya está en esta Mac", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
+  { key: "carpeta", label: "Ya está en esta máquina", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
   { key: "github", label: "Está en GitHub", hint: "Se guarda el repositorio; la carpeta se busca en la de proyectos con el nombre del proyecto." },
   { key: "ninguno", label: "Todavía no hay código", hint: "Se crea el proyecto sin código. Máquinas lo dirá hasta que tenga carpeta." },
 ];

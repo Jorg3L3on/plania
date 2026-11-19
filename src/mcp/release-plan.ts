@@ -4,7 +4,7 @@ import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";
 
 // 2.10 (item 2, phase one): the release is computed, never typed. A project with settings.release
-// {from, into, env} (sandbox → main, deployed to prod) has one step only Jorge takes: fast-forward
+// {from, into, env} (sandbox → main, deployed to prod) has one step only the owner takes: fast-forward
 // `into` to `from`. releasePlan says what that step ships: the heads, how many commits `from` is
 // ahead (the GitHub poller's compare, cached in poll_state by the pair of heads), the merged
 // tickets not yet released, the migrations they reserved that env does not run yet, the human
@@ -49,7 +49,7 @@ export type ReleasePlan = {
   before: { blocker_id: string; key: string; text: string }[];
   open_checks: number;
   command: string;
-  // 2.13: how Jorge ships it (settings.release.mode), the merge he already made from the screen for
+  // 2.13: how the owner ships it (settings.release.mode), the merge he already made from the screen for
   // this from head (the poller has not seen it land yet), and whether Lanzar may run now.
   mode: "command" | "merge";
   merged: { sha: string; pr_url: string; at: string } | null;
@@ -181,7 +181,7 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
   };
 }
 
-// The release.merged event Jorge's Lanzar wrote for this from head, if any: between the merge and the
+// The release.merged event the owner's Lanzar wrote for this from head, if any: between the merge and the
 // poller's next compare the step still shows, as merged, and Lanzar stays off.
 async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Promise<ReleasePlan["merged"]> {
   const [e] = await db
@@ -199,6 +199,6 @@ async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Pro
  * ahead is unknown. Said as "sin datos de GitHub", never as nothing to ship. */
 export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
 
-/** The plan waits on Jorge: `from` is ahead and carries tickets. Once Jorge published this `from` head (merged),
+/** The plan waits on the owner: `from` is ahead and carries tickets. Once the owner published this `from` head (merged),
  * it no longer waits, even before the poller's next compare catches up; a new commit on `from` clears merged. */
 export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;

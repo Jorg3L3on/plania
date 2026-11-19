@@ -58,7 +58,7 @@ describe("runBackup", () => {
 
   test("the dump restores into an empty database", async (t) => {
     // PLA-65: a pg_dump newer than the server writes SET lines the server rejects (e.g. transaction_timeout on 14).
-    // runBackup picks the matching pg_dump where one is installed (the Mac); a CI runner has only its newer default.
+    // runBackup picks the matching pg_dump where one is installed (the machine); a CI runner has only its newer default.
     const dump = gunzipSync(readFileSync(path.join(dir, "plania-20261015.sql.gz"))).toString("utf8");
     const from = /Dumped from database version (\d+)/.exec(dump)?.[1];
     const by = /Dumped by pg_dump version (\d+)/.exec(dump)?.[1];

@@ -10,8 +10,9 @@ import { Link } from "react-router";
 import { api, type Decision, type OrgFicha, type OrgProject } from "@/lib/api";
 import { deliveryFor } from "@/lib/etapas";
 import { Btn, Key, Label, ReadError, You } from "./parts";
+import { LOCALE } from "@/lib/locale";
 
-const dayOf = (iso: string | null) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(new Date(iso)).replace(".", "") : "");
+const dayOf = (iso: string | null) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" }).format(new Date(iso)).replace(".", "") : "");
 
 /** all: every doc and PR (PLA-I64-6), so the one opened is the one clicked even past the first 30 docs or 20 PRs. */
 export function useFicha(slug: string, all = false) {

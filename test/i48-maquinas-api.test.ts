@@ -348,7 +348,7 @@ describe("the base of a floor, from the machine job's footprints", () => {
     writeEnv("zigzag", "DATABASE_URL=postgres://zig:x@db.example.com:5433/zigzag_dev\n");
     const remote = await post("/api/projects/zigzag/maquinas/base/apagar");
     assert.equal(remote.status, 403);
-    assert.match(remote.body.hint, /no está en esta Mac/);
+    assert.match(remote.body.hint, /no está en esta máquina/);
     // Plania's own Postgres (the primary port, 5432), even as a brew service.
     await fp("db_server", "postgres:5432", { engine: "postgres", port: 5432, data_dir: "/opt/homebrew/var/postgresql@14" }, null, "system");
     await fp("service", "brew:postgresql@14", { manager: "brew", name: "postgresql@14", status: "started" }, null, "system");

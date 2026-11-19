@@ -212,7 +212,7 @@ test("NEWPROJ-3: set_project takes settings.local (a folder or no_code), validat
 
 test("NEWPROJ-3: the sheet says what to fix for each folder check, in Spanish, with no code in capitals", () => {
   const d = { path: "/repos/viajia", branch: "sandbox" };
-  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta Mac. Revisa la ruta o elige otra opción.");
+  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta o elige otra opción.");
   assert.match(nuevoProyectoError("REPO_NOT_GIT", d), /no es un repositorio de git.*git init/);
   assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no tiene origin\)\. Agrégale el repositorio remoto/);
   assert.match(nuevoProyectoError("REPO_ORIGIN_UNREACHABLE", d), /no pude leer el repositorio remoto/);

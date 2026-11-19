@@ -1,5 +1,5 @@
 // PLA-I60-5: «a la vez» in Motores. Pure: the console holds the state. The counts are a second part of the draft
-// (next to model and effort): a seat's own count (null: del piso), the project's floor, and the Mac's ceiling.
+// (next to model and effort): a seat's own count (null: del piso), the project's floor, and the machine's ceiling.
 // previewAdmission mirrors the server's admission (src/runner/runner.ts admit) on the screen's data, so the footer
 // can say what Guardar would start and the queue can say why each thing waits, with a one-click fix when a number
 // would unblock it. It is a preview: the server decides.
@@ -118,7 +118,7 @@ export function previewAdmission(r: RunnerView, c: Counts, team: OrgMember[], pr
     }
     if (mac >= c.ceiling) {
       const next = c.ceiling + 1;
-      verdicts.push({ ...base, code: "ceiling", text: `Esperando lugar en la Mac (${mac - r.ceiling.reserved} de ${c.ceiling}${r.ceiling.live_other_projects ? ", contando otros proyectos" : ""})`, fix: next <= MAX.ceiling ? { label: `Subir el tope de la Mac a ${next}`, apply: (x) => ({ ...x, ceiling: next }) } : null });
+      verdicts.push({ ...base, code: "ceiling", text: `Esperando lugar en la máquina (${mac - r.ceiling.reserved} de ${c.ceiling}${r.ceiling.live_other_projects ? ", contando otros proyectos" : ""})`, fix: next <= MAX.ceiling ? { label: `Subir el tope de la máquina a ${next}`, apply: (x) => ({ ...x, ceiling: next }) } : null });
       continue;
     }
     if (r.plan.pct != null && !r.plan.override && plan + run.weight >= r.plan.guard) {
@@ -164,9 +164,9 @@ export function heldText(code: RunnerHeld | null, d: Record<string, unknown> | n
     case "agent_cap":
       return `Esperando: ${who} ya hace ${n("running") ?? "?"} a la vez`;
     case "ceiling":
-      return `Esperando lugar en la Mac (${n("running") ?? "?"} de ${n("cap") ?? "?"})`;
+      return `Esperando lugar en la máquina (${n("running") ?? "?"} de ${n("cap") ?? "?"})`;
     case "machine":
-      return "La Mac está corta de memoria o disco; arranca en cuanto se libere";
+      return "La máquina está corta de memoria o disco; arranca en cuanto se libere";
     case "start_rate":
       return `Arrancando de a poco (${n("per_minute") ?? "?"} por minuto)`;
     case "plan":

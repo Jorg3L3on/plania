@@ -1,7 +1,7 @@
 // PLA-I35-1: what a project card says about the business, derived from tables that already exist (no migration).
 //   plan       where the work is (PLA-I36-5: by the calendar, not by an initiative's place in the list).
 //   this_week  what happened in the last 7 days: tickets closed, docs written, PRs merged; last_at = last event.
-//   next       the next milestone and whose it is: Jorge's (a ceo-owned or Needs owner ticket) first, then the
+//   next       the next milestone and whose it is: the owner's (a ceo-owned or Needs owner ticket) first, then the
 //              next Ready ticket, the active initiative's before the rest.
 //   work       what a paused project keeps inside: open tickets, and those In progress.
 // PLA-I36-5. The plan is the project's open initiatives (Planning, Active, Shipping, On hold). Delivery is the
@@ -219,9 +219,9 @@ export async function ceoAgentId(db: Db): Promise<string | null> {
 
 const PRIORITY = (p: string | null) => (p ? Number(p.slice(1)) : 9);
 
-// PLA-I36-6: the next Ready tickets (not Jorge's), in Siguiente's order, for Cambiar lo siguiente.
+// PLA-I36-6: the next Ready tickets (not the owner's), in Siguiente's order, for Cambiar lo siguiente.
 export type ReadyLine = { key: string; title: string };
-// PLA-I39-1: every Ready ticket that is not Jorge's, in Siguiente's order, with what decides whose queue it joins.
+// PLA-I39-1: every Ready ticket that is not the owner's, in Siguiente's order, with what decides whose queue it joins.
 export type QueuedTicket = { key: string; title: string; owner: string | null; work_type: string };
 
 export async function nextOf(db: Db, p: Project, ceoId: string | null, activeKey: string | null): Promise<NextLine | null> {
@@ -240,7 +240,7 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
   const isOwners = (t: Task) => t.status === "Needs owner" || (!!ceoId && t.ownerAgent === ceoId);
-  // PLA-I36-6: the ticket Jorge picked goes first after his own.
+  // PLA-I36-6: the ticket the owner picked goes first after his own.
   const first = (t: Task) => (p.settings.next_first === t.key ? 0 : 1);
   const sorted = [...open].sort((a, b) => Number(!isOwners(a)) - Number(!isOwners(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
   const t = sorted[0]!;

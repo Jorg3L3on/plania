@@ -48,7 +48,7 @@ export function summarize(e: Ev): string {
     case "claim.expired":
       return `${k}: la sesión de ${str((p.owner as Actor | undefined)?.agent)} expiró${p.to && p.from !== p.to ? ` → ${str(p.to)}` : ""}`;
     case "claim.stale":
-      return `${k}: el worktree de ${str((p.owner as Actor | undefined)?.agent)} ya no está en la Mac (${str(p.worktree_path)})`;
+      return `${k}: el worktree de ${str((p.owner as Actor | undefined)?.agent)} ya no está en la máquina (${str(p.worktree_path)})`;
     case "claim.handoff":
       return `${k} pasado por ${by}${p.to ? ` a ${str(p.to)}` : ""}`;
     case "claim.workspace":

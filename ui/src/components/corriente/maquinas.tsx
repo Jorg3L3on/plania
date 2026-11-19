@@ -14,7 +14,7 @@ import type { CapturesRead } from "@/lib/ventana";
 import { Btn, Label, Opt, ReadError } from "./parts";
 import { NO_DISPONIBLE } from "@/lib/sistema";
 
-const ERR = (e: unknown, what: string) => (e instanceof ApiError ? `${what} (${e.code}).` : `${what}. Si la Mac está dormida, intenta al despertar.`);
+const ERR = (e: unknown, what: string) => (e instanceof ApiError ? `${what} (${e.code}).` : `${what}. Si la máquina está dormida, intenta al despertar.`);
 const readTicks = (k: string): number[] => {
   try {
     const v = JSON.parse(window.localStorage.getItem(k) ?? "[]");
@@ -445,7 +445,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
                 )}
               </div>
             </section>
-            <p className="cor-cap">Corre en tu Mac, sobre una copia de prueba. Si no enciende, el servidor dice «No arrancó» con el motivo y ofrece «Reintentar».</p>
+            <p className="cor-cap">Corre en tu máquina, sobre una copia de prueba. Si no enciende, el servidor dice «No arrancó» con el motivo y ofrece «Reintentar».</p>
           </>
         )}
       </aside>
