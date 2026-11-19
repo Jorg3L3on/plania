@@ -1048,10 +1048,24 @@ system themes. Times arrive as UTC and show in the browser's local time.
 
 One list, `src/mcp/settings-registry.ts`, holds every key of `projects.settings`: its default, whether it is basic or
 advanced, its control on screen and its plain sentence. `set_project` accepts exactly those keys, and the screen writes
-no other (`test/settings-registry.test.ts`). The advanced ones can be left alone; this table is generated from the list
-(`pnpm exec tsx scripts/settings-table.ts`):
+no other (`test/settings-registry.test.ts`). A few are owner-only: an agent setting them would weaken a control the owner
+keeps, so `set_project` from an agent refuses them and only the owner's screen writes them. These tables are generated
+from the list (`pnpm exec tsx scripts/settings-table.ts`):
 
 <!-- settings-advanced:start -->
+Only the owner's screen sets these; `set_project` from an agent refuses them (INVALID_FILTER):
+
+| Setting | Why an agent may not |
+|---|---|
+| `preview_url` | an agent could point the owner's preview link anywhere |
+| `plan_approval` | off, a PO's plan makes tickets without the owner's «Sí, empiecen» |
+| `auto_accept` | on, deliveries enter the test copy without the owner |
+| `auto_accept_invisible` | on, deliveries enter the test copy without the owner |
+| `runner` | it raises how many runs go at once and which server variables runs get |
+| `next_first` | it overrides the step the owner picked to go first |
+
+Advanced settings, which can be left alone:
+
 | Setting | Default | Why it can be left alone |
 |---|---|---|
 | `start_branch` | sandbox | The default works once the repository has that branch; «Crear la rama de trabajo» makes it. |

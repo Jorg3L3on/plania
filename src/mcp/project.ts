@@ -10,7 +10,7 @@ import { parseMaquinasSettings } from "../maquinas/settings.js";
 import { parseLocalSettings } from "../runner/repo-check.js";
 import { startBranchProblem } from "../runner/start-branch.js";
 import { TEXT_LIMITS } from "./limits.js";
-import { ENV_NAME, SETTING_KEYS } from "./settings-registry.js";
+import { ENV_NAME, settableKeys } from "./settings-registry.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -20,10 +20,13 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
-function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
+// PLA-I2-6: an owner-only key (src/mcp/settings-registry.ts) is taken only from the owner's screen (ctx.human); from
+// an agent it is refused like an unknown key, so an agent cannot weaken a control the owner keeps (I46-10 #4).
+function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>, human: boolean): ProjectSettings {
+  const allowed = settableKeys(human);
   const next: Record<string, unknown> = { ...current };
   for (const [k, v] of Object.entries(patch)) {
-    if (!(SETTING_KEYS as readonly string[]).includes(k)) throw new ToolError("INVALID_FILTER", { field: `settings.${k}`, allowed: SETTING_KEYS });
+    if (!(allowed as readonly string[]).includes(k)) throw new ToolError("INVALID_FILTER", { field: `settings.${k}`, allowed });
     if (v === null) delete next[k];
     else next[k] = v;
   }
@@ -116,7 +119,7 @@ export async function setProject(
     if (input.rules !== undefined && input.rules !== current.rulesText) changes.rules = [current.rulesText, input.rules];
     const headline = input.headline?.trim();
     if (headline !== undefined && headline !== current.headlineNote) changes.headline = [current.headlineNote, headline];
-    const settings = input.settings ? mergeSettings(current.settings, input.settings) : undefined;
+    const settings = input.settings ? mergeSettings(current.settings, input.settings, ctx.human === true) : undefined;
     if (settings && JSON.stringify(settings) !== JSON.stringify(current.settings)) changes.settings = [current.settings, settings];
     if (!Object.keys(changes).length) return projectShape(current);
     // 2.10: an owner line in the headline only warns; it makes no blocker.

@@ -20,7 +20,10 @@ export type SettingControl =
   | "motores"
   | "piso.siguiente";
 // defecto: the default in plain Spanish, for the screen; every advanced key has one.
-export type SettingDef = { tier: SettingTier; control: SettingControl; default: string; frase: string; reason?: string; defecto?: string };
+// owner_only: why an agent setting it would weaken a control the owner keeps. Only the owner's screen (a context with
+// human: true, from the session cookie) writes such a key; set_project from an agent refuses it with INVALID_FILTER,
+// as an unknown key (I46-10 #4).
+export type SettingDef = { tier: SettingTier; control: SettingControl; default: string; frase: string; reason?: string; defecto?: string; owner_only?: string };
 
 export const SETTINGS = {
   local: { tier: "basic", control: "ajustes.codigo", default: "the folder named after the project under PLANIA_PROJECTS_ROOT", frase: "Dónde está el código en esta computadora, o que todavía no hay código." },
@@ -38,12 +41,12 @@ export const SETTINGS = {
   },
   qa: { tier: "basic", control: "ajustes.pruebas", default: "no verify list; the other QA switches off", frase: "Los comandos que QA corre en cada entrega." },
   capture: { tier: "basic", control: "ajustes.arranque", default: "none until Máquinas guesses it from the dev script", frase: "Cómo arranca la app para probarla y tomarle fotos." },
-  preview_url: { tier: "basic", control: "ajustes.vista", default: "none", frase: "Dónde ves la app corriendo." },
-  plan_approval: { tier: "basic", control: "ajustes.vista", default: "on for a new project", frase: "Un plan del PO espera tu «Sí, empiecen»." },
-  auto_accept: { tier: "basic", control: "ajustes.vista", default: "off", frase: "Una entrega con sus pruebas en verde entra a la copia de prueba sin esperarte." },
-  auto_accept_invisible: { tier: "basic", control: "ajustes.vista", default: "off", frase: "Solo lo que no cambia la pantalla entra sin esperarte." },
-  runner: { tier: "basic", control: "motores", default: "the company's limits", frase: "Cuántos agentes y preguntas trabajan a la vez en este proyecto." },
-  next_first: { tier: "basic", control: "piso.siguiente", default: "none: the board's order", frase: "El paso listo que va primero." },
+  preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "ajustes.vista", default: "none", frase: "Dónde ves la app corriendo." },
+  plan_approval: { owner_only: "off, a PO's plan makes tickets without the owner's «Sí, empiecen»", tier: "basic", control: "ajustes.vista", default: "on for a new project", frase: "Un plan del PO espera tu «Sí, empiecen»." },
+  auto_accept: { owner_only: "on, deliveries enter the test copy without the owner", tier: "basic", control: "ajustes.vista", default: "off", frase: "Una entrega con sus pruebas en verde entra a la copia de prueba sin esperarte." },
+  auto_accept_invisible: { owner_only: "on, deliveries enter the test copy without the owner", tier: "basic", control: "ajustes.vista", default: "off", frase: "Solo lo que no cambia la pantalla entra sin esperarte." },
+  runner: { owner_only: "it raises how many runs go at once and which server variables runs get", tier: "basic", control: "motores", default: "the company's limits", frase: "Cuántos agentes y preguntas trabajan a la vez en este proyecto." },
+  next_first: { owner_only: "it overrides the step the owner picked to go first", tier: "basic", control: "piso.siguiente", default: "none: the board's order", frase: "El paso listo que va primero." },
   // PLA-I2-5: the working branch every worktree is cut from (src/runner/start-branch.ts).
   start_branch: {
     tier: "advanced",
@@ -147,6 +150,10 @@ export const SETTINGS = {
 export type SettingKey = keyof typeof SETTINGS;
 export const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];
 export const ADVANCED_KEYS = SETTING_KEYS.filter((k) => SETTINGS[k].tier === "advanced");
+// PLA-I2-6: the keys only the owner's screen sets (see SettingDef.owner_only).
+export const OWNER_ONLY_KEYS = SETTING_KEYS.filter((k) => !!(SETTINGS[k] as SettingDef).owner_only);
+/** The keys a caller may set: every key from the owner's screen; the rest only, from an agent. */
+export const settableKeys = (human: boolean): SettingKey[] => (human ? SETTING_KEYS : SETTING_KEYS.filter((k) => !OWNER_ONLY_KEYS.includes(k)));
 
 // A variable's name, never its value: what every *_env field and every token field takes.
 export const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -173,11 +180,24 @@ export function stringsIn(v: unknown): string[] {
   return [];
 }
 
-/** The README's table of advanced settings, between the settings-table markers. */
+/** The README's tables: the keys only the owner's screen sets, then the advanced ones; between the settings-table markers. */
 export function advancedTable(): string {
   const rows = ADVANCED_KEYS.map((k) => {
     const d: SettingDef = SETTINGS[k];
     return `| \`${k}\` | ${d.default} | ${d.reason ?? ""} |`;
   });
-  return ["| Setting | Default | Why it can be left alone |", "|---|---|---|", ...rows].join("\n");
+  const owner = OWNER_ONLY_KEYS.map((k) => `| \`${k}\` | ${(SETTINGS[k] as SettingDef).owner_only} |`);
+  return [
+    "Only the owner's screen sets these; `set_project` from an agent refuses them (INVALID_FILTER):",
+    "",
+    "| Setting | Why an agent may not |",
+    "|---|---|",
+    ...owner,
+    "",
+    "Advanced settings, which can be left alone:",
+    "",
+    "| Setting | Default | Why it can be left alone |",
+    "|---|---|---|",
+    ...rows,
+  ].join("\n");
 }
