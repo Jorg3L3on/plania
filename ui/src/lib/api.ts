@@ -640,6 +640,8 @@ export type OrgCompany = {
   brief?: { lines: string[]; generated_at: string; link: string } | null;
   // PLA-I59-2: the company's default motor (null parts: the CLI's own default). Optional for older servers.
   motor_default?: { model: string | null; effort: string | null };
+  // PLA-I2-13: which sign-in Claude is using, one sentence from the server.
+  claude_sign_in?: string;
 };
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.

@@ -766,7 +766,9 @@ export type DeploySource = { provider: string; deployment_id: string; url?: stri
 // projects.settings (set_project settings, merged). Secrets never: integrations name env vars.
 // PLA-I60: the project's run limits, set in Motores. Missing keys are the defaults (1, 1, 1, true).
 // PLA-58: shared_areas, the paths no single ticket owns (default src/runner/touched.ts DEFAULT_SHARED_AREAS).
-export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean; shared_areas?: string[] };
+export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean; shared_areas?: string[];
+  // PLA-I2-13: names of server variables this project's runs also get (src/runner/run-env.ts). Never Plania's own.
+  env?: string[] };
 
 export type ProjectSettings = {
   // PLA-I60: «Agentes a la vez», «Preguntas a la vez», «Por agente» (Motores) and same-files serialization.

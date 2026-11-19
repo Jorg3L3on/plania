@@ -4,6 +4,7 @@ import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { Readable } from "node:stream";
+import { runEnv } from "./run-env.js";
 
 export type ChildLike = {
   pid?: number;
@@ -49,19 +50,10 @@ export const defaultProbePid: ProbePid = (pid) =>
     });
   });
 
-// The child env: the parent's, minus every ANTHROPIC_* key (a stray API key would bill the API,
-// not the plan), plus the few values the run needs.
-export function childEnv(base: NodeJS.ProcessEnv, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (/^ANTHROPIC_/i.test(key)) continue;
-    if (value !== undefined) out[key] = value;
-  }
-  for (const [key, value] of Object.entries(extra)) {
-    if (/^ANTHROPIC_/i.test(key)) continue;
-    out[key] = value;
-  }
-  return out;
+// PLA-I2-13: the child env is an allow-list (src/runner/run-env.ts): system basics, Claude Code's own variables
+// untouched, the run's own values (extra) and the names the project asks for. Nothing of Plania's own.
+export function childEnv(base: NodeJS.ProcessEnv, extra: Record<string, string> = {}, names: readonly string[] = []): NodeJS.ProcessEnv {
+  return runEnv(base, { extra, names });
 }
 
 export type ExitInfo = { code: number | null; signal: NodeJS.Signals | null; timedOut: boolean; stoppedBy: string | null };

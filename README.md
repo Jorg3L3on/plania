@@ -188,6 +188,32 @@ The GitHub poller used to run `gh auth token`, which reads the login keychain th
 
 Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and sets `GH_TOKEN` from `~/.config/plania/github-release-token`, else `~/.config/plania/github-token`, plus `GH_PROMPT_DISABLED=1`. With no token and the fallback off it returns `RELEASE_MERGE_FAILED` (`step` `token`, `falta token: …`) and starts no process. A 403 from GitHub adds a hint that the token needs write access to contents and pull requests.
 
+### What a run receives
+
+No migration. Every process Plania starts for work (an agent run, a Preguntar run, the Morning brief, a QA command,
+a test copy, the capture browser) gets its environment from one allow-list, `src/runner/run-env.ts`:
+
+- system basics: `PATH`, `HOME`, user, shell, locale (`LANG`, `LC_*`), `TZ`, the temp dir, `XDG_*`, and the Windows
+  names for the same where WSL passes them;
+- what git, gh and Node need: `SSH_AUTH_SOCK`, `GH_CONFIG_DIR`, the proxy variables (`HTTPS_PROXY`, `NO_PROXY`, …)
+  and the CA variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, …);
+- Claude Code's own variables, untouched: `ANTHROPIC_*`, `CLAUDE_*` (including `CLAUDE_CODE_USE_BEDROCK`,
+  `_VERTEX`, `_FOUNDRY`), and the provider's credentials (`AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`) only while
+  that provider is switched on. App commands (QA, test copies) get none of these;
+- the run's own values: its token (`PLANIA_RUNNER_TOKEN`, or `PLANIA_BRIEF_TOKEN` for the brief), `PORT`, a test
+  copy's own database URL;
+- the names a project lists in `settings.runner.env` (for example `["STRIPE_TEST_KEY"]`), agent runs only.
+
+Never Plania's own: `DATABASE_URL`, `MCP_BEARER_TOKEN`, `MCP_READ_TOKEN`, `SESSION_SECRET`, `GITHUB_TOKEN`,
+`VERCEL_TOKEN`, the VAPID keys, or anything named `PLANIA_*`, even when a project names it. A test copy still
+reads its app's own env file: nothing that file sets is pre-set by Plania.
+
+Claude signs in the way you set it up (your plan's login, an API key, or a cloud provider); Plania does not choose
+and never reads Claude's credential files or keychain entry (`test/run-env.test.ts` scans `src/` for that).
+Motores says in one sentence which sign-in is in use. Before this change a run got the server's whole environment
+minus `ANTHROPIC_*`, which forced the plan's login; to keep that, set `PLANIA_STRIP_ANTHROPIC_ENV=1` (off by
+default).
+
 ## Human-only questions
 
 `ask` with `human_only: true` makes a question only the owner's screen can answer. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. On the screen every open question has its option buttons and a free answer. The Bandeja also has the kill switch «El bot puede responder por ti» (default on) and every delegated answer with the «Delegada» badge, the quote and the time.

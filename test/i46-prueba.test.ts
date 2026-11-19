@@ -14,6 +14,11 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const TMP = mkdtempSync(path.join(tmpdir(), "plania-prueba-test-"));
 process.env.PLANIA_CAPTURES_DIR = path.join(TMP, "captures");
+// PLA-I2-13: the rest of Plania's secrets (useTestEnv sets the database, MCP tokens, CI token and session secret)
+// and a Claude key: none may reach an app's command.
+process.env.GITHUB_TOKEN = "ghp-plania-secret";
+process.env.VAPID_PRIVATE_KEY = "vapid-plania-secret";
+process.env.ANTHROPIC_API_KEY = "sk-ant-not-for-apps";
 const WT_ROOT = path.join(TMP, "worktrees");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
@@ -156,6 +161,9 @@ describe("Encenderla", () => {
     assert.equal(c.command, "npm run dev -- --port 3000");
     assert.equal(c.env.PORT, "3000");
     assert.equal(c.env.DATABASE_URL, undefined, "Plania's database never reaches the app");
+    // PLA-I2-13 #1: nor any other Plania secret; the app reads its own env file.
+    for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "MCP_READ_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY", "PLANIA_CI_TOKEN", "ANTHROPIC_API_KEY"]) assert.equal(c.env[k], undefined, k);
+    assert.deepEqual(Object.keys(c.env).filter((k) => k.startsWith("PLANIA_")), []);
     assert.ok(gitCalls.some((g) => g.join(" ") === `fetch origin sandbox @${REPO}`));
     assert.ok(gitCalls.some((g) => g.slice(0, 5).join(" ") === `worktree add --detach ${wt} origin/sandbox`));
     assert.ok(!gitCalls.some((g) => g.includes("main") || g.includes("origin/main")), "never main");

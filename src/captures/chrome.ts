@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { runEnv } from "../runner/run-env.js";
 
 export type Viewport = { width: number; height: number; mobile: boolean; scale: number };
 export type Nav = { status: number | null; url: string };
@@ -184,7 +185,8 @@ export const launchChrome: LaunchBrowser = async () => {
   const proc = spawn(
     bin,
     ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--mute-audio", "about:blank"],
-    { stdio: "ignore" },
+    // PLA-I2-13: the basics only, never the server's tokens (checkoutEnv, src/captures/run.ts).
+    { stdio: "ignore", env: runEnv(process.env, { claude: false }) },
   );
   const cleanup = () => {
     if (proc.exitCode === null) proc.kill("SIGKILL");

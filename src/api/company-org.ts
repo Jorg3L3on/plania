@@ -6,6 +6,7 @@
 //   GET  /api/machine                   plumbing (merged into the machine inventory): week usage, plan guard, switches, runs, log
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { claudeSignInLine } from "../runner/run-env.js";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
@@ -139,6 +140,9 @@ export type CompanyRead = {
   brief: { lines: string[]; generated_at: string; link: "/ceo?v=brief" } | null;
   // PLA-I59-2 (Motores): the company's default motor (null fields: the CLI's own default).
   motor_default: { model: string | null; effort: string | null };
+  // PLA-I2-13: which sign-in Claude is using (plan, key or a cloud provider), in one sentence, read from variable
+  // names only (src/runner/run-env.ts); Plania does not choose it.
+  claude_sign_in: string;
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -640,6 +644,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
     inbox: countInbox(inbox),
     brief,
     motor_default: { model: settings.defaultModel, effort: settings.defaultEffort },
+    claude_sign_in: claudeSignInLine(process.env),
   };
 }
 

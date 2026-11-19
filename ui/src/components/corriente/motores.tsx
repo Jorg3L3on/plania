@@ -32,7 +32,7 @@ const lineOf = (d: Draft, s: Strip) => {
   return { word, from };
 };
 
-export const Motores = ({ p, def, onSave, planTo }: { p: OrgProject; def?: { model: string | null; effort: string | null }; onSave: (s: MotoresSave) => Promise<unknown>; planTo: string }) => {
+export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def?: { model: string | null; effort: string | null }; signIn?: string; onSave: (s: MotoresSave) => Promise<unknown>; planTo: string }) => {
   const team = useMemo(() => [...p.team].sort(byRole), [p.team]);
   const saved = useMemo(() => draftOf(team, def), [team, def]);
   const savedCounts = useMemo(() => countsOf(p.runner, team), [p.runner, team]);
@@ -144,6 +144,11 @@ export const Motores = ({ p, def, onSave, planTo }: { p: OrgProject; def?: { mod
               Con qué trabaja cada puesto
             </h2>
             <span className="cor-text">Auto sigue a la compañía. Más esfuerzo gasta más plan.</span>
+            {signIn && (
+              <span className="cor-cap" data-motores-sign-in style={{ display: "block" }}>
+                {signIn}
+              </span>
+            )}
           </span>
           <span className="cor-acts" style={{ marginTop: 0 }} role="group" aria-label="Poner a todos en">
             <Label>Poner a todos en</Label>

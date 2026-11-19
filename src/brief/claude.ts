@@ -133,13 +133,10 @@ export function briefArgs(input: BriefArgsInput): string[] {
   return args;
 }
 
-// Parent env minus ANTHROPIC_* (childEnv) and minus every other token or secret the server holds,
-// so the pass only ever sees its read token.
-const SECRET_KEY = /(TOKEN|SECRET|PASSWORD|OWNER_CODE|DATABASE_URL|_KEY)$/i;
+// PLA-I2-13: the shared allow-list (childEnv, src/runner/run-env.ts): no token or secret the server holds,
+// Claude's own sign-in untouched, and the pass's read token.
 export function briefChildEnv(base: NodeJS.ProcessEnv, token: string): NodeJS.ProcessEnv {
-  const kept: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) if (!SECRET_KEY.test(key)) kept[key] = value;
-  return childEnv(kept, { PLANIA_BRIEF_TOKEN: token });
+  return childEnv(base, { PLANIA_BRIEF_TOKEN: token });
 }
 
 // Deletes Morning brief logs older than LOG_KEEP_DAYS. Returns how many went.
