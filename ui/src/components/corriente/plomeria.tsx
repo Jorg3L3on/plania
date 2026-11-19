@@ -12,6 +12,7 @@ import { tokens, type CompanyProjectRow, type RunBrief } from "@/lib/compania";
 import { seatName, thousands } from "@/lib/corriente";
 import { tableroView } from "@/lib/maquinas";
 import { logWords } from "@/lib/calidad";
+import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { Btn, Key, Label, Switch } from "./parts";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
@@ -333,6 +334,22 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
           {inventory ? "Ocultar lo que corre" : "Ver qué corre"}
         </Btn>
       </div>
+      {/* PLA-I2-18: two downloads; the owner decides what to do with each file. */}
+      <section className="cor-pl-foot" aria-label={AYUDA.title} data-block="ayuda">
+        <span className="cor-text">
+          <a className="cor-btn link" href={HELP_REPORT_URL} download data-control="informe-ayuda">
+            {AYUDA.report}
+          </a>
+          <span className="cor-cap"> {AYUDA.reportCap}</span>
+        </span>
+        <span className="cor-text">
+          <a className="cor-btn link" href={EXPORT_ALL_URL} download data-control="exportar-todo">
+            {AYUDA.exportAll}
+          </a>
+          <span className="cor-cap"> {AYUDA.exportAllCap}</span>
+        </span>
+        <span className="cor-cap">{AYUDA.leaveCap}</span>
+      </section>
     </div>
   );
 };

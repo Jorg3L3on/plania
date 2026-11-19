@@ -792,6 +792,35 @@ Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <
 
 `GET /api/export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
 env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
+`GET /api/export-all` gives every project in one file (`plania-export-all`, one `plania-export` entry per project),
+with the same access.
+
+## Getting help
+
+The help report is a text file the owner makes and chooses to send; Plania never sends it. Two ways to make it:
+
+- Plomería (`/machine`), «Bajar informe para pedir ayuda» (`GET /api/help-report`, behind the session).
+- `pnpm help:report` in Plania's folder, for when the screen does not start. It writes `plania-ayuda-<date>.txt`
+  (`--out <file>`, or `--out -` to print). It works with the database down: the file then says so and carries the rest.
+
+It holds Plania's version and commit, the system and Node, the machine check, whether the database answered, readiness
+per project, the last 10 failed runs with their one-line reason, the names of the environment variables that are set,
+and the last 40 lines of the server log (`PLANIA_LOG_FILE`, else `~/Library/Logs/plania/server.log` on macOS and
+`~/.local/state/plania/server.log` on Linux). It is built from those fields only (`src/help-report/`), and every
+free-text line goes through a redactor that hides every environment and `.env` value, every text in the projects'
+settings, and what the diff scanner recognises (tokens, keys, URLs with passwords, hashes, emails). It never holds an
+environment value, a token, a password hash, repo content, a prompt, a ticket's scope or thread text. Making it calls no
+network: `gh auth status`, the short `claude -p` and `git ls-remote` are skipped and shown as not checked.
+
+## Leaving
+
+1. Plomería, «Llevarte tus datos»: every project in one JSON file.
+2. `pnpm uninstall:plania` stops and removes the service (the launchd agent `com.plania.server` on macOS, the systemd
+   user unit `plania.service` on Linux) and stops Plania's server and runs started from this folder. The database and
+   every folder stay.
+3. `pnpm uninstall:plania --delete-data` also drops the database and removes `~/.config/plania`, the captures folder
+   and the log folder, only after you type the database's name. The backups folder (`~/plania-backups`) is never
+   removed. Then delete Plania's own folder.
 
 ## Clients
 
