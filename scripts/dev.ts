@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { app } from "../src/app.js";
 import { startJobs } from "../src/jobs/index.js";
 import { withDb } from "../src/db/client.js";
+import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
@@ -25,6 +26,14 @@ const hostname = "127.0.0.1";
 const distDir = path.resolve(import.meta.dirname, "../dist/ui");
 const indexPath = path.join(distDir, "index.html");
 const repoDir = path.resolve(import.meta.dirname, "..");
+
+// PLA-I2-1: before anything is served, the database must be reachable and carry every migration. Otherwise one
+// sentence and exit, instead of failing on first use.
+const dbProblem = await startupProblem(process.env.DATABASE_URL);
+if (dbProblem) {
+  console.error(dbProblem);
+  process.exit(1);
+}
 
 // PLA-I46-1: a restart is a deploy. dist/ui used to be rebuilt only by a manual `pnpm build`, so a
 // restart on a newer HEAD kept serving the old bundle. Rebuild here when the stamp is not HEAD.
