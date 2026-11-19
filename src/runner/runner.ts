@@ -220,7 +220,8 @@ const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? path.join(tmpdir(), "plani
 const rootOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.worktreeRoot ?? worktreeRoot(env);
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 
-function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
+// NEWPROJ-4: exported for the readiness list (./readiness.ts), which looks for the same binary without running it.
+export function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
   const named = config?.command_env;
   if (typeof named === "string" && ENV_NAME.test(named) && env[named]?.trim()) return env[named]!.trim();
   if (env.CLAUDE_CODE_BIN?.trim()) return env.CLAUDE_CODE_BIN.trim();

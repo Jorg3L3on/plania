@@ -1,7 +1,9 @@
 // PLA-I62-8: the sheets (board A5). Each opens alone over the dimmed screen and says what happens before the click:
-//   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state.
+//   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state
+//                   (NEWPROJ-4: the readiness list, and «listo» only when nothing stops a run).
 //   Pausar          what closes (the runs live now), what does not start, what stays; Pausar <proyecto>.
-//   Reanudar        a paused project, or the company stopped (that one is resumed from Plomería).
+//   Reanudar        a paused project, or the company stopped (that one is resumed from Plomería). NEWPROJ-4: a project
+//                   with no steps is started, not resumed, and the sheet names what will make the first run fail.
 //   Publicar        what goes out (the release's steps and its reel), what blocks it (open checks, a step of yours
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
@@ -16,6 +18,8 @@ import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { CODIGO_OPCIONES, codigoBody, nuevoProyectoError, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
+import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
+import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
 
@@ -80,11 +84,20 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
   const code = codigoBody(codigo, carpeta, repo);
   const make = useMutation({ mutationFn: (input: { name: string; goal: string } & CodigoBody) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
   const missing = make.error instanceof ApiError && (make.error.status === 404 || make.error.status === 405);
-  if (make.data)
+  // NEWPROJ-4: what the new project still lacks. Until it answers, the title says only that it was created.
+  const listo = useQuery({ queryKey: ["readiness", make.data?.slug], queryFn: () => api.readiness(make.data!.slug), enabled: !!make.data });
+  if (make.data) {
+    const aviso = listo.data ? listoAviso(listo.data) : null;
     return (
-      <Hoja label="Nuevo proyecto" title={`${name.trim()} está listo`} onClose={onClose}>
+      <Hoja label="Nuevo proyecto" title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
         <Rows rows={[["Clave", <Key key="k">{make.data.key_prefix}</Key>], ["PO", make.data.po], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
         <p className="cor-text">«{goal.trim()}»</p>
+        {aviso && (
+          <p className="cor-listo-aviso" role="status" data-listo-aviso>
+            {aviso}
+          </p>
+        )}
+        {listo.data ? <ListoLista r={listo.data} look="cor" /> : listo.isError ? <p className="cor-cap">No pude revisar qué le falta.</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
         <div className="cor-acts">
           <Btn kind="primary" onClick={() => onOpen(make.data!.slug)} data-control="abrir-proyecto">
             Abrir el proyecto
@@ -95,6 +108,7 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         </div>
       </Hoja>
     );
+  }
   return (
     <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose}>
       <form
@@ -186,14 +200,28 @@ export const Pausar = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => v
 
 export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p: OrgProject | null; companyPaused: boolean; onClose: () => void; onDone: () => void; plomeriaTo: string }) => {
   const go = useMutation({ mutationFn: () => api.setProjectPaused(p!.slug, false), onSuccess: () => (toast(`${p!.title} reanudado`), onDone()), onError: () => toast.error("No se pudo reanudar.") });
+  // NEWPROJ-4: whether there is anything to take back up, and what will make the first run fail. Resuming stays allowed.
+  const listo = useQuery({ queryKey: ["readiness", p?.slug], queryFn: () => api.readiness(p!.slug), enabled: !!p });
+  const falla = reanudarFalla(listo.data ?? null);
   return (
     <Hoja label="Reanudar · proyecto en pausa o compañía detenida" title={p ? `${p.title} está en pausa` : "La compañía está detenida"} onClose={onClose}>
       <Rows
         rows={[
-          ["Al reanudar", "Su PO despierta y el equipo retoma lo que estaba Lista o a medias. Nada se perdió."],
+          ["Al reanudar", reanudarAlReanudar(listo.data ?? null)],
           ["Si es toda", "Cuando la compañía entera está detenida, un aviso lo dice arriba de cada pantalla. Se reanuda desde Plomería."],
         ]}
       />
+      {falla && (
+        <p className="cor-listo-aviso" role="status" data-reanudar-falla>
+          {falla}
+        </p>
+      )}
+      {listo.data && listo.data.blocking > 0 && (
+        <details className="cor-listo-mas" data-reanudar-lista>
+          <summary className="cor-cap">Ver qué le falta y qué hacer</summary>
+          <ListoLista r={listo.data} look="cor" />
+        </details>
+      )}
       {companyPaused && <p className="cor-state amber">La compañía está detenida: aunque reanudes este proyecto, nada arranca hasta que la reanudes en Plomería.</p>}
       <div className="cor-acts">
         {p && (

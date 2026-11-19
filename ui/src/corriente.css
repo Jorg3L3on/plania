@@ -865,6 +865,19 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 /* The refusal names a folder and what to fix: it wraps, and a path keeps its case. */
 .cor-hoja-refusal { white-space: normal; text-transform: none; letter-spacing: normal; font-size: 12.5px; overflow-wrap: anywhere; }
 @media (max-width: 639px) { .cor-hoja-codigo .cor-hoja-two { flex-direction: column; } .cor-hoja-codigo .cor-opt { flex: 1 1 100%; justify-content: flex-start; } }
+/* NEWPROJ-4: the readiness list (components/listo.tsx). */
+.cor-listo { display: flex; flex-direction: column; gap: 12px; }
+.cor-listo-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.cor-listo-item { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--cor-line); font-size: 13px; color: var(--cor-body); }
+.cor-listo-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.cor-listo-body b { color: var(--cor-text); font-weight: 500; }
+.cor-listo-para { margin-left: 8px; font-family: var(--cor-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cor-red); }
+.cor-listo-dot { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--cor-muted); opacity: 0.5; }
+.cor-listo-dot.ok { background: var(--cor-green); opacity: 1; }
+.cor-listo-dot.amber { background: var(--cor-amber); opacity: 1; }
+.cor-listo-dot.bad { background: var(--cor-red); opacity: 1; }
+.cor-listo-aviso { font-size: 13.5px; color: var(--cor-amber); }
+.cor-listo-mas > summary { cursor: pointer; margin-bottom: 8px; }
 .cor-hoja-what { padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .cor-hoja-list .cor-row { gap: 14px; font-size: 13.5px; }
 .cor-hoja-list .cor-key { width: 90px; flex: none; }

@@ -16,6 +16,7 @@
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
 //   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 //   GET  /api/company/projects/:slug/pulso steps done per day, last 14 days (PLA-I64-3)
+//   GET  /api/company/projects/:slug/readiness  NEWPROJ-4: what a run needs, ready / missing / not_needed (src/runner/readiness.ts)
 //   GET  /api/company/projects/:slug/hecho what landed day by day, ?hasta=&dias= (PLA-I64-6); …/ficha?todo=1 every doc and PR
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 // PLA-I54-3/4: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar,construir}.
@@ -39,6 +40,7 @@ import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
+import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
@@ -116,6 +118,20 @@ companyRoutes.get("/projects/:slug/pulso", async (c) => {
   try {
     const days = Number(c.req.query("days") ?? 14);
     return c.json(await withDb((db) => pulsoRead(db, c.req.param("slug"), { days: Number.isFinite(days) ? days : 14 })));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// NEWPROJ-4: the readiness list. Reads only. Tests swap the environment, git and the filesystem (setReadinessDeps).
+let readinessDeps: ReadinessDeps = {};
+export const setReadinessDeps = (d: ReadinessDeps | null): void => {
+  readinessDeps = d ?? {};
+};
+
+companyRoutes.get("/projects/:slug/readiness", async (c) => {
+  try {
+    return c.json(await withDb((db) => projectReadiness(db, c.req.param("slug"), readinessDeps)));
   } catch (e) {
     return fail(c, e);
   }

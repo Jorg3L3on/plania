@@ -4,6 +4,7 @@ import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
+import type { Listo } from "@/lib/listo";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
@@ -165,6 +166,8 @@ export const api = {
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
   // PLA-I64-6: what landed day by day (a window of 14 days ending on hasta).
   hecho: (slug: string, hasta?: string | null) => request<Hecho>("GET", `/company/projects/${encodeURIComponent(slug)}/hecho${hasta ? `?hasta=${encodeURIComponent(hasta)}` : ""}`),
+  // NEWPROJ-4: what a run needs, ready / missing / not_needed. Reads only.
+  readiness: (slug: string) => request<Listo>("GET", `/company/projects/${encodeURIComponent(slug)}/readiness`),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),

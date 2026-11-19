@@ -28,6 +28,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { toast } from "sonner";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError, type OrgProject } from "@/lib/api";
+import { listoAviso } from "@/lib/listo";
+import { ListoLista } from "@/components/listo";
 import { branchEdges, buildLanes, projectProgress, statusCounts } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
 
@@ -85,6 +87,10 @@ function ProjectOrg({ slug }: { slug: string }) {
   const [add, setAdd] = useState<AddState>({ kind: "idle" });
   const [stop, setStop] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
+  // NEWPROJ-4: one quiet line while something stops a run here; it opens the readiness list.
+  const listo = useQuery({ queryKey: ["readiness", slug], queryFn: () => api.readiness(slug), refetchInterval: 60_000 });
+  const [listoOpen, setListoOpen] = useState(false);
+  const aviso = listo.data ? listoAviso(listo.data) : null;
   const goals = useQuery({ queryKey: ["goals"], queryFn: () => api.goals(), enabled: goalOpen });
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["company"] });
@@ -123,6 +129,20 @@ function ProjectOrg({ slug }: { slug: string }) {
         onPause={() => setStop(true)}
         onResume={() => pause.mutate(false)}
       />
+      {aviso && (
+        <button type="button" className="-mt-2 justify-self-start text-left text-sm text-ink-now underline-offset-4 hover:underline" onClick={() => setListoOpen(true)} data-control="ver-listo">
+          {aviso} <span className="text-muted-foreground">Ver qué falta</span>
+        </button>
+      )}
+      <Sheet open={listoOpen && !!listo.data} onOpenChange={setListoOpen}>
+        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
+          <SheetHeader className="pr-10">
+            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Qué le falta a {project.title}</SheetTitle>
+            <SheetDescription>{aviso ?? "Nada impide que el equipo trabaje."}</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-8">{listo.data && <ListoLista r={listo.data} look="page" />}</div>
+        </SheetContent>
+      </Sheet>
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         {detail.isError ? (
           <BlockError what="el equipo" onRetry={() => void detail.refetch()} />
