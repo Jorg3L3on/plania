@@ -8,6 +8,7 @@ import { GoalsHome } from "@/components/goals/goals-board";
 import { Ciudad } from "@/components/home/ciudad";
 import { Hoy } from "@/components/home/hoy";
 import { PedirHome } from "@/components/pedir";
+import { GuiaPrimeraEntrega } from "@/components/home/guia-primera-entrega";
 import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
 import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
@@ -69,6 +70,9 @@ export function HomePage() {
 
   return (
     <div className="grid grid-cols-1 gap-6 sm:gap-7">
+      {/* PLA-I2-16: the guide to a first delivery, until one is accepted. */}
+      <GuiaPrimeraEntrega />
+
       {/* 2.12: one field to ask for something in any project. */}
       <PedirHome projects={projects.data} />
 

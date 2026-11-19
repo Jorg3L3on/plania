@@ -36,6 +36,9 @@ export type CleanInstall = {
   cookie: string;
   project: string;
   ticket: string;
+  // PLA-I2-16: the step «Sí, empiecen» made, and what Aceptar did.
+  step: string;
+  accepted: Json | null;
   stop: Array<() => Promise<void>>;
 };
 
@@ -54,6 +57,8 @@ export function newCleanInstall(adminUrl: string, database: string): CleanInstal
     cookie: "",
     project: "",
     ticket: "",
+    step: "",
+    accepted: null,
     stop: [],
   };
 }
@@ -151,9 +156,22 @@ export async function login(w: CleanInstall): Promise<void> {
   w.cookie = (r.headers.get("set-cookie") ?? "").split(";")[0]!;
 }
 
-// Step 5: «+ Nuevo proyecto», a project with no code yet (the sheet's no-code choice).
-export async function createProject(w: CleanInstall, name = "Primero"): Promise<Json> {
-  const r = await http(w, "POST", "/api/company/projects", { name, goal: "Probar que una instalación nueva llega a un trabajo hecho.", no_code: true });
+// Step 5: «+ Nuevo proyecto», a project with no code yet (the sheet's no-code choice). PLA-I2-16: { repo } names a
+// GitHub repository instead (owner/name), so its builder can open a PR and Aceptar merges it; its clone is a folder
+// under the runner's projects root (runnerDeps), which the injected git answers for.
+export async function createProject(w: CleanInstall, name = "Primero", opts: { repo?: string } = {}): Promise<Json> {
+  const code = opts.repo ? { github_repo: opts.repo } : { no_code: true };
+  if (opts.repo) {
+    // gh, injected: the repository exists, this login can write to it, and it has the working branch.
+    const { setNewProjectRepoCheck } = await import("../src/api/company.js");
+    setNewProjectRepoCheck({
+      git: async () => ({ code: 0, stdout: "", stderr: "" }),
+      isDir: () => true,
+      gh: async (args: string[]) => ({ code: 0, stdout: args[0] === "repo" ? "WRITE\n" : "sandbox\n", stderr: "" }),
+    });
+    w.stop.push(async () => setNewProjectRepoCheck(null));
+  }
+  const r = await http(w, "POST", "/api/company/projects", { name, goal: "Probar que una instalación nueva llega a un trabajo hecho.", ...code });
   if (r.status !== 201) throw new Error(`project refused (${r.status}): ${r.text}`);
   w.project = r.json.slug;
   return r.json;
@@ -177,15 +195,19 @@ export async function ask(w: CleanInstall, text = "Haz la primera página"): Pro
 
 // The runner's outside calls. git answers as a repo would and makes the folders it is asked for; the run is the
 // fake Claude as a real child process with the environment the runner built; plan use is low; the machine has room.
-export function runnerDeps(w: CleanInstall): Json {
+export function runnerDeps(w: CleanInstall, extra: Record<string, string> = {}): Json {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CLAUDE_CODE_BIN: FAKE_CLAUDE,
     CLAUDE_FAKE_MS: "60",
     CLAUDE_FAKE_COMMENT: RUN_NOTE,
+    ...extra,
     // The run's MCP is this server; a real install serves on the default port the runner already uses.
     PLANIA_MCP_URL: `${w.base}/mcp`,
+    // Where the project's clone is (PLA-I2-5 makes it on a real install); git is injected, so a folder is enough.
+    PLANIA_PROJECTS_ROOT: path.join(w.scratch, "projects"),
   };
+  if (w.project) mkdirSync(path.join(w.scratch, "projects", w.project), { recursive: true });
   return {
     env,
     logDir: path.join(w.scratch, "logs"),
@@ -211,13 +233,13 @@ export function runnerDeps(w: CleanInstall): Json {
 }
 
 // Step 8: the heartbeat drains the queue the request filled, and the run finishes.
-export async function heartbeat(w: CleanInstall): Promise<{ started: number }> {
+export async function heartbeat(w: CleanInstall, extra: Record<string, string> = {}): Promise<{ started: number }> {
   const { waitForAskWakes } = await import("../src/api/company-actions.js");
   const runner = await import("../src/runner/runner.js");
   const { makeDb } = await import("../src/db/client.js");
   await waitForAskWakes();
   await runner.waitForAllRuns();
-  const r = await runner.drainQueue(makeDb().db, new Date(), runnerDeps(w) as never);
+  const r = await runner.drainQueue(makeDb().db, new Date(), runnerDeps(w, extra) as never);
   await runner.waitForAllRuns();
   return r;
 }
@@ -229,6 +251,92 @@ export async function workOnProject(w: CleanInstall): Promise<{ ticket: Json; co
   const project = await http(w, "GET", `/api/company/projects/${w.project}`);
   for (const r of [ticket, thread, project]) if (r.status !== 200) throw new Error(`reading the project failed (${r.status}): ${r.text}`);
   return { ticket: ticket.json, comments: thread.json.comments, project: project.json };
+}
+
+// ---- PLA-I2-16: from the first request to an accepted delivery
+
+// What the fake Claude does in the product owner's run: it answers the request with a plan of one code step, through
+// the MCP, as `propose` (the project approves plans, so it waits for «Sí, empiecen»).
+export const PLAN_CALLS = JSON.stringify([
+  {
+    name: "propose",
+    arguments: {
+      project: "{project}",
+      kind: "plan",
+      order: "{key}",
+      title: "La primera página",
+      understood: "Quieres una primera página sencilla.",
+      steps: [{ title: "Hacer la primera página", done_when: "La página abre y dice el nombre del proyecto", work_type: "code" }],
+    },
+  },
+]);
+
+export const PR_URL = "https://github.com/ana/primero/pull/1";
+export const HEAD = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0";
+
+// What the fake Claude does in the builder's run: it claims the step, then finishes it with a passing test at the
+// branch head and the PR, as Taller does after pushing.
+export const FINISH_CALLS = JSON.stringify([
+  { name: "start", arguments: { project: "{project}", key: "{key}" } },
+  {
+    name: "finish",
+    arguments: {
+      project: "{project}",
+      key: "{key}",
+      pr_url: PR_URL,
+      branch: "plania/{key}",
+      result: { kind: "test", verdict: "pass", cite: "La página abre y dice el nombre del proyecto.", commit: HEAD, branch: "plania/{key}", check_ns: [1] },
+    },
+  },
+]);
+
+// The rows Te toca shows for this project, as the screen reads them (GET /api/company).
+export async function decisions(w: CleanInstall): Promise<Json[]> {
+  const r = await http(w, "GET", "/api/company");
+  if (r.status !== 200) throw new Error(`the company page failed (${r.status}): ${r.text}`);
+  return (r.json.decisions ?? []).filter((d: Json) => d.project === w.project || d.project?.slug === w.project);
+}
+
+// «Sí, empiecen» on the product owner's plan: one Ready step for the builder.
+export async function approvePlan(w: CleanInstall): Promise<Json> {
+  const plan = (await decisions(w)).find((d) => d.kind === "plan");
+  if (!plan) throw new Error(`no plan waits on the company page: ${JSON.stringify(await decisions(w))}`);
+  const r = await http(w, "POST", `/api/company/decisions/${plan.id}`, { action: "empezar" });
+  if (r.status !== 200) throw new Error(`«Sí, empiecen» refused (${r.status}): ${r.text}`);
+  w.step = r.json.state?.result?.created?.[0] ?? "";
+  return r.json;
+}
+
+// The answers gh gives for one open PR into the project's working branch, then its merge. Recorded calls in `calls`.
+export function fakeGh(base: string, calls: string[][] = []): (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return async (args) => {
+    calls.push(args);
+    const json = args[args.indexOf("--json") + 1] ?? "";
+    const ok = (o: unknown) => ({ ok: true, stdout: JSON.stringify(o), stderr: "" });
+    if (args[1] === "merge") return { ok: true, stdout: "", stderr: "" };
+    if (json.startsWith("baseRefName")) return ok({ baseRefName: base, state: "OPEN", headRefOid: HEAD, url: PR_URL });
+    if (json === "mergeable") return ok({ mergeable: "MERGEABLE" });
+    if (json.startsWith("mergeCommit")) return ok({ mergeCommit: { oid: "f".repeat(40) }, url: PR_URL });
+    return { ok: false, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+  };
+}
+
+// Aceptar on the builder's delivery, from Te toca, with gh injected (the merge into the working branch).
+export async function acceptDelivery(w: CleanInstall, gh: (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }>): Promise<Json> {
+  const { releaseGh } = await import("../src/mcp/release-ship.js");
+  const delivery = (await decisions(w)).find((d) => (d.kind === "pr" || d.kind === "deliverable") && JSON.stringify(d).includes(w.step));
+  if (!delivery) throw new Error(`no delivery of ${w.step} waits on the company page: ${JSON.stringify(await decisions(w))}`);
+  const action = (delivery.actions as string[]).includes("fusionar") ? "fusionar" : "aceptar";
+  const before = releaseGh.run;
+  releaseGh.run = gh;
+  try {
+    const r = await http(w, "POST", `/api/company/decisions/${delivery.id}`, { action });
+    if (r.status !== 200) throw new Error(`Aceptar refused (${r.status}): ${r.text}`);
+    w.accepted = r.json;
+    return r.json;
+  } finally {
+    releaseGh.run = before;
+  }
 }
 
 export async function teardown(w: CleanInstall): Promise<void> {

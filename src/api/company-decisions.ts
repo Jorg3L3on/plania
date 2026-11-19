@@ -36,7 +36,7 @@ import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
-import { agentOfActor } from "../runner/events.js";
+import { agentOfActor, enqueueWake, eventWakesEnabled, serviceAgent } from "../runner/events.js";
 import { OWNER_AUTHOR, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
@@ -723,6 +723,19 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   return after(db, id, stateOf(out.action_state)!);
 }
 
+// PLA-I2-16: the steps are created Ready with no owner, and a ticket created that way wakes nobody (src/runner/events.ts);
+// with no cadence on a new install the first step sat Ready forever after «Sí, empiecen». The first step's seat gets
+// one wake: Taller for code, bug, debt and ops, Research for research. Nothing when wakes are off.
+async function wakeFirstStep(db: Db, p: { id: string; slug: string }, data: { steps: { work_type?: string }[] }, created: string[]): Promise<void> {
+  const key = created[0];
+  if (!key || !eventWakesEnabled()) return;
+  const work = data.steps[0]?.work_type ?? "code";
+  const role = work === "research" ? "research" : ["code", "bug", "debt", "ops"].includes(work) ? "taller" : null;
+  if (!role) return;
+  const agent = await serviceAgent(db, role, p);
+  await enqueueWake(db, { agent, project: p, taskKey: key, reason: "plan approved" }).catch(() => undefined);
+}
+
 // PLA-I36-8: Sí, empiecen makes one Ready ticket per step; Cambiar algo closes the order and hands its text back to
 // the box; Cancelar closes the order. Each claims the message's action_state first, like Elegir.
 async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
@@ -744,6 +757,7 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
     if (input.action === "empezar") {
       const created = await makeSteps(db, p.slug, data, ctx);
       await db.update(threadMessages).set({ proposal: { ...data, created } }).where(eq(threadMessages.id, m.id));
+      await wakeFirstStep(db, p, data, created);
       if (order) await setTask(db, { project: p.slug, key: order.key, note: `${ownerEs(undefined, { capital: true })} aprobó el plan: ${created.join(", ")}.` } as never, ctx);
       await postMessage(db, ref, { author: OWNER_AUTHOR, body: "Sí, empiecen." }, ctx);
       result = { created, order: data.order };

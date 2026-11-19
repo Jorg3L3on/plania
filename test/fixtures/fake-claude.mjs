@@ -28,7 +28,10 @@ if (process.env.FAKE_SIGNED_OUT === "1") {
 // PLA-I2-15: CLAUDE_FAKE_COMMENT=<text> does what a real run does with the plan: it reads the MCP config the runner
 // wrote (--mcp-config), expands ${PLANIA_RUNNER_TOKEN} from its own env, and comments <text> on the ticket named in
 // the prompt ("Ticket: KEY: title"), in the project the prompt names. A refused call fails the run (exit 1).
-if (process.env.CLAUDE_FAKE_COMMENT) {
+// PLA-I2-16: CLAUDE_FAKE_CALLS=<JSON list of {name, arguments}> makes those tool calls after the comment, in order,
+// with "{project}" and "{key}" in any string replaced by the prompt's; actor is filled when missing. That is how a
+// test's product owner proposes its plan and its builder finishes with a PR.
+if (process.env.CLAUDE_FAKE_COMMENT || process.env.CLAUDE_FAKE_CALLS) {
   const { readFileSync } = await import("node:fs");
   const arg = (name) => {
     const i = process.argv.indexOf(name);
@@ -41,33 +44,37 @@ if (process.env.CLAUDE_FAKE_COMMENT) {
   const headers = Object.fromEntries(
     Object.entries(server.headers ?? {}).map(([k, v]) => [k, String(v).replace(/\$\{(\w+)\}/g, (_m, n) => process.env[n] ?? "")]),
   );
-  const call = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: { name: "comment", arguments: { project, key, body: process.env.CLAUDE_FAKE_COMMENT, actor: { session_id: "fake-session" } } },
-  };
-  let failure = null;
-  try {
-    const res = await fetch(server.url, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-      body: JSON.stringify(call),
-    });
-    const text = await res.text();
-    // The answer is plain JSON or one server-sent event; either way the JSON-RPC message is the last {...} line.
-    const line = text.split("\n").map((l) => l.replace(/^data:\s*/, "")).filter((l) => l.startsWith("{")).at(-1) ?? "{}";
-    const msg = JSON.parse(line);
-    if (!res.ok || msg.error || msg.result?.isError) failure = `comment refused (${res.status}): ${line.slice(0, 300)}`;
-  } catch (e) {
-    failure = `comment failed: ${e instanceof Error ? e.message : String(e)}`;
+  const fill = (v) =>
+    typeof v === "string" ? v.replaceAll("{project}", project ?? "").replaceAll("{key}", key ?? "") : Array.isArray(v) ? v.map(fill) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)])) : v;
+  const calls = [];
+  if (process.env.CLAUDE_FAKE_COMMENT) calls.push({ name: "comment", arguments: { project, key, body: process.env.CLAUDE_FAKE_COMMENT } });
+  if (process.env.CLAUDE_FAKE_CALLS) for (const c of JSON.parse(process.env.CLAUDE_FAKE_CALLS)) calls.push({ name: c.name, arguments: fill(c.arguments) });
+  let failure = !project || !key ? `no project or ticket in the prompt (${project}, ${key})` : null;
+  let id = 0;
+  for (const c of calls) {
+    if (failure) break;
+    const call = { jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name: c.name, arguments: { actor: { session_id: "fake-session" }, ...c.arguments } } };
+    try {
+      const res = await fetch(server.url, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify(call),
+      });
+      const text = await res.text();
+      // The answer is plain JSON or one server-sent event; either way the JSON-RPC message is the last {...} line.
+      const line = text.split("\n").map((l) => l.replace(/^data:\s*/, "")).filter((l) => l.startsWith("{")).at(-1) ?? "{}";
+      const msg = JSON.parse(line);
+      if (!res.ok || msg.error || msg.result?.isError) failure = `${c.name} refused (${res.status}): ${line.slice(0, 600)}`;
+    } catch (e) {
+      failure = `${c.name} failed: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
-  if (!project || !key) failure = `no project or ticket in the prompt (${project}, ${key})`;
   if (failure) {
+    process.stderr.write(`${failure}\n`);
     out({ type: "result", subtype: "success", is_error: true, num_turns: 1, session_id: "fake-session", result: failure });
     process.exit(1);
   }
-  out({ type: "assistant", message: { content: [{ type: "text", text: `commented on ${key}` }], usage: { input_tokens: 10, output_tokens: 5 } } });
+  out({ type: "assistant", message: { content: [{ type: "text", text: `called ${calls.map((c) => c.name).join(", ")} on ${key}` }], usage: { input_tokens: 10, output_tokens: 5 } } });
 }
 const steps = 3;
 for (let i = 0; i < steps; i++) {

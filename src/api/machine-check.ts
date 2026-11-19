@@ -7,6 +7,14 @@ import type { MachineCheckReading } from "../../ui/src/lib/falta.js";
 
 const KEEP_MS = 10 * 60_000;
 
+// PLA-I2-16: the newest reading any page took, for the first-delivery guide (its «máquina lista» step). Null until
+// the owner opens the machine check once; the guide links there.
+let latest: MachineCheckReading | null = null;
+export const latestMachineReading = (): MachineCheckReading | null => latest;
+export const setLatestMachineReading = (r: MachineCheckReading | null): void => {
+  latest = r;
+};
+
 export function machineCheckRoutes(check: () => Promise<MachineItem[]> = () => machineCheck(), now: () => Date = () => new Date()) {
   let last: { at: number; reading: MachineCheckReading } | null = null;
   let running: Promise<MachineCheckReading> | null = null;
@@ -15,6 +23,7 @@ export function machineCheckRoutes(check: () => Promise<MachineItem[]> = () => m
       .then((items) => {
         const reading = { items, ready: blocking(items).length === 0, checked_at: now().toISOString() };
         last = { at: now().getTime(), reading };
+        latest = reading;
         return reading;
       })
       .finally(() => {
