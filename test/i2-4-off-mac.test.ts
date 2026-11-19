@@ -301,7 +301,8 @@ describe("the owner's code store per system (check 2)", () => {
 
 // ---- pg_dump and psql, PATH joins
 
-test("pg_dump and psql: PLANIA_PG_BIN, the server's major on macOS and Linux, PATH, then the usual folders", () => {
+// B4: on Windows the lookup searches the EDB and Laragon folders instead (test/install-cmd.test.ts covers both).
+test("pg_dump and psql: PLANIA_PG_BIN, the server's major on macOS and Linux, PATH, then the usual folders", { skip: needs({ posix: true }) }, () => {
   const none = () => [];
   assert.equal(pgDumpFor(16, { PLANIA_PG_BIN: "/opt/pg/bin" }, () => false), path.join("/opt/pg/bin", "pg_dump"));
   assert.equal(pgDumpFor(16, { PLANIA_PG_BIN: "/opt/pg/bin/pg_dump" }, () => false), "/opt/pg/bin/pg_dump");

@@ -1,6 +1,7 @@
 // PLA-I2-12: «La máquina dice qué le falta». One check of what a machine needs to run Plania: Node, Postgres and
 // its version, git, gh signed in with write access, Claude Code, its version and its session (the brief doctor's
-// short dry run), pg_dump matching the server, free disk and memory, and Chrome (optional, for stills).
+// short dry run), pg_dump matching the server, free disk and memory, and Chrome (optional, for stills). F2: gh is
+// optional at install: it is needed only before the first project with code.
 //
 // Three readers, one list: the install command (machineCheck + blocking, its injected hook), `pnpm machine:check`
 // (scripts/machine-check.ts) and the screen (GET /api/machine-check, page /machine/falta). The words come from
@@ -8,11 +9,12 @@
 // the disk and memory readings, the Chrome lookup.
 import { statfs } from "node:fs/promises";
 import { totalmem } from "node:os";
-import pg from "pg";
 import { claudeDryRun, claudeVersion, defaultExec, type ClaudeSignIn, type ExecFn } from "../brief/doctor.js";
 import { commandOf } from "../brief/claude.js";
 import { findChrome } from "../captures/chrome.js";
 import { pgDumpFor } from "../jobs/backup.js";
+import { pgToolFor } from "../lib/pg-bin.js";
+import { readPg, userOf, type PgReading } from "../lib/pg-connect.js";
 import { installLanguage, type Language } from "../language.js";
 import {
   MACHINE_ITEMS,
@@ -30,7 +32,8 @@ import {
 
 export type { MachineItem, MachineItemId } from "../../ui/src/lib/falta.js";
 
-export type PgProbe = (url: string) => Promise<{ ok: true; versionNum: number } | { ok: false }>;
+/** B3: the version, or why the address said no (a reading without a reason counts as not answering). */
+export type PgProbe = (url: string) => Promise<PgReading>;
 
 export type MachineCheckDeps = {
   env?: NodeJS.ProcessEnv;
@@ -52,18 +55,7 @@ const gb = (bytes: number) => Math.floor((bytes / GB) * 10) / 10;
 const versionIn = (text: string): string | null => text.match(/\d+\.\d+(?:\.\d+)?/)?.[0] ?? null;
 const majorOf = (version: string | null | undefined): number => Number(version?.split(".")[0] ?? 0) || 0;
 
-export const defaultPgProbe: PgProbe = async (url) => {
-  const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 5_000 });
-  try {
-    await client.connect();
-    const r = await client.query<{ server_version_num: string }>("show server_version_num");
-    return { ok: true, versionNum: Number(r.rows[0]?.server_version_num ?? 0) };
-  } catch {
-    return { ok: false };
-  } finally {
-    await client.end().catch(() => undefined);
-  }
-};
+export const defaultPgProbe: PgProbe = readPg;
 
 const defaultFreeDisk = async (dir: string): Promise<number | null> => {
   try {
@@ -136,17 +128,21 @@ export async function machineCheck(deps: MachineCheckDeps = {}): Promise<Machine
   const url = env.DATABASE_URL?.trim();
   let serverMajor = 0;
   let serverVersion: string | null = null;
+  let serverBinDir: string | null = null;
   if (!url) put(machineItem("postgres", "no_url"));
   else {
     const p = await (deps.pgProbe ?? defaultPgProbe)(url);
-    if (!p.ok) put(machineItem("postgres", "unreachable"));
+    if (!p.ok) put(machineItem("postgres", p.reason ?? "unreachable", { user: userOf(url) }));
     else {
+      serverBinDir = p.binDir ?? null;
       serverVersion = pgVersionOf(p.versionNum);
       serverMajor = Math.floor(p.versionNum / 10000);
       put(machineItem("postgres", serverMajor >= MIN_POSTGRES_MAJOR ? "ok" : "old", { version: serverVersion }));
     }
   }
-  const dump = await programVersion(exec, pgDumpFor(serverMajor, env), env);
+  // B4: the server's own folder first, when it told us (a local server read by a superuser).
+  const dumpCmd = serverBinDir && !env.PLANIA_PG_BIN?.trim() ? pgToolFor("pg_dump", serverMajor, { env, serverBinDir }) : pgDumpFor(serverMajor, env);
+  const dump = await programVersion(exec, dumpCmd, env);
   if (!dump) put(machineItem("pg_dump", "absent"));
   else put(machineItem("pg_dump", serverMajor && majorOf(dump) < serverMajor ? "mismatch" : "ok", { version: dump, server: serverVersion }));
 
