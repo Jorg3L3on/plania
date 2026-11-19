@@ -15,6 +15,25 @@ import { checkoutEnv, shellExec } from "../captures/run.js";
 import { LOOPBACK, scrub, secretValues, type BaseAddress } from "./env.js";
 import { findScripts, migrationsDir, sqlFiles } from "./detect.js";
 import { appEnvOf, maquinasSettingsOf, mdeps, planiaPorts, projectOf, type ProjectRow } from "./machines.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: why a base is not read, in the install's language; the Spanish is unchanged.
+export const READER_WORDS = defineWords({
+  es: {
+    notFound: "el env de la app no nombra una base de Postgres",
+    notLocal: "solo leo bases en esta máquina (127.0.0.1, localhost, ::1)",
+    planias: "es la base de Plania",
+    aPlania: "es una base de Plania",
+    registered: "esa base está registrada en un entorno; no la leo",
+  },
+  en: {
+    notFound: "the app's env does not name a Postgres database",
+    notLocal: "I only read databases on this machine (127.0.0.1, localhost, ::1)",
+    planias: "it is Plania's database",
+    aPlania: "it is a Plania database",
+    registered: "that database is registered in an environment; I don't read it",
+  },
+});
 
 export const PAGE = 50;
 export const HIDDEN = "(oculto)";
@@ -42,17 +61,17 @@ function strings(v: unknown, out: string[] = []): string[] {
 // Refuses, with a named error and before any connection: a host that is not loopback, Plania's own database, and a
 // database whose name any environment (env_states: flags, deploy source) has registered.
 export async function guard(db: Db, a: BaseAddress | null): Promise<BaseAddress> {
-  if (!a) throw new MaquinaError("BASE_NOT_FOUND", "el env de la app no nombra una base de Postgres");
-  if (!LOOPBACK.has(a.host)) throw new MaquinaError("BASE_NOT_LOCAL", "solo leo bases en esta máquina (127.0.0.1, localhost, ::1)");
+  if (!a) throw new MaquinaError("BASE_NOT_FOUND", say(READER_WORDS).notFound);
+  if (!LOOPBACK.has(a.host)) throw new MaquinaError("BASE_NOT_LOCAL", say(READER_WORDS).notLocal);
   const own = planiaDatabase();
-  if (own && own.name.toLowerCase() === a.database.toLowerCase() && planiaPorts().has(a.port)) throw new MaquinaError("BASE_REGISTERED", "es la base de Plania");
-  if (/^plania(_|$)/i.test(a.database)) throw new MaquinaError("BASE_REGISTERED", "es una base de Plania");
+  if (own && own.name.toLowerCase() === a.database.toLowerCase() && planiaPorts().has(a.port)) throw new MaquinaError("BASE_REGISTERED", say(READER_WORDS).planias);
+  if (/^plania(_|$)/i.test(a.database)) throw new MaquinaError("BASE_REGISTERED", say(READER_WORDS).aPlania);
   const rows = await db.select({ flags: envStates.flags, source: envStates.deploySource }).from(envStates);
   const name = a.database.toLowerCase();
   for (const r of rows) {
     for (const s of strings([r.flags, r.source])) {
       const t = s.toLowerCase();
-      if (t === name || t.endsWith(`/${name}`) || t.includes(`/${name}?`)) throw new MaquinaError("BASE_REGISTERED", "esa base está registrada en un entorno; no la leo");
+      if (t === name || t.endsWith(`/${name}`) || t.includes(`/${name}?`)) throw new MaquinaError("BASE_REGISTERED", say(READER_WORDS).registered);
     }
   }
   return a;

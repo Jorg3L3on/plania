@@ -4,6 +4,13 @@ import { ToolError } from "./errors.js";
 import { gatingSql, isGating } from "./owner-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
 import { neutralAssignee } from "../owner.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the note on a chain step that moved to Ready by itself, in the install's language; the Spanish is unchanged.
+export const BLOCKER_WORDS = defineWords({
+  es: { promoted: (keys: string) => `Pasa a Lista sola: ${keys} ya entró (PLA-54).` },
+  en: { promoted: (keys: string) => `Moves to Ready by itself: ${keys} is in (PLA-54).` },
+});
 
 // blocked_by: a ticket (a key, or {task}) that must reach In review or later, or a typed blocker
 // the server evaluates (R-15):
@@ -316,7 +323,7 @@ export async function promoteChained(tx: Q, emit: Emit, projectId: string): Prom
       .orderBy(asc(tasks.key));
     const keys = waited.map((b) => b.key);
     await emit("task.status", u, { from: "Backlog", to: "Ready", unblocked_by: keys }, SYSTEM_ACTOR);
-    await emit("note", u, { text: `Pasa a Lista sola: ${keys.join(", ")} ya entró (PLA-54).` }, SYSTEM_ACTOR);
+    await emit("note", u, { text: say(BLOCKER_WORDS).promoted(keys.join(", ")) }, SYSTEM_ACTOR);
     promoted.push(u.key);
   }
   return promoted;

@@ -34,6 +34,7 @@ export const THREAD_ACTION_WORDS = defineWords({
     noMergeCommit: "GitHub no muestra el commit de fusión.",
     mergeFailed: "No se pudo fusionar el PR.",
     conflict: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
+    conflictNote: (n: number) => `El PR #${n} choca con la rama de trabajo: vuelve a Taller para ponerlo al día con lo último aceptado.`,
     noTicket: "El mensaje no enlaza un ticket de este hilo.",
     notInReview: (k: string, s: string) => `${k} está en ${s}, no En revisión.`,
     notAPr: "Solo una entrega con PR se acepta sola.",
@@ -53,6 +54,7 @@ export const THREAD_ACTION_WORDS = defineWords({
     noMergeCommit: "GitHub does not show the merge commit.",
     mergeFailed: "The PR could not be merged.",
     conflict: "It clashes with the last thing you accepted: it went back to Taller to catch up and will reach you again.",
+    conflictNote: (n: number) => `PR #${n} clashes with the working branch: it goes back to Taller to catch up with the latest accepted work.`,
     noTicket: "The message does not link a ticket in this thread.",
     notInReview: (k: string, s: string) => `${k} is ${s}, not In review.`,
     notAPr: "Only a delivery with a PR is accepted by itself.",
@@ -169,7 +171,7 @@ async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Prom
   const project = await projectOf(db, t);
   const base = startBranchOf(project.settings);
   const ctx = by === "auto" ? { actor: SYSTEM_ACTOR, system: true, tool: "auto.accept" } : { ...webCtx, tool: "screen.thread_merge" };
-  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `El PR #${number} choca con la rama de trabajo: vuelve a Taller para ponerlo al día con lo último aceptado.` } as never, ctx);
+  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: w().conflictNote(number) } as never, ctx);
   if (t.ownerAgent) {
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     if (owner) await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: conflictWake(base), appendReason: true }).catch(() => undefined);

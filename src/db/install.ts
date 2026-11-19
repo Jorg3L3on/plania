@@ -19,6 +19,34 @@ import {
   withDatabase,
 } from "./migrate.js";
 import { hashSetupCode, newSetupCode } from "../install-state.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the install command says, in the install's language (PLANIA_LANGUAGE or Spanish before the
+// database is reachable); the Spanish is unchanged.
+export const INSTALL_WORDS = defineWords({
+  es: {
+    machineCheck: "La revisión de la máquina encontró algo que arreglar antes de instalar.",
+    noServer: (why: string) => `No se pudo conectar con Postgres (${why}): revisa que esté instalado y encendido y que la dirección sea correcta, y vuelve a correr la instalación.`,
+    oldPostgres: (version: string) => `Plania necesita Postgres 14 o más nuevo; este es ${version}.`,
+    created: (name: string) => `Base ${name} creada.`,
+    exists: (name: string) => `La base ${name} ya existe y no la creó la instalación: si es la que quieres usar, nómbrala con --database ${name}.`,
+    settings: (file: string, keys: string[]) => `Ajustes escritos en ${file}: ${keys.join(", ")}.`,
+    applied: (file: string) => `Migración ${file} aplicada.`,
+    needsBaseline: (name: string) => `La base ${name} tiene tablas y no tiene registro de migraciones: no se instala encima. Usa una base nueva.`,
+    migrationFailed: (file: string, why: string) => `Falló la migración ${file}: ${why}`,
+  },
+  en: {
+    machineCheck: "The machine check found something to fix before installing.",
+    noServer: (why: string) => `Could not connect to Postgres (${why}): check that it is installed and running and that the address is right, then run the install again.`,
+    oldPostgres: (version: string) => `Plania needs Postgres 14 or newer; this one is ${version}.`,
+    created: (name: string) => `Database ${name} created.`,
+    exists: (name: string) => `The database ${name} already exists and the install did not create it: if it is the one you want to use, name it with --database ${name}.`,
+    settings: (file: string, keys: string[]) => `Settings written to ${file}: ${keys.join(", ")}.`,
+    applied: (file: string) => `Migration ${file} applied.`,
+    needsBaseline: (name: string) => `The database ${name} has tables and no migration record: the install does not go on top of it. Use a new database.`,
+    migrationFailed: (file: string, why: string) => `Migration ${file} failed: ${why}`,
+  },
+});
 
 // The machine check (PLA-I2-12) is built in its own module; the install command passes it in. ok false stops the
 // install before anything is created, and its lines are printed as they are.
@@ -53,9 +81,10 @@ const defaultSecret = (bytes: number, encoding: "hex" | "base64") => randomBytes
 
 export async function install(opts: InstallOptions): Promise<InstallResult> {
   const log = opts.log ?? (() => {});
+  const w = say(INSTALL_WORDS);
   const check = await (opts.machineCheck ?? noMachineCheck)();
   for (const line of check.lines) log(line);
-  if (!check.ok) throw new InstallError("La revisión de la máquina encontró algo que arreglar antes de instalar.");
+  if (!check.ok) throw new InstallError(w.machineCheck);
 
   const name = databaseName(opts.url);
   assertDatabaseName(name);
@@ -66,19 +95,19 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
     await admin.connect();
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    throw new InstallError(`No se pudo conectar con Postgres (${why}): revisa que esté instalado y encendido y que la dirección sea correcta, y vuelve a correr la instalación.`);
+    throw new InstallError(w.noServer(why));
   }
   let created = false;
   try {
     const { rows: v } = await admin.query("show server_version_num");
     if (Number(v[0].server_version_num) < MIN_PG_VERSION) {
-      throw new InstallError(`Plania necesita Postgres 14 o más nuevo; este es ${v[0].server_version_num}.`);
+      throw new InstallError(w.oldPostgres(String(v[0].server_version_num)));
     }
     const { rows } = await admin.query("select 1 from pg_database where datname = $1", [name]);
     if (rows.length === 0) {
       await admin.query(`create database ${name}`);
       created = true;
-      log(`Base ${name} creada.`);
+      log(w.created(name));
     }
   } finally {
     await admin.end().catch(() => {});
@@ -91,21 +120,17 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
   let setupCode: string | null = null;
   try {
     if (!created && !opts.named && !(await hasRecord(c))) {
-      throw new InstallError(
-        `La base ${name} ya existe y no la creó la instalación: si es la que quieres usar, nómbrala con --database ${name}.`,
-      );
+      throw new InstallError(w.exists(name));
     }
     envKeys = writeSettings(opts.envPath, opts.examplePath, opts.url, opts.secret ?? defaultSecret);
-    if (envKeys.length > 0) log(`Ajustes escritos en ${opts.envPath}: ${envKeys.join(", ")}.`);
+    if (envKeys.length > 0) log(w.settings(opts.envPath, envKeys));
     try {
-      ({ applied } = await migrate(c, { files: opts.files, named: true, log: (f) => log(`Migración ${f} aplicada.`) }));
+      ({ applied } = await migrate(c, { files: opts.files, named: true, log: (f) => log(w.applied(f)) }));
     } catch (e) {
       if (e instanceof MigrateError && e.code === "NEEDS_BASELINE") {
-        throw new InstallError(
-          `La base ${name} tiene tablas y no tiene registro de migraciones: no se instala encima. Usa una base nueva.`,
-        );
+        throw new InstallError(w.needsBaseline(name));
       }
-      if (e instanceof MigrateError && e.file) throw new InstallError(`Falló la migración ${e.file}: ${e.message}`);
+      if (e instanceof MigrateError && e.file) throw new InstallError(w.migrationFailed(e.file, e.message));
       throw e;
     }
     setupCode = await issueSetupCode(c, opts.envPath, opts.setupCode ?? newSetupCode);

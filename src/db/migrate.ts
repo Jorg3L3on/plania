@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
+import { defineWords, say } from "../words.js";
 
 export const MIGRATIONS_TABLE = "plania_migrations";
 export const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle/migrations");
@@ -207,32 +208,53 @@ export function assertDatabaseName(name: string): void {
   if (!/^[a-z_][a-z0-9_]{0,62}$/.test(name)) throw new Error(`not a database name: ${name}`);
 }
 
+// PLA-I2-10: the start-up check's sentence in the install's language (PLANIA_LANGUAGE or Spanish before the
+// database is reachable); the Spanish is unchanged.
+export const STARTUP_WORDS = defineWords({
+  es: {
+    noUrl: "Falta DATABASE_URL en .env: corre pnpm plania:install.",
+    badUrl: "DATABASE_URL en .env no es una dirección de Postgres válida.",
+    noOpen: (name: string, why: string) => `No se pudo abrir la base ${name} (${why}): revisa que Postgres esté encendido y que DATABASE_URL sea correcta.`,
+    noRecord: (name: string) => `La base ${name} no tiene registro de migraciones: márcala una vez con pnpm db:migrate --database ${name} --baseline <última migración aplicada>.`,
+    empty: (name: string) => `La base ${name} está vacía: corre pnpm db:migrate --database ${name}.`,
+    pending: (name: string, n: number, first: string) => `La base ${name} tiene ${n} migraci${n === 1 ? "ón" : "ones"} sin aplicar (desde ${first}): corre pnpm db:migrate.`,
+  },
+  en: {
+    noUrl: "DATABASE_URL is missing from .env: run pnpm plania:install.",
+    badUrl: "DATABASE_URL in .env is not a valid Postgres address.",
+    noOpen: (name: string, why: string) => `Could not open the database ${name} (${why}): check that Postgres is running and that DATABASE_URL is right.`,
+    noRecord: (name: string) => `The database ${name} has no migration record: mark it once with pnpm db:migrate --database ${name} --baseline <last applied migration>.`,
+    empty: (name: string) => `The database ${name} is empty: run pnpm db:migrate --database ${name}.`,
+    pending: (name: string, n: number, first: string) => `The database ${name} has ${n} migration${n === 1 ? "" : "s"} not applied (from ${first}): run pnpm db:migrate.`,
+  },
+});
+
 // PLA-I2-1: the start-up check. Null when the server may start; otherwise one sentence for the person running it.
 export async function startupProblem(url: string | undefined, files = readMigrations()): Promise<string | null> {
-  if (!url) return "Falta DATABASE_URL en .env: corre pnpm plania:install.";
+  const w = say(STARTUP_WORDS);
+  if (!url) return w.noUrl;
   let name = "";
   try {
     name = databaseName(url);
   } catch {
-    return "DATABASE_URL en .env no es una dirección de Postgres válida.";
+    return w.badUrl;
   }
   const c = new pg.Client({ connectionString: url, connectionTimeoutMillis: 5_000 });
   try {
     await c.connect();
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    return `No se pudo abrir la base ${name} (${why}): revisa que Postgres esté encendido y que DATABASE_URL sea correcta.`;
+    return w.noOpen(name, why);
   }
   try {
     const s = await migrationStatus(c, files);
     if (!s.hasRecord) {
       return s.tables > 0
-        ? `La base ${name} no tiene registro de migraciones: márcala una vez con pnpm db:migrate --database ${name} --baseline <última migración aplicada>.`
-        : `La base ${name} está vacía: corre pnpm db:migrate --database ${name}.`;
+        ? w.noRecord(name)
+        : w.empty(name);
     }
     if (s.pending.length > 0) {
-      const n = s.pending.length;
-      return `La base ${name} tiene ${n} migraci${n === 1 ? "ón" : "ones"} sin aplicar (desde ${s.pending[0]}): corre pnpm db:migrate.`;
+      return w.pending(name, s.pending.length, s.pending[0]!);
     }
     return null;
   } finally {

@@ -7,6 +7,27 @@ import path from "node:path";
 import pg from "pg";
 import { assertDatabaseName, migrate, readMigrations, withDatabase } from "../db/migrate.js";
 import { copyDatabaseUrl, rewriteEnvText, sameDatabase, selfCopyEnv, type CopySuffix } from "./plania-self.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: why a test copy of Plania is not started, in the install's language; the Spanish is unchanged.
+export const SELF_COPY_WORDS = defineWords({
+  es: {
+    noLive: "No sé cuál es la base de datos del Plania que estás usando, así que no enciendo la copia.",
+    noOwnDb: "La copia de Plania no tendría una base de datos propia; no la enciendo.",
+    buildFailed: (name: string, error: string) => `No se pudo preparar la base de datos de la copia (${name}): ${error}`,
+    livePort: "La copia de Plania usaría el puerto del Plania que estás usando; no la enciendo.",
+    liveDb: "La copia de Plania apuntaría a la base de datos del Plania que estás usando; no la enciendo.",
+    jobsOn: "La copia de Plania tendría sus trabajos de fondo encendidos; no la enciendo.",
+  },
+  en: {
+    noLive: "I do not know which database the Plania you are using has, so I do not start the copy.",
+    noOwnDb: "The Plania copy would not have a database of its own; I do not start it.",
+    buildFailed: (name: string, error: string) => `The copy's database could not be prepared (${name}): ${error}`,
+    livePort: "The Plania copy would use the port of the Plania you are using; I do not start it.",
+    liveDb: "The Plania copy would point at the database of the Plania you are using; I do not start it.",
+    jobsOn: "The Plania copy would have its background jobs on; I do not start it.",
+  },
+});
 
 export type Built = { ok: true } | { ok: false; error: string };
 /** Drops and creates the copy's database, then applies the copy's migrations to it. Injected in tests. */
@@ -41,11 +62,11 @@ export type SelfCopyDb = { ok: true; url: string; name: string; env: Record<stri
 
 /** The copy's own database, built new. live is the running server's DATABASE_URL. */
 export async function selfCopyDatabase(live: string | undefined, suffix: CopySuffix, wt: string, build: SelfDbBuild = defaultSelfDbBuild): Promise<SelfCopyDb> {
-  if (!live) return { ok: false, error: "No sé cuál es la base de datos del Plania que estás usando, así que no enciendo la copia." };
+  if (!live) return { ok: false, error: say(SELF_COPY_WORDS).noLive };
   const target = copyDatabaseUrl(live, suffix);
-  if (!target || sameDatabase(target.url, live)) return { ok: false, error: "La copia de Plania no tendría una base de datos propia; no la enciendo." };
+  if (!target || sameDatabase(target.url, live)) return { ok: false, error: say(SELF_COPY_WORDS).noOwnDb };
   const built = await build(target.url, target.name, path.join(wt, "drizzle", "migrations"));
-  if (!built.ok) return { ok: false, error: `No se pudo preparar la base de datos de la copia (${target.name}): ${built.error.slice(0, 160)}` };
+  if (!built.ok) return { ok: false, error: say(SELF_COPY_WORDS).buildFailed(target.name, built.error.slice(0, 160)) };
   return { ok: true, url: target.url, name: target.name, env: selfCopyEnv(target.url, 0) };
 }
 
@@ -58,9 +79,9 @@ export type SelfCopyFile = { ok: true; file: string; env: Record<string, string>
  * refuses when the copy would still reach the live database, run jobs, or take the live server's port. */
 export function selfCopyEnvFile(wt: string, envFile: string | null, copyEnv: Record<string, string>, port: number, liveEnv: NodeJS.ProcessEnv): SelfCopyFile {
   const live = liveEnv.DATABASE_URL;
-  if (port === livePort(liveEnv)) return { ok: false, error: "La copia de Plania usaría el puerto del Plania que estás usando; no la enciendo." };
+  if (port === livePort(liveEnv)) return { ok: false, error: say(SELF_COPY_WORDS).livePort };
   const env: Record<string, string> = { ...copyEnv, PLANIA_PORT: String(port) };
-  if (!env.DATABASE_URL || sameDatabase(env.DATABASE_URL, live)) return { ok: false, error: "La copia de Plania apuntaría a la base de datos del Plania que estás usando; no la enciendo." };
+  if (!env.DATABASE_URL || sameDatabase(env.DATABASE_URL, live)) return { ok: false, error: say(SELF_COPY_WORDS).liveDb };
   const file = path.join(wt, envFile ?? ".env");
   const before = existsSync(file) ? readFileSync(file, "utf8") : "";
   writeFileSync(file, rewriteEnvText(before, env), { mode: 0o600 });
@@ -75,7 +96,7 @@ export function selfCopyEnvFile(wt: string, envFile: string | null, copyEnv: Rec
     return found;
   };
   const url = value("DATABASE_URL");
-  if (!url || sameDatabase(url, live) || url !== env.DATABASE_URL) return { ok: false, error: "La copia de Plania apuntaría a la base de datos del Plania que estás usando; no la enciendo." };
-  if (value("PLANIA_JOBS") !== "0") return { ok: false, error: "La copia de Plania tendría sus trabajos de fondo encendidos; no la enciendo." };
+  if (!url || sameDatabase(url, live) || url !== env.DATABASE_URL) return { ok: false, error: say(SELF_COPY_WORDS).liveDb };
+  if (value("PLANIA_JOBS") !== "0") return { ok: false, error: say(SELF_COPY_WORDS).jobsOn };
   return { ok: true, file: path.relative(wt, file), env };
 }

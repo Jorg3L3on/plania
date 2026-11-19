@@ -23,7 +23,40 @@ import path from "node:path";
 import { compareVersions, readManifest, type Manifest } from "../release.js";
 import type { InFlight } from "../ops/in-flight.js";
 import { keepKitEdits } from "./kit-merge.js";
-import { PASOS, reportLines, type KitHeldRole, type UpdateReport } from "../../ui/src/lib/actualizar.js";
+import { STEPS, reportLines, type KitHeldRole, type UpdateReport } from "../../ui/src/lib/actualizar.js";
+import { installLanguage } from "../language.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the update's reasons and notes in the install's language (the steps are STEPS in
+// ui/src/lib/actualizar.ts); the Spanish is unchanged.
+export const UPDATE_WORDS = defineWords({
+  es: {
+    badSha: "su suma de verificación no coincide con el archivo .sha256",
+    noFile: (file: string) => `no existe ${file}`,
+    noManifest: "no trae release.json",
+    noScreen: "no trae la pantalla armada",
+    emptyBackup: "el archivo quedó vacío",
+    stopFailed: (why: string) => `no se pudo apagar Plania (${why})`,
+    swapFailed: (why: string) => `no se pudieron cambiar los archivos (${why})`,
+    noFreshBackup: "no hay un respaldo de hoy",
+    migrationFailed: (why: string) => `falló la actualización de la base (${why})`,
+    kitFailed: (why: string) => `No se pudieron revisar los textos de los roles en Plania (${why}); corre pnpm kit:status después.`,
+    recordFailed: (why: string) => `No se guardó el resumen para la pantalla (${why}).`,
+  },
+  en: {
+    badSha: "its checksum does not match the .sha256 file",
+    noFile: (file: string) => `${file} does not exist`,
+    noManifest: "it has no release.json",
+    noScreen: "it has no built screen",
+    emptyBackup: "the file came out empty",
+    stopFailed: (why: string) => `Plania could not be stopped (${why})`,
+    swapFailed: (why: string) => `the files could not be replaced (${why})`,
+    noFreshBackup: "there is no backup from today",
+    migrationFailed: (why: string) => `the database update failed (${why})`,
+    kitFailed: (why: string) => `The role texts in Plania could not be checked (${why}); run pnpm kit:status afterwards.`,
+    recordFailed: (why: string) => `The summary for the screen was not saved (${why}).`,
+  },
+});
 
 export type UpdateErrorCode =
   | "IN_FLIGHT"
@@ -102,17 +135,20 @@ function releaseDir(dir: string): string | null {
 }
 
 function checkSha(packageFile: string): void {
+  const PASOS = say(STEPS);
   const side = `${packageFile}.sha256`;
   if (!existsSync(side)) return;
   const want = readFileSync(side, "utf8").trim().split(/\s+/)[0]?.toLowerCase();
   const got = createHash("sha256").update(readFileSync(packageFile)).digest("hex");
-  if (want !== got) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage("su suma de verificación no coincide con el archivo .sha256"));
+  if (want !== got) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage(say(UPDATE_WORDS).badSha));
 }
 
 export async function update(deps: UpdateDeps): Promise<UpdateReport> {
   const { root, log } = deps;
   const now = deps.now();
   const stamp = stampOf(now);
+  const PASOS = say(STEPS);
+  const w = say(UPDATE_WORDS);
 
   log(PASOS.checking);
   const busy = await deps.inFlight();
@@ -120,7 +156,7 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
 
   const current = readManifest(root);
   if (!current) throw new UpdateError("NOT_PACKAGE", PASOS.notPackage);
-  if (!existsSync(deps.packageFile)) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage(`no existe ${deps.packageFile}`));
+  if (!existsSync(deps.packageFile)) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage(w.noFile(deps.packageFile)));
 
   log(PASOS.unpacking(path.basename(deps.packageFile)));
   const incoming = path.join(path.dirname(root), `.plania-incoming-${stamp}`);
@@ -134,8 +170,8 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
     await deps.extract(deps.packageFile, incoming);
     const dir = releaseDir(incoming);
     const m = dir ? readManifest(dir) : null;
-    if (!dir || !m) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage("no trae release.json"));
-    if (!existsSync(path.join(dir, "dist/ui/index.html"))) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage("no trae la pantalla armada"));
+    if (!dir || !m) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage(w.noManifest));
+    if (!existsSync(path.join(dir, "dist/ui/index.html"))) throw new UpdateError("BAD_PACKAGE", PASOS.badPackage(w.noScreen));
     next = m;
     nextDir = dir;
   } catch (e) {
@@ -162,7 +198,7 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
   try {
     mkdirSync(deps.backupDir, { recursive: true });
     await deps.dump(backup);
-    if (!existsSync(backup) || statSync(backup).size === 0) throw new Error("el archivo quedó vacío");
+    if (!existsSync(backup) || statSync(backup).size === 0) throw new Error(w.emptyBackup);
   } catch (e) {
     rmSync(backup, { force: true });
     cleanIncoming();
@@ -177,7 +213,7 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
     } catch (e) {
       cleanIncoming();
       await deps.service.start().catch(() => {});
-      throw new UpdateError("STOP_FAILED", PASOS.failedAfterStop(`no se pudo apagar Plania (${why(e)})`, current.version, backup));
+      throw new UpdateError("STOP_FAILED", PASOS.failedAfterStop(w.stopFailed(why(e)), current.version, backup));
     }
   }
 
@@ -209,16 +245,16 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
     for (const f of OWN_FILES) if (existsSync(path.join(previous, f))) cpSync(path.join(previous, f), path.join(root, f));
     kept = keepKitEdits(previous, root, current.kit ?? null);
   } catch (e) {
-    await rollBack("SWAP_FAILED", `no se pudieron cambiar los archivos (${why(e)})`);
+    await rollBack("SWAP_FAILED", w.swapFailed(why(e)));
   }
 
   log(PASOS.migrating);
-  if (!freshBackup(deps.backupDir, deps.now())) await rollBack("NO_FRESH_BACKUP", "no hay un respaldo de hoy");
+  if (!freshBackup(deps.backupDir, deps.now())) await rollBack("NO_FRESH_BACKUP", w.noFreshBackup);
   let applied: string[] = [];
   try {
     applied = await deps.migrate(path.join(root, "drizzle/migrations"));
   } catch (e) {
-    await rollBack("MIGRATION_FAILED", `falló la actualización de la base (${why(e)})`);
+    await rollBack("MIGRATION_FAILED", w.migrationFailed(why(e)));
   }
   log(PASOS.migrated(applied.length));
 
@@ -226,10 +262,10 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
   try {
     roles = deps.kitRoles ? await deps.kitRoles() : [];
   } catch (e) {
-    log(`No se pudieron revisar los textos de los roles en Plania (${why(e)}); corre pnpm kit:status después.`);
+    log(w.kitFailed(why(e)));
   }
   const report: UpdateReport = { from: current.version, to: next.version, at: now.toISOString(), backup, kit_files: kept, kit_roles: roles };
-  await deps.record?.(report).catch((e) => log(`No se guardó el resumen para la pantalla (${why(e)}).`));
+  await deps.record?.(report).catch((e) => log(w.recordFailed(why(e))));
   cleanIncoming();
   // Only the latest previous version is kept for going back.
   const base = path.basename(root);
@@ -237,7 +273,7 @@ export async function update(deps: UpdateDeps): Promise<UpdateReport> {
     const full = path.join(path.dirname(root), name);
     if (full !== previous && name.startsWith(`${base}.previous-`)) rmSync(full, { recursive: true, force: true });
   }
-  for (const line of reportLines(report)) log(line);
+  for (const line of reportLines(report, installLanguage())) log(line);
 
   if (deps.service) {
     log(PASOS.starting);

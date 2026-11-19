@@ -9,6 +9,33 @@ import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import pg from "pg";
 import { assertDatabaseName, databaseName, hasRecord, userTableCount, withDatabase } from "../db/migrate.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the restore command says, in the install's language; the Spanish is unchanged.
+export const RESTORE_WORDS = defineWords({
+  es: {
+    noFile: (file: string) => `No encuentro el respaldo ${file}, o está vacío.`,
+    badName: "El nombre de la base debe ir en minúsculas, con números o guion bajo.",
+    noServer: (why: string) => `No se pudo conectar con Postgres (${why}): revisa que esté encendido.`,
+    hasData: (name: string) => `La base ${name} ya tiene datos, así que no se restaura encima. Si de verdad quieres reemplazarla, pídelo dos veces: --overwrite --confirm ${name}.`,
+    dropping: (name: string) => `Borro la base ${name} para traerla del respaldo.`,
+    created: (name: string) => `Base ${name} creada.`,
+    restoring: (file: string, name: string) => `Traigo el respaldo ${file} a la base ${name}.`,
+    failed: (name: string, why: string) => `El respaldo no entró completo en la base ${name} (${why}). La base quedó a medias: bórrala o vuelve a correr con --overwrite --confirm ${name}.`,
+    done: (name: string, tables: number) => `Listo: la base ${name} volvió del respaldo con ${tables} tablas.`,
+  },
+  en: {
+    noFile: (file: string) => `I cannot find the backup ${file}, or it is empty.`,
+    badName: "The database name must be lowercase letters, numbers or underscores.",
+    noServer: (why: string) => `Could not connect to Postgres (${why}): check that it is running.`,
+    hasData: (name: string) => `The database ${name} already holds data, so the backup is not restored over it. If you really want to replace it, ask twice: --overwrite --confirm ${name}.`,
+    dropping: (name: string) => `Dropping the database ${name} to bring it back from the backup.`,
+    created: (name: string) => `Database ${name} created.`,
+    restoring: (file: string, name: string) => `Restoring the backup ${file} into the database ${name}.`,
+    failed: (name: string, why: string) => `The backup did not load completely into the database ${name} (${why}). The database is half done: drop it or run again with --overwrite --confirm ${name}.`,
+    done: (name: string, tables: number) => `Done: the database ${name} is back from the backup with ${tables} tables.`,
+  },
+});
 
 export type RestoreErrorCode = "NO_FILE" | "BAD_NAME" | "NO_SERVER" | "HAS_DATA" | "RESTORE_FAILED";
 export class RestoreError extends Error {
@@ -38,20 +65,21 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("
 
 export async function restore(opts: RestoreOptions): Promise<RestoreResult> {
   const log = opts.log ?? (() => {});
-  if (!existsSync(opts.file) || statSync(opts.file).size === 0) throw new RestoreError("NO_FILE", `No encuentro el respaldo ${opts.file}, o está vacío.`);
+  const w = say(RESTORE_WORDS);
+  if (!existsSync(opts.file) || statSync(opts.file).size === 0) throw new RestoreError("NO_FILE", w.noFile(opts.file));
   let name: string;
   try {
     name = databaseName(opts.url);
     assertDatabaseName(name);
   } catch {
-    throw new RestoreError("BAD_NAME", "El nombre de la base debe ir en minúsculas, con números o guion bajo.");
+    throw new RestoreError("BAD_NAME", w.badName);
   }
 
   const admin = new pg.Client({ connectionString: withDatabase(opts.url, "postgres"), connectionTimeoutMillis: 5_000 });
   try {
     await admin.connect();
   } catch (e) {
-    throw new RestoreError("NO_SERVER", `No se pudo conectar con Postgres (${why(e)}): revisa que esté encendido.`);
+    throw new RestoreError("NO_SERVER", w.noServer(why(e)));
   }
   let created = false;
   let replaced = false;
@@ -65,10 +93,10 @@ export async function restore(opts: RestoreOptions): Promise<RestoreResult> {
         if (!opts.overwrite || opts.confirm !== name) {
           throw new RestoreError(
             "HAS_DATA",
-            `La base ${name} ya tiene datos, así que no se restaura encima. Si de verdad quieres reemplazarla, pídelo dos veces: --overwrite --confirm ${name}.`,
+            w.hasData(name),
           );
         }
-        log(`Borro la base ${name} para traerla del respaldo.`);
+        log(w.dropping(name));
         await admin.query(`drop database ${name} with (force)`);
         await admin.query(`create database ${name}`);
         replaced = true;
@@ -76,19 +104,19 @@ export async function restore(opts: RestoreOptions): Promise<RestoreResult> {
     } else {
       await admin.query(`create database ${name}`);
       created = true;
-      log(`Base ${name} creada.`);
+      log(w.created(name));
     }
   } finally {
     await admin.end().catch(() => {});
   }
 
-  log(`Traigo el respaldo ${opts.file} a la base ${name}.`);
+  log(w.restoring(opts.file, name));
   try {
     await opts.psql(opts.url, opts.file);
   } catch (e) {
     throw new RestoreError(
       "RESTORE_FAILED",
-      `El respaldo no entró completo en la base ${name} (${why(e)}). La base quedó a medias: bórrala o vuelve a correr con --overwrite --confirm ${name}.`,
+      w.failed(name, why(e)),
     );
   }
   const c = new pg.Client({ connectionString: opts.url });
@@ -97,7 +125,7 @@ export async function restore(opts: RestoreOptions): Promise<RestoreResult> {
     const tables = await userTableCount(c);
     let migrations: number | null = null;
     if (await hasRecord(c)) migrations = Number((await c.query("select count(*)::int as n from plania_migrations")).rows[0].n);
-    log(`Listo: la base ${name} volvió del respaldo con ${tables} tablas.`);
+    log(w.done(name, tables));
     return { database: name, created, replaced, tables, migrations };
   } finally {
     await c.end().catch(() => {});

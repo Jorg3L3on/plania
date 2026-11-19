@@ -194,3 +194,48 @@ test("check 5: the owner's words are fields; old rows still read through the fal
   await setTask(db, { project: "zigzag", key: agent.key, version: await version(agent.key), note: "noise", owner_changes: "forged" } as never, { actor: { agent: "po", session_id: "s1" } });
   assert.equal(await runner.ownerChangesOf(db, pid, agent.key), null);
 });
+
+// ---- every server sentence comes from a wording module
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+const ALLOW_FILE = path.join(ROOT, "test", "server-words-allow.txt");
+
+test("no Spanish sentence in a string literal under src/ outside a wording module, apart from the allow-list", async () => {
+  const { findServerSpanish, readAllow } = await import("../scripts/server-words.js");
+  const found = findServerSpanish(ROOT);
+  const allow = readAllow(ALLOW_FILE);
+  const unexplained = [...found].filter(([f]) => !allow.has(f)).map(([f, list]) => `${f}:${list[0]!.line} ${list[0]!.text.slice(0, 80)}`);
+  assert.deepEqual(unexplained, []);
+  // Each entry gives its reason and is still needed.
+  for (const [f, why] of allow) {
+    assert.ok(why.length >= 10, `${f} needs a reason`);
+    assert.ok(found.has(f), `stale allow-list entry: ${f}`);
+  }
+});
+
+test("the detector skips wording modules and comments, and finds a sentence anywhere else", async () => {
+  const { serverSpanishIn } = await import("../scripts/server-words.js");
+  const src = [
+    "// La corrida se detuvo: comentario.",
+    "export const W = defineWords({ es: { a: `La corrida de ${x} se detuvo.`, b: \"No hay contexto.\" }, en: { a: `Run ${x} stopped.`, b: \"No context.\" } });",
+    "const bad = \"No encuentro la base de datos del proyecto\";",
+  ].join("\n");
+  assert.deepEqual(serverSpanishIn(src).map((f) => f.line), [3]);
+});
+
+test("every wording module under src/ has the same keys in both languages", async () => {
+  const { serverFiles } = await import("../scripts/server-words.js");
+  const { readFileSync } = await import("node:fs");
+  const { pathToFileURL } = await import("node:url");
+  let n = 0;
+  for (const f of serverFiles(ROOT)) {
+    if (!readFileSync(path.join(ROOT, f), "utf8").includes("defineWords(")) continue;
+    const mod = (await import(pathToFileURL(path.join(ROOT, f)).href)) as Record<string, unknown>;
+    for (const [name, w] of Object.entries(mod)) {
+      if (!isWords(w)) continue;
+      n += 1;
+      assert.deepEqual(keyPaths((w as { en: unknown }).en), keyPaths((w as { es: unknown }).es), `${f} ${name}`);
+    }
+  }
+  assert.ok(n >= 14, `found ${n} exported wording modules`);
+});

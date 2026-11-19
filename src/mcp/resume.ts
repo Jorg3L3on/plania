@@ -13,6 +13,27 @@ import { openRequests } from "./requests.js";
 import { statusBlock } from "./status.js";
 import { summarize } from "./summary.js";
 import { iso, type Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: when a project last moved, in the install's language; the Spanish is unchanged.
+export const RESUME_WORDS = defineWords({
+  es: {
+    moment: "hace un momento",
+    minute: ["minuto", "minutos"] as [string, string],
+    hour: ["hora", "horas"] as [string, string],
+    day: ["día", "días"] as [string, string],
+    ago: (n: number, unit: [string, string]) => `hace ${n} ${n === 1 ? unit[0] : unit[1]}`,
+    last: (ago: string, what: string) => `Último movimiento ${ago}: ${what}`,
+  },
+  en: {
+    moment: "a moment ago",
+    minute: ["minute", "minutes"] as [string, string],
+    hour: ["hour", "hours"] as [string, string],
+    day: ["day", "days"] as [string, string],
+    ago: (n: number, unit: [string, string]) => `${n} ${n === 1 ? unit[0] : unit[1]} ago`,
+    last: (ago: string, what: string) => `Last movement ${ago}: ${what}`,
+  },
+});
 
 // get_resume: generated, never hand-written. One block per open initiative (what is claimed, what is
 // next, what must be kept), the standalone tickets, project-wide pinned decisions, questions waiting
@@ -173,17 +194,18 @@ function movementOf(d: ResumeDigest): string {
 /** "hace 8 días": full words, so a quiet project can say when it last moved. */
 export function movementAgo(at: Date, now: Date): string {
   const seconds = Math.max(0, Math.round((now.getTime() - at.getTime()) / 1000));
-  if (seconds < 90) return "hace un momento";
+  const w = say(RESUME_WORDS);
+  if (seconds < 90) return w.moment;
   if (seconds < 3600) {
     const n = Math.max(1, Math.round(seconds / 60));
-    return `hace ${n} ${n === 1 ? "minuto" : "minutos"}`;
+    return w.ago(n, w.minute);
   }
   if (seconds < 86400) {
     const n = Math.max(1, Math.round(seconds / 3600));
-    return `hace ${n} ${n === 1 ? "hora" : "horas"}`;
+    return w.ago(n, w.hour);
   }
   const n = Math.max(1, Math.round(seconds / 86400));
-  return `hace ${n} ${n === 1 ? "día" : "días"}`;
+  return w.ago(n, w.day);
 }
 
 /** The last event, in one line. Empty when there is no event. `summary` is the Spanish event line. */
@@ -205,7 +227,7 @@ export function lastMovementLine(
   const who = summary || !event.agent ? "" : ` (${event.agent})`;
   const what = summary || (fallback ? `${fallback}${who}` : "");
   if (!what) return "";
-  return `Último movimiento ${movementAgo(at, now)}: ${what}`;
+  return say(RESUME_WORDS).last(movementAgo(at, now), what);
 }
 
 // One line per project (list_projects, get_digest, the screen's index): the generated headline,

@@ -23,7 +23,8 @@ import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
-import { ownerEs } from "../owner.js";
+import { ownerEs, ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
 
 export const DELIVERED = "stage.delivered";
 export const DECISION = "idea.decision";
@@ -243,8 +244,27 @@ export function decisionStates(decisions: StageDecision[], picks: DecisionPick[]
   });
 }
 
-// ---- The doc. Headings as STAGE_DOCS names them; fixed words in Spanish, which is what the owner reads.
-const q = (s: string) => `«${s}»`;
+// ---- The doc. Headings as STAGE_DOCS names them; fixed words in the install's language, which is what the owner reads.
+// PLA-I2-10: the doc's fixed words in the install's language; the Spanish is unchanged. Readers accept both
+// («Tamaño» or "Size", src/api/company-idea.ts and company-pedido.ts).
+export const STAGE_DOC_WORDS = defineWords({
+  es: {
+    q: (s: string) => `«${s}»`,
+    assumed: (rec: string, why: string, others: string) => `Se asume ${rec} hasta que ${ownerEs()} decida: ${why} Otras opciones: ${others}.`,
+    decided: (chosen: string) => `Decidido ${ownerEs("por")}: ${chosen}.`,
+    poRecommended: (rec: string) => ` El PO recomendaba ${rec}.`,
+    option: (n: number, title: string) => `**Opción ${n}: ${title}.**`,
+    size: "Tamaño",
+  },
+  en: {
+    q: (s: string) => `"${s}"`,
+    assumed: (rec: string, why: string, others: string) => `Assumed ${rec} until ${ownerName("en")} decides: ${why} Other options: ${others}.`,
+    decided: (chosen: string) => `Decided by ${ownerName("en")}: ${chosen}.`,
+    poRecommended: (rec: string) => ` The PO recommended ${rec}.`,
+    option: (n: number, title: string) => `**Option ${n}: ${title}.**`,
+    size: "Size",
+  },
+});
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const ASSUMPTIONS = "Assumptions";
 
@@ -252,11 +272,12 @@ export const ASSUMPTIONS = "Assumptions";
 export function decisionLine(n: number, d: StageDecision, chosen: number | null = null): string {
   const head = `${n}. **${d.question}**`;
   const rec = d.options[d.recommended]!;
+  const w = say(STAGE_DOC_WORDS);
   if (chosen === null) {
-    const others = d.options.filter((_, i) => i !== d.recommended).map(q);
-    return `${head} Se asume ${q(rec)} hasta que ${ownerEs()} decida: ${d.why} Otras opciones: ${others.join(", ")}.`;
+    const others = d.options.filter((_, i) => i !== d.recommended).map(w.q);
+    return `${head} ${w.assumed(w.q(rec), d.why, others.join(", "))}`;
   }
-  return `${head} Decidido ${ownerEs("por")}: ${q(d.options[chosen]!)}.${chosen === d.recommended ? "" : ` El PO recomendaba ${q(rec)}.`}`;
+  return `${head} ${w.decided(w.q(d.options[chosen]!))}${chosen === d.recommended ? "" : w.poRecommended(w.q(rec))}`;
 }
 
 /** The doc with that decision's line as decided. A doc someone rewrote by hand gets the line added under Assumptions. */
@@ -273,7 +294,7 @@ export function rewriteDecisionLine(markdown: string, n: number, d: StageDecisio
 }
 
 /** Research's recommendation as one Markdown line: the option's number (as the screen counts them) and why. */
-export const recommendationText = (d: ResearchData) => `**Opción ${d.recommendation.option + 1}: ${d.options[d.recommendation.option]!.title}.** ${d.recommendation.why}`;
+export const recommendationText = (d: ResearchData) => `${say(STAGE_DOC_WORDS).option(d.recommendation.option + 1, d.options[d.recommendation.option]!.title)} ${d.recommendation.why}`;
 
 const bullets = (items: string[]) => items.map((x) => `- ${x}`).join("\n");
 const numbered = (items: string[]) => items.map((x, i) => `${i + 1}. ${x}`).join("\n");
@@ -317,7 +338,7 @@ export function renderStageDoc<S extends DeliverStage>(stage: S, data: StageData
     ["Try it", numbered(d.steps.map((s) => s.try_it))],
     ["Risks", bullets(d.risks)],
   ];
-  if (d.size) parts.push(["Tamaño", d.size]);
+  if (d.size) parts.push([say(STAGE_DOC_WORDS).size, d.size]);
   return sections(parts);
 }
 

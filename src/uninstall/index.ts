@@ -15,6 +15,37 @@ import path from "node:path";
 const join = path.posix.join;
 import pg from "pg";
 import { defaultExec, type ExecFn } from "../brief/doctor.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the uninstall command says, in the install's language; the Spanish is unchanged.
+export const UNINSTALL_WORDS = defineWords({
+  es: {
+    serviceRemoved: (name: string) => `Servicio ${name} detenido y quitado.`,
+    noService: "No había servicio de Plania instalado.",
+    processesLeft: (pids: number[]) => `Quedan procesos de Plania que no se detuvieron: ${pids.join(", ")}.`,
+    processesStopped: (n: number) => `Procesos de Plania detenidos: ${n}.`,
+    confirm: (name: string) => `Para borrar la base de datos y las carpetas de Plania, escribe el nombre de la base de datos (${name}): `,
+    notConfirmed: "No escribiste el nombre de la base de datos: no se borró nada.",
+    dropped: (name: string) => `Base de datos ${name} borrada.`,
+    folderRemoved: (dir: string) => `Carpeta borrada: ${dir}`,
+    kept: (name: string | null | undefined) => `La base de datos${name ? ` ${name}` : ""} y tus carpetas siguen ahí. Para borrarlas: pnpm uninstall:plania --delete-data`,
+    backups: (dir: string) => `Tus copias de seguridad se quedan en ${dir}.`,
+    finish: (root: string) => `Para terminar, borra la carpeta de Plania: ${root}`,
+  },
+  en: {
+    serviceRemoved: (name: string) => `Service ${name} stopped and removed.`,
+    noService: "No Plania service was installed.",
+    processesLeft: (pids: number[]) => `Some Plania processes did not stop: ${pids.join(", ")}.`,
+    processesStopped: (n: number) => `Plania processes stopped: ${n}.`,
+    confirm: (name: string) => `To delete Plania's database and folders, type the database's name (${name}): `,
+    notConfirmed: "You did not type the database's name: nothing was deleted.",
+    dropped: (name: string) => `Database ${name} deleted.`,
+    folderRemoved: (dir: string) => `Folder deleted: ${dir}`,
+    kept: (name: string | null | undefined) => `The database${name ? ` ${name}` : ""} and your folders are still there. To delete them: pnpm uninstall:plania --delete-data`,
+    backups: (dir: string) => `Your backups stay in ${dir}.`,
+    finish: (root: string) => `To finish, delete the Plania folder: ${root}`,
+  },
+});
 
 export const LAUNCHD_LABEL = "com.plania.server";
 export const SYSTEMD_UNIT = "plania.service";
@@ -80,7 +111,7 @@ export async function defaultRemoveService(ctx: UninstallContext): Promise<strin
     if (ctx.exists(plist)) {
       await run("launchctl", ["bootout", `gui/${ctx.uid ?? ""}/${LAUNCHD_LABEL}`]);
       ctx.remove(plist);
-      done.push(`Servicio ${LAUNCHD_LABEL} detenido y quitado.`);
+      done.push(say(UNINSTALL_WORDS).serviceRemoved(LAUNCHD_LABEL));
     }
   } else {
     const unit = systemdUnit(ctx.home);
@@ -88,7 +119,7 @@ export async function defaultRemoveService(ctx: UninstallContext): Promise<strin
       await run("systemctl", ["--user", "disable", "--now", SYSTEMD_UNIT]);
       ctx.remove(unit);
       await run("systemctl", ["--user", "daemon-reload"]);
-      done.push(`Servicio ${SYSTEMD_UNIT} detenido y quitado.`);
+      done.push(say(UNINSTALL_WORDS).serviceRemoved(SYSTEMD_UNIT));
     }
   }
   return done;
@@ -178,13 +209,14 @@ export async function uninstall(opts: { deleteData: boolean }, deps: UninstallDe
     remove: deps.remove ?? ((p) => rmSync(p, { recursive: true, force: true })),
   };
   const log = deps.log ?? ((line: string) => console.log(line));
+  const w = say(UNINSTALL_WORDS);
   const kill = deps.kill ?? ((pid, signal) => process.kill(pid, signal));
   const wait = deps.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
 
   // 1. The service, so nothing starts the server again.
   const service = await (deps.removeService ?? defaultRemoveService)(ctx);
   for (const line of service) log(line);
-  if (!service.length) log("No había servicio de Plania instalado.");
+  if (!service.length) log(w.noService);
 
   // 2. What is still running: asked to stop, then made to.
   const find = deps.findProcesses ?? defaultFindProcesses;
@@ -211,7 +243,7 @@ export async function uninstall(opts: { deleteData: boolean }, deps: UninstallDe
       await wait(1_000);
       left = await find(ctx);
     }
-    log(left.length ? `Quedan procesos de Plania que no se detuvieron: ${left.join(", ")}.` : `Procesos de Plania detenidos: ${stopped.length}.`);
+    log(left.length ? w.processesLeft(left) : w.processesStopped(stopped.length));
   }
 
   // 3. The data: kept unless asked twice (the flag, then the database's name typed back).
@@ -220,24 +252,24 @@ export async function uninstall(opts: { deleteData: boolean }, deps: UninstallDe
   let database: UninstallResult["database"] = "kept";
   const removed: string[] = [];
   if (opts.deleteData) {
-    const answer = name && deps.prompt ? (await deps.prompt(`Para borrar la base de datos y las carpetas de Plania, escribe el nombre de la base de datos (${name}): `)).trim() : "";
+    const answer = name && deps.prompt ? (await deps.prompt(w.confirm(name))).trim() : "";
     if (!name || answer !== name) {
       database = "not_confirmed";
-      log("No escribiste el nombre de la base de datos: no se borró nada.");
+      log(w.notConfirmed);
     } else {
       await (deps.dropDatabase ?? defaultDropDatabase)(env.DATABASE_URL!, name);
       database = "dropped";
-      log(`Base de datos ${name} borrada.`);
+      log(w.dropped(name));
       for (const dir of folders.remove)
         if (ctx.exists(dir)) {
           ctx.remove(dir);
           removed.push(dir);
-          log(`Carpeta borrada: ${dir}`);
+          log(w.folderRemoved(dir));
         }
     }
   }
-  if (database !== "dropped") log(`La base de datos${name ? ` ${name}` : ""} y tus carpetas siguen ahí. Para borrarlas: pnpm uninstall:plania --delete-data`);
-  for (const dir of folders.keep) if (ctx.exists(dir)) log(`Tus copias de seguridad se quedan en ${dir}.`);
-  log(`Para terminar, borra la carpeta de Plania: ${ctx.root}`);
+  if (database !== "dropped") log(w.kept(name));
+  for (const dir of folders.keep) if (ctx.exists(dir)) log(w.backups(dir));
+  log(w.finish(ctx.root));
   return { service, stopped, left, database, removed, kept: folders.keep };
 }

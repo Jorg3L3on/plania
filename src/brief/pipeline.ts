@@ -35,6 +35,7 @@ import { mergeBrief, projectionLines, type OpenIdea, type PassResult, type Waiti
 import { loadPassPrompts, readSchemaText, type SystemVars } from "./prompts.js";
 import { loadBriefProjects, loadBriefSettings, resolveBriefSettings } from "./settings.js";
 import { BriefPassOutput, Idea, IdeasPassOutput, type BriefData } from "./types.js";
+import { defineWords, say } from "../words.js";
 
 export const LOCK_KEY = "morning_brief";
 export const CHECK_KEEP_DAYS = 30;
@@ -473,19 +474,27 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
   }
 }
 
+// PLA-I2-10: the pipeline's lines for the page, in the brief's language; the Spanish is unchanged.
+export const PIPELINE_WORDS = defineWords({
+  es: {
+    signIn: (detail: string) => `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la máquina, escribe /login y pulsa Generar ahora.`,
+    ceiling: (fallbackAt: string, because: string) => `El brief completo no corrió antes de las ${fallbackAt} porque ${because}. Pulsa Generar ahora cuando esté libre.`,
+  },
+  en: {
+    signIn: (detail: string) => `Claude could not sign in (${detail}). Run \`claude\` on the machine, type /login, then press Generate now.`,
+    ceiling: (fallbackAt: string, because: string) => `The full brief didn't run by ${fallbackAt} because ${because}. Press Generate now when it's free.`,
+  },
+});
+
 /** Run summaries that start with this are sign-in failures (the page words them in the brief's language). */
 export const AUTH_PREFIX = "sign-in: ";
 
 export function signInText(lang: string, detail: string): string {
-  return lang === "es"
-    ? `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la máquina, escribe /login y pulsa Generar ahora.`
-    : `Claude could not sign in (${detail}). Run \`claude\` on the machine, type /login, then press Generate now.`;
+  return say(PIPELINE_WORDS, lang === "es" ? "es" : "en").signIn(detail);
 }
 
 export function ceilingText(lang: string, fallbackAt: string, because: string): string {
-  return lang === "es"
-    ? `El brief completo no corrió antes de las ${fallbackAt} porque ${because}. Pulsa Generar ahora cuando esté libre.`
-    : `The full brief didn't run by ${fallbackAt} because ${because}. Press Generate now when it's free.`;
+  return say(PIPELINE_WORDS, lang === "es" ? "es" : "en").ceiling(fallbackAt, because);
 }
 
 function runSummary(data: BriefData, factsOnly: string | null, authText: string | null, brief: PassResult<unknown>, ideas: PassResult<unknown>): string {

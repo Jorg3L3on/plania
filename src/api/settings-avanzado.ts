@@ -5,6 +5,7 @@
 import type { CaptureSettings } from "../captures/settings.js";
 import type { ProjectSettings } from "../db/schema.js";
 import { ADVANCED_KEYS, SETTINGS, type SettingKey } from "../mcp/settings-registry.js";
+import { defineWords, say } from "../words.js";
 
 export const AVANZADO_FIELDS = [
   "start_branch",
@@ -46,11 +47,18 @@ export const AVANZADO: Record<AvanzadoField, { key: SettingKey; editor: Avanzado
 export const avanzadoKeys = (): SettingKey[] => [...new Set(Object.values(AVANZADO).map((f) => f.key))];
 export const advancedWithoutField = (): SettingKey[] => ADVANCED_KEYS.filter((k) => !avanzadoKeys().includes(k));
 
-const GITHUB_TOKEN = {
-  default: "none: gh's own login",
-  defecto: "se usa la sesión de gh.",
-  frase: "El nombre de la variable que guarda la llave de GitHub, si no usas la sesión de gh. Nunca la llave misma.",
-};
+// PLA-I2-10: the GitHub key field's words in the install's language; the Spanish is unchanged.
+export const GITHUB_TOKEN_WORDS = defineWords({
+  es: {
+    defecto: "se usa la sesión de gh.",
+    frase: "El nombre de la variable que guarda la llave de GitHub, si no usas la sesión de gh. Nunca la llave misma.",
+  },
+  en: {
+    defecto: "gh's own login is used.",
+    frase: "The name of the variable that holds the GitHub key, if you do not use gh's login. Never the key itself.",
+  },
+});
+const GITHUB_TOKEN = () => ({ default: "none: gh's own login", ...say(GITHUB_TOKEN_WORDS) });
 
 export type AvanzadoRead = { field: AvanzadoField; key: SettingKey; editor: AvanzadoEditor; options?: string[]; value: unknown; defecto: string; frase: string };
 
@@ -75,7 +83,7 @@ function avanzadoValue(field: AvanzadoField, s: ProjectSettings): unknown {
 export const avanzadoRead = (s: ProjectSettings): AvanzadoRead[] =>
   (Object.keys(AVANZADO) as AvanzadoField[]).map((field) => {
     const f = AVANZADO[field];
-    const d = field === "github_token_env" ? GITHUB_TOKEN : SETTINGS[f.key];
+    const d = field === "github_token_env" ? GITHUB_TOKEN() : SETTINGS[f.key];
     return { field, key: f.key, editor: f.editor, ...(f.options ? { options: f.options } : {}), value: avanzadoValue(field, s), defecto: ("defecto" in d ? d.defecto : undefined) ?? d.default, frase: d.frase };
   });
 

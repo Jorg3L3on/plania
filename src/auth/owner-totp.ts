@@ -1,4 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the label the authenticator app shows, in the install's language; the Spanish is unchanged.
+export const TOTP_WORDS = defineWords({
+  es: { label: "Plania:dueño" },
+  en: { label: "Plania:owner" },
+});
 
 // RFC 6238 TOTP: HMAC-SHA1, 6 digits, 30 second step, verifier window ±1.
 // PLA-I36-11: the owner's code. No new dependency. The secret never leaves this module except as base32 for the
@@ -53,7 +60,7 @@ export function base32Decode(text: string): Buffer {
 
 // otpauth URI as text. No QR library. The label is the product, not a person.
 export function otpauthUri(secretBase32: string): string {
-  const label = encodeURIComponent("Plania:dueño");
+  const label = encodeURIComponent(say(TOTP_WORDS).label);
   const params = new URLSearchParams({
     secret: secretBase32,
     issuer: "Plania",

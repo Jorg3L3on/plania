@@ -8,6 +8,7 @@
 // ones and test/release-pack.test.ts asserts the files and the commands.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { defineWords, say } from "../words.js";
 
 export const LAUNCHD_LABEL = "com.plania.server";
 export const SYSTEMD_UNIT = "plania.service";
@@ -134,16 +135,42 @@ WantedBy=default.target
 `;
 }
 
-const WSL_LINES = [
-  "Esta máquina es Linux dentro de Windows (WSL) y no tiene systemd encendido, así que Plania no puede quedar como servicio.",
-  "Para encenderlo: agrega estas dos líneas a /etc/wsl.conf, corre «wsl --shutdown» en Windows y abre WSL otra vez:",
-  "  [boot]",
-  "  systemd=true",
-  "Luego vuelve a correr pnpm service:install. Mientras tanto, enciende Plania a mano con pnpm start.",
-];
-const UNSUPPORTED_LINES = [
-  "Plania se instala como servicio en macOS y en Linux. En Windows, úsala dentro de WSL con systemd encendido.",
-];
+// PLA-I2-10: what the service command says, in the install's language; the Spanish is unchanged.
+export const SERVICE_WORDS = defineWords({
+  es: {
+    wsl: [
+      "Esta máquina es Linux dentro de Windows (WSL) y no tiene systemd encendido, así que Plania no puede quedar como servicio.",
+      "Para encenderlo: agrega estas dos líneas a /etc/wsl.conf, corre «wsl --shutdown» en Windows y abre WSL otra vez:",
+      "  [boot]",
+      "  systemd=true",
+      "Luego vuelve a correr pnpm service:install. Mientras tanto, enciende Plania a mano con pnpm start.",
+    ],
+    unsupported: ["Plania se instala como servicio en macOS y en Linux. En Windows, úsala dentro de WSL con systemd encendido."],
+    installed: (atBoot: boolean) => `Plania quedó como servicio: arranca al entrar a tu sesión${atBoot ? " (y al encender la máquina)" : ""} y se reinicia si se cae.`,
+    open: (port: number, log: string) => `Abre http://localhost:${port}. Lo que escribe queda en ${log}.`,
+    removedMac: "Plania ya no es un servicio: no arranca sola. Los datos y los registros quedan donde estaban.",
+    removedLinux: "Plania ya no es un servicio: no arranca sola. Los datos quedan donde estaban.",
+  },
+  en: {
+    wsl: [
+      "This machine is Linux inside Windows (WSL) and systemd is not on, so Plania cannot run as a service.",
+      "To turn it on: add these two lines to /etc/wsl.conf, run «wsl --shutdown» in Windows and open WSL again:",
+      "  [boot]",
+      "  systemd=true",
+      "Then run pnpm service:install again. Meanwhile, start Plania by hand with pnpm start.",
+    ],
+    unsupported: ["Plania installs as a service on macOS and Linux. On Windows, use it inside WSL with systemd on."],
+    installed: (atBoot: boolean) => `Plania is now a service: it starts when you log in${atBoot ? " (and when the machine starts)" : ""} and restarts if it crashes.`,
+    open: (port: number, log: string) => `Open http://localhost:${port}. What it writes goes to ${log}.`,
+    removedMac: "Plania is no longer a service: it does not start on its own. The data and the logs stay where they were.",
+    removedLinux: "Plania is no longer a service: it does not start on its own. The data stays where it was.",
+  },
+});
+
+const otherLines = (platform: ServicePlatform): string[] => {
+  const w = say(SERVICE_WORDS);
+  return platform === "wsl-no-systemd" ? w.wsl : w.unsupported;
+};
 
 export function installPlan(env: ServiceEnv, opts: { atBoot?: boolean } = {}): ServicePlan {
   const platform = servicePlatform(env);
@@ -161,8 +188,8 @@ export function installPlan(env: ServiceEnv, opts: { atBoot?: boolean } = {}): S
         { cmd: "launchctl", args: ["bootstrap", domain, p.plist] },
       ],
       lines: [
-        `Plania quedó como servicio: arranca al entrar a tu sesión y se reinicia si se cae.`,
-        `Abre http://localhost:${env.port}. Lo que escribe queda en ${p.log}.`,
+        say(SERVICE_WORDS).installed(false),
+        say(SERVICE_WORDS).open(env.port, p.log),
       ],
     };
   }
@@ -181,12 +208,12 @@ export function installPlan(env: ServiceEnv, opts: { atBoot?: boolean } = {}): S
       files: [{ path: unit, content: systemdUnit(env) }],
       commands,
       lines: [
-        `Plania quedó como servicio: arranca al entrar a tu sesión${opts.atBoot ? " (y al encender la máquina)" : ""} y se reinicia si se cae.`,
-        `Abre http://localhost:${env.port}. Lo que escribe queda en ${systemdLog(env.home)}.`,
+        say(SERVICE_WORDS).installed(!!opts.atBoot),
+        say(SERVICE_WORDS).open(env.port, systemdLog(env.home)),
       ],
     };
   }
-  return { ...base, lines: platform === "wsl-no-systemd" ? WSL_LINES : UNSUPPORTED_LINES };
+  return { ...base, lines: otherLines(platform) };
 }
 
 export function uninstallPlan(env: ServiceEnv): ServicePlan {
@@ -197,7 +224,7 @@ export function uninstallPlan(env: ServiceEnv): ServicePlan {
       ...base,
       commands: [{ cmd: "launchctl", args: ["bootout", `gui/${env.uid}/${LAUNCHD_LABEL}`], ignoreFailure: true }],
       remove: [launchdPaths(env.home).plist],
-      lines: ["Plania ya no es un servicio: no arranca sola. Los datos y los registros quedan donde estaban."],
+      lines: [say(SERVICE_WORDS).removedMac],
     };
   }
   if (platform === "linux") {
@@ -206,10 +233,10 @@ export function uninstallPlan(env: ServiceEnv): ServicePlan {
       commands: [{ cmd: "systemctl", args: ["--user", "disable", "--now", SYSTEMD_UNIT], ignoreFailure: true }],
       remove: [systemdPath(env.home)],
       after: [{ cmd: "systemctl", args: ["--user", "daemon-reload"] }],
-      lines: ["Plania ya no es un servicio: no arranca sola. Los datos quedan donde estaban."],
+      lines: [say(SERVICE_WORDS).removedLinux],
     };
   }
-  return { ...base, lines: platform === "wsl-no-systemd" ? WSL_LINES : UNSUPPORTED_LINES };
+  return { ...base, lines: otherLines(platform) };
 }
 
 // The restart a deploy needs: the service manager stops the server (which drains) and starts it again.

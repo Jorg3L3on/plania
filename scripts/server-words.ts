@@ -77,7 +77,8 @@ export function serverSpanishIn(src: string): Finding[] {
   const inWords = (line: number) => {
     const at = starts[line - 1] ?? 0;
     const end = starts[line] ?? src.length;
-    return spans.some(([a, b]) => at >= a && end - 1 <= b + 1);
+    // A line that overlaps a defineWords argument list belongs to the wording module.
+    return spans.some(([a, b]) => at <= b && end - 1 >= a);
   };
   return texts(src).filter((f) => isSpanish(f.text) && !inWords(f.line));
 }

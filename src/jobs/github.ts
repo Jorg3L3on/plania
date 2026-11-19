@@ -14,6 +14,7 @@ import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
 import type { Job } from "./index.js";
+import { defineWords, say } from "../words.js";
 
 // The GitHub poller (R-21, R-12, R-09, R-17). Outbound only: the server is not reachable, so it
 // asks GitHub every minute, with ETags, for the repo named in projects.settings.github:
@@ -668,8 +669,14 @@ export async function closeReleased(db: Db, p: Project): Promise<number> {
 // and waited ten minutes for «Cerrar iniciativa». Once every step is merged or released its next action says that
 // only publishing is left; once every step is Done (the release rule above closed the last one) it closes itself.
 // settings.auto_done false keeps both off, as for the tickets.
-export const ONLY_PUBLISH_LEFT = "Todos sus pasos están hechos; solo falta publicarlos.";
-export const CLOSED_BY_RELEASE = "Se cerró sola: todos sus pasos están publicados.";
+// PLA-I2-10: both lines in the install's language; the Spanish is unchanged.
+export const SETTLE_WORDS = defineWords({
+  es: { onlyPublishLeft: "Todos sus pasos están hechos; solo falta publicarlos.", closedByRelease: "Se cerró sola: todos sus pasos están publicados." },
+  en: { onlyPublishLeft: "Every step is done; only publishing is left.", closedByRelease: "Closed by itself: every step is published." },
+});
+/** The Spanish lines, kept for the tests that import them (test/pla82-publicar.test.ts). */
+export const ONLY_PUBLISH_LEFT = SETTLE_WORDS.es.onlyPublishLeft;
+export const CLOSED_BY_RELEASE = SETTLE_WORDS.es.closedByRelease;
 const FINISHED = ["Done", "Won't do", "Cancelled"];
 export async function settleInitiatives(db: Db, p: Project): Promise<number> {
   if (p.settings.auto_done === false) return 0;
@@ -684,10 +691,12 @@ export async function settleInitiatives(db: Db, p: Project): Promise<number> {
     if (!kids.length || !kids.some((k) => k.status === "Done" || k.status === "Released" || k.status === "Merged")) continue;
     const sys = (what: string) => ({ actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `initiative-${what}:${ini.key}:${ini.version}`, tool: "jobs.release" });
     if (kids.every((k) => FINISHED.includes(k.status))) {
-      await setTask(db, { project: p.slug, key: ini.key, status: "Done", next_action: CLOSED_BY_RELEASE, note: CLOSED_BY_RELEASE } as never, sys("done"));
+      const line = say(SETTLE_WORDS).closedByRelease;
+      await setTask(db, { project: p.slug, key: ini.key, status: "Done", next_action: line, note: line } as never, sys("done"));
       closed++;
-    } else if (kids.every((k) => FINISHED.includes(k.status) || k.status === "Merged" || k.status === "Released") && ini.nextAction !== ONLY_PUBLISH_LEFT) {
-      await setTask(db, { project: p.slug, key: ini.key, next_action: ONLY_PUBLISH_LEFT } as never, sys("publish-left"));
+    } else if (kids.every((k) => FINISHED.includes(k.status) || k.status === "Merged" || k.status === "Released") && ![SETTLE_WORDS.es.onlyPublishLeft, SETTLE_WORDS.en.onlyPublishLeft].includes(ini.nextAction ?? "")) {
+      // Either language counts as already said, so a language change does not write the line again.
+      await setTask(db, { project: p.slug, key: ini.key, next_action: say(SETTLE_WORDS).onlyPublishLeft } as never, sys("publish-left"));
     }
   }
   return closed;

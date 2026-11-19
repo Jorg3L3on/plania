@@ -11,6 +11,7 @@
 //
 // PLANIA_STRIP_ANTHROPIC_ENV=1 keeps the old behaviour (drop ANTHROPIC_*, so the run signs in with the plan login).
 // Off by default.
+import { defineWords, say } from "../words.js";
 
 export type RunEnvOptions = {
   // The run's own values (its token, PORT, a test copy's database URL). Set last, over everything but the strip.
@@ -103,13 +104,31 @@ export function claudeSignIn(base: NodeJS.ProcessEnv): ClaudeSignIn {
   return "plan";
 }
 
-const SIGN_IN_WORDS: Record<ClaudeSignIn, string> = {
-  bedrock: "con tu cuenta de Amazon Bedrock",
-  vertex: "con tu cuenta de Google Vertex AI",
-  foundry: "con tu cuenta de Microsoft Foundry",
-  key: "con una clave de API",
-  plan: "con la sesión de tu plan",
-};
+// PLA-I2-10: how the agents sign in to Claude, in the install's language; the Spanish is unchanged.
+type SignInWords = { how: Record<ClaudeSignIn, string>; line: (how: string) => string };
+export const SIGN_IN_WORDS = defineWords<SignInWords>({
+  es: {
+    how: {
+      bedrock: "con tu cuenta de Amazon Bedrock",
+      vertex: "con tu cuenta de Google Vertex AI",
+      foundry: "con tu cuenta de Microsoft Foundry",
+      key: "con una clave de API",
+      plan: "con la sesión de tu plan",
+    },
+    line: (how: string) => `Los agentes usan Claude ${how}, la que tú configuraste en Claude Code; Plania no la elige.`,
+  },
+  en: {
+    how: {
+      bedrock: "with your Amazon Bedrock account",
+      vertex: "with your Google Vertex AI account",
+      foundry: "with your Microsoft Foundry account",
+      key: "with an API key",
+      plan: "with your plan's session",
+    },
+    line: (how: string) => `The agents use Claude ${how}, the one you set up in Claude Code; Plania does not choose it.`,
+  },
+});
 export function claudeSignInLine(base: NodeJS.ProcessEnv): string {
-  return `Los agentes usan Claude ${SIGN_IN_WORDS[claudeSignIn(base)]}, la que tú configuraste en Claude Code; Plania no la elige.`;
+  const w = say(SIGN_IN_WORDS);
+  return w.line(w.how[claudeSignIn(base)]);
 }

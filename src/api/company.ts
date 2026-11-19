@@ -68,6 +68,13 @@ import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
+export const COMPANY_ROUTE_WORDS = defineWords({
+  es: { noFrame: "No encontré ese marco." },
+  en: { noFrame: "I could not find that frame." },
+});
 
 export const companyRoutes = new Hono();
 
@@ -620,7 +627,7 @@ companyRoutes.post("/projects/:slug/ideas/:key/respuesta", async (c) => {
 companyRoutes.post("/projects/:slug/ideas/:key/despertar", async (c) => send(c, await withDb((db) => ideaDespertar(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.get("/projects/:slug/ideas/:key/frames/:id", async (c) => {
   const r = await withDb((db) => frameBytes(db, c.req.param("slug"), c.req.param("key"), c.req.param("id")));
-  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: "No encontré ese marco." }, 404);
+  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: say(COMPANY_ROUTE_WORDS).noFrame }, 404);
   return c.body(new Uint8Array(r.bytes), 200, { "Content-Type": r.mime, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
 });
 // PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).

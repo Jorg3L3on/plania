@@ -14,6 +14,28 @@ import { localDateIn } from "./pipeline.js";
 import { IDEA_ACTIONS, IDEA_INPUT, ideaProject, ideaRecord, ideasInMotion, isIdeaId, runIdea, type IdeaAction, type IdeaInMotion } from "./ideas.js";
 import { loadBriefSettings, resolveBriefSettings } from "./settings.js";
 import { Target, type Idea as IdeaRow, type Item } from "./types.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: a row's state lines and the undo notes, in the brief's language; the Spanish is unchanged.
+export const BRIEF_ACT_WORDS = defineWords({
+  es: {
+    run: { queued: "en cola", running: "trabajando", ok: "listo", fail: "falló", skipped: "saltado", stopped: "detenido" } as Record<string, string>,
+    checked: "Marcado",
+    gone: "Ya no está en Plania",
+    keepUndone: "Deshecho desde el brief.",
+    discardUndone: "Descarte deshecho desde el brief.",
+    undone: "Deshecho",
+  },
+  en: {
+    run: { queued: "queued", running: "working", ok: "done", fail: "failed", skipped: "skipped", stopped: "stopped" } as Record<string, string>,
+    checked: "Checked",
+    gone: "No longer in Plania",
+    keepUndone: "Undone from the brief.",
+    discardUndone: "Discard undone from the brief.",
+    undone: "Undone",
+  },
+});
+const actWords = (lang: string) => say(BRIEF_ACT_WORDS, lang === "es" ? "es" : "en");
 
 export type RowState = "open" | "handled" | "later" | "dismissed" | "gone";
 // wake: for a wake action, who wakes, about how long and whether runs are paused (the cost line before it runs).
@@ -93,12 +115,11 @@ async function followLine(db: Db, act: BriefAction, lang: string): Promise<strin
     .where(and(eq(agentRuns.taskKey, key), gte(agentRuns.queuedAt, new Date(act.createdAt.getTime() - 60_000))))
     .orderBy(desc(agentRuns.queuedAt))
     .limit(1);
-  const es = lang === "es";
   if (!run) {
     const [t] = await db.select({ status: tasks.status }).from(tasks).where(eq(tasks.key, key)).limit(1);
     return t ? `${key}: ${t.status}` : null;
   }
-  const word = { queued: es ? "en cola" : "queued", running: es ? "trabajando" : "working", ok: es ? "listo" : "done", fail: es ? "falló" : "failed", skipped: es ? "saltado" : "skipped", stopped: es ? "detenido" : "stopped" }[run.status] ?? run.status;
+  const word = actWords(lang).run[run.status] ?? run.status;
   const tail = run.status === "fail" || run.status === "ok" ? `: ${run.summary.slice(0, 120)}` : "";
   return `${run.agent} ${word}${tail}`;
 }
@@ -119,12 +140,12 @@ async function stateOfItem(db: Db, b: MorningBrief, item: Item, act: BriefAction
     const follow = REGISTRY[act.action as ActionId]?.level === "wake" ? await followLine(db, act, lang) : null;
     return { state: "handled", line: [act.outcome.line, follow].filter(Boolean).join(" · ") || null, actions: [], ...base };
   }
-  if (checked) return { state: "dismissed", line: lang === "es" ? "Marcado" : "Checked", actions: [], action_id: null, undo: false, at: null, action: null };
+  if (checked) return { state: "dismissed", line: actWords(lang).checked, actions: [], action_id: null, undo: false, at: null, action: null };
   const targets = targetsOf(item);
   const lives = await Promise.all(targets.map((t) => live(db, t)));
   const main = lives[0];
   const none = { action_id: null, undo: false, at: null, action: null, live: main ?? null };
-  if (main?.kind === "gone") return { state: "gone", line: lang === "es" ? "Ya no está en Plania" : "No longer in Plania", actions: [], ...none };
+  if (main?.kind === "gone") return { state: "gone", line: actWords(lang).gone, actions: [], ...none };
   const handled = main ? handledLine(main, { itemStatus: item.status, briefAt: b.generatedAt, lang }) : null;
   if (handled) return { state: "handled", line: handled, actions: [], ...none };
   return { state: "open", line: null, actions: ro ? [] : await rowActions(db, targets, lives, await rowProject(db, targets[0] ?? null, item, env)), ...none };
@@ -224,18 +245,18 @@ const ideaAsItemState = (s: IdeaCardState): ItemState => ({ state: s.state === "
 async function undoIdea(db: Db, row: BriefAction, b: MorningBrief, env: NodeJS.ProcessEnv): Promise<{ status: "undone"; line: string; state: ItemState } | ActError> {
   const r = (row.outcome.result ?? {}) as { key?: string | null; project?: string; created?: boolean };
   const lang = String(b.data.language ?? "en");
-  const es = lang === "es";
+  const w = actWords(lang);
   const idea = ideasOf(b).find((i) => i.id === row.itemId);
   const project = r.project ?? (idea ? ideaProject(idea, env) : null);
   if (r.key && project) {
     const [t] = await db.select().from(tasks).where(and(eq(tasks.key, r.key))).limit(1);
     const tool = { ...webCtx, tool: "screen.brief_undo_idea" };
-    if (row.action === "keep" && r.created && t?.status === "Open") await setTask(db, { project, key: r.key, status: "Won't do", version: t.version, reason: "Deshecho desde el brief." } as never, tool);
-    if (row.action === "discard" && t?.status === "Won't do") await setTask(db, { project, key: r.key, status: "Open", version: t.version, reason: "Descarte deshecho desde el brief." } as never, tool);
+    if (row.action === "keep" && r.created && t?.status === "Open") await setTask(db, { project, key: r.key, status: "Won't do", version: t.version, reason: w.keepUndone } as never, tool);
+    if (row.action === "discard" && t?.status === "Won't do") await setTask(db, { project, key: r.key, status: "Open", version: t.version, reason: w.discardUndone } as never, tool);
   }
   const done = await db.update(briefActions).set({ undoneAt: sql`now()` }).where(and(eq(briefActions.id, row.id), isNull(briefActions.undoneAt))).returning({ id: briefActions.id });
   if (!done.length) return { error: "ALREADY_UNDONE", hint: "That was already undone.", http: 409 };
-  const line = es ? "Deshecho" : "Undone";
+  const line = w.undone;
   const st = idea ? await ideaCardState(db, b, idea, false, env) : null;
   return { status: "undone", line, state: st ? ideaAsItemState(st) : { state: "open", line: null, actions: [], action_id: null, undo: false } };
 }
