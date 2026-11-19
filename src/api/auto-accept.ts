@@ -15,33 +15,65 @@ import { resolveThread } from "../runner/threads.js";
 import { decisionsRead, passOnHead, type Decision } from "./company-decisions.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { threadAction } from "./thread-actions.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: why a delivery was not accepted by itself, in the install's language; the Spanish is unchanged.
+export const AUTO_ACCEPT_WORDS = defineWords({
+  es: {
+    notAPr: "Solo una entrega con PR se acepta sola.",
+    notTeam: "No la entregó alguien del equipo.",
+    notInReview: "La entrega ya no está en revisión.",
+    visible: "Cambia lo que se ve: revísala tú.",
+    unknownVisible: "No se sabe si cambia la pantalla: revísala tú.",
+    waived: "Tiene un punto exento: revísala tú.",
+    noPass: "Faltan pruebas que pasen.",
+    noPr: "Todavía no se lee el PR.",
+    prClosed: "El PR ya no está abierto.",
+    wrongBase: "El PR no va a la rama de trabajo.",
+    noPassOnHead: "Falta una prueba que pase en el último commit.",
+  },
+  en: {
+    notAPr: "Only a delivery with a PR is accepted by itself.",
+    notTeam: "It was not delivered by someone on the team.",
+    notInReview: "The delivery is no longer in review.",
+    visible: "It changes what you see: review it yourself.",
+    unknownVisible: "It is unknown whether it changes the screen: review it yourself.",
+    waived: "It has a waived check: review it yourself.",
+    noPass: "Passing tests are missing.",
+    noPr: "The PR cannot be read yet.",
+    prClosed: "The PR is no longer open.",
+    wrongBase: "The PR does not go to the working branch.",
+    noPassOnHead: "A passing test on the latest commit is missing.",
+  },
+});
 
 const UUID = /^m-([0-9a-f-]{36})$/;
 const pending = (d: Decision) => d.state === null && d.actions.some((a) => a === "fusionar" || a === "aceptar");
 
 // null: it would be accepted now. Otherwise why not, for the floor.
 export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<string | null> {
+  const w = say(AUTO_ACCEPT_WORDS);
   const id = UUID.exec(d.id)?.[1];
-  if (d.kind !== "pr" || !id) return "Solo una entrega con PR se acepta sola.";
-  if (!d.asker) return "No la entregó alguien del equipo.";
+  if (d.kind !== "pr" || !id) return w.notAPr;
+  if (!d.asker) return w.notTeam;
   if (d.hold) return d.hold;
   const [msg] = await db.select().from(threadMessages).where(eq(threadMessages.id, id)).limit(1);
   const key = msg?.links.find((l) => l.kind === "ticket")?.ref;
   const [t] = key ? await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1) : [];
-  if (!msg || !t || t.status !== "In review") return "La entrega ya no está en revisión.";
+  if (!msg || !t || t.status !== "In review") return w.notInReview;
   // PLA-I52-7: with only «solo lo que no se ve» on, a delivery that changes the screen (or that finish could not
   // classify) waits for the owner.
-  if (!p.settings.auto_accept && t.cambio !== "no_se_ve") return t.cambio ? "Cambia lo que se ve: revísala tú." : "No se sabe si cambia la pantalla: revísala tú.";
+  if (!p.settings.auto_accept && t.cambio !== "no_se_ve") return t.cambio ? w.visible : w.unknownVisible;
   const [waived] = await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(eq(checks.taskId, t.id), isNotNull(checks.waivedAt)));
-  if (Number(waived?.n ?? 0) > 0) return "Tiene un punto exento: revísala tú.";
-  if (d.evidence?.verdict !== "pass" || (d.evidence.fail ?? 0) > 0) return "Faltan pruebas que pasen.";
+  if (Number(waived?.n ?? 0) > 0) return w.waived;
+  if (d.evidence?.verdict !== "pass" || (d.evidence.fail ?? 0) > 0) return w.noPass;
   const url = msg.links.find((l) => l.kind === "pr")?.ref ?? t.prUrl;
   const [pr] = url ? await db.select().from(pullRequests).where(eq(pullRequests.url, url)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
-  if (!pr) return "Todavía no se lee el PR.";
-  if (pr.state !== "open") return "El PR ya no está abierto.";
+  if (!pr) return w.noPr;
+  if (pr.state !== "open") return w.prClosed;
   // PLA-I2-5: the project's start branch, never a branch name on the screen.
-  if (pr.baseBranch !== startBranchOf(p.settings)) return "El PR no va a la rama de trabajo.";
-  if (!(await passOnHead(db, t, pr.headSha, pr.headBranch))) return "Falta una prueba que pase en el último commit.";
+  if (pr.baseBranch !== startBranchOf(p.settings)) return w.wrongBase;
+  if (!(await passOnHead(db, t, pr.headSha, pr.headBranch))) return w.noPassOnHead;
   return null;
 }
 

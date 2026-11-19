@@ -42,15 +42,42 @@ export async function projectPo(db: Db, project: { id: string; slug: string }): 
   );
 }
 
+// PLA-I2-10: the refusals and summaries the owner reads from a sheet's actions, in the install's language; the Spanish
+// is unchanged.
+export const ACTION_WORDS = defineWords({
+  es: {
+    companyPaused: "La compañía está detenida.",
+    projectPaused: "El proyecto está en pausa: reanúdalo primero.",
+    noPo: "Este proyecto no tiene un PO que corra en Claude Code.",
+    noTicket: "Ese ticket no está en el proyecto.",
+    notReady: "Solo un ticket listo puede ir primero.",
+    idle: "Sin trabajo para el PO: pídele algo.",
+    noTeammate: "Ese compañero no está en el equipo de este proyecto.",
+    noOrder: "Ese pedido no está.",
+    orderTaken: "Ese pedido ya no espera a nadie.",
+  },
+  en: {
+    companyPaused: "The company is stopped.",
+    projectPaused: "The project is paused: resume it first.",
+    noPo: "This project has no PO that runs in Claude Code.",
+    noTicket: "That ticket is not in the project.",
+    notReady: "Only a ready ticket can go first.",
+    idle: "No work for the PO: ask it for something.",
+    noTeammate: "That teammate is not on this project's team.",
+    noOrder: "That request is not here.",
+    orderTaken: "That request no longer waits on anyone.",
+  },
+});
+
 type Guard = { project: { id: string; slug: string }; po: Agent };
 
 async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
-  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
+  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: say(ACTION_WORDS).companyPaused };
+  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: say(ACTION_WORDS).projectPaused };
   const po = await projectPo(db, project);
-  if (!po) return { error: "NO_PO", status: 409, hint: "Este proyecto no tiene un PO que corra en Claude Code." };
+  if (!po) return { error: "NO_PO", status: 409, hint: say(ACTION_WORDS).noPo };
   return { project: { id: project.id, slug: project.slug }, po };
 }
 
@@ -179,8 +206,8 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select({ status: tasks.status, kind: tasks.kind }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
-  if (!t || t.kind !== "ticket") return { error: "TASK_NOT_FOUND", status: 404, hint: "Ese ticket no está en el proyecto." };
-  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: "Solo un ticket listo puede ir primero." };
+  if (!t || t.kind !== "ticket") return { error: "TASK_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noTicket };
+  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).notReady };
   await db.update(projects).set({ settings: { ...p.settings, next_first: key }, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
   return { next: key };
 }
@@ -207,7 +234,7 @@ export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promis
   const g = await guard(db, slug);
   if ("error" in g) return g;
   const work = pickReady(g.po, (await loadReady(db)).filter((r) => r.project === g.project.slug));
-  if (!work) return { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." };
+  if (!work) return { woke: false, reason: "idle", ticket: null, summary: say(ACTION_WORDS).idle };
   const out = await wakeAgent(db, { agent: g.po.slug, taskKey: work.key }, deps);
   return { woke: out.woke, reason: out.reason, ticket: out.run?.task_key ?? work.key, summary: out.run?.summary ?? "" };
 }
@@ -222,10 +249,10 @@ export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "CO
 export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date; reason?: string } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
-  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
+  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: say(ACTION_WORDS).companyPaused };
+  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: say(ACTION_WORDS).projectPaused };
   const agent = (await teamOf(db, project.id)).find((a) => a.slug === agentSlug);
-  if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: "Ese compañero no está en el equipo de este proyecto." };
+  if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noTeammate };
   const work = pickReady({ ...agent, projectSlug: project.slug }, (await loadReady(db)).filter((r) => r.project === project.slug));
   const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date(), reason: opts.reason }, deps?.runner);
   const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
@@ -237,8 +264,8 @@ export async function resendRequest(db: Db, slug: string, key: string): Promise<
   const g = await guard(db, slug);
   if ("error" in g) return g;
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, g.project.id), eq(tasks.key, key))).limit(1);
-  if (!t || t.origin !== "owner") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
-  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: "Ese pedido ya no espera a nadie." };
+  if (!t || t.origin !== "owner") return { error: "ORDER_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noOrder };
+  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).orderTaken };
   if (!eventWakesEnabled()) return { key, wake: "off" };
   const out = await queueWake(db, g.project, { id: t.id, key: t.key }, { agent: g.po, taskKey: t.key, reason: "request resent" }, "screen.resend");
   return { key, wake: out.kind === "queued" ? "queued" : "busy" };

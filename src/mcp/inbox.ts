@@ -6,6 +6,27 @@ import { openHumanActions } from "./blockers.js";
 import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
 import { delegationChores } from "./delegation.js";
 import { iso, type Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the inbox lines Plania writes itself, in the install's language; the Spanish is unchanged.
+export const INBOX_WORDS = defineWords({
+  es: {
+    stale: (why: string) => `obsoleto: ${why}`,
+    noReason: "sin motivo guardado",
+    noOwner: "sin dueño: nadie lo declaró y no se sabe de quién es",
+    release: (n: number, env: string, noGithub: boolean) => `${n} ${n === 1 ? "ticket listo" : "tickets listos"} para ${env}${noGithub ? "; sin datos de GitHub" : ""}`,
+    leaseLapsed: "el turno venció y nadie lo renovó",
+    leaseHint: "reclamar de nuevo o soltar el trabajo",
+  },
+  en: {
+    stale: (why: string) => `stale: ${why}`,
+    noReason: "no reason stored",
+    noOwner: "no owner: nobody declared it and nobody knows whose it is",
+    release: (n: number, env: string, noGithub: boolean) => `${n} ${n === 1 ? "ticket ready" : "tickets ready"} for ${env}${noGithub ? "; no GitHub data" : ""}`,
+    leaseLapsed: "the lease ran out and nobody renewed it",
+    leaseHint: "claim it again or let the work go",
+  },
+});
 
 // The owner's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
 // open questions, human actions a ticket is blocked on, and what agents left running on the machine
@@ -101,7 +122,7 @@ async function footprintItems(db: Q, projectId: string | null, project: string, 
       task_kind: kind,
       parent_key: null,
       title: `${f.kind} ${f.locator}`,
-      why: f.state === "stale" ? `obsoleto: ${describeStale(f.details, now) ?? "sin motivo guardado"}` : "sin dueño: nadie lo declaró y no se sabe de quién es",
+      why: f.state === "stale" ? say(INBOX_WORDS).stale(describeStale(f.details, now) ?? say(INBOX_WORDS).noReason) : say(INBOX_WORDS).noOwner,
       target: { kind: f.kind, locator: f.locator, teardown: f.teardown, state: f.state },
       waiting_since: iso(since),
       wait_s: waitSeconds(since),
@@ -180,7 +201,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       task_kind: null,
       parent_key: null,
       title: `${plan.from.branch} → ${plan.into.branch}`,
-      why: `${n} ${n === 1 ? "ticket listo" : "tickets listos"} para ${plan.env}${plan.ahead === null ? "; sin datos de GitHub" : ""}`,
+      why: say(INBOX_WORDS).release(n, plan.env, plan.ahead === null),
       action: "release",
       target: plan as unknown as Record<string, unknown>,
       waiting_since: iso(since),
@@ -222,12 +243,12 @@ async function leaseItems(db: Q, projectId: string, project: string, now = new D
       task_kind: row.kind,
       parent_key: await parentKeyOf(db, row.parent_id),
       title: row.title,
-      why: "el turno venció y nadie lo renovó",
+      why: say(INBOX_WORDS).leaseLapsed,
       waiting_since: iso(at),
       wait_s: waitSeconds(at),
       evidence: null,
       pr_url: row.pr_url,
-      action_hint: "reclamar de nuevo o soltar el trabajo",
+      action_hint: say(INBOX_WORDS).leaseHint,
     });
   }
   return items;

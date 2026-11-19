@@ -21,7 +21,6 @@
 // ALREADY_ACTED: a message's action_state is claimed before anything is posted, a ticket must still be Ready,
 // a question still open.
 import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { installLanguage } from "../language.js";
 import type { Db } from "../db/client.js";
 import { agents, checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Actor, type Agent, type Project, type PlanQuestion, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
 import { POSTPONED, checkChecklist, costText, isLegPlan, makeSteps } from "../mcp/proposals.js";
@@ -48,6 +47,133 @@ import { qaGate } from "../runner/qa.js";
 import { probadorGate, releaseReel, type ReelItem } from "../captures/probador.js";
 import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 import { ownerEs } from "../owner.js";
+import { ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: Te toca's words in the install's language; the Spanish is unchanged. The owner's thread lines here
+// («Elijo …», «Sí, empiecen.») are not read back; LEGACY_ORDER_LINE below reads old Spanish scopes and stays.
+export const DECISION_WORDS = defineWords({
+  es: {
+    poProposes: (n: number) => `El PO propone ${n} opciones`,
+    holdVerify: (who: string, running: boolean) => `${who} ${running ? "está corriendo" : "va a correr"} las pruebas en el último commit.`,
+    holdFailing: "Las pruebas fallan.",
+    holdChecks: (n: number) => `${n === 1 ? "Falta 1 check" : `Faltan ${n} checks`}.`,
+    holdLastFailed: "La última prueba falló.",
+    holdRunning: "Las pruebas siguen corriendo.",
+    holdNoCi: "Este repo no tiene CI y falta una prueba que pase en el último commit.",
+    onlyYou: "solo tú",
+    waitsOn: (t: string) => `Lo espera: ${t}`,
+    releaseTitle: (n: number) => `${n} ${n === 1 ? "cambio listo" : "cambios listos"} para publicar`,
+    noGithub: "Sin datos de GitHub todavía",
+    pickOne: "Elige una opción.",
+    optionsAre: (ns: string) => `Opciones: ${ns}.`,
+    decisionGone: "Esa decisión ya no está.",
+    alreadyActed: "Ya actuaste sobre esto.",
+    notCombinable: "Esas opciones no van juntas.",
+    iChoose: (ns: string, labels: string) => `Elijo ${ns}: ${labels}`,
+    writeAnswer: "Escribe tu respuesta.",
+    actionNotHere: "Esa acción no aplica aquí.",
+    somethingElse: "Otra cosa",
+    planActions: "Aquí: Sí, empiecen · Cambiar algo · Cancelar.",
+    approvedPlan: (keys: string) => `${ownerEs(undefined, { capital: true })} aprobó el plan: ${keys}.`,
+    goAhead: "Sí, empiecen.",
+    changesOrder: () => `${ownerEs(undefined, { capital: true })} cambia el pedido: vuelve a la caja.`,
+    cancelledOrder: () => `${ownerEs(undefined, { capital: true })} canceló el pedido.`,
+    changeOrderPost: "Cambio el pedido; te lo vuelvo a escribir.",
+    cancelOrderPost: "Cancelo este pedido.",
+    refused: "Plania no dejó hacerlo.",
+    legPlanActions: "Aquí: Aprobar el plan · Cambiar algo · Después.",
+    legGone: "Ese entregable ya no está.",
+    legPostponed: "Ese entregable está pospuesto a propósito.",
+    answerNotOption: "Esa respuesta no está entre las opciones.",
+    checklist: "La check list lleva 3 cosas a verificar.",
+    writeChange: "Escribe qué cambiar.",
+    planAcceptedNote: (keys: string) => `Plan aceptado: ${keys}.`,
+    answeredWithPlan: (keys: string) => `Respondido con el plan aceptado: ${keys}.`,
+    planAcceptedPost: "Plan aceptado.",
+    changesPlan: () => `${ownerEs(undefined, { capital: true })} cambia el plan: va otro pedido al PO.`,
+    replan: (title: string, text: string) => `Planea «${title}» otra vez. Cambia esto: ${text}`,
+    ticketHere: "Aquí: Hecho o Aplazar.",
+    ticketAlready: (key: string, status: string) => `${key} ya está en ${status}.`,
+    postponed: () => `${ownerEs(undefined, { capital: true })} lo aplazó desde Te toca.`,
+    notMoved: "Plania no dejó moverlo.",
+    answered: "La pregunta ya tiene respuesta.",
+    oneOption: "Una sola opción.",
+    questionHere: "Aquí: Elegir o Responder.",
+    answerRefused: "Plania no aceptó la respuesta.",
+    stepHere: "Aquí: Hecho.",
+    stepGone: "Ese paso ya no está.",
+    stepDone: "Ese paso ya está hecho.",
+    notMarked: "Plania no dejó marcarlo.",
+    noTicket: "El mensaje no enlaza un ticket.",
+    fileEmpty: "Falta el archivo o las líneas.",
+    linesAdded: (n: number, path: string, branch: string, commit: string) => `Plania agregó ${n} ${n === 1 ? "línea" : "líneas"} a ${path} en ${branch}${commit ? ` (${commit})` : ""}.`,
+    linesThere: (path: string, branch: string) => `${path} en ${branch} ya tenía esas líneas.`,
+    addedNotMarked: "Se agregó al PR, pero Plania no dejó marcar el paso; márcalo con Hecho.",
+    publishInBandeja: "Publicar se hace en Bandeja, con tu código.",
+    noDecision: "Esa decisión no existe.",
+  },
+  en: {
+    poProposes: (n: number) => `The PO proposes ${n} options`,
+    holdVerify: (who: string, running: boolean) => `${who} ${running ? "is running" : "will run"} the tests on the latest commit.`,
+    holdFailing: "The tests fail.",
+    holdChecks: (n: number) => (n === 1 ? "1 check is missing." : `${n} checks are missing.`),
+    holdLastFailed: "The last test failed.",
+    holdRunning: "The tests are still running.",
+    holdNoCi: "This repo has no CI and needs a passing test on the latest commit.",
+    onlyYou: "only you",
+    waitsOn: (t: string) => `Waiting on it: ${t}`,
+    releaseTitle: (n: number) => `${n} ${n === 1 ? "change" : "changes"} ready to publish`,
+    noGithub: "No GitHub data yet",
+    pickOne: "Pick an option.",
+    optionsAre: (ns: string) => `Options: ${ns}.`,
+    decisionGone: "That decision is no longer here.",
+    alreadyActed: "You already acted on this.",
+    notCombinable: "Those options do not go together.",
+    iChoose: (ns: string, labels: string) => `I choose ${ns}: ${labels}`,
+    writeAnswer: "Write your answer.",
+    actionNotHere: "That action does not apply here.",
+    somethingElse: "Something else",
+    planActions: "Here: Yes, go ahead · Change something · Cancel.",
+    approvedPlan: (keys: string) => `${ownerName("en", { capital: true })} approved the plan: ${keys}.`,
+    goAhead: "Yes, go ahead.",
+    changesOrder: () => `${ownerName("en", { capital: true })} is changing the request: it goes back to the box.`,
+    cancelledOrder: () => `${ownerName("en", { capital: true })} cancelled the request.`,
+    changeOrderPost: "I am changing the request; I will write it to you again.",
+    cancelOrderPost: "I am cancelling this request.",
+    refused: "Plania did not allow it.",
+    legPlanActions: "Here: Approve the plan · Change something · Later.",
+    legGone: "That deliverable is no longer here.",
+    legPostponed: "That deliverable is postponed on purpose.",
+    answerNotOption: "That answer is not one of the options.",
+    checklist: "The check list takes 3 things to verify.",
+    writeChange: "Write what to change.",
+    planAcceptedNote: (keys: string) => `Plan accepted: ${keys}.`,
+    answeredWithPlan: (keys: string) => `Answered with the accepted plan: ${keys}.`,
+    planAcceptedPost: "Plan accepted.",
+    changesPlan: () => `${ownerName("en", { capital: true })} is changing the plan: another request goes to the PO.`,
+    replan: (title: string, text: string) => `Plan «${title}» again. Change this: ${text}`,
+    ticketHere: "Here: Done or Postpone.",
+    ticketAlready: (key: string, status: string) => `${key} is already ${status}.`,
+    postponed: () => `${ownerName("en", { capital: true })} postponed it from Te toca.`,
+    notMoved: "Plania did not allow moving it.",
+    answered: "The question already has an answer.",
+    oneOption: "Only one option.",
+    questionHere: "Here: Pick or Answer.",
+    answerRefused: "Plania did not accept the answer.",
+    stepHere: "Here: Done.",
+    stepGone: "That step is no longer here.",
+    stepDone: "That step is already done.",
+    notMarked: "Plania did not allow marking it.",
+    noTicket: "The message does not link a ticket.",
+    fileEmpty: "The file or the lines are missing.",
+    linesAdded: (n: number, path: string, branch: string, commit: string) => `Plania added ${n} ${n === 1 ? "line" : "lines"} to ${path} on ${branch}${commit ? ` (${commit})` : ""}.`,
+    linesThere: (path: string, branch: string) => `${path} on ${branch} already had those lines.`,
+    addedNotMarked: "It was added to the PR, but Plania did not allow marking the step; mark it with Done.",
+    publishInBandeja: "Publishing happens in Bandeja, with your code.",
+    noDecision: "That decision does not exist.",
+  },
+});
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
@@ -193,7 +319,7 @@ export function parseProposal(body: string): Proposal | null {
   const intro = clean(lines.slice(0, list[0]!.line).join(" ")).replace(/:$/, "");
   const sentences = intro.split(/(?<=[.!?])\s+/).filter(Boolean);
   const lastIntro = sentences.at(-1)?.replace(/[.:]$/, "") ?? "";
-  const title = lastIntro && lastIntro.length <= 120 ? lastIntro : installLanguage() === "en" ? `The PO proposes ${options.length} options` : `El PO propone ${options.length} opciones`;
+  const title = lastIntro && lastIntro.length <= 120 ? lastIntro : say(DECISION_WORDS).poProposes(options.length);
   const after = lines
     .slice(list.at(-1)!.line + 1)
     .map(clean)
@@ -271,19 +397,20 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
   // No CI and the pass on record is on an older commit: the owner can be asked to run the checks again (verificar).
   const stale = checks?.ci === "none" && !!t && !(await passOnHead(db, t, pr?.head ?? null, pr?.branch ?? null));
   const who = whoWord(verify?.role);
+  const w = say(DECISION_WORDS);
   const hold =
     stale && verify
-      ? `${who} ${verify.state === "running" ? "está corriendo" : "va a correr"} las pruebas en el último commit.`
+      ? w.holdVerify(who, verify.state === "running")
       : checks?.ci === "failure"
-      ? "Las pruebas fallan."
+      ? w.holdFailing
       : checks && checks.open > 0
-        ? `${checks.open === 1 ? "Falta 1 check" : `Faltan ${checks.open} checks`}.`
+        ? w.holdChecks(checks.open)
         : evidence?.verdict === "fail" || (evidence?.fail ?? 0) > 0
-          ? "La última prueba falló."
+          ? w.holdLastFailed
           : checks?.ci === "pending"
-            ? "Las pruebas siguen corriendo."
+            ? w.holdRunning
             : stale
-              ? "Este repo no tiene CI y falta una prueba que pase en el último commit."
+              ? w.holdNoCi
               : null;
   return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold, verify, stale, head: pr?.head ?? null, headBranch: pr?.branch ?? null };
 }
@@ -542,7 +669,7 @@ async function questionRows(db: Db, since: Date, slugById: Map<string, Project>,
       state: q.answeredAt ? { action: "responder", at: q.answeredAt.toISOString(), result: { answer: q.answer } } : null,
       at: q.askedAt.toISOString(),
       ref: key,
-      detail: q.humanOnly ? "solo tú" : null,
+      detail: q.humanOnly ? say(DECISION_WORDS).onlyYou : null,
       ...NO_EVIDENCE,
       asker: asAsker(await agentOfActor(db, q.askedBy as Actor)),
     });
@@ -572,7 +699,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
           state: null,
           at: it.waiting_since,
           ref: it.key,
-          detail: it.title ? `Lo espera: ${it.title}` : null,
+          detail: it.title ? say(DECISION_WORDS).waitsOn(it.title) : null,
           links: it.pr_url ? [{ kind: "pr", ref: it.pr_url, title: "PR" }] : [],
           body: null,
           checks: await evidenceOf(db, t, it.pr_url),
@@ -586,14 +713,14 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
           ...NO_EVIDENCE,
           id: `r-${p.slug}`,
           project: p.slug,
-          title: `${n} ${n === 1 ? "cambio listo" : "cambios listos"} para publicar`,
+          title: say(DECISION_WORDS).releaseTitle(n),
           kind: "release",
           options: null,
           actions: [],
           state: null,
           at: it.waiting_since,
           ref: null,
-          detail: plan.ahead === null ? "Sin datos de GitHub todavía" : null,
+          detail: plan.ahead === null ? say(DECISION_WORDS).noGithub : null,
           links: plan.tickets.filter((t) => t.pr_url).map((t) => ({ kind: "pr" as const, ref: t.pr_url!, title: t.title })),
           body: null,
           checks: { open: plan.open_checks, ci: null },
@@ -651,9 +778,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function chosen(options: DecisionOption[], option: number | number[] | undefined): DecisionOption[] | DecisionRefusal {
   const ns = option == null ? [] : Array.isArray(option) ? option : [option];
-  if (ns.length === 0) return refuse("OPTION_REQUIRED", "Elige una opción.", 400);
+  if (ns.length === 0) return refuse("OPTION_REQUIRED", say(DECISION_WORDS).pickOne, 400);
   const picked = [...new Set(ns)].sort((a, b) => a - b).map((n) => options.find((o) => o.n === n));
-  if (picked.some((o) => !o)) return refuse("INVALID_OPTION", `Opciones: ${options.map((o) => o.n).join(", ")}.`, 400);
+  if (picked.some((o) => !o)) return refuse("INVALID_OPTION", say(DECISION_WORDS).optionsAre(options.map((o) => o.n).join(", ")), 400);
   return picked as DecisionOption[];
 }
 
@@ -664,8 +791,8 @@ async function after(db: Db, id: string, state: DecisionState, extra: Partial<De
 
 async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [m] = await db.select().from(threadMessages).where(eq(threadMessages.id, msgId)).limit(1);
-  if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
-  if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
+  if (!m) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).decisionGone, 404);
+  if (m.actionState) return refuse("ALREADY_ACTED", say(DECISION_WORDS).alreadyActed, 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
   if (input.action === "verificar") return verifyMessage(db, id, m, ref.project?.id ?? null);
   // PLA-27: only a plan that waits for "Sí, empiecen" is acted on as a plan. One that needed no approval is
@@ -682,13 +809,13 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
       if (!Array.isArray(picked)) return picked;
       // PLA-I36-7: two options at once only when the PO marked them combinable.
       if (picked.length > 1 && m.proposal && !m.proposal.combinable.some((set) => set.length === picked.length && set.every((n, i) => n === picked[i]!.n)))
-        return refuse("NOT_COMBINABLE", "Esas opciones no van juntas.", 400);
+        return refuse("NOT_COMBINABLE", say(DECISION_WORDS).notCombinable, 400);
       const ns = picked.map((o) => o.n).join(" + ");
-      body = `Elijo ${ns}: ${picked.map((o) => o.label).join(" + ")}`;
+      body = say(DECISION_WORDS).iChoose(ns, picked.map((o) => o.label).join(" + "));
       result = { option: picked.length === 1 ? picked[0]!.n : picked.map((o) => o.n), label: picked.map((o) => o.label).join(" + ") };
     } else {
       const text = input.text?.trim() ?? "";
-      if (!text) return refuse("TEXT_REQUIRED", "Escribe tu respuesta.", 409);
+      if (!text) return refuse("TEXT_REQUIRED", say(DECISION_WORDS).writeAnswer, 409);
       body = text;
       result = { text };
     }
@@ -699,7 +826,7 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
       .set({ actionState: { action: input.action, at, result } as unknown as ActionState })
       .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
       .returning({ id: threadMessages.id });
-    if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+    if (claimed.length === 0) return refuse("ALREADY_ACTED", say(DECISION_WORDS).alreadyActed);
     try {
       const posted = await ownerPosts(db, ref, body);
       const full = { ...result, message_id: posted.message.id, ticket: posted.created?.key ?? null, wake: posted.wake };
@@ -712,14 +839,14 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
     }
   }
 
-  if (!["aceptar", "fusionar", "cambios", "responder"].includes(input.action)) return refuse("INVALID_ACTION", "Esa acción no aplica aquí.", 400);
+  if (!["aceptar", "fusionar", "cambios", "responder"].includes(input.action)) return refuse("INVALID_ACTION", say(DECISION_WORDS).actionNotHere, 400);
   // PLA-I52-6: a return from El Probador carries the owner's pins, each with a crop of the picture.
   let text = input.text;
   const marcas = input.action === "cambios" ? cleanMarcas(input.marcas) : [];
   const ticketRef = m.links.find((l) => l.kind === "ticket")?.ref;
   if (marcas.length && ref.project && ticketRef) {
     const extra = await marcasText(db, ref.project.slug, ticketRef, marcas);
-    text = [text?.trim() || "Otra cosa", extra.text].filter(Boolean).join("\n\n");
+    text = [text?.trim() || say(DECISION_WORDS).somethingElse, extra.text].filter(Boolean).join("\n\n");
   }
   const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text });
   if ("error" in out) return { ...out, status: out.status } as DecisionRefusal;
@@ -742,7 +869,7 @@ async function wakeFirstStep(db: Db, p: { id: string; slug: string }, data: { st
 // PLA-I36-8: Sí, empiecen makes one Ready ticket per step; Cambiar algo closes the order and hands its text back to
 // the box; Cancelar closes the order. Each claims the message's action_state first, like Elegir.
 async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  if (!["empezar", "cambiar", "cancelar"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Sí, empiecen · Cambiar algo · Cancelar.", 400);
+  if (!["empezar", "cambiar", "cancelar"].includes(input.action)) return refuse("INVALID_ACTION", say(DECISION_WORDS).planActions, 400);
   const data = m.proposal!;
   const ref = await resolveThread(db, m.threadId);
   const p = ref.project!;
@@ -753,7 +880,7 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
     .set({ actionState: { action: input.action, at, result: {} } as unknown as ActionState })
     .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
     .returning({ id: threadMessages.id });
-  if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+  if (claimed.length === 0) return refuse("ALREADY_ACTED", say(DECISION_WORDS).alreadyActed);
   const ctx = { ...webCtx, tool: `screen.plan_${input.action}` };
   let result: Record<string, unknown>;
   try {
@@ -761,20 +888,20 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
       const created = await makeSteps(db, p.slug, data, ctx);
       await db.update(threadMessages).set({ proposal: { ...data, created } }).where(eq(threadMessages.id, m.id));
       await wakeFirstStep(db, p, data, created);
-      if (order) await setTask(db, { project: p.slug, key: order.key, note: `${ownerEs(undefined, { capital: true })} aprobó el plan: ${created.join(", ")}.` } as never, ctx);
-      await postMessage(db, ref, { author: OWNER_AUTHOR, body: "Sí, empiecen." }, ctx);
+      if (order) await setTask(db, { project: p.slug, key: order.key, note: say(DECISION_WORDS).approvedPlan(created.join(", ")) } as never, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: say(DECISION_WORDS).goAhead }, ctx);
       result = { created, order: data.order };
     } else {
       const text = order ? orderText(order) : data.title;
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: input.action === "cambiar" ? `${ownerEs(undefined, { capital: true })} cambia el pedido: vuelve a la caja.` : `${ownerEs(undefined, { capital: true })} canceló el pedido.` } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: input.action === "cambiar" ? say(DECISION_WORDS).changesOrder() : say(DECISION_WORDS).cancelledOrder() } as never, ctx);
       }
-      await postMessage(db, ref, { author: OWNER_AUTHOR, body: input.action === "cambiar" ? "Cambio el pedido; te lo vuelvo a escribir." : "Cancelo este pedido." }, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: input.action === "cambiar" ? say(DECISION_WORDS).changeOrderPost : say(DECISION_WORDS).cancelOrderPost }, ctx);
       result = { order: data.order, text };
     }
   } catch (e) {
     await db.update(threadMessages).set({ actionState: null }).where(eq(threadMessages.id, m.id));
-    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó hacerlo.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).refused, 409, e.detail);
     throw e;
   }
   const state = { action: input.action, at, result };
@@ -792,7 +919,7 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
 //            change, so the PO plans again; the plan is acted on.
 //   despues  stores later_at. The plan stays open (it can be accepted later) but is no longer the owner's move.
 async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  if (!["empezar", "cambiar", "despues"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Aprobar el plan · Cambiar algo · Después.", 400);
+  if (!["empezar", "cambiar", "despues"].includes(input.action)) return refuse("INVALID_ACTION", say(DECISION_WORDS).legPlanActions, 400);
   const data = m.proposal!;
   const ref = await resolveThread(db, m.threadId);
   const p = ref.project!;
@@ -804,28 +931,28 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
       .set({ proposal: { ...data, later_at: later } })
       .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
       .returning({ id: threadMessages.id });
-    if (done.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+    if (done.length === 0) return refuse("ALREADY_ACTED", say(DECISION_WORDS).alreadyActed);
     return after(db, id, { action: "despues", at: later, result: { later_at: later, leg: data.leg } });
   }
 
   const [leg] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.leg!))).limit(1);
-  if (!leg) return refuse("TASK_NOT_FOUND", "Ese entregable ya no está.", 404);
+  if (!leg) return refuse("TASK_NOT_FOUND", say(DECISION_WORDS).legGone, 404);
   let answers: number[] = [];
   let list: string[] = [];
   let text = "";
   if (input.action === "empezar") {
-    if (POSTPONED.includes(leg.status)) return refuse("LEG_POSTPONED", "Ese entregable está pospuesto a propósito.", 409, { key: leg.key, status: leg.status });
+    if (POSTPONED.includes(leg.status)) return refuse("LEG_POSTPONED", say(DECISION_WORDS).legPostponed, 409, { key: leg.key, status: leg.status });
     const qs = data.questions ?? [];
     answers = qs.map((q, i) => input.answers?.[i] ?? q.suggested);
-    if (answers.some((a, i) => !Number.isInteger(a) || a < 0 || a >= qs[i]!.options.length)) return refuse("INVALID_OPTION", "Esa respuesta no está entre las opciones.", 400);
+    if (answers.some((a, i) => !Number.isInteger(a) || a < 0 || a >= qs[i]!.options.length)) return refuse("INVALID_OPTION", say(DECISION_WORDS).answerNotOption, 400);
     try {
       list = checkChecklist(input.checklist ?? data.checklist);
     } catch {
-      return refuse("CHECKLIST_REQUIRED", "La check list lleva 3 cosas a verificar.", 400);
+      return refuse("CHECKLIST_REQUIRED", say(DECISION_WORDS).checklist, 400);
     }
   } else {
     text = input.text?.trim() ?? "";
-    if (!text) return refuse("TEXT_REQUIRED", "Escribe qué cambiar.", 409);
+    if (!text) return refuse("TEXT_REQUIRED", say(DECISION_WORDS).writeChange, 409);
   }
   const at = new Date().toISOString();
   const claimed = await db
@@ -833,7 +960,7 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
     .set({ actionState: { action: input.action, at, result: {} } as unknown as ActionState })
     .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
     .returning({ id: threadMessages.id });
-  if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+  if (claimed.length === 0) return refuse("ALREADY_ACTED", say(DECISION_WORDS).alreadyActed);
   const [order] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
   let result: Record<string, unknown>;
   let extra: Partial<DecisionDone> = {};
@@ -847,24 +974,24 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
         select count(*)::int as n from ${tasks} t join ${tasks} i on i.id = t.parent_id
         where i.project_id = ${p.id} and i.kind = 'initiative' and i.status = 'Active' and i.id <> ${leg.id}::uuid
           and t.kind = 'ticket' and t.status not in ('Done', 'Merged', 'Released', 'Won''t do', 'Backlog')`);
-      if (leg.status === "Planning" && Number(busy.rows[0]?.n ?? 0) === 0) await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: `Plan aceptado: ${created.join(", ")}.` } as never, ctx);
+      if (leg.status === "Planning" && Number(busy.rows[0]?.n ?? 0) === 0) await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: say(DECISION_WORDS).planAcceptedNote(created.join(", ")) } as never, ctx);
       // The order was parked when the PO proposed; the accepted plan is its answer, so it closes here.
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `Respondido con el plan aceptado: ${created.join(", ")}.` } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: say(DECISION_WORDS).answeredWithPlan(created.join(", ")) } as never, ctx);
       }
-      await postMessage(db, ref, { author: OWNER_AUTHOR, body: "Plan aceptado." }, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: say(DECISION_WORDS).planAcceptedPost }, ctx);
       result = { created, leg: leg.key, answers, checklist: list };
     } else {
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `${ownerEs(undefined, { capital: true })} cambia el plan: va otro pedido al PO.` } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: say(DECISION_WORDS).changesPlan() } as never, ctx);
       }
-      const posted = await ownerPosts(db, ref, installLanguage() === "en" ? `Plan «${leg.title}» again. Change this: ${text}` : `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
+      const posted = await ownerPosts(db, ref, say(DECISION_WORDS).replan(leg.title, text));
       result = { leg: leg.key, change: text, order: posted.created?.key ?? null };
       extra = { created: posted.created, wake: posted.wake };
     }
   } catch (e) {
     await db.update(threadMessages).set({ actionState: null }).where(eq(threadMessages.id, m.id));
-    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó hacerlo.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).refused, 409, e.detail);
     throw e;
   }
   const state = { action: input.action, at, result };
@@ -880,9 +1007,9 @@ export const orderText = (t: Pick<Task, "scope" | "title"> & { ownerWords?: stri
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
-  if (!t) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
-  if (input.action !== "hecho" && input.action !== "aplazar") return refuse("INVALID_ACTION", "Aquí: Hecho o Aplazar.", 400);
-  if (t.status !== "Ready") return refuse("ALREADY_ACTED", `${t.key} ya está en ${t.status}.`, 409, { ticket_status: t.status });
+  if (!t) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).decisionGone, 404);
+  if (input.action !== "hecho" && input.action !== "aplazar") return refuse("INVALID_ACTION", say(DECISION_WORDS).ticketHere, 400);
+  if (t.status !== "Ready") return refuse("ALREADY_ACTED", say(DECISION_WORDS).ticketAlready(t.key, t.status), 409, { ticket_status: t.status });
   const [p] = await db.select().from(projects).where(eq(projects.id, t.projectId)).limit(1);
   const status = input.action === "hecho" ? "Done" : "Backlog";
   const ctx = { ...webCtx, tool: `screen.decision_${input.action}` };
@@ -893,9 +1020,9 @@ async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionIn
       for (const c of open) await setCheck(db, { project: p!.slug, key: t.key, n: c.n, done: true } as never, ctx);
     }
     const [fresh] = await db.select({ version: tasks.version }).from(tasks).where(eq(tasks.id, t.id)).limit(1);
-    await setTask(db, { project: p!.slug, key: t.key, status, version: fresh!.version, ...(input.action === "aplazar" ? { note: `${ownerEs(undefined, { capital: true })} lo aplazó desde Te toca.` } : {}) } as never, ctx);
+    await setTask(db, { project: p!.slug, key: t.key, status, version: fresh!.version, ...(input.action === "aplazar" ? { note: say(DECISION_WORDS).postponed() } : {}) } as never, ctx);
   } catch (e) {
-    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó moverlo.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).notMoved, 409, e.detail);
     throw e;
   }
   return after(db, id, { action: input.action, at: new Date().toISOString(), result: { ticket: t.key, status } });
@@ -903,8 +1030,8 @@ async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionIn
 
 async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [q] = await db.select().from(questions).where(eq(questions.id, qid)).limit(1);
-  if (!q) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
-  if (q.answeredAt) return refuse("ALREADY_ACTED", "La pregunta ya tiene respuesta.", 409, { answer: q.answer });
+  if (!q) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).decisionGone, 404);
+  if (q.answeredAt) return refuse("ALREADY_ACTED", say(DECISION_WORDS).answered, 409, { answer: q.answer });
   let text: string;
   if (input.action === "elegir") {
     const picked = chosen(
@@ -912,17 +1039,17 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
       input.option,
     );
     if (!Array.isArray(picked)) return picked;
-    if (picked.length !== 1) return refuse("INVALID_OPTION", "Una sola opción.", 400);
+    if (picked.length !== 1) return refuse("INVALID_OPTION", say(DECISION_WORDS).oneOption, 400);
     text = picked[0]!.label;
   } else if (input.action === "responder") {
     text = input.text?.trim() ?? "";
-    if (!text) return refuse("TEXT_REQUIRED", "Escribe tu respuesta.");
-  } else return refuse("INVALID_ACTION", "Aquí: Elegir o Responder.", 400);
+    if (!text) return refuse("TEXT_REQUIRED", say(DECISION_WORDS).writeAnswer);
+  } else return refuse("INVALID_ACTION", say(DECISION_WORDS).questionHere, 400);
   const [p] = await db.select().from(projects).where(eq(projects.id, q.projectId)).limit(1);
   try {
     await answer(db, { project: p!.slug, question_id: q.id, answer: text }, { ...webCtx, tool: "screen.decision_answer" });
   } catch (e) {
-    if (e instanceof ToolError) return refuse(e.code, "Plania no aceptó la respuesta.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).answerRefused, 409, e.detail);
     throw e;
   }
   return after(db, id, { action: input.action, at: new Date().toISOString(), result: { answer: text } });
@@ -931,16 +1058,16 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
 // PLA-I36-2: a manual step, marked done as Bandeja does (the ticket may go back to Ready at once).
 async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   if (input.action === "aplicar") return applyStep(db, blockerId, input);
-  if (input.action !== "hecho") return refuse("INVALID_ACTION", "Aquí: Hecho.", 400);
+  if (input.action !== "hecho") return refuse("INVALID_ACTION", say(DECISION_WORDS).stepHere, 400);
   const [row] = await db.execute<{ project_id: string; satisfied_at: Date | null }>(sql`select t.project_id, b.satisfied_at from blockers b join tasks t on t.id = b.task_id where b.id = ${blockerId} and b.type = 'human_action'`).then((r) => r.rows);
-  if (!row) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
-  if (row.satisfied_at) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  if (!row) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).stepGone, 404);
+  if (row.satisfied_at) return refuse("ALREADY_ACTED", say(DECISION_WORDS).stepDone);
   const [p] = await db.select().from(projects).where(eq(projects.id, row.project_id)).limit(1);
   const ctx = { ...webCtx, tool: "screen.decision_step" };
   try {
     await writeTx(db, p!, ctx, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, input.text?.trim() || undefined));
   } catch (e) {
-    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó marcarlo.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).notMarked, 409, e.detail);
     throw e;
   }
   const state = { action: "hecho", at: new Date().toISOString(), result: {} };
@@ -951,7 +1078,7 @@ async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionI
 async function verifyMessage(db: Db, id: string, m: typeof threadMessages.$inferSelect, projectId: string | null): Promise<DecisionDone | DecisionRefusal> {
   const link = m.links.find((l) => l.kind === "ticket");
   const t = link && projectId ? await ticketByKey(db, projectId, link.ref) : null;
-  if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket.", 409);
+  if (!t) return refuse("NO_TICKET", say(DECISION_WORDS).noTicket, 409);
   const prUrl = m.links.find((l) => l.kind === "pr")?.ref ?? t.prUrl;
   const [pr] = await db.select({ head: pullRequests.headSha, branch: pullRequests.headBranch }).from(pullRequests).where(prUrl ? eq(pullRequests.url, prUrl) : eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1);
   const out = await requestVerify(db, t, pr?.head ?? null, pr?.branch ?? t.branch);
@@ -962,23 +1089,23 @@ async function verifyMessage(db: Db, id: string, m: typeof threadMessages.$infer
 // The file step: commit the lines to the ticket's PR, then resolve the step with a note that says where they went.
 async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const step = await stepOf(db, blockerId);
-  if (!step) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
+  if (!step) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).stepGone, 404);
   const [open] = await db.execute<{ satisfied_at: Date | null }>(sql`select satisfied_at from blockers where id = ${blockerId}`).then((r) => r.rows);
-  if (open?.satisfied_at) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  if (open?.satisfied_at) return refuse("ALREADY_ACTED", say(DECISION_WORDS).stepDone);
   const draft = fileStepOf(step.spec, String(step.spec.text ?? ""), step.t.prUrl);
   const path = input.path?.trim() || draft?.path;
   const lines = input.lines ?? draft?.lines;
-  if (!path || !lines?.trim()) return refuse("FILE_EMPTY", "Falta el archivo o las líneas.", 400);
+  if (!path || !lines?.trim()) return refuse("FILE_EMPTY", say(DECISION_WORDS).fileEmpty, 400);
   const done = await applyFileStep(db, step.t, { path, lines, pr_url: draft?.pr_url ?? step.t.prUrl });
   if ("error" in done) return refuse(done.error, done.hint);
   const [p] = await db.select().from(projects).where(eq(projects.id, step.t.projectId)).limit(1);
   const note = done.added
-    ? `Plania agregó ${done.added} ${done.added === 1 ? "línea" : "líneas"} a ${done.path} en ${done.branch}${done.commit ? ` (${done.commit.slice(0, 7)})` : ""}.`
-    : `${done.path} en ${done.branch} ya tenía esas líneas.`;
+    ? say(DECISION_WORDS).linesAdded(done.added, done.path, done.branch, done.commit ? done.commit.slice(0, 7) : "")
+    : say(DECISION_WORDS).linesThere(done.path, done.branch);
   try {
     await writeTx(db, p!, { ...webCtx, tool: "screen.decision_file" }, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, note));
   } catch (e) {
-    if (e instanceof ToolError) return refuse(e.code, "Se agregó al PR, pero Plania no dejó marcar el paso; márcalo con Hecho.", 409, e.detail);
+    if (e instanceof ToolError) return refuse(e.code, say(DECISION_WORDS).addedNotMarked, 409, e.detail);
     throw e;
   }
   // A new commit on a delivery whose repo has no CI makes its pass stale: ask its owner to run the checks again now.
@@ -993,8 +1120,8 @@ async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promi
 
 export async function actOnDecision(db: Db, id: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const m = /^([mtqb])-(.+)$/.exec(id);
-  if (/^r-/.test(id)) return refuse("OWNER_CODE", "Publicar se hace en Bandeja, con tu código.", 409);
-  if (!m || !UUID.test(m[2]!)) return refuse("DECISION_NOT_FOUND", "Esa decisión no existe.", 404);
+  if (/^r-/.test(id)) return refuse("OWNER_CODE", say(DECISION_WORDS).publishInBandeja, 409);
+  if (!m || !UUID.test(m[2]!)) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).noDecision, 404);
   if (m[1] === "m") return actOnMessage(db, id, m[2]!, input);
   if (m[1] === "t") return actOnTicket(db, id, m[2]!, input);
   if (m[1] === "b") return actOnStep(db, id, m[2]!, input);

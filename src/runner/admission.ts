@@ -168,7 +168,8 @@ export async function freeDiskGb(dir: string): Promise<number> {
 
 // ---- the screen's words for a held run (Appendix C); the screen renders these, the API carries code + detail.
 // PLA-I2-10: in the install's language (heldText); the Spanish is unchanged.
-export const HELD_WORDS = defineWords<Record<HeldCode, string>>({
+type HeldWords = Record<HeldCode, string>;
+export const HELD_WORDS = defineWords<HeldWords>({
   es: {
     project_cap: "Esperando lugar en el proyecto",
     agent_cap: "Esperando: este puesto ya hace lo que su tope permite",

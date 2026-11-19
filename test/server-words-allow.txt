@@ -1,0 +1,31 @@
+# PLA-I2-10: files under src/ that keep Spanish in a string literal outside a wording module, each with the reason.
+# Format: path | reason. test/i2-10-server.test.ts fails on a Spanish sentence in any other file, on an entry
+# without a reason, and on an entry whose file no longer holds one. Only Spanish that is data belongs here.
+src/api/company-pedido.ts | FICHA_HEADINGS are headings read from stored docs; ASKED, SCREEN_NOTE, BUILD_NOTE, ANSWER_NOTE and DROPPED parse old stored notes and scopes; trail kinds and event names are data
+src/api/company-actions.ts | KIND_WORD feeds only ORDER_WORDS.es; "Compañía" is the from-place key placeEn translates; AskMode and OrderKind values are data
+src/api/company-move.ts | MoveVerb values and DecisionAction keys are data; role names are product names
+src/owner.ts | ownerEs is the Spanish owner helper by design: «el dueño» and its contractions are the Spanish half ownerIn uses; no full sentence
+src/pedidos/consultas.ts | «…» in consultaPrompt only quotes the owner's own question inside an English agent-only prompt
+src/lib/scan/wallets.ts | detector data: the diff scanner's finding labels for wallet shapes, a developer tool's report, not the screen
+src/lib/scan/patterns.ts | detector data: the diff scanner's personal-data finding labels (CLABE, RFC, tarjeta), a developer tool's report, not the screen
+src/maquinas/llaves.ts | "ejemplo" and "código" are Llave.from enum values the screen matches on (data)
+src/captures/run.ts | the flagged literals are JavaScript run inside the browser (the login fill, the fill/select action, clickScript), not sentences
+src/maquinas/reader.ts | detector false positive at runIn: the template ${r.stdout}\n${r.stderr} and the code after it read as text; no sentence there
+src/api/places.ts | the Spanish place names are lookup keys (callers pass them in Spanish and old scopes store them); placeEn says them in English
+src/api/threads.ts | "el hilo del proyecto" is a place key handed to createPoTicket, said in English by placeEn
+src/api/company-pedidos.ts | "Compañía" is the default place key (data, said in English by placeEn), not a sentence
+src/api/understood.ts | the Entendí/Understood marker read back in both languages from stored notes
+src/api/file-step.ts | the PATH regex holds « » characters that read as text; no sentence
+src/api/scoreboard.ts | a comment («Pedir cambios») next to SQL reads as text; no sentence
+src/api/company-idea.ts | headings read back from old docs in both languages (Recomendación, Opciones, Lo que no sabemos, Pasos); the other hits are regex literals
+src/mcp/owner-lines.ts | regexes that parse stored notes in both languages (el dueño, espera a, te toca); they read text, they do not write it
+src/runner/runner.ts | LEGACY_CHANGES_LIKE/LEGACY_CHANGES_PREFIX read old stored notes; the run prompt is agent-only English quoting the owner's words in «»
+src/runner/qa.ts | missLines is agent-only English prompt text that quotes ticket titles in «»
+src/mcp/proposals.ts | the propose tool description is agent-only English quoting «Planea «<title>»»
+src/mcp/threads.ts | the thread_post tool description is agent-only English naming the screen's Compañía
+src/mcp/stage-docs.ts | the hints returned to agents are English with «» examples
+src/mcp/settings-registry.ts | default/reason are the README's English, naming the Máquinas page and the «Crear la rama de trabajo» button
+src/mcp/errors.ts | an English error description for agents naming «Constrúyelo» and the Pedido tab
+src/mcp/register.ts | an English tool description for agents naming the idea's Diseño stop
+src/mcp/usage.ts | an English tool description for agents naming the Máquina screen
+src/mcp/writes.ts | an English error hint for agents naming «Constrúyelo»

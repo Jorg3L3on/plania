@@ -9,6 +9,13 @@ import { ToolError } from "./errors.js";
 import type { InboxItem } from "./inbox.js";
 import { findProject, findTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the inbox line for a task that bounced between agents, in the install's language; the Spanish is unchanged.
+export const DELEGATION_WORDS = defineWords({
+  es: { bounced: (n: number) => `la tarea rebotó más de ${n} veces entre agentes`, bouncedHint: "elige un dueño y deja de reasignar" },
+  en: { bounced: (n: number) => `the task bounced between agents more than ${n} times`, bouncedHint: "pick an owner and stop reassigning" },
+});
 
 // PLA-I23: agents comment on a task and hand owner_agent to each other.
 // A chain stops at HOP_CAP. The same pair the other way is ping-pong and does not count.
@@ -315,12 +322,12 @@ export async function delegationChores(db: Q, projectId: string, project: string
       task_kind: row.kind,
       parent_key: row.parent_key,
       title: row.title,
-      why: `la tarea rebotó más de ${HOP_CAP} veces entre agentes`,
+      why: say(DELEGATION_WORDS).bounced(HOP_CAP),
       waiting_since: iso(at),
       wait_s: Math.max(0, Math.round((now.getTime() - at.getTime()) / 1000)),
       evidence: null,
       pr_url: row.pr_url,
-      action_hint: "elige un dueño y deja de reasignar",
+      action_hint: say(DELEGATION_WORDS).bouncedHint,
     };
   });
 }

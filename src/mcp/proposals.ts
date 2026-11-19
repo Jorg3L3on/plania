@@ -25,6 +25,52 @@ import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread
 import { ToolError } from "./errors.js";
 import type { Ctx } from "./tx.js";
 import { createTask, setTask } from "./writes.js";
+import { defineWords, ownersEn, say } from "../words.js";
+
+// PLA-I2-10: the plan's and the options' prose, the steps' scope and the order's note, in the install's language;
+// the Spanish is unchanged.
+export const PROPOSAL_WORDS = defineWords({
+  es: {
+    days: (n: number) => `${n} ${n === 1 ? "día" : "días"}`,
+    delays: (what: string) => `retrasa ${what}`,
+    planFor: (title: string) => `Plan para tu pedido: ${title}`,
+    understood: (text: string) => `Entendí: ${text}`,
+    step: (n: number, title: string, doneWhen: string) => `${n}. ${title} — hecho cuando: ${doneWhen}`,
+    question: (text: string, options: string) => `¿${text}? ${options}`,
+    cost: (text: string) => `Costo: ${text}`,
+    waits: "Nada empieza hasta que digas «Sí, empiecen».",
+    startsNow: "Empieza ya; el plan queda como información.",
+    recommended: " (recomendado)",
+    recommend: (n: number, why: string) => `Recomiendo la ${n}: ${why}`,
+    together: (set: number[]) => `${set.join(" y ")} pueden ir juntas.`,
+    scopeStep: (order: string | null, title: string) => `Paso del pedido ${order}: ${title}`,
+    scopeUnderstood: (text: string) => `Lo que se entendió: ${text}`,
+    scopeDoneWhen: (text: string) => `Hecho cuando: ${text}`,
+    scopeAnswers: (lines: string) => `Respuestas del dueño:\n${lines}`,
+    scopeChecklist: (lines: string) => `Check list del PO (QA la verifica):\n${lines}`,
+    parked: "Plan propuesto: espera «Aprobar el plan» en el piso.",
+  },
+  en: {
+    days: (n: number) => `${n} ${n === 1 ? "day" : "days"}`,
+    delays: (what: string) => `delays ${what}`,
+    planFor: (title: string) => `Plan for your request: ${title}`,
+    understood: (text: string) => `Understood: ${text}`,
+    step: (n: number, title: string, doneWhen: string) => `${n}. ${title} — done when: ${doneWhen}`,
+    question: (text: string, options: string) => `${text}? ${options}`,
+    cost: (text: string) => `Cost: ${text}`,
+    waits: "Nothing starts until you say «Yes, go ahead».",
+    startsNow: "It starts now; the plan stays as information.",
+    recommended: " (recommended)",
+    recommend: (n: number, why: string) => `I recommend ${n}: ${why}`,
+    together: (set: number[]) => `${set.join(" and ")} can go together.`,
+    scopeStep: (order: string | null, title: string) => `Step of request ${order}: ${title}`,
+    scopeUnderstood: (text: string) => `What was understood: ${text}`,
+    scopeDoneWhen: (text: string) => `Done when: ${text}`,
+    scopeAnswers: (lines: string) => `${ownersEn({ capital: true })} answers:\n${lines}`,
+    scopeChecklist: (lines: string) => `The PO's check list (QA checks it):\n${lines}`,
+    parked: "Plan proposed: it waits for «Approve the plan» on the floor.",
+  },
+});
 
 type ActorIn = { agent?: string; session_id: string; machine?: string; model?: string };
 export type ProposeInput = {
@@ -61,11 +107,12 @@ const STEP_TYPES = ["code", "ops", "research", "bug", "debt"];
 
 export function costText(c: ProposalCost | undefined): string {
   if (!c) return "";
+  const w = say(PROPOSAL_WORDS);
   return [
     c.tickets != null ? `${c.tickets} ${c.tickets === 1 ? "ticket" : "tickets"}` : "",
-    c.days != null ? `${c.days} ${c.days === 1 ? "día" : "días"}` : "",
+    c.days != null ? w.days(c.days) : "",
     c.tokens != null ? `~${c.tokens >= 1_000_000 ? `${Math.round(c.tokens / 100_000) / 10}M` : `${Math.round(c.tokens / 1000)}k`} tokens` : "",
-    c.delays ? `retrasa ${c.delays}` : "",
+    c.delays ? w.delays(c.delays) : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -73,23 +120,24 @@ export function costText(c: ProposalCost | undefined): string {
 
 // The prose copy kept in the body.
 export function proposalBody(p: ProposalData): string {
+  const w = say(PROPOSAL_WORDS);
   if (p.kind === "plan") {
     const lines = [
-      `Plan para tu pedido: ${p.title}`,
-      p.understood ? `Entendí: ${p.understood}` : "",
-      ...p.steps.map((s, i) => `${i + 1}. ${s.title} — hecho cuando: ${s.done_when}`),
-      ...(p.questions ?? []).map((q) => `¿${q.text.replace(/^¿|\?$/g, "")}? ${q.options.map((o, i) => (i === q.suggested ? `[${o}]` : o)).join(" / ")}`),
+      w.planFor(p.title),
+      p.understood ? w.understood(p.understood) : "",
+      ...p.steps.map((s, i) => w.step(i + 1, s.title, s.done_when)),
+      ...(p.questions ?? []).map((q) => w.question(q.text.replace(/^¿|\?$/g, ""), q.options.map((o, i) => (i === q.suggested ? `[${o}]` : o)).join(" / "))),
       (p.checklist ?? []).length ? `Check list: ${p.checklist!.join(" · ")}` : "",
-      costText(p.cost) ? `Costo: ${costText(p.cost)}` : "",
-      p.needs_approval ? "Nada empieza hasta que digas «Sí, empiecen»." : "Empieza ya; el plan queda como información.",
+      costText(p.cost) ? w.cost(costText(p.cost)) : "",
+      p.needs_approval ? w.waits : w.startsNow,
     ];
     return lines.filter(Boolean).join("\n");
   }
   const lines = [
     `${p.title}:`,
-    ...p.options.map((o) => `${o.n}. ${o.label}${o.recommended ? " (recomendado)" : ""}${o.effect ? ` — ${o.effect}` : ""}${costText(o.cost) ? ` · ${costText(o.cost)}` : ""}`),
-    p.recommended_reason ? `Recomiendo la ${p.options.find((o) => o.recommended)?.n ?? 1}: ${p.recommended_reason}` : "",
-    ...p.combinable.map((set) => `${set.join(" y ")} pueden ir juntas.`),
+    ...p.options.map((o) => `${o.n}. ${o.label}${o.recommended ? w.recommended : ""}${o.effect ? ` — ${o.effect}` : ""}${costText(o.cost) ? ` · ${costText(o.cost)}` : ""}`),
+    p.recommended_reason ? w.recommend(p.options.find((o) => o.recommended)?.n ?? 1, p.recommended_reason) : "",
+    ...p.combinable.map((set) => w.together(set)),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -155,12 +203,13 @@ export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx)
   const list = legPlan ? (p.checklist ?? []) : [];
   const pid = list.length ? await projectIdOf(db, slug) : null;
   for (const [i, s] of p.steps.entries()) {
+    const w = say(PROPOSAL_WORDS);
     const scope = [
-      `Paso del pedido ${p.order}: ${p.title}`,
-      `Lo que se entendió: ${p.understood ?? ""}`,
-      `Hecho cuando: ${s.done_when}`,
-      answers.length ? `Respuestas del dueño:\n${answers.join("\n")}` : "",
-      list.length ? `Check list del PO (QA la verifica):\n${list.map((c) => `- ${c}`).join("\n")}` : "",
+      w.scopeStep(p.order, p.title),
+      w.scopeUnderstood(p.understood ?? ""),
+      w.scopeDoneWhen(s.done_when),
+      answers.length ? w.scopeAnswers(answers.join("\n")) : "",
+      list.length ? w.scopeChecklist(list.map((c) => `- ${c}`).join("\n")) : "",
     ].filter(Boolean);
     const made = (await createTask(
       db,
@@ -197,7 +246,7 @@ export const POSTPONED = ["On hold"];
 async function parkOrder(db: Db, slug: string, key: string, ctx: Ctx) {
   const [o] = await db.select({ status: tasks.status, version: tasks.version }).from(tasks).innerJoin(projects, eq(projects.id, tasks.projectId)).where(and(eq(projects.slug, slug), eq(tasks.key, key))).limit(1);
   if (!o || !["Ready", "In progress"].includes(o.status)) return;
-  await setTask(db, { project: slug, key, status: "Backlog", version: o.version, note: "Plan propuesto: espera «Aprobar el plan» en el piso." } as never, ctx);
+  await setTask(db, { project: slug, key, status: "Backlog", version: o.version, note: say(PROPOSAL_WORDS).parked } as never, ctx);
 }
 
 export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {

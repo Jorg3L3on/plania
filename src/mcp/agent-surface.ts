@@ -11,6 +11,13 @@ import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx } from "./tx.js";
 import { claim, setTaskInTx } from "./writes.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the note Plania writes when a PO's ticket handed its work to Taller, in the install's language; the Spanish is unchanged.
+export const SURFACE_WORDS = defineWords({
+  es: { handedTo: (keys: string) => `Pasó a Taller: ${keys}. La entrega que revisas es la de ese ticket.` },
+  en: { handedTo: (keys: string) => `Went to Taller: ${keys}. The delivery you review is that ticket's.` },
+});
 
 // 2.13 (item 7): the two composite tools an agent needs most. start = claim + get_context, so a
 // session opens a ticket in one call; finish = add_result + set_task In review in one transaction, so
@@ -162,7 +169,7 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
     }
     let final = moved;
     if (handedTo.length) {
-      final = await setTaskInTx(tx, emit, p, { project: p.slug, key: t.key, status: "Done", version: moved.version, note: `Pasó a Taller: ${handedTo.join(", ")}. La entrega que revisas es la de ese ticket.` }, ctx);
+      final = await setTaskInTx(tx, emit, p, { project: p.slug, key: t.key, status: "Done", version: moved.version, note: say(SURFACE_WORDS).handedTo(handedTo.join(", ")) }, ctx);
       changed.push("status");
     }
     let initiative: { key: string; version: number; next_action: string } | undefined;

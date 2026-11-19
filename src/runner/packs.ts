@@ -18,6 +18,13 @@ import { agents, docs, projects, type Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { ALLOWED_BASE, defaultGit, type GitFn } from "./worktree.js";
 import { defaultSkills, repoSkills, sha } from "./kit.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the API hint for a seat that is not on the team, in the install's language; the Spanish is unchanged.
+export const PACK_WORDS = defineWords({
+  es: { notOnTeam: (agent: string, project: string) => `${agent} no está en el equipo de ${project}` },
+  en: { notOnTeam: (agent: string, project: string) => `${agent} is not on ${project}'s team` },
+});
 
 export const PACK_TITLE_PREFIX = "Pack: ";
 export const PACK_DIR = ".plania-packs";
@@ -96,7 +103,7 @@ async function memberOf(db: Db | Q, project: string, agent: string): Promise<{ a
     .from(agents)
     .where(and(eq(agents.slug, agent), eq(agents.projectId, p.id)))
     .limit(1);
-  if (!a || a.status === "retired") return { error: "AGENT_NOT_FOUND", status: 404, hint: `${agent} no está en el equipo de ${project}` };
+  if (!a || a.status === "retired") return { error: "AGENT_NOT_FOUND", status: 404, hint: say(PACK_WORDS).notOnTeam(agent, project) };
   return { agent: a };
 }
 

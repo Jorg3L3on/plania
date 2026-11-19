@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { docs, questions, tasks } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import type { Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
 
 // An idea moves one stage at a time: idea → research → design → planning → ready.
 // Leaving a stage (the forward move) needs that stage's doc, with the headings below as markdown
@@ -68,21 +69,35 @@ export function forwardBlock(from: string, doc: StageDocRow | undefined): { code
 }
 
 // Shown on the project page. The stored headings and doc titles stay as written in the markdown.
-const DOC_ES: Record<string, string> = { Idea: "Idea", Research: "Investigación", Design: "Diseño", Plan: "Plan" };
-const HEADING_ES: Record<string, string> = {
-  Problem: "Problema",
-  "Who it is for": "Para quién es",
-  "Why now": "Por qué ahora",
-  "What we learned": "Qué aprendimos",
-  Options: "Opciones",
-  Recommendation: "Recomendación",
-  Approach: "Enfoque",
-  Scope: "Alcance",
-  "Out of scope": "Fuera de alcance",
-  Steps: "Pasos",
-  "Done when": "Listo cuando",
-  Risks: "Riesgos",
-};
+// PLA-I2-10: in the install's language; the Spanish is unchanged. In English the stored names read as they are.
+type IdeaWords = { ready: string; canMove: string; doc: (name: string) => string; heading: Record<string, string> };
+export const IDEA_WORDS = defineWords<IdeaWords>({
+  es: {
+    ready: "Lista para promover",
+    canMove: "Puede avanzar",
+    doc: (name: string) => `Doc ${({ Idea: "Idea", Research: "Investigación", Design: "Diseño", Plan: "Plan" } as Record<string, string>)[name] ?? name}`,
+    heading: {
+      Problem: "Problema",
+      "Who it is for": "Para quién es",
+      "Why now": "Por qué ahora",
+      "What we learned": "Qué aprendimos",
+      Options: "Opciones",
+      Recommendation: "Recomendación",
+      Approach: "Enfoque",
+      Scope: "Alcance",
+      "Out of scope": "Fuera de alcance",
+      Steps: "Pasos",
+      "Done when": "Listo cuando",
+      Risks: "Riesgos",
+    },
+  },
+  en: {
+    ready: "Ready to promote",
+    canMove: "Can move on",
+    doc: (name: string) => `${name} doc`,
+    heading: {},
+  },
+});
 
 // One line for the project page: the open question, else the doc or headings still missing,
 // else that it can move. An old question still open (before migration 0030 closes it) reads
@@ -90,13 +105,14 @@ const HEADING_ES: Record<string, string> = {
 export function ideaWaitText(stage: string | null, docRows: StageDocRow[], qs: StageQuestion[]): string {
   const open = qs.find((q) => !q.answered);
   if (open) return open.question;
-  if (!stage || stage === "ready") return "Lista para promover";
+  const w = say(IDEA_WORDS);
+  if (!stage || stage === "ready") return w.ready;
   const req = STAGE_DOCS[stage as Exclude<Stage, "ready">];
-  if (!req) return "Puede avanzar";
+  if (!req) return w.canMove;
   const block = forwardBlock(stage, docRows.find((d) => d.title === req.doc));
-  if (!block) return "Puede avanzar";
-  if (block.missing.includes("doc")) return `Doc ${DOC_ES[block.doc] ?? block.doc}`;
-  return block.missing.map((h) => HEADING_ES[h] ?? h).join(", ");
+  if (!block) return w.canMove;
+  if (block.missing.includes("doc")) return w.doc(block.doc);
+  return block.missing.map((h) => w.heading[h] ?? h).join(", ");
 }
 
 // What each idea on the project page is waiting on, keyed by task key.

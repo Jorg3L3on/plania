@@ -28,6 +28,7 @@ import { projectReadiness, type Readiness, type ReadinessDeps } from "../runner/
 import type { GitFn } from "../runner/worktree.js";
 import { HIDDEN, makeRedactor, secretValues, type Redactor } from "./redact.js";
 import { planiaVersion, type PlaniaVersion } from "./version.js";
+import { defineWords, say } from "../words.js";
 
 export const FAILED_RUNS = 10;
 export const LOG_LINES = 40;
@@ -259,38 +260,95 @@ export async function buildHelpReport(deps: HelpReportDeps = {}): Promise<HelpRe
   };
 }
 
-/** The file the owner sends: plain text, one section per field, the words in Spanish. */
+// PLA-I2-10: the help report's words in the install's language; the Spanish is unchanged.
+export const HELP_REPORT_WORDS = defineWords({
+  es: {
+    title: "# Informe de ayuda de Plania",
+    made: (at: string) => `Hecho: ${at}`,
+    holds: "Este archivo no lleva contraseñas, claves, valores de variables, código ni textos de tus proyectos.",
+    hidden: (h: string) => `Lo oculto aparece como ${h}.`,
+    version: (v: string | null) => `Versión: ${v ?? "desconocida"}`,
+    commit: (c: string | null) => `Commit: ${c ?? "desconocido"}`,
+    system: "Sistema",
+    machine: "La máquina",
+    noNetwork: "gh y la sesión de Claude no se revisan aquí: revisarlos usa la red.",
+    database: "Base de datos",
+    db: { ok: "Responde.", no_url: "No hay DATABASE_URL.", unreachable: "No responde: lo que sigue sin proyectos ni corridas es lo que se pudo leer sin ella." },
+    projects: "Proyectos",
+    noDb: "No se pudo leer (sin base de datos).",
+    noneM: "Ninguno.",
+    noneF: "Ninguna.",
+    blocking: (n: number) => `${n} cosa(s) impiden correr`,
+    nothingBlocks: "nada impide correr",
+    blocks: " · impide",
+    failedRuns: (n: number) => `Últimas corridas que fallaron (hasta ${n})`,
+    exit: (code: number) => ` · salida ${code}`,
+    envNames: "Variables definidas (solo nombres)",
+    log: (n: number) => `Últimas líneas del registro del servidor (hasta ${n})`,
+    noLog: "No se encontró el registro.",
+    fileName: (day: string) => `plania-ayuda-${day}.txt`,
+  },
+  en: {
+    title: "# Plania help report",
+    made: (at: string) => `Made: ${at}`,
+    holds: "This file holds no passwords, keys, variable values, code or text from your projects.",
+    hidden: (h: string) => `What is hidden shows as ${h}.`,
+    version: (v: string | null) => `Version: ${v ?? "unknown"}`,
+    commit: (c: string | null) => `Commit: ${c ?? "unknown"}`,
+    system: "System",
+    machine: "The machine",
+    noNetwork: "gh and the Claude sign-in are not checked here: checking them uses the network.",
+    database: "Database",
+    db: { ok: "Answers.", no_url: "There is no DATABASE_URL.", unreachable: "Not answering: what follows without projects or runs is what could be read without it." },
+    projects: "Projects",
+    noDb: "Could not be read (no database).",
+    noneM: "None.",
+    noneF: "None.",
+    blocking: (n: number) => `${n} thing(s) keep it from running`,
+    nothingBlocks: "nothing keeps it from running",
+    blocks: " · blocks",
+    failedRuns: (n: number) => `Last failed runs (up to ${n})`,
+    exit: (code: number) => ` · exit ${code}`,
+    envNames: "Variables set (names only)",
+    log: (n: number) => `Last lines of the server log (up to ${n})`,
+    noLog: "The log was not found.",
+    fileName: (day: string) => `plania-help-${day}.txt`,
+  },
+});
+
+/** The file the owner sends: plain text, one section per field, in the install's language. */
 export function renderHelpReport(r: HelpReport): string {
+  const w = say(HELP_REPORT_WORDS);
   const out: string[] = [];
   const h = (title: string) => out.push("", `## ${title}`);
-  out.push("# Informe de ayuda de Plania", `Hecho: ${r.made_at}`, "Este archivo no lleva contraseñas, claves, valores de variables, código ni textos de tus proyectos.", `Lo oculto aparece como ${HIDDEN}.`);
+  out.push(w.title, w.made(r.made_at), w.holds, w.hidden(HIDDEN));
   h("Plania");
-  out.push(`Versión: ${r.plania.version ?? "desconocida"}`, `Commit: ${r.plania.commit ?? "desconocido"}`);
-  h("Sistema");
+  out.push(w.version(r.plania.version), w.commit(r.plania.commit));
+  h(w.system);
   out.push(`${r.system.platform} ${r.system.release} (${r.system.arch}) · Node ${r.system.node}`);
-  h("La máquina");
+  h(w.machine);
   for (const m of r.machine) out.push(`${m.id}: ${m.state} (${m.reason})${m.version ? ` · ${m.version}` : ""}`);
-  out.push("gh y la sesión de Claude no se revisan aquí: revisarlos usa la red.");
-  h("Base de datos");
-  out.push({ ok: "Responde.", no_url: "No hay DATABASE_URL.", unreachable: "No responde: lo que sigue sin proyectos ni corridas es lo que se pudo leer sin ella." }[r.database.state]);
-  h("Proyectos");
-  if (!r.projects) out.push("No se pudo leer (sin base de datos).");
-  else if (!r.projects.length) out.push("Ninguno.");
+  out.push(w.noNetwork);
+  h(w.database);
+  out.push(w.db[r.database.state]);
+  h(w.projects);
+  if (!r.projects) out.push(w.noDb);
+  else if (!r.projects.length) out.push(w.noneM);
   else
     for (const p of r.projects) {
-      out.push(`${p.slug}: ${p.blocking ? `${p.blocking} cosa(s) impiden correr` : "nada impide correr"}`);
-      for (const i of p.items) if (i.state !== "ready") out.push(`  ${i.id}: ${i.state}${i.why ? ` (${i.why})` : ""}${i.blocks ? " · impide" : ""}`);
+      out.push(`${p.slug}: ${p.blocking ? w.blocking(p.blocking) : w.nothingBlocks}`);
+      for (const i of p.items) if (i.state !== "ready") out.push(`  ${i.id}: ${i.state}${i.why ? ` (${i.why})` : ""}${i.blocks ? w.blocks : ""}`);
     }
-  h(`Últimas corridas que fallaron (hasta ${FAILED_RUNS})`);
-  if (!r.failed_runs) out.push("No se pudo leer (sin base de datos).");
-  else if (!r.failed_runs.length) out.push("Ninguna.");
-  else for (const f of r.failed_runs) out.push(`${f.at ?? "?"} · ${f.project} · ${f.role}${f.ticket ? ` · ${f.ticket}` : ""}${f.exit_code !== null ? ` · salida ${f.exit_code}` : ""} · ${f.reason}`);
-  h("Variables definidas (solo nombres)");
-  out.push(r.env_names.length ? r.env_names.join(", ") : "Ninguna.");
-  h(`Últimas líneas del registro del servidor (hasta ${LOG_LINES})`);
-  if (!r.log.found) out.push("No se encontró el registro.");
+  h(w.failedRuns(FAILED_RUNS));
+  if (!r.failed_runs) out.push(w.noDb);
+  else if (!r.failed_runs.length) out.push(w.noneF);
+  else for (const f of r.failed_runs) out.push(`${f.at ?? "?"} · ${f.project} · ${f.role}${f.ticket ? ` · ${f.ticket}` : ""}${f.exit_code !== null ? w.exit(f.exit_code) : ""} · ${f.reason}`);
+  h(w.envNames);
+  out.push(r.env_names.length ? r.env_names.join(", ") : w.noneF);
+  h(w.log(LOG_LINES));
+  if (!r.log.found) out.push(w.noLog);
   else out.push(...r.log.lines);
   return `${out.join("\n")}\n`;
 }
 
-export const helpReportFileName = (r: HelpReport): string => `plania-ayuda-${r.made_at.slice(0, 10)}.txt`;
+export const helpReportFileName = (r: HelpReport): string => say(HELP_REPORT_WORDS).fileName(r.made_at.slice(0, 10));

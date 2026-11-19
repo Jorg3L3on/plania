@@ -30,6 +30,93 @@ import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
 import { projectEtapas, tableroOf, type AhoraItem, type Tablero } from "./etapa.js";
 import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the light's reasons, the holds and the team errors in the install's language; the Spanish is unchanged.
+// A title arrives clipped; each language puts its own quotes around it.
+const ROLE_WORD_ES: Record<string, string> = { "product-owner": "del PO", research: "de Research", artist: "de Artist", taller: "de Taller" };
+const ROLE_WORD_EN: Record<string, string> = { "product-owner": "The PO's", research: "Research's", artist: "Artist's", taller: "Taller's" };
+export const COMPANY_ORG_WORDS = defineWords({
+  es: {
+    quote: (s: string) => `«${s}»`,
+    seeTeToca: "Ver en Te toca",
+    deliveryWaits: "Una entrega espera tu visto bueno.",
+    question: "El equipo te hizo una pregunta y espera tu respuesta.",
+    waitsDecision: (q: string) => `${q} espera tu decisión.`,
+    nextIsYours: (q: string) => `Lo siguiente es tuyo: ${q}.`,
+    stepIsYours: (q: string) => `Un paso es tuyo: ${q}.`,
+    releaseWaits: (n: number) => (n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`),
+    publish: "Publicar",
+    runFailed: (role: string, why: string | null) => {
+      const who = ROLE_WORD_ES[role] ?? `de ${role}`;
+      return why ? `La última corrida ${who} falló: ${why}` : `La última corrida ${who} falló.`;
+    },
+    seeMachine: "Ver en Máquina",
+    aTicket: "Un ticket",
+    ciFailed: (name: string) => `Las pruebas de ${name} fallaron.`,
+    deployBlocked: (name: string) => `${name} espera un despliegue que falló o va atrás.`,
+    overlap: "Dos trabajos tocan los mismos archivos a la vez.",
+    blocked: (name: string) => `${name} está bloqueado.`,
+    open: "Abrir",
+    late: (n: number, due: string | null) => `Va ${n} ${n === 1 ? "semana" : "semanas"} atrás de la entrega del ${due}.`,
+    quietDays: (n: number) => `Nada se movió en ${n} ${n === 1 ? "día" : "días"}.`,
+    quietNever: "Nada se movió todavía.",
+    rest: "Descansa entre un trabajo y otro.",
+    usageUnknown: "No se sabe cuánto uso de Claude queda.",
+    usageLimit: "Claude avisó que el uso está al límite.",
+    usageAt: (pct: unknown, guard: unknown) => `El uso de Claude va en ${pct} % y el tope es ${guard} %.`,
+    slot: "Espera un lugar: ya hay otros trabajando.",
+    companyPaused: "La compañía está en pausa.",
+    projectPaused: "El proyecto está en pausa.",
+    noGoal: "Falta fijar la meta del proyecto.",
+    waitingOwner: "Espera que aceptes la entrega anterior.",
+    waitingStep: "Espera un paso anterior.",
+    unqueued: "Nadie lo ha despertado todavía.",
+    soon: "Arranca en un momento.",
+    promptMissing: (title: string) => `Falta el doc «${title}» en Plania.`,
+    agentExists: (slug: string) => `${slug} ya está en el roster.`,
+  },
+  en: {
+    quote: (s: string) => `“${s}”`,
+    seeTeToca: "See in Your turn",
+    deliveryWaits: "A delivery waits for your approval.",
+    question: "The team asked you a question and waits for your answer.",
+    waitsDecision: (q: string) => `${q} waits for your decision.`,
+    nextIsYours: (q: string) => `The next thing is yours: ${q}.`,
+    stepIsYours: (q: string) => `A step is yours: ${q}.`,
+    releaseWaits: (n: number) => (n === 1 ? "1 ready change waits for you to publish it." : `${n} ready changes wait for you to publish them.`),
+    publish: "Publish",
+    runFailed: (role: string, why: string | null) => {
+      const who = ROLE_WORD_EN[role] ?? `${role}'s`;
+      return why ? `${who} last run failed: ${why}` : `${who} last run failed.`;
+    },
+    seeMachine: "See in Machine",
+    aTicket: "A ticket",
+    ciFailed: (name: string) => `The tests of ${name} failed.`,
+    deployBlocked: (name: string) => `${name} waits on a deploy that failed or is behind.`,
+    overlap: "Two jobs touch the same files at once.",
+    blocked: (name: string) => `${name} is blocked.`,
+    open: "Open",
+    late: (n: number, due: string | null) => `${n} ${n === 1 ? "week" : "weeks"} behind the ${due} delivery.`,
+    quietDays: (n: number) => `Nothing moved in ${n} ${n === 1 ? "day" : "days"}.`,
+    quietNever: "Nothing has moved yet.",
+    rest: "Resting between one job and the next.",
+    usageUnknown: "How much Claude usage is left is unknown.",
+    usageLimit: "Claude warned that usage is at the limit.",
+    usageAt: (pct: unknown, guard: unknown) => `Claude usage is at ${pct} % and the cap is ${guard} %.`,
+    slot: "Waiting for a slot: others are already working.",
+    companyPaused: "The company is paused.",
+    projectPaused: "The project is paused.",
+    noGoal: "The project's goal is not set yet.",
+    waitingOwner: "Waiting for you to accept the previous delivery.",
+    waitingStep: "Waiting on an earlier step.",
+    unqueued: "Nobody has woken it yet.",
+    soon: "Starts in a moment.",
+    promptMissing: (title: string) => `The doc “${title}” is missing in Plania.`,
+    agentExists: (slug: string) => `${slug} is already on the roster.`,
+  },
+});
+const ow = () => say(COMPANY_ORG_WORDS);
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -301,10 +388,7 @@ export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
 // PLA-I36-1. paused, then the worst of: the owner's (an open question, a Needs owner ticket, a
 // ceo-owned Ready ticket, a manual step, a release, a message with buttons), a run that failed (a member's
 // last ended run), blocked (readiness blocked), late (the plan's pace), quiet (no event in 48 h); else ok.
-const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const TE_TOCA = { label: "Ver en Te toca", href: "#te-toca" };
-export const DELIVERY_WAITS = "Una entrega espera tu visto bueno.";
+const quote = (s: string, n = 80) => ow().quote(s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 export type LightCtx = { paused: boolean; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
 
@@ -312,32 +396,32 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
   const open = `/p/${encodeURIComponent(p.slug)}`;
   if (c.paused) return { light: "paused", reason: null };
 
-  const waitsOnOwner = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_owner", reason: { text, action: TE_TOCA } });
+  const waitsOnOwner = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_owner", reason: { text, action: { label: ow().seeTeToca, href: "#te-toca" } } });
   const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
-  if (q) return waitsOnOwner("El equipo te hizo una pregunta y espera tu respuesta.");
+  if (q) return waitsOnOwner(ow().question);
   const [nj] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs owner"))).limit(1);
-  if (nj) return waitsOnOwner(`${quote(nj.title)} espera tu decisión.`);
+  if (nj) return waitsOnOwner(ow().waitsDecision(quote(nj.title)));
   if (c.ceoId) {
     const [mine] = await db
       .select({ title: tasks.title })
       .from(tasks)
       .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, c.ceoId)))
       .limit(1);
-    if (mine) return waitsOnOwner(`Lo siguiente es tuyo: ${quote(mine.title)}.`);
+    if (mine) return waitsOnOwner(ow().nextIsYours(quote(mine.title)));
   }
   const step = c.inbox.find((i) => i.kind === "human_action");
-  if (step) return waitsOnOwner(`Un paso es tuyo: ${quote(step.why, 100)}.`);
+  if (step) return waitsOnOwner(ow().stepIsYours(quote(step.why, 100)));
   const release = c.inbox.find((i) => i.kind === "release");
   if (release) {
     const n = (release.target as { tickets?: unknown[] } | undefined)?.tickets?.length ?? 0;
     // PLA-23: the action publishes from the floor (the plate opens the sheet); Te toca no longer exists.
     return {
       light: "needs_owner",
-      reason: { text: n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`, action: { label: "Publicar", href: "#publicar" } },
+      reason: { text: ow().releaseWaits(n), action: { label: ow().publish, href: "#publicar" } },
     };
   }
   const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, c.threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
-  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return waitsOnOwner(DELIVERY_WAITS);
+  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return waitsOnOwner(ow().deliveryWaits);
 
   const failed = c.team.find((m) => m.state !== "running" && m.last?.status === "fail");
   if (failed) {
@@ -349,41 +433,37 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
       .orderBy(desc(agentRuns.endedAt))
       .limit(1);
     const why = run?.summary.trim().split("\n")[0]?.trim();
-    const who = roleWord(failed.role);
-    return { light: "failed", reason: { text: why ? `La última corrida ${who} falló: ${why.length > 140 ? `${why.slice(0, 139)}…` : why}` : `La última corrida ${who} falló.`, action: { label: "Ver en Máquina", href: "/machine" } } };
+    return { light: "failed", reason: { text: ow().runFailed(failed.role, why ? (why.length > 140 ? `${why.slice(0, 139)}…` : why) : null), action: { label: ow().seeMachine, href: "/machine" } } };
   }
 
   const ready = await loadReadiness(db, p);
   if (ready.state === "blocked") {
     const r = ready.reasons.find((x) => x.severity === "blocked") ?? ready.reasons[0]!;
     const [t] = r.task_key ? await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, r.task_key))).limit(1) : [];
-    const name = t ? quote(t.title) : "Un ticket";
+    const name = t ? quote(t.title) : ow().aTicket;
     const text =
       r.code === "CI_FAILURE"
-        ? `Las pruebas de ${name} fallaron.`
+        ? ow().ciFailed(name)
         : r.code === "DEPLOY_BLOCKED"
-          ? `${name} espera un despliegue que falló o va atrás.`
+          ? ow().deployBlocked(name)
           : r.code === "AREAS_OVERLAP"
-            ? "Dos trabajos tocan los mismos archivos a la vez."
-            : `${name} está bloqueado.`;
-    return { light: "blocked", reason: { text, action: { label: "Abrir", href: open } } };
+            ? ow().overlap
+            : ow().blocked(name);
+    return { light: "blocked", reason: { text, action: { label: ow().open, href: open } } };
   }
 
   if (c.plan && (c.plan.pace === "late" || c.plan.pace === "bad")) {
     const n = c.plan.weeks_behind ?? 1;
-    return { light: "late", reason: { text: `Va ${plural(n, "semana", "semanas")} atrás de la entrega del ${c.plan.due_on}.`, action: { label: "Abrir", href: open } } };
+    return { light: "late", reason: { text: ow().late(n, c.plan.due_on), action: { label: ow().open, href: open } } };
   }
 
   const [last] = await db.select({ at: events.createdAt }).from(events).where(eq(events.projectId, p.id)).orderBy(desc(events.id)).limit(1);
   if (!last || c.now.getTime() - last.at.getTime() > QUIET_HOURS * HOUR) {
     const days = last ? Math.floor((c.now.getTime() - last.at.getTime()) / (24 * HOUR)) : null;
-    return { light: "quiet", reason: { text: days ? `Nada se movió en ${plural(days, "día", "días")}.` : "Nada se movió todavía.", action: { label: "Abrir", href: open } } };
+    return { light: "quiet", reason: { text: days ? ow().quietDays(days) : ow().quietNever, action: { label: ow().open, href: open } } };
   }
   return { light: "ok", reason: null };
 }
-
-const ROLE_WORD: Record<string, string> = { "product-owner": "del PO", research: "de Research", artist: "de Artist", taller: "de Taller" };
-const roleWord = (role: string) => ROLE_WORD[role] ?? `de ${role}`;
 
 async function teamView(db: Db, p: Project, ctx: { paused: boolean; threadId: string }): Promise<TeamMember[]> {
   const waiting = await openQuestionsByAgent(db, p.id);
@@ -416,27 +496,27 @@ export function fillQueues(team: TeamMember[], queued: QueuedTicket[], agentSlug
 export function holdText(hold: NextHold, x: { scope?: "company" | "project"; plan?: PlanView } = {}): string {
   switch (hold) {
     case "rest":
-      return "Descansa entre un trabajo y otro.";
+      return ow().rest;
     case "usage": {
       const p = x.plan;
-      if (!p || p.state === "unknown") return "No se sabe cuánto uso de Claude queda.";
-      if (p.status === "allowed_warning" || p.status === "rejected") return "Claude avisó que el uso está al límite.";
-      return `El uso de Claude va en ${p.five_hour_pct} % y el tope es ${p.guard_pct} %.`;
+      if (!p || p.state === "unknown") return ow().usageUnknown;
+      if (p.status === "allowed_warning" || p.status === "rejected") return ow().usageLimit;
+      return ow().usageAt(p.five_hour_pct, p.guard_pct);
     }
     case "slot":
-      return "Espera un lugar: ya hay otros trabajando.";
+      return ow().slot;
     case "paused":
-      return x.scope === "company" ? "La compañía está en pausa." : "El proyecto está en pausa.";
+      return x.scope === "company" ? ow().companyPaused : ow().projectPaused;
     case "no_goal":
-      return "Falta fijar la meta del proyecto.";
+      return ow().noGoal;
     case "waiting_owner":
-      return "Espera que aceptes la entrega anterior.";
+      return ow().waitingOwner;
     case "waiting_step":
-      return "Espera un paso anterior.";
+      return ow().waitingStep;
     case "unqueued":
-      return "Nadie lo ha despertado todavía.";
+      return ow().unqueued;
     case "soon":
-      return "Arranca en un momento.";
+      return ow().soon;
   }
 }
 
@@ -625,7 +705,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
   // that keeps it off Te toca) is not the owner's turn yet, so the floor must not say it is (it drew a dead button).
   for (const c of cards) {
     const waiting = decisions.some((d) => d.project === c.slug && d.state === null && (d.kind === "pr" || d.kind === "deliverable"));
-    if (c.light === "needs_owner" && c.light_reason?.text === DELIVERY_WAITS && !waiting) {
+    if (c.light === "needs_owner" && c.light_reason?.text === ow().deliveryWaits && !waiting) {
       c.light = "ok";
       c.light_reason = null;
     }
@@ -706,10 +786,10 @@ export async function addTeamMember(db: Db, slug: string, template: string): Pro
   const title = PROMPT_DOCS[template];
   // NEWPROJ-2: the doc or the kit/roles file, as the runner and project creation look it up.
   const prompt = await rolePrompt(db, template);
-  if (!prompt) return { error: "PROMPT_DOC_MISSING", status: 409, hint: `Falta el doc «${title}» en Plania.` };
+  if (!prompt) return { error: "PROMPT_DOC_MISSING", status: 409, hint: ow().promptMissing(title) };
   const agentSlug = teamSlug(template, p.slug);
   const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, agentSlug)).limit(1);
-  if (taken) return { error: "AGENT_EXISTS", status: 409, hint: `${agentSlug} ya está en el roster.`, agent: agentSlug };
+  if (taken) return { error: "AGENT_EXISTS", status: 409, hint: ow().agentExists(agentSlug), agent: agentSlug };
   const po = await db.select().from(agents).where(and(eq(agents.projectId, p.id), eq(agents.roleTemplate, "product-owner"))).limit(1);
   await ensureMember(db, p, template, { reportsTo: po[0]?.slug ?? "ceo", note: promptNote(template, prompt) });
   const read = await projectRead(db, slug);

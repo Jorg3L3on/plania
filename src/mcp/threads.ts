@@ -15,6 +15,25 @@ import { roleOf } from "../runner/limits.js";
 import { isRunSession, runPrefixOf } from "../runner/run-session.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the closing line a run posts in its project thread, in the install's language; the Spanish is unchanged.
+export const THREAD_WORDS = defineWords({
+  es: {
+    prOf: (key: string) => `PR de ${key}`,
+    inReview: (key: string, title: string) => `${key} queda En revisión: ${title}.`,
+    evidence: (key: string, verdict: string) => `${key}: evidencia ${verdict} registrada.`,
+    did: (cite: string) => `Hice: ${cite}`,
+    need: (code: boolean) => `Necesito: que lo revises (${code ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).`,
+  },
+  en: {
+    prOf: (key: string) => `PR for ${key}`,
+    inReview: (key: string, title: string) => `${key} is In review: ${title}.`,
+    evidence: (key: string, verdict: string) => `${key}: ${verdict} evidence recorded.`,
+    did: (cite: string) => `Done: ${cite}`,
+    need: (code: boolean) => `I need: your review (${code ? "Approve into the test copy" : "Approve and close"} or Ask for changes).`,
+  },
+});
 
 // A code ticket with a PR is approved into the test copy; anything else is approved and closed (src/runner/threads.ts).
 const CODE_WORK = new Set(["code", "bug", "debt"]);
@@ -77,13 +96,14 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
 
   const links: ThreadLink[] = [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }];
   const pr = c.prUrl?.trim() || t.prUrl;
-  if (pr) links.push({ kind: "pr", ref: pr, title: `PR de ${t.key}` });
+  if (pr) links.push({ kind: "pr", ref: pr, title: say(THREAD_WORDS).prOf(t.key) });
   const [doc] = await db.select({ id: docs.id, title: docs.title }).from(docs).where(eq(docs.taskId, t.id)).orderBy(desc(docs.updatedAt)).limit(1);
   if (doc) links.push({ kind: "doc", ref: doc.id, title: doc.title.slice(0, 200) });
 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
-  const head = c.via === "finish" ? `${t.key} queda En revisión: ${t.title}.` : `${t.key}: evidencia ${c.verdict ?? ""} registrada.`.replace(/\s+\./, ".");
-  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? `Necesito: que lo revises (${pr && CODE_WORK.has(t.workType ?? "code") ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).` : null].filter(Boolean).join("\n");
+  const w = say(THREAD_WORDS);
+  const head = c.via === "finish" ? w.inReview(t.key, t.title) : w.evidence(t.key, c.verdict ?? "").replace(/\s+\./, ".");
+  const body = [head, cite ? w.did(cite) : null, c.via === "finish" ? w.need(!!pr && CODE_WORK.has(t.workType ?? "code")) : null].filter(Boolean).join("\n");
   const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
   return msg.id;
 }

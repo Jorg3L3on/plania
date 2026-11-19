@@ -7,6 +7,13 @@ import type { Db } from "../db/client.js";
 import { docs, projects } from "../db/schema.js";
 import { roleFile, sha } from "./kit.js";
 import { PROMPT_DOCS, type RunnerRole } from "./limits.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: a seat's note about its prompt, in the install's language; the Spanish is unchanged.
+export const PROMPT_WORDS = defineWords({
+  es: { doc: (title: string, id?: string) => (id ? `Prompt: doc «${title}» (${id}).` : `Prompt: doc «${title}».`) },
+  en: { doc: (title: string, id?: string) => (id ? `Prompt: doc "${title}" (${id}).` : `Prompt: doc "${title}".`) },
+});
 
 // The project whose project-level docs hold the role prompts.
 export const promptsProject = (env: NodeJS.ProcessEnv = process.env): string => env.PLANIA_PROMPTS_PROJECT || "plania";
@@ -48,4 +55,4 @@ export async function rolesWithoutPrompt(db: Db, roles: readonly RunnerRole[], e
 
 // What a seat's note says about its prompt.
 export const promptNote = (role: RunnerRole, prompt: RolePrompt | null | undefined): string =>
-  prompt?.docId ? `Prompt: doc «${PROMPT_DOCS[role]}» (${prompt.docId}).` : prompt?.source === "kit" ? `Prompt: kit/roles/${role}.md.` : `Prompt: doc «${PROMPT_DOCS[role]}».`;
+  prompt?.docId ? say(PROMPT_WORDS).doc(PROMPT_DOCS[role], prompt.docId) : prompt?.source === "kit" ? `Prompt: kit/roles/${role}.md.` : say(PROMPT_WORDS).doc(PROMPT_DOCS[role]);

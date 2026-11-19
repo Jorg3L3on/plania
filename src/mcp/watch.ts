@@ -6,6 +6,13 @@ import { inbox, type InboxItem } from "./inbox.js";
 import { listEvents } from "./queries.js";
 import { resumeDigest, resumeLine } from "./resume.js";
 import { iso, type Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: a folded run of notes, in the install's language; the Spanish is unchanged.
+export const WATCH_WORDS = defineWords({
+  es: { notes: (key: string, n: number, agent: string, last: string) => `${key} ${n} notas (${agent}); última: ${last}` },
+  en: { notes: (key: string, n: number, agent: string, last: string) => `${key} ${n} notes (${agent}); last: ${last}` },
+});
 
 // 2.7 Watch API: cross-project reads for an assistant that keeps the owner updated with one cheap call.
 // list_projects (every project in one line with counts), get_running (every live claim with a
@@ -187,9 +194,10 @@ export function collapseChanges(evs: { id: number; at: string; type: string; tas
       out[out.length - 1] = { ...line, collapsed: (prev.collapsed ?? 1) + 1 };
       continue;
     }
-    if (sameKey && e.type === "note" && prev.summary.startsWith(`${e.task_key} nota (${e.actor.agent})`)) {
+    // PLA-I2-10: an event summary reads «nota» in Spanish and "note" in English (src/mcp/summary.ts).
+    if (sameKey && e.type === "note" && (prev.summary.startsWith(`${e.task_key} nota (${e.actor.agent})`) || prev.summary.startsWith(`${e.task_key} note (${e.actor.agent})`))) {
       const n = (prev.collapsed ?? 1) + 1;
-      out[out.length - 1] = { ...line, summary: `${e.task_key} ${n} notas (${e.actor.agent}); última: ${e.summary.slice(e.summary.indexOf(": ") + 2)}`, collapsed: n };
+      out[out.length - 1] = { ...line, summary: say(WATCH_WORDS).notes(e.task_key ?? "", n, e.actor.agent, e.summary.slice(e.summary.indexOf(": ") + 2)), collapsed: n };
       continue;
     }
     out.push(line);

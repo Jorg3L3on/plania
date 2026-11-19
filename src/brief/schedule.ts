@@ -15,6 +15,7 @@ import { briefRuns, morningBriefs } from "../db/schema.js";
 import { lastReading, loadSettings, planView } from "../runner/limits.js";
 import { BriefRunningError, ceilingText, isoInZone, localDateIn, markStaleRuns, runningRun, startBrief, type RunBriefDeps, type RunBriefResult } from "./pipeline.js";
 import { loadBriefSettings, resolveBriefSettings } from "./settings.js";
+import { defineWords, say } from "../words.js";
 
 const DAY = 24 * 3600_000;
 
@@ -57,11 +58,16 @@ export const scheduledRunId = (): string | null => active?.runId ?? null;
 
 const hhmm = (d: Date, tz: string): string => isoInZone(d, tz).slice(11, 16);
 
+// PLA-I2-10: the usage guard's line, in the brief's language; the Spanish is unchanged.
+export const SCHEDULE_WORDS = defineWords({
+  es: { guard: (p: string, after: string | null) => `El uso de Claude está en su límite${p}, así que este brief es solo de datos.${after ? ` Genera de nuevo después de las ${after}.` : ""}` },
+  en: { guard: (p: string, after: string | null) => `Claude usage is at its limit${p}, so this brief is facts only.${after ? ` Generate again after ${after}.` : ""}` },
+});
+
 function guardText(lang: string, pct: number | null, resetsAt: string | null, tz: string): string {
   const after = resetsAt && !Number.isNaN(Date.parse(resetsAt)) ? hhmm(new Date(resetsAt), tz) : null;
   const p = pct != null ? ` (${pct} %)` : "";
-  if (lang === "es") return `El uso de Claude está en su límite${p}, así que este brief es solo de datos.${after ? ` Genera de nuevo después de las ${after}.` : ""}`;
-  return `Claude usage is at its limit${p}, so this brief is facts only.${after ? ` Generate again after ${after}.` : ""}`;
+  return say(SCHEDULE_WORDS, lang === "es" ? "es" : "en").guard(p, after);
 }
 
 export async function scheduledBrief(db: Db, now: Date, deps: ScheduleDeps = {}): Promise<ScheduleTick> {

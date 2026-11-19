@@ -111,6 +111,13 @@ import { taskImagePaths } from "../pedidos/images.js";
 import { personalize } from "../owner.js";
 import { languageLine } from "./owner-language.js";
 import { storedRunnerToken } from "../install-state.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the stop reason the owner reads when they stop a run, in the install's language; the Spanish is unchanged.
+export const RUNNER_WORDS = defineWords({
+  es: { stoppedFromCompany: "detenido desde Compañía" },
+  en: { stoppedFromCompany: "stopped from Company" },
+});
 
 export type ReadyWork = {
   project: string;
@@ -1555,7 +1562,7 @@ export function stopLive(filter: (run: { agentId: string; projectId: string; rol
 }
 
 // PLA-I36-9: stop one run (Detener on Compañía), not its project. false when it is not live in this process.
-export function stopRun(runId: string, reason = "detenido desde Compañía"): boolean {
+export function stopRun(runId: string, reason = say(RUNNER_WORDS).stoppedFromCompany): boolean {
   const run = live.get(runId);
   // PLA-I60-3: a run another process supervises is stopped by that process (stop_requested, actOnStopRequests).
   if (!run) {

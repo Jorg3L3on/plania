@@ -16,6 +16,25 @@ import { sessionCookies } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
 import { findOnPath } from "../lib/claude-bin.js";
 import { commandPath } from "../jobs/machine/run.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the live copy's refusals and hints in the install's language; the Spanish is unchanged.
+export const VIVO_WORDS = defineWords({
+  es: {
+    onlyHere: "Solo desde esta máquina o tu tailnet",
+    noAnswer: "La copia de la entrega no responde",
+    phoneHint: "Para abrirla en el teléfono, esta máquina necesita Tailscale (docs/phone-access.md).",
+    notOn: "la copia de la entrega no está encendida",
+    signInFailed: "No se pudo entrar con el usuario de prueba",
+  },
+  en: {
+    onlyHere: "Only from this machine or your tailnet",
+    noAnswer: "The delivery's copy does not answer",
+    phoneHint: "To open it on the phone, this machine needs Tailscale (docs/phone-access.md).",
+    notOn: "the delivery's copy is not on",
+    signInFailed: "Could not sign in with the test user",
+  },
+});
 
 export type VivoRead = {
   url: string | null; // what «Pruébala en vivo» opens (the tailnet address when there is one, else localhost)
@@ -86,7 +105,7 @@ export function localLocation(location: string, target: number): string {
 function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
   const server = http.createServer((req, res) => {
     if (!isLoopback(req.socket.remoteAddress)) {
-      res.writeHead(403).end("Solo desde esta máquina o tu tailnet");
+      res.writeHead(403).end(say(VIVO_WORDS).onlyHere);
       return;
     }
     const headers = { ...req.headers, host: `localhost:${live.target}` } as http.OutgoingHttpHeaders;
@@ -106,7 +125,7 @@ function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
     });
     up.on("error", () => {
       if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-      res.end("La copia de la entrega no responde");
+      res.end(say(VIVO_WORDS).noAnswer);
     });
     req.pipe(up);
   });
@@ -174,8 +193,6 @@ const listenOn = (server: http.Server, port: number) =>
     });
   });
 
-const PHONE_HINT = "Para abrirla en el teléfono, esta máquina necesita Tailscale (docs/phone-access.md).";
-
 // Starts (or returns) the live copy of a project's delivery. The delivery's copy must be on (F2).
 export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   const had = lives.get(slug);
@@ -186,7 +203,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   if (!settings) throw new ToolError("INVALID_FILTER", { field: "settings.capture", hint: "the project has no capture settings" });
   const e = entregaRead(slug);
   const target = deps.target ? deps.target(slug) : e && e.phase === "live" && e.port ? { port: e.port, worktree: e.worktree } : null;
-  if (!target) throw new ToolError("INVALID_FILTER", { field: "entrega", hint: "la copia de la entrega no está encendida" });
+  if (!target) throw new ToolError("INVALID_FILTER", { field: "entrega", hint: say(VIVO_WORDS).notOn });
 
   const user = settings.session?.user ?? null;
   let cookies: { name: string; value: string }[] = [];
@@ -194,7 +211,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   if (settings.session) {
     try {
       cookies = await (deps.signIn ?? sessionCookies)({ base_url: `http://localhost:${target.port}`, checkout: target.worktree ?? "", settings, env: entregaEnv(slug) });
-      if (!cookies.length) error = "No se pudo entrar con el usuario de prueba";
+      if (!cookies.length) error = say(VIVO_WORDS).signInFailed;
     } catch (err) {
       error = err instanceof Error ? err.message.split("\n")[0]!.slice(0, 200) : String(err);
     }
@@ -213,7 +230,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
     signed_in: !settings.session || cookies.length > 0,
     user,
     error,
-    hint: tailnetUrl ? null : PHONE_HINT,
+    hint: tailnetUrl ? null : say(VIVO_WORDS).phoneHint,
   };
   lives.set(slug, { ...base, server, port, read });
   return read;

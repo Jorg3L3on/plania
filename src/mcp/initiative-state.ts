@@ -3,7 +3,38 @@ import { questions, tasks, type Task } from "../db/schema.js";
 import { blockerList, type BlockerView } from "./blockers.js";
 import { liveOwner, prOf, type PrShape } from "./queries.js";
 import type { Q } from "./tx.js";
-import { OWNER_LINE_PREFIX, ownerEs } from "../owner.js";
+import { OWNER_LINE_PREFIX, ownerEs, ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: where an initiative stands, in one line in the install's language; the Spanish is unchanged.
+export const INITIATIVE_WORDS = defineWords({
+  es: {
+    after: (at: string) => `después de ${at}`,
+    none: "Sin tickets todavía",
+    readyToClose: (done: number, total: number) => `${done}/${total} hechos · lista para cerrar`,
+    phase: (n: number) => `Fase ${n}`,
+    done: (done: number, total: number) => `${done}/${total} hechos`,
+    running: (keys: string) => `en curso ${keys}`,
+    inReview: (n: number, prs: string) => `en revisión ${n}${prs}`,
+    toRelease: (n: number) => `${n} por lanzar`,
+    toClose: (n: number) => `${n} por cerrar`,
+    waitsOwner: (n: number) => `espera ${ownerEs("a")} (${n})`,
+    waits: (on: string) => `espera ${on}`,
+  },
+  en: {
+    after: (at: string) => `after ${at}`,
+    none: "No tickets yet",
+    readyToClose: (done: number, total: number) => `${done}/${total} done · ready to close`,
+    phase: (n: number) => `Phase ${n}`,
+    done: (done: number, total: number) => `${done}/${total} done`,
+    running: (keys: string) => `running ${keys}`,
+    inReview: (n: number, prs: string) => `in review ${n}${prs}`,
+    toRelease: (n: number) => `${n} to release`,
+    toClose: (n: number) => `${n} to close`,
+    waitsOwner: (n: number) => `waits on ${ownerName("en")} (${n})`,
+    waits: (on: string) => `waits on ${on}`,
+  },
+});
 
 // 2.11 (item 3): where an initiative stands, derived from its tickets, their claims and their
 // blockers, so nobody has to write it. state_note stays beside it as commentary.
@@ -42,26 +73,27 @@ function waitText(b: BlockerView): string {
     case "env_flag":
       return `${b.env}.${b.flag} = ${String(b.equals)}`;
     case "time_after":
-      return `después de ${b.at}`;
+      return say(INITIATIVE_WORDS).after(String(b.at));
     case "metric_gte":
       return `${b.name} ≥ ${b.value}`;
   }
 }
 
 export function stateLine(s: Omit<InitiativeState, "line">): string {
-  if (s.total === 0) return "Sin tickets todavía";
-  if (s.ready_to_close) return `${s.done}/${s.total} hechos · lista para cerrar`;
-  const parts = [s.phase_now !== null ? `Fase ${s.phase_now}` : null, `${s.done}/${s.total} hechos`];
-  if (s.in_progress.length) parts.push(`en curso ${s.in_progress.map((c) => c.key).join(", ")}`);
+  const w = say(INITIATIVE_WORDS);
+  if (s.total === 0) return w.none;
+  if (s.ready_to_close) return w.readyToClose(s.done, s.total);
+  const parts = [s.phase_now !== null ? w.phase(s.phase_now) : null, w.done(s.done, s.total)];
+  if (s.in_progress.length) parts.push(w.running(s.in_progress.map((c) => c.key).join(", ")));
   if (s.in_review.length) {
     const prs = [...new Set(s.in_review.map((r) => (r.pr?.number ? `#${r.pr.number}` : null)).filter(Boolean))];
-    parts.push(`en revisión ${s.in_review.length}${prs.length ? ` (${prs.join(", ")})` : ""}`);
+    parts.push(w.inReview(s.in_review.length, prs.length ? ` (${prs.join(", ")})` : ""));
   }
-  if (s.to_release.length) parts.push(`${s.to_release.length} por lanzar`);
-  if (s.to_close?.length) parts.push(`${s.to_close.length} por cerrar`);
+  if (s.to_release.length) parts.push(w.toRelease(s.to_release.length));
+  if (s.to_close?.length) parts.push(w.toClose(s.to_close.length));
   if (s.waiting_on.length) {
-    const mine = s.waiting_on.filter((w) => w.on.startsWith(OWNER_LINE_PREFIX));
-    parts.push(mine.length ? `espera ${ownerEs("a")} (${mine.length})` : `espera ${s.waiting_on[0]!.on}`);
+    const mine = s.waiting_on.filter((x) => x.on.startsWith(OWNER_LINE_PREFIX));
+    parts.push(mine.length ? w.waitsOwner(mine.length) : w.waits(s.waiting_on[0]!.on));
   }
   return parts.filter(Boolean).join(" · ");
 }

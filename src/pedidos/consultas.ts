@@ -9,7 +9,8 @@
 //   listConsultas   the project's questions for the side page, each with its state and what the PO read so far
 //                   (from the run's stream log).
 import { readFileSync } from "node:fs";
-import { defineWords, say } from "../words.js";
+import { defineWords, ownerIn, say } from "../words.js";
+import { installLanguage } from "../language.js";
 
 // PLA-I2-10: what the owner reads of a question's run and its answer, in the install's language (Spanish unchanged).
 export const CONSULTA_WORDS = defineWords({
@@ -23,6 +24,7 @@ export const CONSULTA_WORDS = defineWords({
     poAnswer: (a: string) => `Respuesta del PO: ${a}`,
     where: (s: string) => `Dónde: ${s}`,
     readOn: (b: string, c: string | null) => `Leído en ${b}${c ? ` @ ${c}` : ""}.`,
+    reason: (owner: string) => `${owner} pregunta algo del proyecto; contesta con answer_consulta`,
   },
   en: {
     opened: (f: string) => `Opened ${f}`,
@@ -34,6 +36,7 @@ export const CONSULTA_WORDS = defineWords({
     poAnswer: (a: string) => `The PO's answer: ${a}`,
     where: (s: string) => `Where: ${s}`,
     readOn: (b: string, c: string | null) => `Read on ${b}${c ? ` @ ${c}` : ""}.`,
+    reason: (owner: string) => `${owner} asks something about the project; answer with answer_consulta`,
   },
 });
 import { ownerLanguage } from "../runner/owner-language.js";
@@ -46,11 +49,15 @@ import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
 import { heldText, type HeldCode } from "../runner/admission.js";
-import { ownerEs, ownerName } from "../owner.js";
+import { ownerName } from "../owner.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
-export const consultaReason = (id: string) => `${PREGUNTA_MARK} [consulta ${id}] ${ownerEs(undefined, { capital: true })} pregunta algo del proyecto; contesta con answer_consulta`;
+// The run's reason keeps its markers (PREGUNTA_MARK, [consulta <id>]); the sentence after them follows the language.
+export const consultaReason = (id: string) => {
+  const lang = installLanguage();
+  return `${PREGUNTA_MARK} [consulta ${id}] ${say(CONSULTA_WORDS, lang).reason(ownerIn(lang, undefined, { capital: true }))}`;
+};
 const RETRY_HOURS = 6;
 
 export type ConsultaWake = "queued" | "busy" | "off";

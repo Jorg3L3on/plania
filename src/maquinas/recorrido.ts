@@ -10,6 +10,25 @@ import { isTestUser } from "../captures/settings.js";
 import { appDirs } from "./env.js";
 import { MaquinaError } from "./errors.js";
 import { mdeps, menv, projectOf } from "./machines.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the walkthrough's lines and refusals in the install's language; the Spanish is unchanged.
+export const RECORRIDO_WORDS = defineWords({
+  es: {
+    open: (label: string, session: boolean) => `Abre ${label}${session ? " (con la sesión de prueba)" : ""}`,
+    noUser: "Este piso no tiene usuario de prueba",
+    notTestUser: "Solo cambio la contraseña de un usuario de prueba (example.com, .test)",
+    noCopy: "No encuentro la copia de la app",
+    passwordFailed: "No se pudo poner la contraseña",
+  },
+  en: {
+    open: (label: string, session: boolean) => `Open ${label}${session ? " (with the test session)" : ""}`,
+    noUser: "This floor has no test user",
+    notTestUser: "I only change the password of a test user (example.com, .test)",
+    noCopy: "I can't find the app's copy",
+    passwordFailed: "Could not set the password",
+  },
+});
 
 export const RECORRIDO_TITLE = "Recorrido de prueba";
 
@@ -50,7 +69,7 @@ export async function recorrido(db: Db, slug: string): Promise<RecorridoRead> {
     if (steps.length) return { from: "doc", doc_id: d.id, steps, user, can_password };
   }
   if (pages.length) {
-    return { from: "pages", doc_id: null, steps: pages.map((pg, i) => ({ n: i + 1, text: `Abre ${pg.label}${pg.session ? " (con la sesión de prueba)" : ""}`, page: pg.key, path: pg.path })), user, can_password };
+    return { from: "pages", doc_id: null, steps: pages.map((pg, i) => ({ n: i + 1, text: say(RECORRIDO_WORDS).open(pg.label, !!pg.session), page: pg.key, path: pg.path })), user, can_password };
   }
   return { from: "none", doc_id: null, steps: [], user, can_password };
 }
@@ -60,14 +79,14 @@ export async function recorrido(db: Db, slug: string): Promise<RecorridoRead> {
 export async function nuevaContrasena(db: Db, slug: string): Promise<{ user: string; password: string }> {
   const p = await projectOf(db, slug);
   const sess = p.settings.capture?.session;
-  if (!sess) throw new MaquinaError("NOT_CONFIGURED", "Este piso no tiene usuario de prueba");
-  if (!isTestUser(sess.user)) throw new MaquinaError("NOT_A_TEST_USER", "Solo cambio la contraseña de un usuario de prueba (example.com, .test)");
+  if (!sess) throw new MaquinaError("NOT_CONFIGURED", say(RECORRIDO_WORDS).noUser);
+  if (!isTestUser(sess.user)) throw new MaquinaError("NOT_A_TEST_USER", say(RECORRIDO_WORDS).notTestUser);
   const dirs = appDirs(slug, p.settings, menv());
   const dir = dirs.prueba ?? dirs.repo;
-  if (!dir) throw new MaquinaError("NO_TEST_COPY", "No encuentro la copia de la app");
+  if (!dir) throw new MaquinaError("NO_TEST_COPY", say(RECORRIDO_WORDS).noCopy);
   const password = randomBytes(12).toString("base64url");
   const cmd = sess.password_command.replaceAll("{user}", sess.user);
   const r = await (mdeps().exec ?? shellExec)(cmd, { cwd: dir, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
-  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", "No se pudo poner la contraseña");
+  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", say(RECORRIDO_WORDS).passwordFailed);
   return { user: sess.user, password };
 }

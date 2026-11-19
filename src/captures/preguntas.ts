@@ -6,8 +6,8 @@
 //              for a short read-only run (no edits, no commits, no pushes: the QA deny rules). Taller answers in the
 //              project thread with a message linked to the ticket that starts «Respuesta:»; the card shows it.
 import { randomUUID } from "node:crypto";
-import { installLanguage } from "../language.js";
 import { ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
 import path from "node:path";
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -22,6 +22,41 @@ export const PREGUNTA_MARK = "[pregunta]";
 // PLA-I2-10: the answer's marker in the owner's language («Respuesta:» or «Answer:»); both are read whatever the
 // language, so a switch never hides an older answer. A one-word marker, not a sentence.
 export const RESPUESTA = /^\s*(?:Respuesta|Answer):\s*/i;
+
+// PLA-I2-10: the pins' note, the question's refusal and Taller's wake reason in the install's language; the Spanish
+// is unchanged. PREGUNTA_MARK stays: it is a tag, not a sentence.
+export const PREGUNTAS_WORDS = defineWords({
+  es: {
+    pos: (x: number, y: number) => `${x}% desde la izquierda, ${y}% desde arriba`,
+    before: "antes",
+    after: "después",
+    phone: "teléfono",
+    desktop: "escritorio",
+    noNote: "(sin nota)",
+    photo: " · foto: ",
+    title: "Marcas en El Probador:",
+    writeIt: "escribe la pregunta",
+    reason: (mark: string, key: string, q: string, slug: string) =>
+      `${mark} El dueño pregunta sobre la entrega ${key}: «${q}». Contesta en español, en tres frases o menos, ` +
+      `con thread_post en el hilo de ${slug}, links [{"kind":"ticket","ref":"${key}"}], empezando con «Respuesta: ». ` +
+      `Solo lee el código y la muestra (get_task fields muestra): esta corrida no puede editar, hacer commit ni push.`,
+  },
+  en: {
+    pos: (x: number, y: number) => `${x}% from the left, ${y}% from the top`,
+    before: "before",
+    after: "after",
+    phone: "phone",
+    desktop: "desktop",
+    noNote: "(no note)",
+    photo: " · picture: ",
+    title: "Pins in El Probador:",
+    writeIt: "write the question",
+    reason: (mark: string, key: string, q: string, slug: string) =>
+      `${mark} ${ownerName("en", { capital: true })} asks about delivery ${key}: «${q}». Answer in English, in three sentences or fewer, ` +
+      `with thread_post in the ${slug} thread, links [{"kind":"ticket","ref":"${key}"}], starting with «Answer: ». ` +
+      `Only read the code and the preview (get_task fields muestra): this run cannot edit, commit or push.`,
+  },
+});
 
 async function load(db: Db, slug: string, key: string): Promise<{ p: Project; t: Task }> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
@@ -90,13 +125,14 @@ export async function marcasText(db: Db, slug: string, key: string, marcas: Marc
           branch: s.branch,
         })
         .returning({ id: captureStills.id });
-      where = ` · foto: ${path.join(capturesDir(), p.slug, file)} (${imageUrl(p.slug, row!.id)})`;
+      where = `${say(PREGUNTAS_WORDS).photo}${path.join(capturesDir(), p.slug, file)} (${imageUrl(p.slug, row!.id)})`;
       crops.push(row!.id);
     }
-    const pos = `${Math.round(m.x * 100)}% desde la izquierda, ${Math.round(m.y * 100)}% desde arriba`;
-    lines.push(`${i + 1}. ${label} (${s?.path ?? m.vista}), ${m.side === "antes" ? "antes" : "después"}, ${m.width === "phone" ? "teléfono" : "escritorio"}, ${pos}: ${m.note || "(sin nota)"}${where}`);
+    const w = say(PREGUNTAS_WORDS);
+    const pos = w.pos(Math.round(m.x * 100), Math.round(m.y * 100));
+    lines.push(`${i + 1}. ${label} (${s?.path ?? m.vista}), ${m.side === "antes" ? w.before : w.after}, ${m.width === "phone" ? w.phone : w.desktop}, ${pos}: ${m.note || w.noNote}${where}`);
   }
-  return { text: `Marcas en El Probador:\n${lines.join("\n")}`, crops };
+  return { text: `${say(PREGUNTAS_WORDS).title}\n${lines.join("\n")}`, crops };
 }
 
 // The Taller that answers: the ticket's owner, else the project's Taller.
@@ -111,7 +147,7 @@ async function tallerOf(db: Db, p: Project, t: Task) {
 
 export async function preguntar(db: Db, slug: string, key: string, text: string): Promise<{ id: string; wake: string }> {
   const q = text.replace(/\s+/g, " ").trim();
-  if (!q) throw new ToolError("INVALID_FILTER", { field: "text", hint: "escribe la pregunta" });
+  if (!q) throw new ToolError("INVALID_FILTER", { field: "text", hint: say(PREGUNTAS_WORDS).writeIt });
   if (q.length > 400) throw new ToolError("TOO_LARGE", { field: "text", max: 400 });
   const { p, t } = await load(db, slug, key);
   const id = randomUUID();
@@ -121,15 +157,8 @@ export async function preguntar(db: Db, slug: string, key: string, text: string)
     .set({ preguntas: sql`${tasks.preguntas} || ${JSON.stringify([{ id, text: q, at }])}::jsonb` })
     .where(eq(tasks.id, t.id));
   const taller = await tallerOf(db, p, t);
-  // PLA-I2-10: in the owner's language; the Spanish is unchanged. PREGUNTA_MARK stays: it is a tag, not a sentence.
-  const reason =
-    installLanguage() === "en"
-      ? `${PREGUNTA_MARK} ${ownerName("en", { capital: true })} asks about delivery ${t.key}: «${q}». Answer in English, in three sentences or fewer, ` +
-        `with thread_post in the ${p.slug} thread, links [{"kind":"ticket","ref":"${t.key}"}], starting with «Answer: ». ` +
-        `Only read the code and the preview (get_task fields muestra): this run cannot edit, commit or push.`
-      : `${PREGUNTA_MARK} El dueño pregunta sobre la entrega ${t.key}: «${q}». Contesta en español, en tres frases o menos, ` +
-        `con thread_post en el hilo de ${p.slug}, links [{"kind":"ticket","ref":"${t.key}"}], empezando con «Respuesta: ». ` +
-        `Solo lee el código y la muestra (get_task fields muestra): esta corrida no puede editar, hacer commit ni push.`;
+  // PLA-I2-10: in the owner's language; the Spanish is unchanged.
+  const reason = say(PREGUNTAS_WORDS).reason(PREGUNTA_MARK, t.key, q, p.slug);
   const w = await enqueueWake(db, { agent: taller, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason });
   return { id, wake: w.kind === "queued" ? "queued" : w.reason };
 }
