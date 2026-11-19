@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CloudOffIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { AppShell } from "@/components/app-shell";
 import { PlaniaMark } from "@/components/plania-mark";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { TokensPage } from "@/pages/tokens";
 import { CeoPage, CorrienteRedirect } from "@/pages/ceo";
 import { CalidadPage } from "@/pages/calidad";
 import { LEGACY_REDIRECTS } from "@/lib/compania";
+import { oldProjectHref } from "@/lib/corriente";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
 // It retries on its own when the network comes back.
@@ -58,13 +59,21 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// PLA-113: /p/<slug> opens La corriente unless Archivo asked for the old page (?pagina).
+function ProjectRoute() {
+  const { slug = "" } = useParams();
+  const location = useLocation();
+  const to = oldProjectHref(slug, location.search);
+  return to ? <Navigate to={to} replace /> : <ProjectPage />;
+}
+
 export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireSession><AppShell /></RequireSession>}>
         <Route index element={<HomePage />} />
-        <Route path="/p/:slug" element={<ProjectPage />} />
+        <Route path="/p/:slug" element={<ProjectRoute />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />
         <Route path="/progreso" element={<ProgresoPage />} />

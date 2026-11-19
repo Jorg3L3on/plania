@@ -133,6 +133,18 @@ export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): 
 export const HOME = "/ceo";
 export const hrefOf = (at: Partial<At> & { extra?: Record<string, string> }) => `${HOME}${searchOf(at)}`;
 
+/** PLA-113 (guided test PLA-86, F-2): the old project page (/p/<slug>) is reached on purpose only, from Archivo
+ * («Abrir la página del proyecto», with ?pagina). Every other link to it (Inicio, Bandeja, Máquina, the brief, a
+ * thread) opens the project in La corriente, and ?task=KEY opens that step, idea or initiative there. Null: stay. */
+export function oldProjectHref(slug: string, search: string): string | null {
+  const q = new URLSearchParams(search);
+  if (q.has("pagina") || !slug) return null;
+  const key = q.get("task")?.trim();
+  if (!key) return hrefOf({ slug });
+  const ver: Ver = /-IDEA\d+$/i.test(key) ? { kind: "idea", key } : /-I\d+$/i.test(key) ? { kind: "iniciativa", key } : { kind: "paso", key };
+  return hrefOf({ slug, ver });
+}
+
 /** Where each part still lives in the building (/ceo) while La corriente does not draw it yet. */
 export function legacyHref(at: Partial<At>): string {
   const slug = at.slug ?? null;
