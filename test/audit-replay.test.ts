@@ -58,7 +58,7 @@ const collect = () => {
   const lines: string[] = [];
   return { lines, log: (l: string) => void lines.push(l), text: () => lines.join("\n") };
 };
-const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...process.env, CLAUDE_CODE_BIN: FAKE_CLAUDE, FAKE_MS: "30", ...extra });
+const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...process.env, CLAUDE_CODE_BIN: FAKE_CLAUDE, CLAUDE_FAKE_MS: "30", ...extra });
 
 before(() => {
   mkdirSync(REPO, { recursive: true });
@@ -83,7 +83,7 @@ before(() => {
 const argv = process.argv.slice(2);
 const after = (flag) => argv[argv.indexOf(flag) + 1];
 writeFileSync("made.txt", "made by the run\\n");
-writeFileSync(process.env.REPLAY_RECORD, JSON.stringify({
+writeFileSync(process.env.CLAUDE_REPLAY_RECORD, JSON.stringify({
   argv, cwd: process.cwd(), a: existsSync("a.txt"), b: existsSync("b.txt"),
   settings: JSON.parse(readFileSync(after("--settings"), "utf8")), mcp: JSON.parse(readFileSync(after("--mcp-config"), "utf8")),
   rolePrompt: readFileSync(after("--append-system-prompt-file"), "utf8"), env: Object.keys(process.env),
@@ -186,7 +186,7 @@ test("the run happens in the worktree at base_sha, with the role prompt, the kit
   setCases(theCase("recorded", [{ name: "made", command: `node -e "require('fs').accessSync('made.txt')"` }]));
   const { result } = await replay.runReplay(
     { rolePrompt: ROLE_PROMPT, kit: KIT, model: "haiku", maxTurns: 5, casesDir: CASES, resultsDir: RESULTS, tmpDir: TMP },
-    { env: env({ CLAUDE_CODE_BIN: RECORDER, REPLAY_RECORD: RECORD, PLANIA_RUNNER_TOKEN: "runner-secret", ANTHROPIC_API_KEY: "sk-ant-secret", DATABASE_URL: "postgres://x", MCP_BEARER_TOKEN: "bearer-secret" }), log: () => undefined },
+    { env: env({ CLAUDE_CODE_BIN: RECORDER, CLAUDE_REPLAY_RECORD: RECORD, PLANIA_RUNNER_TOKEN: "runner-secret", ANTHROPIC_API_KEY: "sk-ant-secret", DATABASE_URL: "postgres://x", MCP_BEARER_TOKEN: "bearer-secret" }), log: () => undefined },
   );
   const t = result!.cases[0]!.trials[0]!;
   // The verify command found the file the run made: same folder.
@@ -209,14 +209,16 @@ test("the run happens in the worktree at base_sha, with the role prompt, the kit
   assert.ok(rec.argv.includes("--strict-mcp-config"));
   assert.deepEqual(rec.mcp, { mcpServers: {} });
   assert.ok(rec.settings.permissions.deny.includes("Bash(git push*)") && rec.settings.permissions.deny.includes("Bash(gh *)"));
-  for (const secret of ["PLANIA_RUNNER_TOKEN", "ANTHROPIC_API_KEY", "DATABASE_URL", "MCP_BEARER_TOKEN"]) assert.ok(!rec.env.includes(secret), secret);
+  for (const secret of ["PLANIA_RUNNER_TOKEN", "DATABASE_URL", "MCP_BEARER_TOKEN"]) assert.ok(!rec.env.includes(secret), secret);
+  // PLA-I2-13: Claude's own sign-in reaches the replay unchanged.
+  assert.ok(rec.env.includes("ANTHROPIC_API_KEY"));
   assert.deepEqual(readdirSync(TMP), []);
 });
 
 test("a run that ends in an error is a failed trial even when the checks pass; a missing commit is reported, not thrown", async () => {
   setCases(theCase("crashed", [{ name: "test", command: PASS }]), theCase("gone", [{ name: "test", command: PASS }], { base_sha: "0000000000000000000000000000000000000000" }));
   const out = collect();
-  const { result } = await replay.runReplay({ casesDir: CASES, resultsDir: RESULTS, tmpDir: TMP }, { env: env({ FAKE_EXIT: "1" }), log: out.log });
+  const { result } = await replay.runReplay({ casesDir: CASES, resultsDir: RESULTS, tmpDir: TMP }, { env: env({ CLAUDE_FAKE_EXIT: "1" }), log: out.log });
   const [crashed, gone] = result!.cases;
   assert.equal(crashed!.trials[0]!.passed, false);
   assert.equal(crashed!.trials[0]!.claude.ok, false);

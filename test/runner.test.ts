@@ -66,12 +66,18 @@ function fakes(opts: { onSignal?: (child: FakeChild, signal: NodeJS.Signals) => 
     env: {
       HOME: scratch,
       PATH: "/usr/bin:/bin",
-      ANTHROPIC_API_KEY: "sk-should-never-reach-the-child",
+      ANTHROPIC_API_KEY: "sk-ant-buyer-key",
       ANTHROPIC_BASE_URL: "http://127.0.0.1/never",
       anthropic_auth_token: "lowercase-too",
       PLANIA_RUNNER_TOKEN: "runner-token",
       PLANIA_PROMPTS_PROJECT: "micasa",
       CLAUDE_CODE_BIN: "/fake/bin/claude",
+      // PLA-I2-13: Plania's own secrets, which no run may receive.
+      DATABASE_URL: "postgres://plania-secret",
+      MCP_BEARER_TOKEN: "bearer-secret",
+      SESSION_SECRET: "session-secret",
+      GITHUB_TOKEN: "ghp-secret",
+      VAPID_PRIVATE_KEY: "vapid-secret",
     } as NodeJS.ProcessEnv,
     logDir: path.join(scratch, "logs"),
     tmpDir: path.join(scratch, "tmp"),
@@ -216,14 +222,17 @@ after(async () => {
 
 // ---- PLA-I29-2: the runner
 
-test("I29-2 #1: the child env has 0 ANTHROPIC_* keys and the args are the headless set", async () => {
+// PLA-I2-13: was "0 ANTHROPIC_* keys". Claude's own variables now pass unchanged; Plania's secrets never do.
+test("I29-2 #1 / I2-13 #1 #2: the child env keeps Claude's sign-in, holds no Plania secret, and the args are the headless set", async () => {
   const f = fakes();
   await ready("micasa", "RUN-ENV");
   const res = await wake("taller", f.deps, "RUN-ENV");
   assert.equal(res.reason, "ok");
   assert.equal(f.spawned.length, 1);
   const { env, args, command, cwd } = f.spawned[0]!;
-  assert.equal(Object.keys(env).filter((k) => /^ANTHROPIC_/i.test(k)).length, 0);
+  assert.equal(env.ANTHROPIC_API_KEY, "sk-ant-buyer-key", "the machine's key reaches the run unchanged");
+  assert.equal(env.ANTHROPIC_BASE_URL, "http://127.0.0.1/never");
+  for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY", "PLANIA_PROMPTS_PROJECT"]) assert.equal(env[k], undefined, k);
   assert.equal(env.PLANIA_RUNNER_TOKEN, "runner-token");
   assert.equal(command, "/fake/bin/claude");
   for (const flag of ["-p", "--verbose", "--strict-mcp-config", "--settings", "--mcp-config", "--max-turns", "--append-system-prompt-file"]) {
@@ -235,7 +244,8 @@ test("I29-2 #1: the child env has 0 ANTHROPIC_* keys and the args are the headle
   assert.equal(args.includes("-w"), false);
   assert.equal(cwd.startsWith(wtRoot), true);
   // Same helper, direct.
-  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", Anthropic_Model: "y", HOME: "/h" })).join(","), "HOME");
+  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", Anthropic_Model: "y", HOME: "/h", PLANIA_STRIP_ANTHROPIC_ENV: "1" })).join(","), "HOME");
+  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", HOME: "/h", DATABASE_URL: "d" })).sort().join(","), "ANTHROPIC_API_KEY,HOME");
   f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
   f.spawned[0]!.child.exit(0);
   await runner.waitForAllRuns();
@@ -740,7 +750,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
+  assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "claude_sign_in", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.usage).sort(), ["last_week", "used"]);
   assert.equal(state.week.timezone, "America/Mexico_City");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };

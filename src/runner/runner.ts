@@ -6,6 +6,7 @@
 import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
+import { projectEnvNames } from "./run-env.js";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -1287,7 +1288,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     args,
     cwd,
     // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }),
+    // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
+    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings)),
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
