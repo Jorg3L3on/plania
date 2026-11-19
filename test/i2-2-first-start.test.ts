@@ -103,7 +103,10 @@ test("I2-2: the install command stores a one-time code while no owner exists", a
 
 test("I2-2 #2: first start refuses without the code, from a non-loopback address and through a proxy", async () => {
   const open = await app.request("http://localhost:3737/api/first-start", {}, LOOPBACK);
-  assert.deepEqual(await open.json(), { open: true, loopback: true });
+  // F5: the default folders, as this machine writes them, only to the browser on this machine.
+  const { offeredFolders } = await import("../src/folders.js");
+  assert.deepEqual(await open.json(), { open: true, loopback: true, folders: offeredFolders() });
+  assert.deepEqual(await (await app.request("http://localhost:3737/api/first-start", {}, REMOTE)).json(), { open: true, loopback: false });
   // The login page sends the owner here: the screen reads `open` without a session.
   assert.equal((await login(PASSWORD)).status, 401);
 

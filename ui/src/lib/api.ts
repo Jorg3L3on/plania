@@ -99,6 +99,9 @@ export const api = {
   language: () => request<{ language: Language; chosen: boolean; languages: Language[] }>("GET", "/language"),
   setLanguage: (language: Language) => request<{ language: Language }>("PUT", "/language", { language }),
   finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string; language?: Language }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  // The first-install audit: gh before a project with code (F2), and Claude Code's own token (P5, shown once).
+  githubAccess: () => request<{ access: string }>("GET", "/onboarding/github"),
+  connectClaudeCode: () => request<{ url: string; secret: string }>("POST", "/onboarding/claude-code", {}),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-7: the page of limits, built from the real rules.
   limits: () => request<LimitsPage>("GET", "/limits"),
@@ -478,6 +481,8 @@ export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "wa
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
+  // F7: the home project while it holds no work; lists leave it out (lib/proyectos-visibles.ts).
+  quiet_home?: boolean;
   // PLA-I60-5: «a la vez» (absent on older servers: Motores then shows the model and effort only).
   runner?: RunnerView;
   slug: string;
