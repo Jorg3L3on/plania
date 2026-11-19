@@ -9,6 +9,7 @@ import type { Preparacion } from "@/lib/preparar-codigo";
 import type { MachineCheckReading } from "@/lib/falta";
 import type { ReleaseReading } from "@/lib/version";
 import type { FirstStartState } from "@/lib/primer-arranque";
+import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
@@ -89,6 +90,9 @@ export const api = {
   // PLA-I2-17: which release this is and its notes (CHANGELOG.md).
   releaseInfo: () => request<ReleaseReading>("GET", "/release"),
   // PLA-I2-2: first start, before any session: whether it is open, the form, and the machine check it links.
+  // PLA-I2-16: the guide to a first delivery, and its example project.
+  guia: () => request<GuiaRead>("GET", "/guia"),
+  guiaEjemplo: () => request<{ slug: string }>("POST", "/guia/ejemplo"),
   firstStart: () => request<FirstStartState>("GET", "/first-start"),
   finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),

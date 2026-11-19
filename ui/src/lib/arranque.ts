@@ -55,6 +55,11 @@ export const ARRANQUE: Record<string, ArranqueWords> = {
     por: "Algo falló mientras preparaba la corrida",
     arregla: "Vuelve a intentarlo; si se repite, míralo en Máquinas.",
   },
+  // PLA-I2-16: not a start failure (the process ran), but the owner must act the same way: Claude has no session here.
+  "signed out": {
+    por: "Claude no tiene la sesión iniciada en esta máquina",
+    arregla: "En una terminal corre claude y entra con tu cuenta (/login); luego vuelve a intentarlo.",
+  },
 };
 
 // "fail: no prompt doc (Prompt: QA)" → "no prompt doc". Null when the summary is not a failure.

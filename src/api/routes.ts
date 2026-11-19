@@ -48,6 +48,7 @@ import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
 import { machineCheckRoutes } from "./machine-check.js";
+import { guiaRoutes } from "./guia.js";
 import { helpReportRoutes } from "./help-report.js";
 import { releaseRoutes } from "./release.js";
 import { limitsRoutes } from "./limits.js";
@@ -756,6 +757,8 @@ api.route("/projects", maquinasRoutes);
 api.route("/maquinas", tableroRoutes);
 // PLA-I2-12: what this machine lacks to run Plania (src/api/machine-check.ts).
 api.route("/machine-check", machineCheckRoutes());
+// PLA-I2-16: the guide to a first delivery on the home screen (src/api/guia.ts).
+api.route("/guia", guiaRoutes());
 // PLA-I2-18: the help report as a file (src/api/help-report.ts).
 api.route("/help-report", helpReportRoutes());
 // PLA-I2-17: the release and its notes (src/api/release.ts).

@@ -38,7 +38,8 @@ import { probadorGate } from "../captures/probador.js";
 import { OWNER_AUTHOR } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
 import { zonasOf, type Zona } from "./zonas.js";
-import { startFailureOf } from "../runner/start-failures.js";
+import { failReason, startFailureOf } from "../runner/start-failures.js";
+import { SIGNED_OUT } from "../runner/signed-out.js";
 
 export const ETAPAS = ["despues", "lista", "en_espera", "pospuesto", "bloqueado", "construyendo", "devuelto", "sin_dueno", "en_qa", "en_revision", "te_toca", "integrado", "publicado", "hecho"] as const;
 export type EtapaId = (typeof ETAPAS)[number];
@@ -315,7 +316,9 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
   const bySlug = new Map(roster.map((a) => [a.slug, a]));
   const runBy = new Map(runs.map((r) => [String(r.task_key), r]));
   const arranqueBy = new Map<string, Arranque>();
-  for (const r of newest) if (r.status === "fail" && startFailureOf(String(r.summary ?? ""))) arranqueBy.set(String(r.task_key), { summary: String(r.summary), at: iso(date(r.ended_at)) });
+  // PLA-I2-16: Claude signed out on this machine also waits on the owner (the run started but did nothing), so it shows
+  // the same way, with its own words (ui/src/lib/arranque.ts).
+  for (const r of newest) if (r.status === "fail" && (startFailureOf(String(r.summary ?? "")) || failReason(String(r.summary ?? "")) === SIGNED_OUT)) arranqueBy.set(String(r.task_key), { summary: String(r.summary), at: iso(date(r.ended_at)) });
   const laneBy = new Map(lanes.map((r) => [String(r.task_id), r]));
   const prBy = new Map(prs.map((r) => [String(r.task_id), r]));
   const waitBy = new Map<string, string[]>();
