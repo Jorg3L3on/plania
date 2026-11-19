@@ -196,7 +196,8 @@ export function isPrimary(item: Observed, dir: Directory): boolean {
     case "db_server":
       return true;
     case "service":
-      return item.details.manager === "brew" || !!item.repoHint;
+      // PLA-I2-19: a systemd user unit that runs Postgres is a base, like a brew service.
+      return item.details.manager === "brew" || (item.details.manager === "systemd" && /postgres/.test(String(item.details.exec ?? ""))) || !!item.repoHint;
     case "database": {
       const name = (item.database?.name ?? String(item.details.name ?? "")).toLowerCase();
       if (!name) return false;
@@ -407,6 +408,7 @@ export function suggestTeardown(o: Observed, repoPath: string | null): string {
       return pid ? `kill ${pid}` : "";
     case "db_server":
       if (typeof d.brew_service === "string") return `brew services stop ${d.brew_service}`;
+      if (typeof d.systemd_unit === "string") return `systemctl --user stop ${shq(d.systemd_unit)}`;
       if (d.engine === "postgres" && typeof d.data_dir === "string") return `pg_ctl -D ${shq(d.data_dir)} stop`;
       return pid ? `kill ${pid}` : "";
     case "database":
@@ -415,6 +417,7 @@ export function suggestTeardown(o: Observed, repoPath: string | null): string {
       return `docker rm -f ${shq(String(d.name))}`;
     case "service":
       if (d.manager === "brew") return `brew services stop ${d.brew_formula ?? d.name}`;
+      if (d.manager === "systemd") return `systemctl --user disable --now ${shq(String(d.name))}`;
       return typeof d.file === "string" ? `launchctl unload ${shq(String(d.file))}` : "";
     default:
       return "";

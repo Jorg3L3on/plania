@@ -16,8 +16,10 @@ import {
   collectWorktrees,
   discoverRepos,
   pgListDatabases,
+  collectSystemd,
   readLaunchAgents,
   serviceItems,
+  systemdItems,
   type Collected,
   type ListDatabases,
 } from "./collect.js";
@@ -43,6 +45,9 @@ export type MachineDeps = {
   machine: string;
   projectsRoot: string;
   launchAgentsDir: string;
+  // PLA-I2-19: Linux reads systemd user units instead of LaunchAgents.
+  platform: NodeJS.Platform;
+  systemdUserDir: string;
   selfPid: number;
   selfPorts: number[]; // Plania's own port(s): 3737 is the launchd service
   state: MachineState;
@@ -57,10 +62,18 @@ function defaultDeps(): MachineDeps {
     machine: hostname(),
     projectsRoot: root,
     launchAgentsDir: path.join(home, "Library", "LaunchAgents"),
+    platform: process.platform,
+    systemdUserDir: systemdUserDir(process.env, home),
     selfPid: process.pid,
     selfPorts: [Number(process.env.PLANIA_PORT) || 3737],
     state: defaultState,
   };
+}
+
+// $XDG_CONFIG_HOME/systemd/user, default ~/.config/systemd/user.
+export function systemdUserDir(env: NodeJS.ProcessEnv, home: string): string {
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  return path.join(xdg && path.isAbsolute(xdg) ? xdg : path.join(home, ".config"), "systemd", "user");
 }
 
 const due = (s: MachineState, name: string, every: number, now: Date) => now.getTime() - (s.lastRun[name] ?? -Infinity) >= every;
@@ -126,6 +139,17 @@ function linkBrew(items: Observed[], brewNames: string[]): void {
   }
 }
 
+// PLA-I2-19: a Postgres a systemd user unit starts: the unit's ExecStart names the server's data directory.
+export function linkSystemd(items: Observed[]): void {
+  const units = items.filter((i) => i.kind === "service" && i.details.manager === "systemd" && typeof i.details.exec === "string");
+  for (const it of items) {
+    const dataDir = it.kind === "db_server" ? it.details.data_dir : null;
+    if (typeof dataDir !== "string" || !dataDir) continue;
+    const unit = units.find((u) => String(u.details.exec).split(/\s+/).some((w) => w.replace(/^-D/, "") === dataDir || w === `--pgdata=${dataDir}`));
+    if (unit) it.details.systemd_unit = String(unit.details.name);
+  }
+}
+
 function infer(dir: Directory, item: Observed, now: Date): Inferred {
   let owner: Owner = { projectId: null, taskId: null, sessionId: null, repo: null, via: "none" };
   if (item.worktree) owner = ownerOfPath(dir, item.worktree.path, now);
@@ -163,7 +187,7 @@ export async function runMachineTick(db: Db, now: Date, over: Partial<MachineDep
     collected.push(wt);
   }
 
-  const procs = await collectProcesses(run, dir, { selfPid: deps.selfPid, selfPorts: deps.selfPorts });
+  const procs = await collectProcesses(run, dir, { selfPid: deps.selfPid, selfPorts: deps.selfPorts, platform: deps.platform });
   collected.push(procs, await collectDocker(run));
 
   if (slow) {
@@ -175,11 +199,16 @@ export async function runMachineTick(db: Db, now: Date, over: Partial<MachineDep
     collected.push(dbs);
     const brew = await collectBrew(run);
     if (brew.ran) state.brewNames = brew.services.map((s) => s.name);
-    collected.push(serviceItems(brew, readLaunchAgents(deps.launchAgentsDir), deps.launchAgentsDir, dir.repos.map((r) => r.name)));
+    if (deps.platform === "linux") {
+      // PLA-I2-19: no LaunchAgents on Linux; brew (Linuxbrew) still counts when it is there.
+      collected.push(serviceItems(brew, null, deps.launchAgentsDir, dir.repos.map((r) => r.name)));
+      collected.push(systemdItems(await collectSystemd(run), readLaunchAgents(deps.systemdUserDir), deps.systemdUserDir, dir.repos.map((r) => r.name)));
+    } else collected.push(serviceItems(brew, readLaunchAgents(deps.launchAgentsDir), deps.launchAgentsDir, dir.repos.map((r) => r.name)));
   }
 
   const items = collected.flatMap((c) => c.items);
   linkBrew(items, state.brewNames);
+  linkSystemd(items);
   const ran = new Set(collected.flatMap((c) => c.ran));
   const result = await reconcile(db, { machine: deps.machine, now, dir, inferred: items.map((i) => infer(dir, i, now)), ran });
   return { ...result, stale_claims: await markStaleClaims(db, deps.machine, dir, ran) };

@@ -44,14 +44,19 @@ export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: str
     "/usr/bin/chromium",
   ].filter((p): p is string => Boolean(p));
   for (const p of candidates) if (exists(p)) return p;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
+  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]) {
     const p = findOnPath(name, env, exists);
     if (p) return p;
   }
   const home = env.HOME || homedir();
+  // PLA-I2-19: PLAYWRIGHT_BROWSERS_PATH and $XDG_CACHE_HOME too; newer Playwright unpacks chrome-linux64.
+  const xdgCache = env.XDG_CACHE_HOME?.trim() && path.isAbsolute(env.XDG_CACHE_HOME.trim()) ? env.XDG_CACHE_HOME.trim() : path.join(home, ".cache");
+  const mac = ["chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium", "chrome-mac/Chromium.app/Contents/MacOS/Chromium"];
+  const linux = ["chrome-linux/chrome", "chrome-linux64/chrome"];
   const caches: [string, string[]][] = [
-    [path.join(home, "Library/Caches/ms-playwright"), ["chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium", "chrome-mac/Chromium.app/Contents/MacOS/Chromium"]],
-    [path.join(home, ".cache/ms-playwright"), ["chrome-linux/chrome"]],
+    ...(env.PLAYWRIGHT_BROWSERS_PATH && path.isAbsolute(env.PLAYWRIGHT_BROWSERS_PATH) ? [[env.PLAYWRIGHT_BROWSERS_PATH, [...linux, ...mac]] as [string, string[]]] : []),
+    [path.join(home, "Library/Caches/ms-playwright"), mac],
+    [path.join(xdgCache, "ms-playwright"), linux],
   ];
   for (const [pw, subs] of caches) {
     if (!exists(pw)) continue;

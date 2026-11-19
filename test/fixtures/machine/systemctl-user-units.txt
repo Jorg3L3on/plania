@@ -1,0 +1,3 @@
+dbus.service          loaded active running D-Bus User Message Bus
+pg-dev.service        loaded active running Postgres 16 for development
+● zigzag-worker.service loaded failed failed  Zigzag queue worker
