@@ -204,7 +204,8 @@ test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switch
   assert.match(out, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
   assert.match(out, /class="t yo"/);
   assert.match(out, /class="t ag"/);
-  assert.match(out, /class="cor-btn secondary small"[^>]*>Pedir</);
+  // PLA-I3-6: no Pedir in the bar; the bar at the foot is the only one.
+  assert.ok(!out.includes("data-pedir") && !/>Pedir</.test(out), "no Pedir in the bar");
   assert.equal((out.match(/class="cor-topbar"/g) ?? []).length, 1, "one bar");
   const bar = html(h(strip.ProjectBar, { ...base, tab: "motores", team: "4 LIBRES", paused: false }));
   assert.ok(!bar.includes("data-switcher"), "the menu starts closed");

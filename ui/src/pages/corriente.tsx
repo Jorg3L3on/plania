@@ -551,7 +551,6 @@ export const CorrientePage = () => {
       href={(t) => linkTo({ slug: project.slug, tab: t })}
       projectHref={(slug) => linkTo({ slug, tab: at.tab })}
       back={hrefOf({ view: "corriente" })}
-      pedirTo={pedirTo(project.slug)}
       team={teamWord(project.team.length, working, paused || project.paused)}
       open={project.work.open}
       paused={project.paused}

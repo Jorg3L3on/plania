@@ -3,8 +3,8 @@
 // are one 56 px bar: back to Corriente; the project's mark and name as a switcher whose menu holds every project with
 // its mini stream (a tick per stage: lit when work waits there, white where an agent works, amber where something
 // waits on the owner); the doors Todo, Archivo, Equipo, Máquinas, Ajustes with their small counts; the project's
-// state («En marcha» with Pausar, or «En pausa» alone); and Pedir (secondary, phase 6 moves it). Reanudar lives under
-// the sentence (todo.tsx) and Borrar in Ajustes. Words: @/lib/barra.
+// state («En marcha» with Pausar, or «En pausa» alone). PLA-I3-6: no Pedir here; the bar at the foot is the only one.
+// Reanudar lives under the sentence (todo.tsx) and Borrar in Ajustes. Words: @/lib/barra.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
@@ -111,7 +111,6 @@ export const ProjectBar = ({
   href,
   projectHref,
   back,
-  pedirTo,
   team,
   open,
   paused,
@@ -128,7 +127,6 @@ export const ProjectBar = ({
   projectHref: (slug: string) => string;
   /** La corriente. */
   back: string;
-  pedirTo: string;
   /** Equipo's word: «4 LIBRES», «2 TRABAJANDO», «EN PAUSA». */
   team?: string;
   /** Todo's count: the project's open things. */
@@ -169,9 +167,6 @@ export const ProjectBar = ({
             {state.pausar}
           </Link>
         )}
-        <Link to={pedirTo} className="cor-btn secondary small" data-pedir>
-          Pedir
-        </Link>
       </div>
     </header>
   );

@@ -270,6 +270,32 @@ export const MODES: { id: AskMode; name: string; line: string }[] = [
   { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
 ];
 
+// PLA-I3-6 «Un solo Pedir»: the bar at the foot is the only Pedir. Its words and its keys, tested without a browser.
+/** The input's placeholder: the selected mode's line, short enough to read inside the bar. */
+export const PEDIR_PLACEHOLDER: Record<AskMode, string> = {
+  forma: "Una idea para darle forma: el PO la entiende y te pregunta…",
+  ya: "Un cambio pequeño y claro, directo al tablero…",
+  pregunta: "¿Qué quieres saber? El PO lee el código y te contesta…",
+};
+export const pedirPlaceholder = (mode: AskMode): string => PEDIR_PLACEHOLDER[mode];
+/** The send button's word. */
+export const pedirSendLabel = (mode: AskMode, sending = false): string => (sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir");
+/** Shift+Tab from the input: the next mode, round. */
+export const nextMode = (mode: AskMode): AskMode => MODES[(MODES.findIndex((m) => m.id === mode) + 1) % MODES.length]?.id ?? "forma";
+export const PEDIR_PAST = "Lo pedido";
+export const PEDIR_PICTURE = "Añadir una imagen";
+export const PEDIR_ERROR = "No se pudo enviar. Si la Mac está dormida, intenta al despertar.";
+/** Paused: one sentence instead of a disabled input. */
+export const pedirHeld = (title: string): string => `En pausa. Reanuda ${title} para pedir algo nuevo; lo que ya pediste sigue aquí.`;
+/** The key hint: `/` at rest, `↵` while the input has focus. */
+export const pedirKeyHint = (focused: boolean): string => (focused ? "↵" : "/");
+/** `/` focuses the input unless a field already has focus, a modifier is held, or a sheet is open. */
+export function slashFocuses(e: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean }, active: { tag: string; editable?: boolean } | null, sheetOpen: boolean): boolean {
+  if (e.key !== "/" || e.meta || e.ctrl || e.alt || sheetOpen) return false;
+  if (!active) return true;
+  return !active.editable && !["INPUT", "TEXTAREA", "SELECT"].includes(active.tag.toUpperCase());
+}
+
 // ---- PLA-I62-9: the building's addresses, each to its screen in La corriente (null: nothing to move).
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card
 //   in Te toca · ?piso=<slug> → the project (with ?nivel=maquinas → Máquinas) · ?f=<ficha ref> → its tab and what it

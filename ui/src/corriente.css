@@ -244,20 +244,38 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-lane-over { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 16px; background: rgba(5, 5, 7, 0.72); font-size: 13.5px; }
 .cor-lane[data-paused] .cor-track > .cor-cell { opacity: 0.35; }
 
-.cor-pedir { position: relative; flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 32px; border-top: 1px solid var(--cor-line); background: rgba(5, 5, 7, 0.9); }
-.cor-pedir-label { margin-right: 4px; }
-.cor-pedir .cor-select { min-width: 140px; }
-.cor-pedir-text { flex: 1; min-width: 120px; }
-.cor-pedir-said { position: absolute; left: 32px; right: 32px; bottom: calc(100% + 6px); font-size: 13px; color: var(--cor-body); pointer-events: none; }
+.cor-pedir { position: relative; flex: none; padding: 14px 32px; border-top: 1px solid var(--cor-line); background: rgba(5, 5, 7, 0.9); }
+/* PLA-I3-6 «Un solo Pedir»: one 56 px container holding the modes, the input, the links, the key hint and send. */
+.cor-pedir-shell { display: flex; align-items: center; gap: 6px; min-height: 56px; padding: 5px 5px 5px 5px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); transition: border-color 0.15s, box-shadow 0.15s; }
+.cor-pedir-shell.focused { border-color: rgba(167, 139, 250, 0.6); box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14); }
+.cor-pedir-shell.held { gap: 14px; padding-left: 18px; border-style: dashed; background: transparent; }
+.cor-pedir-held { flex: 1; min-width: 0; font-size: 14px; color: var(--cor-body); }
+.cor-pedir-pick { min-width: 140px; border-color: transparent; background-color: transparent; }
+.cor-pedir-modes { display: inline-flex; flex: none; gap: 2px; padding-right: 6px; border-right: 1px solid var(--cor-line); }
+.cor-pedir-modes .cor-opt { border-color: transparent; padding: 0 12px; }
+.cor-pedir-modes .cor-opt[aria-pressed="true"] { border-color: rgba(167, 139, 250, 0.6); }
+.cor-pedir-field { position: relative; flex: 1 1 200px; min-width: 0; display: flex; }
+.cor-pedir-text { flex: 1; min-width: 0; min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--cor-text); font: inherit; font-size: 14px; outline: none; }
+.cor-pedir .cor-pedir-text:focus-visible { outline: none; }
+.cor-pedir-text::placeholder { color: var(--cor-muted); }
+.cor-pedir-said { position: absolute; inset: 0 0 0 10px; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; color: var(--cor-body); pointer-events: none; }
 .cor-pedir-said:empty { display: none; }
-.cor-pedir-said > * { pointer-events: auto; }
-.cor-pedir-said[data-pedir-said] { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cor-line); background: var(--cor-raised); width: fit-content; max-width: 100%; }
+.cor-pedir-said a { pointer-events: auto; flex: none; }
+.cor-pedir-said .bad { color: var(--cor-red); }
+.cor-pedir-check { flex: none; color: var(--cor-green); }
+.cor-pedir-icon, .cor-pedir-past { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; min-height: 44px; min-width: 44px; padding: 0 10px; border-radius: 10px; color: var(--cor-muted); font-size: 13px; white-space: nowrap; }
+.cor-pedir-icon:hover, .cor-pedir-past:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.cor-pedir-key { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 6px; border: 1px solid var(--cor-line-strong); font-family: var(--cor-mono); font-size: 11px; color: var(--cor-muted); }
+.cor-pedir-shell > .cor-btn { flex: none; }
 .cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }
 .cor-inline:hover { color: var(--cor-violet-4); }
 @media (max-width: 1100px) {
   .cor-stream { overflow-x: auto; }
   .cor-cols, .cor-lanes { min-width: 1040px; }
-  .cor-pedir { flex-wrap: wrap; }
+  .cor-pedir-shell { flex-wrap: wrap; }
+  .cor-pedir-field { flex: 1 1 100%; order: 1; }
+  .cor-pedir-modes { border-right: 0; }
+  .cor-pedir-shell > [data-pedir-picture] { margin-left: auto; }
 }
 
 /* PLA-I62-3: the way back and the projects' chips (board B1). PLA-I3-2: one 56 px bar; the chips live in the switcher's menu. */
