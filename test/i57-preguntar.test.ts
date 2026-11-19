@@ -154,7 +154,7 @@ test("I57-1 #2 (PLA-66): the question's run is read-only, works in a fresh copy 
   const deny = (JSON.parse(child.settings) as { permissions: { deny: string[] } }).permissions.deny;
   for (const rule of ["Edit", "Write", "Bash(git commit*)", "Bash(rm*)", "Bash(pnpm*)", "mcp__plania__create_task"]) assert.ok(deny.includes(rule), rule);
   const prompt = child.args[1]!;
-  assert.match(prompt, /answer one question from Jorge/);
+  assert.match(prompt, /answer one question from the owner/);
   assert.match(prompt, /«¿Dónde se guarda el teléfono\?»/);
   assert.match(prompt, new RegExp(`answer_consulta \\{project: "micasa", id: "${out.consulta}"`));
   assert.ok(!prompt.includes("Plania first: open the ticket"), "not the ticket prompt");

@@ -18,7 +18,7 @@ import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
 import { HELD_TEXT, type HeldCode } from "../runner/admission.js";
-import { ownerEs } from "../owner.js";
+import { ownerEs, ownerName } from "../owner.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
@@ -73,7 +73,7 @@ export function consultaPrompt(input: {
     ? `You are in a read-only copy of the project at origin/${input.copy.branch} ${input.copy.commit ?? ""}, fetched just now: ${input.cwd}. In answer_consulta, branch is "${input.copy.branch}" and commit is "${input.copy.commit ?? ""}" unless you read another branch. This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`
     : `You are in the project's own checkout: ${input.cwd}.${input.copy?.fallback ? ` A fresh copy could not be made (${input.copy.fallback}), so this checkout may be behind origin; check with git log -1 --format=%cd and say how old it is.` : ""} This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`;
   return [
-    `You are ${input.agent}, the product owner of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to answer one question from the owner. Nothing else.`,
+    `You are ${input.agent}, the product owner of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to answer one question from ${ownerName("en")}. Nothing else.`, // PLA-I2-14: the display name
     `Their question (consulta ${input.consulta.id}):`,
     `«${input.consulta.text}»`,
     where,

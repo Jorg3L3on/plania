@@ -164,7 +164,7 @@ describe("write-time guards", () => {
     const r = await call("ask", { ...P, key: "FIL-01", question: "Which poster size?" });
     assert.equal(r.status, "Needs owner");
     assert.equal(r.question_id, r.question.id);
-    assert.equal(r.waits, "the ticket waits in Needs owner until he answers");
+    assert.equal(r.waits, "the ticket waits in Needs owner until they answer");
   });
 });
 
