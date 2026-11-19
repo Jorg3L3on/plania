@@ -444,24 +444,42 @@ test(
       graceMs: 2_000,
       liveFlushMs: 0,
       footprints: false,
-      git: async () => ({ code: 0, stdout: "", stderr: "" }),
+      // The run's cwd is its worktree: the fake git makes the folder `worktree add` would.
+      git: async (args: string[]) => {
+        if (args[0] === "worktree" && args[1] === "add") {
+          const target = args.find((a) => a.startsWith(path.join(scratch, "worktrees-stop")));
+          if (target) mkdirSync(target, { recursive: true });
+        }
+        if (args[0] === "rev-parse" && args[1] === "--verify") return { code: 1, stdout: "", stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      },
       reportTokens: async () => undefined,
       probeUsage: async () => null,
       machine: () => ({ freeMb: 99_999, freeDiskGb: 999 }),
     } as never);
+    // A zombie has exited: only its parent (or init) has yet to reap it. Linux says so in /proc; elsewhere signal 0.
     const alive = (pid: number) => {
       try {
         process.kill(pid, 0);
-        return true;
       } catch {
         return false;
+      }
+      try {
+        return !/^State:\s+Z/m.test(readFileSync(`/proc/${pid}/status`, "utf8"));
+      } catch {
+        return true;
       }
     };
     const until = async (ok: () => boolean, ms: number) => {
       for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) if (ok()) return true;
       return ok();
     };
-    assert.ok(await until(() => existsSync(pidsFile) && readFileSync(pidsFile, "utf8").includes(" "), 20_000), "the fake Claude started through PATH");
+    if (!(await until(() => existsSync(pidsFile) && readFileSync(pidsFile, "utf8").includes(" "), 20_000))) {
+      const row = (await raw.query(`select status, summary from agent_runs where id = $1`, [runId])).rows[0];
+      const logs = path.join(scratch, "logs-stop");
+      const tail = existsSync(logs) ? (await import("node:fs")).readdirSync(logs).map((n) => readFileSync(path.join(logs, n), "utf8").slice(-600)).join(" | ") : "no logs";
+      assert.fail(`the fake Claude did not start through PATH: ${JSON.stringify(row)} ${tail}`);
+    }
     const pids = readFileSync(pidsFile, "utf8").trim().split(" ").map(Number);
     assert.ok(pids.every(alive), "Claude and its tool run");
 
@@ -469,7 +487,14 @@ test(
     assert.equal(stop.status, 200, await stop.clone().text());
     await runner.waitForAllRuns();
     assert.equal((await raw.query(`select status from agent_runs where id = $1`, [runId])).rows[0].status, "stopped");
-    assert.ok(await until(() => !pids.some(alive), 5_000), `still alive: ${pids.filter(alive).join(", ")}`);
+    const state = (pid: number) => {
+      try {
+        return readFileSync(`/proc/${pid}/status`, "utf8").split(/\r?\n/).filter((l) => /^(State|PPid|SigIgn|SigCgt)/.test(l)).join(" ");
+      } catch {
+        return "?";
+      }
+    };
+    assert.ok(await until(() => !pids.some(alive), 5_000), `still alive: ${pids.filter(alive).map((p) => `${p} ${state(p)}`).join(", ")}`);
   },
 );
 
