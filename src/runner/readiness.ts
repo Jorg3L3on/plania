@@ -18,6 +18,7 @@ import { checkRepoFolder, defaultRepoCheckDeps, type RepoCheckCode, type RepoChe
 import { CONTEXT_DOCS, claudeCommand } from "./runner.js";
 import { teamOf } from "./team.js";
 import { repoPathOf } from "./worktree.js";
+import { storedRunnerToken } from "../install-state.js";
 
 export type ReadinessState = "ready" | "missing" | "not_needed";
 
@@ -97,7 +98,7 @@ export async function projectReadiness(db: Db, slug: string, deps: ReadinessDeps
   });
 
   // The runner refuses every run without its token, and spawns the Claude binary for every run.
-  items.push({ id: "runner_token", state: env.PLANIA_RUNNER_TOKEN?.trim() ? "ready" : "missing", blocks: true });
+  items.push({ id: "runner_token", state: storedRunnerToken(env) ? "ready" : "missing", blocks: true });
   items.push({ id: "claude_bin", state: claudeFound(env, exists) ? "ready" : "missing", blocks: true });
 
   // The code: none on purpose, or the folder every ticket's worktree is cut from (origin/<start branch>).

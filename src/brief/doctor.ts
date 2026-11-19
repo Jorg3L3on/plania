@@ -17,6 +17,7 @@ import { StreamReader } from "../runner/stream.js";
 import { briefArgs, briefChildEnv, briefSettings, commandOf } from "./claude.js";
 import { PROMPTS_DIR, PROMPT_FILES, readSchemaText } from "./prompts.js";
 import { loadBriefProjects, loadBriefSettings, validTimezone } from "./settings.js";
+import { storedBriefToken, storedRunnerToken } from "../install-state.js";
 
 export type DoctorLine = { ok: boolean; text: string };
 export type ExecResult = { code: number | null; stdout: string; stderr: string };
@@ -165,10 +166,10 @@ export async function runDoctor(db: Db | null, deps: DoctorDeps = {}): Promise<D
   else out.push(dryRunLine(await claudeDryRun(cmd, env, exec)));
 
   // 3-4. tokens (set or not; never the value)
-  if (env.PLANIA_BRIEF_TOKEN?.trim()) out.push(line(true, "read token set (PLANIA_BRIEF_TOKEN)"));
+  if (storedBriefToken(env)) out.push(line(true, "read token set (PLANIA_BRIEF_TOKEN)")); // PLA-I2-2
   else if (env.MCP_READ_TOKEN?.trim()) out.push(line(true, "read token set (MCP_READ_TOKEN fallback; issue a morning-brief read token on /tokens)"));
   else out.push(line(false, "read token set: add PLANIA_BRIEF_TOKEN (read scope, issued on /tokens) to .env"));
-  out.push(env.PLANIA_RUNNER_TOKEN?.trim() ? line(true, "runner token set (PLANIA_RUNNER_TOKEN, for Send to Plania)") : line(false, "runner token set: add PLANIA_RUNNER_TOKEN to .env (Send to Plania needs it)"));
+  out.push(storedRunnerToken(env) ? line(true, "runner token set (PLANIA_RUNNER_TOKEN, for Send to Plania)") : line(false, "runner token set: add PLANIA_RUNNER_TOKEN to .env (Send to Plania needs it)"));
 
   // 5. GitHub token: the env var the poller reads first, then the token file.
   let gh = !!env.GITHUB_TOKEN?.trim();

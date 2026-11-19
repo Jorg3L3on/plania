@@ -1707,3 +1707,20 @@ export const ownerProfile = pgTable(
   },
   (t) => [check("owner_profile_singleton", sql`${t.id} = 1`), check("owner_profile_name_check", sql`${t.displayName} is null or char_length(${t.displayName}) between 1 and 80`)],
 );
+
+// PLA-I2-2: what the install command and the first-start screen made (migration 0063). One row, id 1.
+export const installState = pgTable(
+  "install_state",
+  {
+    id: integer("id").primaryKey().default(1),
+    setupCodeHash: text("setup_code_hash"),
+    setupCodeAt: timestamp("setup_code_at", { withTimezone: true }),
+    passwordHash: text("password_hash"),
+    runnerToken: text("runner_token"),
+    briefToken: text("brief_token"),
+    timeZone: text("time_zone"),
+    firstStartAt: timestamp("first_start_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("install_state_singleton", sql`${t.id} = 1`)],
+);

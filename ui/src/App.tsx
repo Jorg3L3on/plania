@@ -11,6 +11,7 @@ import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { MachinePage } from "@/pages/machine";
 import { FaltaPage } from "@/pages/falta";
+import { PrimerArranqueFaltaPage, PrimerArranquePage } from "@/pages/primer-arranque";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
 import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPage } from "@/pages/progreso-detail";
@@ -72,6 +73,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/primer-arranque" element={<PrimerArranquePage />} />
+      <Route path="/primer-arranque/falta" element={<PrimerArranqueFaltaPage />} />
       <Route element={<RequireSession><AppShell /></RequireSession>}>
         <Route index element={<HomePage />} />
         <Route path="/p/:slug" element={<ProjectRoute />} />

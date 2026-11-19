@@ -56,6 +56,10 @@ try {
   console.log(
     `Listo: base ${r.database}${r.created ? " (nueva)" : ""}, ${r.applied.length} migraciones aplicadas. Enciende Plania con pnpm start.`,
   );
+  // PLA-I2-2: the code the first-start screen asks for. Shown once; running the install again makes a new one.
+  if (r.setupCode) {
+    console.log(`Abre http://localhost:${process.env.PORT || 3737} en esta máquina y escribe este código de un solo uso: ${r.setupCode}`);
+  }
 } catch (e) {
   if (e instanceof InstallError) {
     console.error(e.message);
