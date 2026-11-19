@@ -676,6 +676,8 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-frame-big { position: relative; width: 220px; height: 124px; border-radius: 10px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .cor-ficha-frame-big .cor-ficha-frame-fit { position: relative; flex: none; cursor: crosshair; }
 .cor-ficha-frame-big img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* PLA-114 (F-10): a tall phone frame fills the box's width and scrolls down, instead of a 45 px strip. */
+.cor-ficha-frame-big[data-tall] { display: block; overflow-y: auto; overscroll-behavior: contain; }
 /* PLA-72: the frame large, one click deep. */
 .cor-ficha-ampliar { position: absolute; right: 6px; bottom: 6px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--cor-line-strong); background: rgba(5, 5, 7, 0.82); color: var(--cor-text); font: inherit; font-size: 11px; cursor: zoom-in; }
 .cor-lightbox { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 20px; background: rgba(5, 5, 7, 0.94); outline: none; }

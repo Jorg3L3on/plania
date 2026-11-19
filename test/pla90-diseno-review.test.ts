@@ -24,3 +24,12 @@ test("PLA-90 #2: the preview column is fixed and the lightbox carries the note f
   assert.match(src, /ref=\{focusOnOpen\}/, "a stable ref: the lightbox does not take the focus back on every render");
   assert.doesNotMatch(src, /ref=\{\(el\) => el\?\.focus\(\)\}/);
 });
+
+test("PLA-114 (F-10): a phone frame fills the preview's width and scrolls; other frames are fitted whole as before", async () => {
+  assert.deepEqual(ficha.previewOf(563, 1562, 220, 124), { size: { width: 220, height: 610 }, tall: true });
+  assert.deepEqual(ficha.previewOf(1440, 900, 220, 124), { size: { width: 198, height: 124 }, tall: false });
+  assert.deepEqual(ficha.previewOf(2250, 840, 220, 124), { size: { width: 220, height: 82 }, tall: false });
+  assert.deepEqual(ficha.previewOf(null, null, 220, 124).tall, false);
+  const css = await readFile(new URL("../ui/src/corriente.css", import.meta.url), "utf8");
+  assert.match(css, /\.cor-ficha-frame-big\[data-tall\] \{ display: block; overflow-y: auto; overscroll-behavior: contain; \}/);
+});

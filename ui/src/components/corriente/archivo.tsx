@@ -55,7 +55,7 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
         <h2 className="cor-door-h">{`Archivo de ${p.title}`}</h2>
         <p className="cor-text">
           Lo que se escribió, se dibujó y se fusionó. Cada papel vive dentro de su cosa; aquí están todos juntos.{" "}
-          <a className="cor-inline" href={`/p/${encodeURIComponent(p.slug)}`} data-control="pagina">
+          <a className="cor-inline" href={`/p/${encodeURIComponent(p.slug)}?pagina`} data-control="pagina">
             Abrir la página del proyecto ↗
           </a>
         </p>

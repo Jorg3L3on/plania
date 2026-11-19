@@ -80,6 +80,15 @@ export const fitIn = (w: number | null, h: number | null, boxW: number, boxH: nu
   const k = Math.min(boxW / fw, boxH / fh);
   return { width: Math.round(fw * k), height: Math.round(fh * k) };
 };
+/** PLA-114 (guided test PLA-86, F-10): a phone frame (563×1562) fitted whole into 220×124 was a 45 px strip. A frame
+ * much taller than the box fills the box's width at its own height and the box scrolls; pins keep their place, since
+ * they are fractions of the whole frame. Anything else is fitted whole, as before. */
+export const previewOf = (w: number | null, h: number | null, boxW: number, boxH: number): { size: { width: number; height: number }; tall: boolean } => {
+  const fw = w && w > 0 ? w : 16;
+  const fh = h && h > 0 ? h : 10;
+  if (fh / fw > (boxH / boxW) * 2) return { size: { width: boxW, height: Math.round((boxW * fh) / fw) }, tall: true };
+  return { size: fitIn(w, h, boxW, boxH), tall: false };
+};
 const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {}, grande: false });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
@@ -523,13 +532,13 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
         {eb(s, now, timeZone, `${d.frames.length} ${d.frames.length === 1 ? "marco" : "marcos"}`)}
       </Eyebrow>
       <div className="cor-ficha-frames">
-        <div className="cor-ficha-frame-big">
+        <div className="cor-ficha-frame-big" data-tall={previewOf(f.width, f.height, PREVIEW_W, PREVIEW_H).tall || undefined}>
           <div
             className="cor-ficha-frame-fit"
             role={canPin ? "button" : undefined}
             tabIndex={canPin ? 0 : undefined}
             aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
-            style={fitIn(f.width, f.height, PREVIEW_W, PREVIEW_H)}
+            style={previewOf(f.width, f.height, PREVIEW_W, PREVIEW_H).size}
             onClick={pinAt}
             data-control="ficha-clavar"
           >
