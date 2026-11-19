@@ -5,11 +5,13 @@
 // Wording and checks: @/lib/ajustes. Token fields are never shown here: they stay MCP-only, as variable names.
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
 import {
   ajustesError,
   ajustesWords,
+  borrarBoton,
   codigoOpciones,
   codigoBody,
   type CodigoOpcion,
@@ -283,7 +285,18 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
   );
 };
 
-export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
+/** PLA-I3-2: Borrar proyecto opens from Ajustes (its sheet is ?hoja=borrar, unchanged). */
+export const AjustesBorrar = ({ title, to }: { title: string; to: string }) => (
+  <Seccion id="borrar" titulo={ajustesWords().secciones.borrar.titulo} texto={ajustesWords().secciones.borrar.texto}>
+    <div className="cor-acts">
+      <Link className="cor-btn danger" to={to} data-control="borrar">
+        {borrarBoton(title)}
+      </Link>
+    </div>
+  </Seccion>
+);
+
+export const Ajustes = ({ p, borrarTo }: { p: { slug: string; title: string }; borrarTo?: string }) => {
   const q = useQuery({ queryKey: ["ajustes", p.slug], queryFn: () => api.ajustes(p.slug) });
   // PLA-I2-6: the readiness list links to a section (#ajustes-<id>); scroll there once the view has loaded.
   const loaded = !!q.data;
@@ -317,6 +330,7 @@ export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
             </ul>
           </Seccion>
           <Avanzado a={a} />
+          {borrarTo && <AjustesBorrar title={p.title} to={borrarTo} />}
         </div>
       )}
     </div>

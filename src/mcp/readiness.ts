@@ -410,13 +410,29 @@ export function envDriftOf(
   return { behind, unknown };
 }
 
+/**
+ * PLA-115: drift only means something where Plania follows what an environment runs. A project that
+ * releases by branch (settings.release_on "branch": merged into the release branch is Released, no
+ * deploy feed) keeps its env row for migrations, but a stale commit there blocks nothing.
+ */
+export function envDriftFor(
+  settings: { release_on?: string },
+  envs: { commit: string | null }[],
+  initiatives: { branch: string | null }[],
+  heads: { name: string; headSha: string | null }[],
+): EnvDrift {
+  if (settings.release_on === "branch") return { behind: false, unknown: false };
+  return envDriftOf(envs, initiatives, heads);
+}
+
 async function projectEnvDrift(db: Q, p: Project, all: Task[]): Promise<EnvDrift> {
   const open = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
   const [envs, heads] = await Promise.all([
     db.select().from(envStates).where(eq(envStates.projectId, p.id)),
     db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt))),
   ]);
-  return envDriftOf(
+  return envDriftFor(
+    p.settings,
     envs.map((env) => ({ commit: env.commit })),
     open.map((initiative) => ({ branch: initiative.branch })),
     heads.map((branch) => ({ name: branch.name, headSha: branch.headSha })),

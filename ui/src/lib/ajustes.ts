@@ -47,7 +47,11 @@ export const AJUSTES_WORDS = defineWords({
       pruebas: { titulo: "Lo que QA comprueba", texto: "Un comando por línea. QA los corre en orden en cada entrega; si uno falla, la entrega vuelve a Taller." },
       vista: { titulo: "Vista previa y planes", texto: "Dónde ves la app corriendo, y si un plan del PO espera tu «Sí, empiecen»." },
       contexto: { titulo: "Contexto del equipo", texto: "Tres notas que cada corrida lee al empezar. Se crean de una plantilla y se editan aquí." },
+      // PLA-I3-2: Borrar left the project's bar; it opens from here (the same sheet, which asks for the name and the code).
+      borrar: { titulo: "Borrar el proyecto", texto: "Se borra su plan en Plania; su código y su repositorio se quedan. Antes de borrar te pido su nombre y tu código." },
     },
+    /** The button of Ajustes' last section, which opens Borrar proyecto's sheet. */
+    borrarBoton: (title: string) => `Borrar ${title}`,
     lanzamientoCampos: {
       from: { label: "Rama de prueba", hint: "La que recibe lo que aceptas." },
       into: { label: "Rama publicada", hint: "La que se publica." },
@@ -95,7 +99,9 @@ export const AJUSTES_WORDS = defineWords({
       pruebas: { titulo: "What QA checks", texto: "One command per line. QA runs them in order on every delivery; if one fails, the delivery goes back to Taller." },
       vista: { titulo: "Preview and plans", texto: "Where you see the app running, and whether a plan from the PO waits for your «Yes, go ahead»." },
       contexto: { titulo: "Team context", texto: "Three notes every run reads when it starts. They are made from a template and edited here." },
+      borrar: { titulo: "Delete the project", texto: "Its plan in Plania is deleted; its code and its repository stay. Before deleting I ask for its name and your code." },
     },
+    borrarBoton: (title: string) => `Delete ${title}`,
     lanzamientoCampos: {
       from: { label: "Test branch", hint: "The one that gets what you accept." },
       into: { label: "Published branch", hint: "The one that gets published." },
@@ -140,6 +146,8 @@ export const ajustesWords = (language: Language = getLanguage()) => words(AJUSTE
 
 export const SECCIONES = AJUSTES_WORDS.es.secciones;
 export const LANZAMIENTO_CAMPOS = AJUSTES_WORDS.es.lanzamientoCampos;
+/** PLA-I3-2: the button of Ajustes' last section, which opens Borrar proyecto's sheet. */
+export const borrarBoton = (title: string, language: Language = getLanguage()): string => words(AJUSTES_WORDS, language).borrarBoton(title);
 
 // The shapes checkReleaseSettings takes (src/mcp/release-plan.ts).
 const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
