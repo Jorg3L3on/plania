@@ -14,20 +14,23 @@ Node 22 or newer, pnpm through corepack, a local Postgres on `localhost:5432`.
 | To | macOS / Linux | Windows (PowerShell) |
 |---|---|---|
 | Install | `corepack enable pnpm; pnpm install` | the same |
-| Dev: API on 3738, screen on 5173 | `pnpm dev` | `$env:PLANIA_JOBS='0'; pnpm exec tsx watch --env-file=.env scripts/dev.ts --port 3738` and, in a second shell, `pnpm dev:ui` |
+| Dev: API on 3738, screen on 5173 | `pnpm dev` | the same |
 | Type-check the server | `pnpm exec tsc --noEmit` | the same |
 | Type-check the screen | `pnpm exec tsc -p ui` | the same |
-| Test | `pnpm test` | `$env:PLANIA_TEST_PGUSER='postgres'; pnpm test` |
-| One test file | `node --import tsx --test test/<name>.test.ts` | the same, with `PLANIA_TEST_PGUSER` set |
+| Test | `pnpm test` | the same (the role defaults to `postgres` there) |
+| One test file | `node --import tsx --test test/<name>.test.ts` | the same |
 | Build (both type-checks, then the screen) | `pnpm build` | the same |
 
-- `pnpm dev` and `pnpm server:restart` use POSIX `VAR=value command`, so they fail in a Windows shell.
-  Run the two halves as shown.
+- Scripts set their variables through `scripts/with-env.mjs`, never a POSIX `VAR=value` prefix, so they start
+  from any shell. Keep it that way.
 - Tests build their own database, `plania_test_<hash of the checkout path>`, from the migrations on
   every run, connecting with no password as the OS user. Where that user is not a Postgres role, set
-  `PLANIA_TEST_PGUSER` (on Windows it is usually `postgres`).
+  `PLANIA_TEST_PGUSER` (on Windows it defaults to `postgres`).
 - A few tests depend on macOS or Unix tools (file modes, `lsof`, `ps`, the gitleaks binary) and fail on
-  Windows. Check a failure against `main` before treating it as yours.
+  Windows. Check a failure against `main` before treating it as yours. A new test like that skips with its
+  reason: `{ skip: needs({ posix: true }) }` from `test/platform.ts`.
+- `.gitattributes` keeps every text file LF. A checkout made before it may still hold CRLF files: run
+  `git add --renormalize .` and check out again (`git rm -r --cached -q . && git reset -q --hard` on a clean tree).
 - `.env` comes from `.env.example`; README "Setup" lists every variable.
 
 ## Where things live

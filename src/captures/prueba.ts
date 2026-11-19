@@ -24,6 +24,8 @@ import { defaultGit, isInside, repoPathOf, worktreeRoot, type GitFn } from "../r
 import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSummary, type Exec } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
 import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
+import { pgSearchPath } from "../lib/pg-bin.js";
+import { supported } from "../lib/system-support.js";
 
 export const BRANCH = "sandbox";
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
@@ -38,7 +40,8 @@ export const TAIL_LINES = 200;
 const DETAIL_LINES = 12;
 
 export type Phase = "starting" | "capturing" | "live" | "failed";
-export type PruebaPhase = Phase | "off" | "running"; // running: something else serves settings.capture.port
+// running: something else serves settings.capture.port. PLA-I2-4: unavailable: this system cannot run a test copy.
+export type PruebaPhase = Phase | "off" | "running" | "unavailable";
 export type PruebaRead = {
   phase: PruebaPhase;
   managed: boolean; // Plania started it (Apagar works)
@@ -47,6 +50,8 @@ export type PruebaRead = {
   started_at: string | null;
   error: string | null;
   detail: string | null; // the last lines the start printed, for Ver detalle
+  // PLA-I2-4: set when this system cannot take stills (no Chrome); the Ventana says so instead of an error.
+  stills?: "unavailable";
 };
 
 export type ChildLike = {
@@ -183,8 +188,12 @@ const defaultPortBusy = async (port: number) => (await knock("127.0.0.1", port))
 const urlOf = (port: number) => `http://localhost:${port}`;
 const short = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 300);
 
+// PLA-I2-4: the read of a part this system cannot run (src/lib/system-support.ts).
+const UNAVAILABLE: PruebaRead = { phase: "unavailable", managed: false, port: null, url: null, started_at: null, error: null, detail: null };
+const withStills = (r: PruebaRead): PruebaRead => (supported("stills") ? r : { ...r, stills: "unavailable" });
+
 function read(c: Copy): PruebaRead {
-  return {
+  return withStills({
     phase: c.phase,
     managed: c.managed,
     port: c.port,
@@ -192,7 +201,7 @@ function read(c: Copy): PruebaRead {
     started_at: new Date(c.startedAt).toISOString(),
     error: c.error,
     detail: c.tail.length ? c.tail.slice(-DETAIL_LINES).join("\n") : null,
-  };
+  });
 }
 
 async function settingsOf(db: Db, slug: string): Promise<{ p: typeof projects.$inferSelect; s: CaptureSettings }> {
@@ -210,7 +219,8 @@ export async function pruebaRead(slug: string, settings: CaptureSettings | undef
     c.seenAt = now();
     return read(c);
   }
-  const off: PruebaRead = { phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null };
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
+  const off: PruebaRead = withStills({ phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null });
   if (!settings) return off;
   const up = await (deps.up ?? defaultUp)(urlOf(settings.port) + (settings.ready_path ?? "/"));
   return up ? { ...off, phase: "running", port: settings.port, url: urlOf(settings.port) } : off;
@@ -227,11 +237,13 @@ export function pruebaOf(slug: string): PruebaRead | null {
 // the Ventana reads its phase (starting → capturing → live, or failed).
 export async function encender(db: Db, slug: string, opts: { stills?: boolean } = {}): Promise<PruebaRead> {
   const { p, s } = await settingsOf(db, slug);
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
   const c = newCopy(slug, "sandbox", BRANCH, null, "starting", true);
-  c.stills = opts.stills !== false;
+  // PLA-I2-4: with no Chrome here the copy still starts and goes En vivo; the Ventana says the stills are unavailable.
+  c.stills = opts.stills !== false && supported("stills");
   copies.set(c.id, c);
   hook();
   void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
@@ -493,6 +505,7 @@ export function pruebaLog(slug: string, secrets: string[] = []): string[] {
 // Reiniciar: Apagar, then Encenderla, with the same port rule (the first free port from settings.capture.port up).
 export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
   const { s } = await settingsOf(db, slug);
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const c = copies.get(slug);
   const outside = !c && (await pruebaRead(slug, s)).phase === "running";
   if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: "la app no la encendió Plania; no la puedo reiniciar" });
@@ -506,6 +519,8 @@ export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
 export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
   const { p, s } = await settingsOf(db, slug);
   const had = copies.get(slug);
+  // PLA-I2-4: nothing to take on a system without Chrome; the read says so.
+  if (!supported("stills")) return had ? read(had) : pruebaRead(slug, s);
   if (had && had.phase !== "live") return read(had);
   if (had) {
     had.phase = "capturing";
@@ -561,6 +576,7 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
     throw new ToolError("INVALID_FILTER", { field: "branch", hint: "a plain branch name" });
   }
   if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
+  if (!supported("test_copy")) return { ...withStills(UNAVAILABLE), key: delivery.key, branch, commit: null, worktree: null };
   const id = idOf(slug, "entrega");
   const had = copies.get(id);
   if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed" && (await atHead(had, branch, delivery.head))) {
@@ -729,7 +745,8 @@ export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entr
   return { url: u.toString(), name: `${name}${suffix}` };
 }
 
-export const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+// PLA-I2-4: psql and pg_dump are found on macOS and Linux alike (src/lib/pg-bin.ts), PATH included.
+export const pgPathOf = (): string => pgSearchPath(checkoutEnv().PATH);
 
 async function entregaDatabase(
   db: Db,
@@ -746,7 +763,7 @@ async function entregaDatabase(
   const target = entregaUrl(base, suffix);
   if (!target) return { ok: false, error: `${cfg.env_var} no es una base local de Postgres; la entrega no se prueba sobre ella` };
   const exec = deps.exec ?? shellExec;
-  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const pgPath = pgPathOf();
   // The URLs go in the environment, never in the command line.
   const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
   const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
@@ -814,7 +831,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   // statement, so rows the delivery already made are skipped; they never take the copy's own datos slot.
   if (opts.earlier) {
     if (c.earlier.has(hash) || c.datos === hash) return { ok: true, skipped: true };
-    const pgPath0 = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+    const pgPath0 = pgPathOf();
     await (deps.exec ?? shellExec)(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
       cwd: c.worktree ?? process.cwd(),
       stdin: sql,
@@ -827,7 +844,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   if (c.datos === hash) return { ok: true, skipped: true };
   if (c.datos) return { ok: false, error: "la copia ya tiene los datos de otra muestra" };
   const exec = deps.exec ?? shellExec;
-  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const pgPath = pgPathOf();
   const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
     cwd: c.worktree ?? process.cwd(),
     stdin: sql,

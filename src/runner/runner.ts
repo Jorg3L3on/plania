@@ -12,6 +12,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
+import { resolveClaudeBin } from "../lib/claude-bin.js";
+import { defaultRunLogDir, defaultRunTmpDir } from "../lib/run-dirs.js";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { makeDb, type Db } from "../db/client.js";
 import { bus } from "../events.js";
@@ -221,17 +223,15 @@ export function resetRunnerForTests(): void {
 }
 
 const home = (env: NodeJS.ProcessEnv) => env.HOME || homedir();
-const logDirOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.logDir ?? path.join(home(env), "Library", "Logs", "plania-runs");
-const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? path.join(tmpdir(), "plania-runs");
+// PLA-I2-4: the system's own places (src/lib/run-dirs.ts): ~/Library/Logs on macOS, the XDG dirs on Linux.
+const logDirOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.logDir ?? defaultRunLogDir(env);
+const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? defaultRunTmpDir(deps.env ?? process.env);
 const rootOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.worktreeRoot ?? worktreeRoot(env);
-const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
-
 // NEWPROJ-4: exported for the readiness list (./readiness.ts), which looks for the same binary without running it.
+// PLA-I2-4: the rule itself is shared with the brief and the machine check (src/lib/claude-bin.ts): the adapter's
+// variable, CLAUDE_CODE_BIN, ~/.local/bin/claude, then claude on PATH.
 export function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
-  const named = config?.command_env;
-  if (typeof named === "string" && ENV_NAME.test(named) && env[named]?.trim()) return env[named]!.trim();
-  if (env.CLAUDE_CODE_BIN?.trim()) return env.CLAUDE_CODE_BIN.trim();
-  return path.join(home(env), ".local", "bin", "claude");
+  return resolveClaudeBin(env, { commandEnv: config?.command_env });
 }
 
 const sysCtx = (tool: string): Ctx => ({ actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool });
@@ -1775,7 +1775,7 @@ export function defaultProbeUsage(env: NodeJS.ProcessEnv = process.env): () => P
   return () =>
     new Promise((resolve) => {
       const command = claudeCommand(null, env);
-      const cwd = path.join(tmpdir(), "plania-runs");
+      const cwd = defaultRunTmpDir(env);
       mkdirSync(cwd, { recursive: true });
       execFile(command, ["-p", "/usage", "--output-format", "json", "--strict-mcp-config"], { cwd, env: childEnv(env), timeout: 60_000 }, (err, stdout) => {
         if (err) return resolve(null);

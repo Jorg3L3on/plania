@@ -160,7 +160,7 @@ export async function runDoctor(db: Db | null, deps: DoctorDeps = {}): Promise<D
   const cmd = commandOf(env);
   const version = await claudeVersion(cmd, env, exec);
   const found = !!version;
-  out.push(found ? line(true, `claude found (version ${version})`) : line(false, "claude found: not at CLAUDE_CODE_BIN or ~/.local/bin/claude"));
+  out.push(found ? line(true, `claude found (version ${version})`) : line(false, "claude found: not at CLAUDE_CODE_BIN, ~/.local/bin/claude or on PATH"));
   if (deps.skipClaudeRun) out.push(line(true, "claude logged in: skipped (--skip-claude)"));
   else if (!found) out.push(line(false, "claude logged in: skipped, claude was not found"));
   else out.push(dryRunLine(await claudeDryRun(cmd, env, exec)));

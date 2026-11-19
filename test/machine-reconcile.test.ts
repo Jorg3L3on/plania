@@ -91,7 +91,7 @@ describe("primary", () => {
   });
 
   test("commands find brew and docker under launchd's short PATH", () => {
-    const p = run.commandPath("/usr/bin:/bin:/usr/sbin:/sbin").split(":");
+    const p = run.commandPath("/usr/bin:/bin:/usr/sbin:/sbin", ":").split(":");
     assert.ok(p.includes("/opt/homebrew/bin") && p.includes("/usr/local/bin"));
     assert.equal(p.indexOf("/usr/bin"), 0);
     assert.equal(new Set(p).size, p.length);

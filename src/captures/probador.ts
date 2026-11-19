@@ -11,6 +11,7 @@ import { ToolError } from "../mcp/errors.js";
 import type { Ctx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
 import { apagar, apagarEntrega, cargarDatos, datosDe, encender, encenderEntrega, entregaEnv, entregaRead, hashDatos, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
@@ -87,6 +88,8 @@ export const viewsOf = (m: Muestra): ViewPage[] =>
 export async function probar(db: Db, slug: string, key: string, deps: ProbadorDeps = {}): Promise<ProbadorState | null> {
   const id = `${slug}/${key}`;
   if (running.has(id)) return null;
+  // PLA-I2-4: nothing to photograph with here (probadorGate says so on the card).
+  if (!supported("stills") || !supported("test_copy")) return null;
   running.add(id);
   try {
     return await onLane(slug, () => pass(db, slug, key, deps));
@@ -349,6 +352,8 @@ const onScreen = (e: string) => e.replace(/copia de sandbox/g, "copia de prueba"
 // Only deliveries with a muestra on a project Plania photographs; everything else is unchanged.
 export function probadorGate(p: Project | null, t: Task | null, head: string | null): ProbadorGate {
   if (!p?.settings.capture || !t?.muestra) return { pending: false, hold: null };
+  // PLA-I2-4: no pictures on a system without Chrome or a test copy; the card shows at once and says why.
+  if (!supported("stills") || !supported("test_copy")) return { pending: false, hold: `Fotos: ${NO_DISPONIBLE.toLowerCase()}` };
   const s = t.probador;
   if (!s || s.state === "tomando" || s.state === "fallo") return { pending: true, hold: null };
   if (head && s.commit && !head.startsWith(s.commit.slice(0, 7)) && !s.commit.startsWith(head.slice(0, 7))) return { pending: true, hold: null };

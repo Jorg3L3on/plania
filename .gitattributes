@@ -1,0 +1,15 @@
+# PLA-I2-4: every text file is LF in every checkout, whatever core.autocrlf says, so generated files (the README
+# tables, the error catalog) compare equal on Windows too.
+* text=auto eol=lf
+
+# Binary files: never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.gz binary
+*.pdf binary

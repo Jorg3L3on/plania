@@ -7,6 +7,7 @@
 // checks print lines for a terminal, so this list shares the helpers underneath, not the lines.
 // Environment, git and the filesystem are injected; tests never touch the real machine.
 import { existsSync } from "node:fs";
+import { claudeBinFound, resolveClaudeBin } from "../lib/claude-bin.js";
 import path from "node:path";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -15,7 +16,7 @@ import { findProject } from "../mcp/queries.js";
 import { roleOf, type RunnerRole } from "./limits.js";
 import { rolePrompts } from "./prompts.js";
 import { checkRepoFolder, defaultRepoCheckDeps, type RepoCheckCode, type RepoCheckDeps } from "./repo-check.js";
-import { CONTEXT_DOCS, claudeCommand } from "./runner.js";
+import { CONTEXT_DOCS } from "./runner.js";
 import { teamOf } from "./team.js";
 import { repoPathOf } from "./worktree.js";
 import { storedRunnerToken } from "../install-state.js";
@@ -71,13 +72,11 @@ export const CONTEXT_IDS: Record<(typeof CONTEXT_DOCS)[number], ReadinessId> = {
 };
 
 // The command the runner spawns: a path is looked at directly, a bare name is looked for on PATH (with PATHEXT on
-// Windows), the way the shell would find it. The binary is never run.
+// Windows), the way the shell would find it. The binary is never run. PLA-I2-4: the same resolver as the runner,
+// so with Claude only on PATH this item is ready (src/lib/claude-bin.ts).
 export function claudeFound(env: NodeJS.ProcessEnv, exists: (p: string) => boolean): boolean {
-  const cmd = claudeCommand(null, env);
-  if (cmd.includes("/") || cmd.includes("\\")) return exists(cmd);
-  const exts = process.platform === "win32" ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean)] : [""];
-  for (const dir of (env.PATH ?? "").split(path.delimiter).filter(Boolean)) for (const ext of exts) if (exists(path.join(dir, cmd + ext))) return true;
-  return false;
+  const cmd = resolveClaudeBin(env, { exists });
+  return claudeBinFound(cmd, env, exists);
 }
 
 export async function projectReadiness(db: Db, slug: string, deps: ReadinessDeps = {}): Promise<Readiness> {

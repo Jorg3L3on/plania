@@ -33,9 +33,10 @@ export function checkoutEnv(extra: Record<string, string> = {}, base: NodeJS.Pro
 // PLA-39: under launchd Plania's PATH is the bare system one, so npm and node are not found. The running node's own
 // folder (where npm lives for nvm and Homebrew) and the usual tool folders go first; what PATH had stays, once each.
 export const TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
-export function toolPath(current: string | undefined, execPath: string): string {
-  const parts = [path.dirname(execPath), ...TOOL_DIRS, ...(current ?? "").split(":")].filter(Boolean);
-  return [...new Set(parts)].join(":");
+// PLA-I2-4: joined with the system's separator (path.delimiter).
+export function toolPath(current: string | undefined, execPath: string, sep: string = path.delimiter): string {
+  const parts = [path.dirname(execPath), ...TOOL_DIRS, ...(current ?? "").split(sep)].filter(Boolean);
+  return [...new Set(parts)].join(sep);
 }
 
 export type CaptureDeps = {

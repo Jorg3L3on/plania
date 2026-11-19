@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { machineState } from "../db/schema.js";
 import { checkoutEnv, shellExec } from "../captures/run.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { appDirs, scrub, secretValues } from "./env.js";
 import { findScripts } from "./detect.js";
 import { MaquinaError } from "./errors.js";
@@ -49,7 +50,8 @@ export async function pruebasRead(db: Db, slug: string): Promise<PruebasRead> {
   const wt = appDirs(slug, p.settings, menv()).prueba;
   const r = running.get(slug);
   if (!r) await closeInterrupted(db, slug);
-  const reason = !cmds.length ? "Este piso no tiene comandos de prueba (settings.qa.verify o un script test)" : !wt ? "Enciende la app una vez para crear la copia de prueba" : null;
+  // PLA-I2-4: a system that cannot run the test copy cannot run its tests either: a plain state, not an error.
+  const reason = !supported("test_copy") ? NO_DISPONIBLE : !cmds.length ? "Este piso no tiene comandos de prueba (settings.qa.verify o un script test)" : !wt ? "Enciende la app una vez para crear la copia de prueba" : null;
   return { running: r ? { started_at: r.started_at, step: r.step } : null, last: await last(db, slug), commands: cmds.map(({ name, command }) => ({ name, command })), can: !reason, reason };
 }
 
@@ -90,6 +92,7 @@ const alive = (pid: number) => {
 // Starts a run. A second call while one runs is refused.
 export async function correrPruebas(db: Db, slug: string): Promise<PruebasRead> {
   if (running.has(slug)) throw new MaquinaError("TESTS_RUNNING", "Las pruebas ya están corriendo");
+  if (!supported("test_copy")) return pruebasRead(db, slug);
   const p = await projectOf(db, slug);
   const cmds = commandsOf(p);
   if (!cmds.length) throw new MaquinaError("NOT_CONFIGURED", "Este piso no tiene comandos de prueba");

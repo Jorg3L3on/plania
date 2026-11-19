@@ -12,7 +12,7 @@ import type { Project } from "../db/schema.js";
 import { writeTx, type Ctx } from "../mcp/tx.js";
 import { defaultGit, isInside, repoPathOf, worktreeRoot, type GitFn } from "../runner/worktree.js";
 import { postMessage, projectThread } from "../runner/threads.js";
-import { entregaUrl, envValue, installCommand, PG_DIRS, syncEnvFile } from "./prueba.js";
+import { entregaUrl, envValue, installCommand, pgPathOf, syncEnvFile } from "./prueba.js";
 import { checkoutEnv, shellExec, type Exec } from "./run.js";
 
 export type MigrarDeps = { git?: GitFn; exec?: Exec; env?: NodeJS.ProcessEnv; now?: () => Date; backups?: string };
@@ -80,7 +80,7 @@ async function run(p: Project, into: string, deps: MigrarDeps): Promise<Migrado>
   mkdirSync(dir, { recursive: true });
   const stamp = (deps.now?.() ?? new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const backup = path.join(dir, `${name}-pre-release-${stamp}.sql.gz`);
-  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const pgPath = pgPathOf();
   const dumped = await exec(`set -o pipefail; pg_dump --no-owner --no-privileges "$PLANIA_APP_URL" | gzip > "$PLANIA_BACKUP"`, {
     cwd: wt,
     timeoutMs: 300_000,
