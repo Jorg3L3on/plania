@@ -149,7 +149,7 @@ test("F7: the home project stays off the lists while it holds no work, and comes
   // Once the home project holds work it is listed like any other.
   const made = await post("/api/projects/plania/tasks", { title: "Algo para Plania" });
   assert.equal(made.status, 201, await made.clone().text());
-  assert.equal((await get("/api/company")).projects.find((p: Json) => p.slug === "plania").quiet_home, undefined);
+  assert.equal((await get("/api/company")).projects.find((p: Json) => p.slug === "plania").quiet_home, false);
   assert.equal((await get("/api/projects")).find((p: Json) => p.slug === "plania").quiet_home, undefined);
 });
 

@@ -98,7 +98,7 @@ test("I35-1 #1: GET /api/company has plan, this_week, next and work per project 
   const c = await company();
   assert.deepEqual(keys(c), ["asistente", "brief", "claude_sign_in", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["ahora", "auto_accept", "goal", "latest", "light", "light_reason", "next", "next_first", "next_move", "orders", "paused", "pedidos", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "runner", "slug", "stale_requests", "tablero", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
+    assert.deepEqual(keys(p), ["ahora", "auto_accept", "goal", "latest", "light", "light_reason", "next", "next_first", "next_move", "orders", "paused", "pedidos", "plan", "plan_approval", "preview_url", "quiet_home", "ready", "route", "rumbo", "runner", "slug", "stale_requests", "tablero", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
     assert.deepEqual(keys(p.this_week), ["docs", "done", "last_at", "prs"]);
     assert.deepEqual(keys(p.work), ["in_progress", "open"]);
   }

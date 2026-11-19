@@ -482,7 +482,7 @@ export type OrgNextStart = { key: string | null; title: string | null; hold: Org
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
   // F7: the home project while it holds no work; lists leave it out (lib/proyectos-visibles.ts).
-  quiet_home?: true;
+  quiet_home?: boolean;
   // PLA-I60-5: «a la vez» (absent on older servers: Motores then shows the model and effort only).
   runner?: RunnerView;
   slug: string;

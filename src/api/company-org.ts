@@ -169,7 +169,7 @@ export type ThreadLine = { id: string; unread: number; last: { at: string; autho
 
 export type ProjectCard = {
   // F7: the home project while it holds no work; the screen's lists leave it out.
-  quiet_home?: true;
+  quiet_home: boolean;
   runner?: RunnerView;
   slug: string;
   title: string;
@@ -672,6 +672,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
     return {
       slug: p.slug,
       title: p.title,
+      quiet_home: false,
       paused: p.runsPaused,
       runner,
       light: light.light,
@@ -718,7 +719,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
   }));
   for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
   const quiet = await t("quiet_home", quietHomeSlug(db));
-  for (const c of cards) if (c.slug === quiet) c.quiet_home = true;
+  for (const c of cards) c.quiet_home = c.slug === quiet;
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
