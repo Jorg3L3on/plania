@@ -36,9 +36,11 @@ const { toolPath } = await import("../src/captures/run.js");
 const support = await import("../src/lib/system-support.js");
 const { probadorGate } = await import("../src/captures/probador.js");
 const { resetPrueba } = await import("../src/captures/prueba.js");
-const { ventanaView } = await import("../ui/src/lib/ventana.ts");
-const { maqView } = await import("../ui/src/lib/maquinas.ts");
-const { NO_DISPONIBLE, NO_DISPONIBLE_POR } = await import("../ui/src/lib/sistema.ts");
+// The screen's pure logic, imported the way other tests do (the server's type-check does not cover ui/).
+type View = { state: string; title?: string | null; button?: unknown; caption?: string; word?: string; server: { lever: unknown } };
+const { ventanaView } = (await import(new URL("../ui/src/lib/ventana.ts", import.meta.url).href)) as { ventanaView: (r: unknown) => View };
+const { maqView } = (await import(new URL("../ui/src/lib/maquinas.ts", import.meta.url).href)) as { maqView: (r: unknown) => View };
+const { NO_DISPONIBLE, NO_DISPONIBLE_POR } = support;
 
 const FAKE_CLAUDE = path.join(import.meta.dirname, "fixtures/fake-claude.mjs");
 const scratch = mkdtempSync(path.join(tmpdir(), "plania-i2-4-"));
