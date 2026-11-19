@@ -185,7 +185,7 @@ export async function machineCheck(deps: MachineCheckDeps = {}): Promise<Machine
 export const blocking = (items: MachineItem[]): MachineItem[] => items.filter((i) => i.state === "missing");
 
 /**
- * The install command's gate: it calls this before it changes anything and stops when proceed is false, printing
+ * The install command's check: it calls this before it changes anything and stops when proceed is false, printing
  * text. The installer (PLA-I2-1) injects it as its machine-check hook, so its own tests can pass a fake.
  */
 export async function installGate(deps: MachineCheckDeps = {}): Promise<{ proceed: boolean; items: MachineItem[]; text: string }> {
