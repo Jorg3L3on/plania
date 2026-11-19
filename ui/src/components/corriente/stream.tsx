@@ -7,7 +7,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { Decision } from "@/lib/api";
 import { thousands } from "@/lib/corriente";
-import { COLUMNS, COLUMN_NAME, type Column, type Lane, type Totals } from "@/lib/corriente-stream";
+import { COLUMNS, columnName, type Column, type Lane, type Totals } from "@/lib/corriente-stream";
 import { words } from "@/lib/i18n";
 import { NEW_PROJECT_CONTROL, STREAM_WORDS } from "@/lib/stream-words";
 import { Agent, Btn, Dot, Label, Logo, You } from "./parts";
@@ -36,7 +36,7 @@ const Cell = ({ lane, col, links, revisionCount, idle }: { lane: Lane; col: Colu
   return (
     <div className="cor-cell" data-col={col} data-n={work.length}>
       {showDots.length > MAX_DOTS ? (
-        <span className="cor-cell-n" aria-label={w.inColumn(showDots.length, COLUMN_NAME[col])}>
+        <span className="cor-cell-n" aria-label={w.inColumn(showDots.length, columnName(col))}>
           <Dot />
           {showDots.length}
         </span>
@@ -169,7 +169,7 @@ export const Stream = ({
           <div>
             {COLUMNS.map((c) => (
               <span key={c} className={c === "construccion" ? "on" : undefined}>
-                {COLUMN_NAME[c]}
+                {columnName(c)}
               </span>
             ))}
           </div>

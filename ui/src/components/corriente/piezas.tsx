@@ -1,6 +1,6 @@
 // PLA-I62-1: the internal kit page (/corriente?v=piezas), board D4 drawn with the real pieces, so a change to a piece
 // shows here first.
-import { GRUPO_NAME } from "@/lib/cosas";
+import { grupoName } from "@/lib/cosas";
 import { words } from "@/lib/i18n";
 import { PIEZAS_WORDS } from "@/lib/piezas-words";
 import { Agent, Btn, Dot, Label, Logo, Opt, State, You } from "./parts";
@@ -83,7 +83,7 @@ export const Piezas = () => {
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
             <State tone="live">{w.working}</State>
             <State>{w.free}</State>
-            <State tone="amber">{GRUPO_NAME.toca}</State>
+            <State tone="amber">{grupoName("toca")}</State>
           </div>
         </div>
       </section>
@@ -114,7 +114,7 @@ export const Piezas = () => {
               <You />
             </span>
             <div>
-              <div style={{ fontSize: 14 }}>{GRUPO_NAME.toca}</div>
+              <div style={{ fontSize: 14 }}>{grupoName("toca")}</div>
               <Cap>{w.youHint}</Cap>
             </div>
           </div>

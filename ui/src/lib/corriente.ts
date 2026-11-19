@@ -1,5 +1,8 @@
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import { LOCALE } from "./locale.js";
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
+// PLA-I2-10: the words are in CORRIENTE_LIB_WORDS, in both languages. TAB_NAME and MODES keep their Spanish for their
+// readers; the screen reads tabName() and modesOf().
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
 //   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
@@ -15,15 +18,34 @@ export type View = (typeof VIEWS)[number];
 export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
 export const DOORS = ["archivo", "equipo", "maquinas", "ajustes"] as const;
-export const TAB_NAME: Record<Tab, string> = {
-  todo: "Todo",
-  archivo: "Archivo",
-  hecho: "Hecho",
-  equipo: "Equipo",
-  motores: "Motores",
-  maquinas: "Máquinas",
-  ajustes: "Ajustes",
-};
+export const CORRIENTE_LIB_WORDS = defineWords({
+  es: {
+    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", ajustes: "Ajustes" } as Record<Tab, string>,
+    // The ask box's three modes (the same words as the building's).
+    modes: {
+      forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
+      ya: { name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
+      pregunta: { name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
+    },
+    // countWords(): a count in words up to ten.
+    numbers: ["Cero", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    oneFem: "Una",
+  },
+  en: {
+    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", ajustes: "Settings" },
+    modes: {
+      forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
+      ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },
+      pregunta: { name: "Ask a question", line: "You only want to know something. The PO reads the code and answers you. It makes no idea and no step." },
+    },
+    numbers: ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    oneFem: "One",
+  },
+});
+
+/** The Spanish names, kept for their readers; the screen reads tabName(). */
+export const TAB_NAME: Record<Tab, string> = CORRIENTE_LIB_WORDS.es.tab;
+export const tabName = (tab: Tab, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).tab[tab];
 /** The retired tabs (PLA-I62) and where each one lives now. */
 export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo" };
 export const tabOf = (raw: string | null | undefined): Tab | null => (!raw ? null : (TABS as readonly string[]).includes(raw) ? (raw as Tab) : (OLD_TAB[raw] ?? null));
@@ -218,10 +240,10 @@ export function hueOf(slug: string): string {
 }
 export const initialOf = (title: string) => (title.trim()[0] ?? "?").toLocaleUpperCase(LOCALE);
 
-const NUM = ["Cero", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
 /** «Tres agentes trabajando.»: a count in words up to ten, then digits. */
-export function countWords(n: number, one: string, many: string, fem = false): string {
-  const word = n <= 10 ? (n === 1 ? (fem ? "Una" : "Un") : NUM[n]!) : String(n);
+export function countWords(n: number, one: string, many: string, fem = false, language: Language = getLanguage()): string {
+  const w = words(CORRIENTE_LIB_WORDS, language);
+  const word = n <= 10 ? (n === 1 && fem ? w.oneFem : w.numbers[n]!) : String(n);
   return `${word} ${n === 1 ? one : many}`;
 }
 
@@ -257,11 +279,11 @@ export const linkTo = (at: Partial<At>): string => (isBuilt(at) ? hrefOf(at) : l
 export type AskMode = "forma" | "ya" | "pregunta";
 export type AskInput = { text: string; mode: AskMode; consulta?: string };
 export const ASK_MAX = 2000;
-export const MODES: { id: AskMode; name: string; line: string }[] = [
-  { id: "forma", name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
-  { id: "ya", name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
-  { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
-];
+const MODE_IDS: AskMode[] = ["forma", "ya", "pregunta"];
+export const modesOf = (language: Language = getLanguage()): { id: AskMode; name: string; line: string }[] =>
+  MODE_IDS.map((id) => ({ id, ...words(CORRIENTE_LIB_WORDS, language).modes[id] }));
+/** The Spanish modes, kept for their readers; the screen reads modesOf(). */
+export const MODES: { id: AskMode; name: string; line: string }[] = modesOf("es");
 
 // ---- PLA-I62-9: the building's addresses, each to its screen in La corriente (null: nothing to move).
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card

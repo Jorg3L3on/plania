@@ -182,8 +182,57 @@ export function findInline(root: string): Map<string, Finding[]> {
   return found;
 }
 
+// ---- ui/src/lib: words live inside defineWords
+// A module under ui/src/lib may hold Spanish only inside a defineWords({ es, en }) call, where the English twin is
+// checked by the type and by test/i2-10-language.test.ts. A Spanish sentence anywhere else there is a word the English
+// screen would still show in Spanish. test/lib-words-allow.txt lists the exceptions, each with its reason.
+// Known limit, as above: a single-word label («Guardar», «Hoy») is not detected.
+
+export const LIB_DIR = "ui/src/lib";
+
+/** The line ranges of every defineWords( … ) call in a source, found by matching its parentheses. */
+export function wordsRanges(src: string): [number, number][] {
+  const out: [number, number][] = [];
+  const lineAt = (at: number) => src.slice(0, at).split("\n").length;
+  for (let k = src.indexOf("defineWords("); k >= 0; k = src.indexOf("defineWords(", k + 1)) {
+    let i = k + "defineWords".length;
+    let depth = 0;
+    for (; i < src.length; i++) {
+      const c = src[i]!;
+      if (c === '"' || c === "'" || c === "`") {
+        // Skip the literal. Parentheses inside a template's ${} are balanced, so skipping them with it is harmless.
+        for (i++; i < src.length && src[i] !== c; i++) if (src[i] === "\\") i++;
+        continue;
+      }
+      if (c === "/" && src[i + 1] === "/") {
+        while (i < src.length && src[i] !== "\n") i++;
+        continue;
+      }
+      if (c === "(") depth++;
+      else if (c === ")" && --depth === 0) break;
+    }
+    out.push([lineAt(k), lineAt(i)]);
+  }
+  return out;
+}
+
+/** Spanish sentences in ui/src/lib outside every defineWords call, by file (relative, forward slashes). */
+export function findLibSpanish(root: string): Map<string, Finding[]> {
+  const found = new Map<string, Finding[]>();
+  for (const name of readdirSync(path.join(root, LIB_DIR)).sort()) {
+    if (!/\.tsx?$/.test(name) || name === "i18n.ts") continue;
+    const rel = `${LIB_DIR}/${name}`;
+    const src = readFileSync(path.join(root, rel), "utf8");
+    const ranges = wordsRanges(src);
+    const hits = spanishIn(src).filter((f) => !ranges.some(([a, b]) => f.line >= a && f.line <= b));
+    if (hits.length) found.set(rel, hits);
+  }
+  return found;
+}
+
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  const found = findInline(process.cwd());
+  // --lib: the ui/src/lib check instead of the components and pages.
+  const found = process.argv.includes("--lib") ? findLibSpanish(process.cwd()) : findInline(process.cwd());
   let total = 0;
   for (const [f, hits] of found) {
     total += hits.length;

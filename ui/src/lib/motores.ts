@@ -1,20 +1,46 @@
 // PLA-I59-3 (Motores): the words, colours and draft logic the floor's «Motores» console, the Equipo chips, the
 // teammate's Motor card and Sumar share. Pure; the components hold the state.
 // The rule the runner follows (src/runner/motor.ts): a seat's own value > the company default > the CLI's own.
+// PLA-I2-10: the words are in MOTORES_LIB_WORDS, in both languages. MODELS, EFFORT_WORD and PRESETS keep their Spanish
+// for their readers; the screen reads modelsOf(), effortWord() and presetsOf().
 import type { MotorPatch, MotoresSave, MotorView, OrgMember } from "./api";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 export type ModelId = "haiku" | "sonnet" | "opus" | "fable";
-export const MODELS: { id: ModelId; letter: string; name: string; note: string; color: string }[] = [
-  { id: "haiku", letter: "H", name: "Haiku", note: "Rápido y ligero", color: "#3ddc97" },
-  { id: "sonnet", letter: "S", name: "Sonnet", note: "Equilibrado", color: "#5ec8ff" },
-  { id: "opus", letter: "O", name: "Opus", note: "El más usado hoy", color: "#b094ff" },
-  { id: "fable", letter: "F", name: "Fable", note: "Pruébalo en un puesto", color: "#ff8fc4" },
-];
-export const AUTO_COLOR = "#8d94aa";
-
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortId = (typeof EFFORTS)[number];
-export const EFFORT_WORD: Record<EffortId, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
+export type PresetId = "rapido" | "equilibrado" | "fondo" | "compania";
+
+export const MOTORES_LIB_WORDS = defineWords({
+  es: {
+    note: { haiku: "Rápido y ligero", sonnet: "Equilibrado", opus: "El más usado hoy", fable: "Pruébalo en un puesto" } as Record<ModelId, string>,
+    effort: { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" } as Record<EffortId, string>,
+    cli: "Modelo del CLI",
+    preset: { rapido: "Rápido", equilibrado: "Equilibrado", fondo: "A fondo", compania: "Como la compañía" } as Record<PresetId, string>,
+  },
+  en: {
+    note: { haiku: "Fast and light", sonnet: "Balanced", opus: "The most used today", fable: "Try it on one seat" },
+    effort: { low: "Low", medium: "Medium", high: "High", xhigh: "Very high", max: "Max" },
+    cli: "The CLI's model",
+    preset: { rapido: "Fast", equilibrado: "Balanced", fondo: "Thorough", compania: "Same as the company" },
+  },
+});
+
+const MODEL_LOOK: { id: ModelId; letter: string; name: string; color: string }[] = [
+  { id: "haiku", letter: "H", name: "Haiku", color: "#3ddc97" },
+  { id: "sonnet", letter: "S", name: "Sonnet", color: "#5ec8ff" },
+  { id: "opus", letter: "O", name: "Opus", color: "#b094ff" },
+  { id: "fable", letter: "F", name: "Fable", color: "#ff8fc4" },
+];
+export const modelsOf = (language: Language = getLanguage()): { id: ModelId; letter: string; name: string; note: string; color: string }[] =>
+  MODEL_LOOK.map(({ color, ...m }) => ({ ...m, note: words(MOTORES_LIB_WORDS, language).note[m.id], color }));
+/** The models with their Spanish notes, kept for their readers; the screen reads modelsOf(). */
+export const MODELS: { id: ModelId; letter: string; name: string; note: string; color: string }[] = modelsOf("es");
+export const AUTO_COLOR = "#8d94aa";
+
+/** The Spanish words, kept for their readers; the screen reads effortWord(). */
+export const EFFORT_WORD: Record<EffortId, string> = MOTORES_LIB_WORDS.es.effort;
+export const effortWord = (e: EffortId, language: Language = getLanguage()): string => words(MOTORES_LIB_WORDS, language).effort[e];
 export const EFFORT_COLOR: Record<EffortId, string> = { low: "#8d94aa", medium: "#5ec8ff", high: "#ffc145", xhigh: "#ff9f43", max: "#ff6b8a" };
 
 // A stored model is an alias or a full id (claude-opus-5-5): its family, or null when it is none of the four.
@@ -27,10 +53,10 @@ export const modelInfo = (model: string | null | undefined) => MODELS.find((x) =
 export const effortOf = (e: string | null | undefined): EffortId | null => ((EFFORTS as readonly string[]).includes(e ?? "") ? (e as EffortId) : null);
 
 // «Sonnet · alto», «Del CLI» when nothing is set.
-export function motorLine(model: string | null, effort: string | null): string {
-  const m = modelInfo(model)?.name ?? (model ? model : "Modelo del CLI");
+export function motorLine(model: string | null, effort: string | null, language: Language = getLanguage()): string {
+  const m = modelInfo(model)?.name ?? (model ? model : words(MOTORES_LIB_WORDS, language).cli);
   const e = effortOf(effort);
-  return e ? `${m} · ${EFFORT_WORD[e].toLowerCase()}` : m;
+  return e ? `${m} · ${effortWord(e, language).toLowerCase()}` : m;
 }
 
 // ---- the console's draft
@@ -106,13 +132,15 @@ export function saveOf(project: string, saved: Draft, draft: Draft): MotoresSave
 
 // ---- presets
 
-export type PresetId = "rapido" | "equilibrado" | "fondo" | "compania";
-export const PRESETS: { id: PresetId; label: string; note?: string }[] = [
-  { id: "rapido", label: "Rápido", note: "Sonnet" },
-  { id: "equilibrado", label: "Equilibrado" },
-  { id: "fondo", label: "A fondo", note: "Opus" },
-  { id: "compania", label: "Como la compañía" },
-];
+const PRESET_NOTE: Partial<Record<PresetId, string>> = { rapido: "Sonnet", fondo: "Opus" };
+export const presetsOf = (language: Language = getLanguage()): { id: PresetId; label: string; note?: string }[] =>
+  (["rapido", "equilibrado", "fondo", "compania"] as const).map((id) => ({
+    id,
+    label: words(MOTORES_LIB_WORDS, language).preset[id],
+    ...(PRESET_NOTE[id] ? { note: PRESET_NOTE[id] } : {}),
+  }));
+/** The Spanish presets, kept for their readers; the screen reads presetsOf(). */
+export const PRESETS: { id: PresetId; label: string; note?: string }[] = presetsOf("es");
 type Pair = [ModelId, EffortId];
 const PRESET_PAIRS: Record<Exclude<PresetId, "compania">, { seat: (role: string) => Pair; ask: Pair }> = {
   rapido: { seat: (r) => (r === "taller" || r === "artist" ? ["sonnet", "high"] : ["sonnet", "medium"]), ask: ["sonnet", "low"] },

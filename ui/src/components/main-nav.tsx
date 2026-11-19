@@ -4,7 +4,7 @@
 import { BuildingIcon, CpuIcon, FlameIcon, InboxIcon } from "lucide-react";
 import { Link, NavLink } from "react-router";
 import { PlaniaMark } from "@/components/plania-mark";
-import { NAV } from "@/lib/compania";
+import { navItems } from "@/lib/compania";
 import { words } from "@/lib/i18n";
 import { SHELL } from "@/lib/shell-words";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ export const Logo = () => (
 // The machine header's five links. Hidden on phones, where TabBar takes over.
 export const HeaderNav = ({ counts }: { counts: NavCounts }) => (
   <nav aria-label={words(SHELL).navMain} className="hidden items-center gap-1 sm:flex" data-nav="header">
-    {NAV.map(({ to, label }) => {
+    {navItems().map(({ to, label }) => {
       const Icon = ICON[to]!;
       return (
         <NavLink
@@ -70,7 +70,7 @@ export const TabBar = ({ counts }: { counts: NavCounts }) => (
     className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
   >
     <ul className="grid grid-cols-4">
-      {NAV.map(({ to, label }) => {
+      {navItems().map(({ to, label }) => {
         const Icon = ICON[to]!;
         return (
           <li key={to}>

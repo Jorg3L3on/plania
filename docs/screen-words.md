@@ -52,7 +52,14 @@ template text or JSX text with an accented letter, `¿ ¡ « »`, or two Spanish
 `test/inline-words-allow.txt` lists the files not moved yet. The test fails on a file with a sentence that is not
 listed, and on a listed file that no longer has one, so the list only shrinks. Run
 `node --import tsx scripts/inline-words.ts` to see what is left. Single-word labels («Guardar») are not detected;
-move them with the rest of the file's words.
+move them with the rest of the file's words. A string right after `from`, `import(` or `data-…=` is code, not a
+sentence, and is skipped.
+
+The same guard covers `ui/src/lib/`: a module may hold Spanish only inside a `defineWords(…)` call, where its English
+twin is checked. `node --import tsx scripts/inline-words.ts --lib` lists what is outside. `test/lib-words-allow.txt`
+names the few exceptions, each with its reason after `#` (a regex, an identifier, a Spanish helper used inside the
+`es` words); the test fails on an unlisted module, on an entry without a reason, and on an entry that is clean. The
+limit is the same: a single-word label outside `defineWords` is not detected.
 
 ## Product names
 

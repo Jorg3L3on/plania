@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { STATUS_DOT, STATUS_WORD } from "@/components/team/types";
+import { STATUS_DOT, agentStatusWord } from "@/components/team/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Dashboard, DashboardAgent, DashboardGoal, GoalHealth, QueueItem, QueueKind, ReadyTicket } from "@/components/dashboard/types";
@@ -218,7 +218,7 @@ export const Queue = ({
 // ---- Team
 
 const agentLine = (agent: DashboardAgent) => {
-  const word = STATUS_WORD[agent.status] ?? agent.status;
+  const word = agentStatusWord(agent.status);
   if (agent.claim) return `${word} · ${agent.claim.key}`;
   if (agent.ready > 0) return `${word} · ${words(CEO_V2).readyOwn(agent.ready)}`;
   return word;

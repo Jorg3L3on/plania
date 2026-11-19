@@ -8,7 +8,7 @@ import type { MotoresSave, OrgProject } from "@/lib/api";
 import { MAX, countsOf, pendingCounts, previewAdmission, seatCap, withCounts, type Counts } from "@/lib/a-la-vez";
 import { seatName, thousands } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
-import { EFFORTS, EFFORT_WORD, MODELS, PRESETS, applyPreset, clearStrip, draftOf, isOwn, motorLine, pendingOf, saveOf, setEffort, setModel, shownOf, type Draft, type Strip } from "@/lib/motores";
+import { EFFORTS, MODELS, applyPreset, effortWord, presetsOf, clearStrip, draftOf, isOwn, motorLine, pendingOf, saveOf, setEffort, setModel, shownOf, type Draft, type Strip } from "@/lib/motores";
 import { MOTORES } from "@/lib/motores-words";
 import { byRole } from "@/lib/org";
 import { Btn, Label, Opt } from "./parts";
@@ -124,7 +124,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
                 </button>
                 {EFFORTS.map((e) => (
                   <button key={e} type="button" role="radio" aria-checked={s.ownEffort && s.effort === e} className="cor-opt" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? setEffort(x, e) : x)) })} data-effort={e}>
-                    {EFFORT_WORD[e]}
+                    {effortWord(e)}
                   </button>
                 ))}
               </span>
@@ -162,7 +162,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
           </span>
           <span className="cor-acts" style={{ marginTop: 0 }} role="group" aria-label={w.setAll}>
             <Label>{w.setAll}</Label>
-            {PRESETS.map((x) => (
+            {presetsOf().map((x) => (
               <Btn key={x.id} kind={x.id === "compania" ? "quiet" : "secondary"} onClick={() => set(applyPreset(draft, x.id))} data-control={`motor-preajuste-${x.id}`}>
                 {x.label}
               </Btn>
@@ -214,7 +214,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
                     </Opt>
                     {EFFORTS.map((e) => (
                       <Opt key={e} on={draft.company.effort === e} onClick={() => set({ ...draft, company: { ...draft.company, effort: e } })}>
-                        {EFFORT_WORD[e]}
+                        {effortWord(e)}
                       </Opt>
                     ))}
                   </span>

@@ -15,7 +15,7 @@ import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { words } from "@/lib/i18n";
 import { MACHINE_PAGE } from "@/lib/machine-words";
-import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, whyLine, type Group, type TicketNode } from "@/lib/machine";
+import { ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, sourceWord, stateWord, whyLine, type Group, type TicketNode } from "@/lib/machine";
 import { ago, span } from "@/lib/time";
 import type { FootprintItem, FootprintKind, FootprintState, MachineBackup } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -60,7 +60,7 @@ function useNow(everyMs = 30_000) {
 function StateBadge({ state }: { state: FootprintState }) {
   return (
     <span className={cn("inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap", STATE_CLASS[state])}>
-      {STATE_WORD[state]}
+      {stateWord(state)}
     </span>
   );
 }
@@ -92,7 +92,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
   const session = it.session_id ?? holder?.session_id ?? null;
   const meta: React.ReactNode[] = [];
   if (gone && it.last_seen_at) meta.push(<span key="seen">{w.lastSeen(ago(it.last_seen_at, nowMs))}</span>);
-  else if (age) meta.push(<span key="age">{age.label === "activo" ? w.active(span(age.iso, nowMs)) : `${age.label} ${ago(age.iso, nowMs)}`}</span>);
+  else if (age) meta.push(<span key="age">{age.active ? w.active(span(age.iso, nowMs)) : `${age.label} ${ago(age.iso, nowMs)}`}</span>);
   if (size) meta.push(<span key="size" className="font-medium text-foreground/80">{size}</span>);
   if (showTicket && it.task_key && it.project) {
     meta.push(
@@ -103,7 +103,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
     );
   }
   if (session) meta.push(<span key="session" className="font-mono">{holder?.agent ? `${holder.agent} · ` : ""}{session.length > 14 ? `${session.slice(0, 8)}…` : session}</span>);
-  meta.push(<span key="source">{SOURCE_WORD[it.source]}</span>);
+  meta.push(<span key="source">{sourceWord(it.source)}</span>);
 
   return (
     <li className={cn("grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1.5 px-4 py-3", gone && "opacity-60")}>

@@ -4,7 +4,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { linkTo } from "@/lib/corriente";
-import { LISTO_IR, listoAjuste, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
+import { listoAjuste, listoIr, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
 import { cn } from "@/lib/utils";
 import { words } from "@/lib/i18n";
 import { TASK } from "@/lib/task-words";
@@ -36,7 +36,7 @@ export const ListoLista = ({ r, look, ajustes }: { r: Listo; look: "cor" | "page
                   {/* PLA-I2-6: a missing item links to its control in the project's Ajustes. */}
                   {l.estado === "missing" && listoAjuste(l.id) && (
                     <Link to={`${linkTo({ slug: r.slug, tab: "ajustes" })}#ajustes-${listoAjuste(l.id)}`} className={cor ? "cor-btn link small" : "text-sm font-medium underline underline-offset-2"} data-listo-ir={listoAjuste(l.id)}>
-                      {LISTO_IR}
+                      {listoIr()}
                     </Link>
                   )}
                 </span>

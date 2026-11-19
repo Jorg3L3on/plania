@@ -10,7 +10,7 @@ import {
   pausedBannerText,
   pct,
   planBannerText,
-  planUnknownLine,
+  planUnknownText,
   roleInitials,
   roleWord,
   tokens,
@@ -64,7 +64,7 @@ export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: st
       </div>
       <p className="text-xs text-muted-foreground">
         {plan.state === "unknown"
-          ? planUnknownLine
+          ? planUnknownText()
           : w.guardLine(plan.guard_pct)}
       </p>
     </div>

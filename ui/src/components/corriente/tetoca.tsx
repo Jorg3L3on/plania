@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { BRIEF_LINK_LABEL, briefTitle } from "@/components/compania/parts";
 import { api, type ConsultaView, type Decision, type OrgCompany } from "@/lib/api";
 import { pending } from "@/lib/v2";
-import { GRUPO_NAME } from "@/lib/cosas";
+import { grupoName } from "@/lib/cosas";
 import { getLanguage, words, type Language } from "@/lib/i18n";
 import { TETOCA_WORDS } from "@/lib/tetoca-words";
 import type { CorrienteActs } from "./acts";
@@ -73,7 +73,7 @@ export const TeToca = ({
     <div className="cor-tetoca" data-tetoca={open.length}>
       <section className="cor-tetoca-main" aria-label={w.mainAria}>
         <div>
-          <Label tone={open.length ? "amber" : undefined}>{`${GRUPO_NAME.toca} · ${open.length}`}</Label>
+          <Label tone={open.length ? "amber" : undefined}>{`${grupoName("toca")} · ${open.length}`}</Label>
           <h1 data-toca-headline>{tocaHeadline(open)}</h1>
           <p className="cor-text">{w.intro}</p>
         </div>

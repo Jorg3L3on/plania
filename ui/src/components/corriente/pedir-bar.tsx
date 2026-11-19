@@ -4,11 +4,14 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import type { AskResult, OrgProject } from "@/lib/api";
-import { ASK_MAX, MODES, type AskInput, type AskMode } from "@/lib/corriente";
+import { ASK_MAX, modesOf, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { words } from "@/lib/i18n";
 import { PEDIR } from "@/lib/pedir-words";
 import { Btn, Label, Opt } from "./parts";
+
+// PLA-I2-10: the ask modes in the screen's language (fixed for the page load).
+const MODES = modesOf();
 
 // PLA-67: «Ver la respuesta» opens the question just asked, not the Pedir page in general.
 const withQuestion = (to: string, id: string | undefined): string => (id ? `${to}${to.includes("?") ? "&" : "?"}pregunta=${encodeURIComponent(id)}` : to);

@@ -25,7 +25,7 @@ const MAIN = ["qa", "copy", "seguridad", "research"] as const;
 
 export type RoleChoice = { slug: string; label: string; state: HireRole["state"] };
 
-export const hireLabel = (slug: string, language: Language = getLanguage()): string => ((MAIN as readonly string[]).includes(slug) ? words(SUMAR_WORDS, language).roles[slug] : undefined) ?? roleName(slug);
+export const hireLabel = (slug: string, language: Language = getLanguage()): string => ((MAIN as readonly string[]).includes(slug) ? words(SUMAR_WORDS, language).roles[slug] : undefined) ?? roleName(slug, language);
 
 // The four named roles in order (a template the server does not know shows as no_doc), then the rest under Otro.
 export function roleChoices(hire: HireRole[], language: Language = getLanguage()): { main: RoleChoice[]; otros: RoleChoice[] } {

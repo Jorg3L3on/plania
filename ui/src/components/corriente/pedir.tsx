@@ -8,12 +8,15 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, uploadPedidoImages, type AskResult, type ConsultaView, type OrgProject } from "@/lib/api";
-import { ASK_MAX, MODES, type AskInput, type AskMode } from "@/lib/corriente";
+import { ASK_MAX, modesOf, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { words } from "@/lib/i18n";
 import { PEDIR } from "@/lib/pedir-words";
 import { Images } from "./images";
 import { Btn, Label, Logo } from "./parts";
+
+// PLA-I2-10: the ask modes in the screen's language (fixed for the page load).
+const MODES = modesOf();
 
 // PLA-I2-10: the words live in lib/pedir-words.ts.
 const pendingQ = (c: ConsultaView) => c.state === "cola" || c.state === "leyendo";

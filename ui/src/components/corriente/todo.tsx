@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
-import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
+import { cosasOf, grupoName, tipoName, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
 import { Hilo, HiloHead } from "./hilo";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
@@ -70,7 +70,7 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
         <span className="cor-cosa-ids">
-          <Label tone={toca ? "amber" : undefined}>{TIPO_NAME[c.tipo]}</Label>
+          <Label tone={toca ? "amber" : undefined}>{tipoName(c.tipo)}</Label>
           {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
         <b className="cor-ellipsis">{c.title}</b>
@@ -97,7 +97,7 @@ const HechaRow = ({ h, links, timeZone }: { h: Hecha; links: TodoLinks; timeZone
     </Link>
     <Hilo h={{ idea: h.idea_key ? 5 : null, ideaTono: h.idea_key ? "hecho" : null, valvula: "abierta", tramos: [{ key: h.key, title: h.title, etapa: "hecho", tono: "hecho" }], publicado: true, at: "publicado" }} small />
     <div className="cor-cosa-que">
-      <span className="cor-cap">{[GRUPO_NAME.hecho, dayOf(h.done_at, timeZone), h.idea_key ? words(TODO_WORDS).doneOn(h.idea_key) : null].filter(Boolean).join(" · ").toUpperCase()}</span>
+      <span className="cor-cap">{[grupoName("hecho"), dayOf(h.done_at, timeZone), h.idea_key ? words(TODO_WORDS).doneOn(h.idea_key) : null].filter(Boolean).join(" · ").toUpperCase()}</span>
     </div>
   </li>
 );
@@ -202,7 +202,7 @@ export const TodoList = ({
         </div>
         <div className="cor-grp" data-grupo-vacio="toca mueve fila quieto hecho">
           {(["toca", "mueve", "fila", "quieto", "hecho"] as const).map((g) => (
-            <span key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</span>
+            <span key={g} className="cor-label">{`${grupoName(g)} · 0`}</span>
           ))}
         </div>
         {plan && (
@@ -225,7 +225,7 @@ export const TodoList = ({
           return (
             <div key={b.grupos.join("-")} className="cor-grp" data-grupo-vacio={b.grupos.join(" ")}>
               {b.grupos.map((g) => (
-                <h2 key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</h2>
+                <h2 key={g} className="cor-label">{`${grupoName(g)} · 0`}</h2>
               ))}
               <span className="cor-grp-tx">{b.grupos.length > 1 ? b.grupos.map((g) => groupLine(g, 0, paused)).join(" ") : groupLine(b.grupos[0]!, 0, paused)}</span>
             </div>
@@ -235,12 +235,12 @@ export const TodoList = ({
         const k = shown[g.grupo];
         const more = n - k;
         return (
-          <section key={g.grupo} aria-label={GRUPO_NAME[g.grupo]} data-grupo={g.grupo}>
+          <section key={g.grupo} aria-label={grupoName(g.grupo)} data-grupo={g.grupo}>
             <div className="cor-grp">
               {b.lead.map((e) => (
-                <span key={e} className="cor-label" data-grupo-vacio={e}>{`${GRUPO_NAME[e]} · 0`}</span>
+                <span key={e} className="cor-label" data-grupo-vacio={e}>{`${grupoName(e)} · 0`}</span>
               ))}
-              <h2 className={cls("cor-label", g.grupo === "toca" && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
+              <h2 className={cls("cor-label", g.grupo === "toca" && "amber")}>{`${grupoName(g.grupo)} · ${n}`}</h2>
               {g.grupo !== "toca" && <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>}
               {(more > 0 || open.has(g.grupo)) && (
                 <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has(g.grupo)} onClick={() => toggle(g.grupo)} data-control={`ver-${g.grupo}`}>
@@ -258,9 +258,9 @@ export const TodoList = ({
           </section>
         );
       })}
-      <section aria-label={GRUPO_NAME.hecho} data-grupo="hecho">
+      <section aria-label={grupoName("hecho")} data-grupo="hecho">
         <div className="cor-grp">
-          <h2 className="cor-label green">{[GRUPO_NAME.hecho, hecho.iniciativas.length ? w.initiatives(hecho.iniciativas.length) : null, hecho.sueltos ? w.looseSteps(hecho.sueltos) : null].filter(Boolean).join(" · ") || `${GRUPO_NAME.hecho} · 0`}</h2>
+          <h2 className="cor-label green">{[grupoName("hecho"), hecho.iniciativas.length ? w.initiatives(hecho.iniciativas.length) : null, hecho.sueltos ? w.looseSteps(hecho.sueltos) : null].filter(Boolean).join(" · ") || `${grupoName("hecho")} · 0`}</h2>
           {!hecho.iniciativas.length && !hecho.sueltos && <span className="cor-grp-tx">{w.nothingYet}</span>}
           <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
             {w.seeAllDone}

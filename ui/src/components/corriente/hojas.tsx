@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { linkTo, seatName } from "@/lib/corriente";
-import { CODIGO_OPCIONES, META_MAX, NOMBRE_MAX, codigoBody, fondoMouseDown, nuevoProyectoError, nuevoProyectoSinTexto, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
+import { META_MAX, NOMBRE_MAX, codigoBody, codigoOpciones, fondoMouseDown, nuevoProyectoError, nuevoProyectoSinTexto, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
 import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
@@ -143,13 +143,13 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>
           <legend className="cor-text">{w.whereCode}</legend>
           <div className="cor-opts" role="radiogroup" aria-label={w.whereCodeLabel}>
-            {CODIGO_OPCIONES.map((o) => (
+            {codigoOpciones().map((o) => (
               <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => setCodigo(o.key)} data-codigo-opcion={o.key}>
                 {o.label}
               </button>
             ))}
           </div>
-          {codigo && <p className="cor-text">{CODIGO_OPCIONES.find((o) => o.key === codigo)!.hint}</p>}
+          {codigo && <p className="cor-text">{codigoOpciones().find((o) => o.key === codigo)!.hint}</p>}
           {codigo === "carpeta" && (
             <span className="cor-hoja-two">
               <label style={{ flex: 2 }}>

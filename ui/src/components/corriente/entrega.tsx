@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as R
 import { Link } from "react-router";
 import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type VivoRead } from "@/lib/api";
 import { acceptWords, evidenceView, MARK_MAX } from "@/lib/evidencia";
-import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
+import { firstVista, kindWord, probadorWords, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { Btn, Key, Label, Opt, ReadError, You } from "./parts";
@@ -16,6 +16,8 @@ import { AutoSwitches } from "./pendiente";
 import { useProbadorRead, useQaRead } from "./reads";
 import { words } from "@/lib/i18n";
 import { ENTREGA_WORDS } from "@/lib/entrega-words";
+
+const W = probadorWords();
 
 type Pin = Marca & { n: number };
 
@@ -300,7 +302,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
               {r.vistas.map((x) => (
                 <button key={x.key} type="button" role="tab" aria-selected={x.key === v.key} className="cor-tab" onClick={() => (setKey(x.key), setSide(null))} data-vista={x.key}>
                   {x.label}
-                  <em>{KIND_WORD[x.kind]}</em>
+                  <em>{kindWord(x.kind)}</em>
                 </button>
               ))}
             </div>

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { plainWords } from "@/lib/plain-words";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnOwner } from "@/lib/org";
+import { MESSAGE_MAX, THREAD_PAGE, actionEffect, actionLabel, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 import { words } from "@/lib/i18n";
 import { COMPANIA_ORG } from "@/lib/compania-words";
@@ -75,7 +75,7 @@ export const MessageRow = ({
   const waiting = waitsOnOwner(message);
   const busyHere = busy?.id === message.id;
   // The one approve button on a message says what it does, in one line under the buttons.
-  const effect = message.actions.map((a) => ACTION_EFFECT[a]).find(Boolean);
+  const effect = message.actions.map((a) => actionEffect(a)).find(Boolean);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!open || text.trim().length < 2) return;
@@ -133,7 +133,7 @@ export const MessageRow = ({
                 aria-expanded={needsText(a) ? open === a : undefined}
                 onClick={() => (needsText(a) ? setOpen(open === a ? null : a) : onAction(message, a))}
               >
-                {busyHere && busy?.action === a ? "…" : ACTION_LABEL[a]}
+                {busyHere && busy?.action === a ? "…" : actionLabel(a)}
               </button>
             ))}
           </div>

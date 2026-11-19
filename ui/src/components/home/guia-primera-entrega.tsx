@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { PEDIDO_SUGERIDO, WORDS, ofreceEjemplo, pasosDe, type GuiaRead, type Paso } from "@/lib/primera-entrega";
+import { falloWords, ofreceEjemplo, pasosDe, pedidoSugerido, primeraEntregaWords, type GuiaRead, type Paso } from "@/lib/primera-entrega";
 import { cn } from "@/lib/utils";
 
 // PLA-I2-16: the guide to a first delivery, at the top of Inicio until the owner accepts one. Each step comes from
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 function PasoRow({ paso, n, children }: { paso: Paso; n: number; children?: React.ReactNode }) {
   const ahora = paso.estado === "ahora";
+  const WORDS = primeraEntregaWords().guia;
   return (
     <li className={cn("flex gap-3 px-4 py-3", paso.estado === "luego" && "opacity-60")} data-paso={paso.id} data-estado={paso.estado}>
       <span
@@ -51,13 +52,16 @@ export function GuiaPrimeraEntrega() {
     },
   });
   const pedir = useMutation({
-    mutationFn: (slug: string) => api.askProject(slug, { text: PEDIDO_SUGERIDO, mode: "ya" }),
+    mutationFn: (slug: string) => api.askProject(slug, { text: pedidoSugerido(), mode: "ya" }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["guia"] }),
   });
 
   const r: GuiaRead | undefined = guia.data;
   if (!r || !r.visible) return null;
   const pasos = pasosDe(r);
+  const WORDS = primeraEntregaWords().guia;
+  // PLA-I2-10: the server words the failure in Spanish; the screen words it again in its own language.
+  const fallo = r.fallo ? (falloWords(r.fallo.summary) ?? r.fallo) : null;
 
   return (
     <Card className="gap-0 p-0" data-guia="primera-entrega">
@@ -65,11 +69,11 @@ export function GuiaPrimeraEntrega() {
         <p className="font-display text-lg font-extrabold tracking-tight">{WORDS.titulo}</p>
         <p className="text-sm text-muted-foreground">{WORDS.intro}</p>
       </div>
-      {r.fallo ? (
+      {fallo ? (
         <div className="mx-4 mb-3 grid gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" data-guia-fallo>
           <p className="font-medium">{WORDS.falloTitulo}</p>
-          <p>{r.fallo.por}.</p>
-          <p className="text-muted-foreground">{r.fallo.arregla}</p>
+          <p>{fallo.por}.</p>
+          <p className="text-muted-foreground">{fallo.arregla}</p>
         </div>
       ) : null}
       <ol className="divide-y border-t">
