@@ -30,7 +30,7 @@
 //     «Pospuesto a propósito») or its initiative is On hold; else despues. Ready under an On hold initiative → pospuesto.
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, blockers, envStates, pullRequests, qaLanes, taskBlockers, tasks, threadMessages, threads, type Actor, type Project } from "../db/schema.js";
+import { agentRuns, agents, blockers, envStates, pullRequests, qaLanes, taskAliases, taskBlockers, tasks, threadMessages, threads, type Actor, type Project } from "../db/schema.js";
 import { SETTLED_STATUSES, typedBlockerOpen } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 import { qaAgentOf, qaTicket, sameCommit } from "../runner/qa.js";
@@ -180,12 +180,20 @@ export type AhoraItem = { key: string; title: string; initiative: string | null 
 // NEWPROJ-5: arranque, when the step's newest run failed before its process started (src/runner/start-failures.ts):
 // the run's summary and when it ended. Null otherwise, and once a newer run is queued, runs or ends.
 export type Arranque = { summary: string; at: string | null };
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[]; arranque: Arranque | null };
+// PLA-I3-1: what the runner measured on a ticket or an initiative (agent_runs, never the self-reported token_usage).
+// used is input + output, the figure the screen shows; the prompt cache is kept apart (cache_read, cache_write) since
+// it costs a fraction of fresh tokens. runs counts the runs summed, of any status.
+export type Tokens = { used: number; cache_read: number; cache_write: number; runs: number };
+export const NO_TOKENS: Tokens = Object.freeze({ used: 0, cache_read: 0, cache_write: 0, runs: 0 }) as Tokens;
+export const addTokens = (a: Tokens, b: Tokens): Tokens => ({ used: a.used + b.used, cache_read: a.cache_read + b.cache_read, cache_write: a.cache_write + b.cache_write, runs: a.runs + b.runs });
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[]; arranque: Arranque | null; tokens: Tokens };
 // A completed initiative (Done), for the board's folded line: no tickets.
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done. can_close: every ticket is Done,
 // so the owner's Cerrar is accepted (the server refuses an initiative with an open ticket). version for that write.
-export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed: number; can_close: boolean; version: number; tickets: ProjectTicket[] };
+// PLA-I3-1: tokens rolls up every ticket under it (Won't do too: those tokens were spent), the runs on the initiative's
+// own key, and the runs on the ideas promoted to it (tokensOfInitiative).
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed: number; can_close: boolean; version: number; tokens: Tokens; tickets: ProjectTicket[] };
 export type ProjectEtapas = {
   // Every ticket of the project but Won't do, by key.
   byTicket: Map<string, ProjectTicket>;
@@ -224,11 +232,55 @@ const DONE = ["Done", "Merged", "Released"];
 type Row = Record<string, unknown>;
 const date = (v: unknown) => (v == null ? null : v instanceof Date ? v : new Date(String(v)));
 
-// Every ticket's stage in one project, in nine queries whatever the number of tickets.
+// PLA-I3-1: the measured tokens of every task of one project (tickets, initiatives, ideas), by task id, in one query.
+// A run counts toward the task its task_key names, through the task's key or a former key (task_aliases). Only runs
+// whose work key is task:<KEY> count: a run keyed general (Asistente, the PO's cadence) or consulta:<id> (a question
+// the owner asked, even one about a ticket) belongs to no ticket and is left out of every sum.
+export async function projectTokens(db: Db, projectId: string): Promise<Map<string, Tokens>> {
+  const rows = (
+    await db.execute(sql`
+      select coalesce(t.id, al.task_id) as task_id,
+        coalesce(sum(r.input_tokens + r.output_tokens), 0)::bigint as used,
+        coalesce(sum(r.cache_read_tokens), 0)::bigint as cache_read,
+        coalesce(sum(r.cache_create_tokens), 0)::bigint as cache_write,
+        count(*)::int as runs
+      from ${agentRuns} r
+      left join ${tasks} t on t.project_id = r.project_id and t.key = r.task_key
+      left join ${taskAliases} al on al.project_id = r.project_id and al.alias = r.task_key
+      where r.project_id = ${projectId} and r.task_key is not null and r.work_key like 'task:%'
+      group by 1`)
+  ).rows as Row[];
+  const out = new Map<string, Tokens>();
+  for (const r of rows) {
+    if (r.task_id == null) continue; // a key no task has (a deleted ticket): nothing to show it on
+    out.set(String(r.task_id), { used: Number(r.used), cache_read: Number(r.cache_read), cache_write: Number(r.cache_write), runs: Number(r.runs) });
+  }
+  return out;
+}
+
+// PLA-I3-1: an initiative's tokens: its own key's runs, every ticket under it, and every idea promoted to it.
+export function tokensOfInitiative(byId: Map<string, Tokens>, initiativeId: string, ticketIds: string[], ideaIds: string[]): Tokens {
+  return [initiativeId, ...ticketIds, ...ideaIds].reduce((acc, id) => addTokens(acc, byId.get(id) ?? NO_TOKENS), NO_TOKENS);
+}
+
+// Every ticket's stage in one project, in eleven queries whatever the number of tickets.
 export async function projectEtapas(db: Db, p: Project, now = new Date()): Promise<ProjectEtapas> {
   const all = await db.select().from(tasks).where(sql`${tasks.projectId} = ${p.id} and ${tasks.kind} in ('ticket', 'initiative')`);
   const initiatives = all.filter((t) => t.kind === "initiative");
   const tickets = all.filter((t) => t.kind === "ticket" && t.status !== "Won't do");
+  // PLA-I3-1: tokens by task id, and which ideas were promoted to which initiative (by the initiative's key).
+  const tokensBy = await projectTokens(db, p.id);
+  const promotedIdeas = await db
+    .select({ id: tasks.id, to: tasks.promotedTo })
+    .from(tasks)
+    .where(sql`${tasks.projectId} = ${p.id} and ${tasks.kind} = 'idea' and ${tasks.promotedTo} is not null`);
+  const initiativeTokens = (i: (typeof all)[number]) =>
+    tokensOfInitiative(
+      tokensBy,
+      i.id,
+      all.filter((t) => t.kind === "ticket" && t.parentId === i.id).map((t) => t.id),
+      promotedIdeas.filter((d) => d.to === i.key).map((d) => d.id),
+    );
   const parentOf = new Map(initiatives.map((i) => [i.id, i]));
   const open = initiatives.filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
   const here = open.filter((t) => t.status === "Active").at(-1) ?? null;
@@ -239,7 +291,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     .filter((i) => i.status === "Done")
     .sort((a, b) => landedAt(b) - landedAt(a) || a.key.localeCompare(b.key))
     .map((i) => ({ key: i.key, title: i.title, done_at: iso(i.resolvedAt ?? i.statusChangedAt) }));
-  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, closed: 0, can_close: false, version: i.version, tickets: [] })), loose: [], loose_done: 0, loose_done_title: null, done_initiatives, ahora: [] };
+  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, closed: 0, can_close: false, version: i.version, tokens: initiativeTokens(i), tickets: [] })), loose: [], loose_done: 0, loose_done_title: null, done_initiatives, ahora: [] };
   if (ids.length === 0) return empty;
   const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
 
@@ -361,7 +413,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       photos: !!pr && probadorGate(p, t, (pr.head_sha as string | null) ?? null).pending,
     };
     const etapa = etapaOf(facts, now);
-    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas), arranque: arranqueBy.get(t.key) ?? null });
+    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas), arranque: arranqueBy.get(t.key) ?? null, tokens: tokensBy.get(t.id) ?? NO_TOKENS });
   }
 
   const keyNo = (k: string) => Number(/(\d+)$/.exec(k)?.[1] ?? Number.MAX_SAFE_INTEGER);
@@ -374,7 +426,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     initiatives: open.map((i) => {
       const mine = sorted.filter((t) => ticketParent.get(t.key) === i.id);
       const closed = mine.filter((t) => t.status === "Done").length;
-      return { key: i.key, title: i.title, status: i.status, done: mine.filter((t) => DONE.includes(t.status)).length, total: mine.length, closed, can_close: mine.length > 0 && closed === mine.length, version: i.version, tickets: mine };
+      return { key: i.key, title: i.title, status: i.status, done: mine.filter((t) => DONE.includes(t.status)).length, total: mine.length, closed, can_close: mine.length > 0 && closed === mine.length, version: i.version, tokens: initiativeTokens(i), tickets: mine };
     }),
     loose: sorted.filter((t) => !openIds.has(ticketParent.get(t.key) ?? "") && !DONE.includes(t.status)),
     loose_done: looseLanded.length,
