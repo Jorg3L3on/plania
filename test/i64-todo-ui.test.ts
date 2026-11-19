@@ -40,8 +40,8 @@ test("I64-2/7: the list is the project's entry; t=todo still opens it", () => {
   assert.deepEqual(lib.atOf("?proyecto=filmia&t=todo"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
   assert.deepEqual(lib.atOf("?proyecto=filmia"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
   assert.equal(lib.searchOf({ slug: "filmia", tab: "todo", ver: { kind: "idea", key: "FIL-IDEA1" } }), "?proyecto=filmia&ver=idea%3AFIL-IDEA1");
-  assert.deepEqual([...lib.TABS], ["todo", "archivo", "hecho", "equipo", "motores", "maquinas"]);
-  assert.deepEqual([...lib.DOORS], ["archivo", "equipo", "maquinas"]);
+  assert.deepEqual([...lib.TABS], ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "ajustes"]);
+  assert.deepEqual([...lib.DOORS], ["archivo", "equipo", "maquinas", "ajustes"]);
 });
 
 test("I64-7 #2: every old address lands on its new place", () => {

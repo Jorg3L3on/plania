@@ -17,6 +17,8 @@
 //   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 //   GET  /api/company/projects/:slug/pulso steps done per day, last 14 days (PLA-I64-3)
 //   GET  /api/company/projects/:slug/readiness  NEWPROJ-4: what a run needs, ready / missing / not_needed (src/runner/readiness.ts)
+//   GET  /api/company/projects/:slug/settings   NEWPROJ-6: the Ajustes view; PUT …/settings/{code,release,verify,context/:doc}
+//        writes through setProject and attachDoc (src/api/project-settings.ts)
 //   GET  /api/company/projects/:slug/hecho what landed day by day, ?hasta=&dias= (PLA-I64-6); …/ficha?todo=1 every doc and PR
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 // PLA-I54-3/4: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar,construir}.
@@ -42,6 +44,7 @@ import { createProjectFromTemplate } from "../runner/new-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
+import { CONTEXT_DOC_IDS, putContextDoc, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
@@ -132,6 +135,72 @@ export const setReadinessDeps = (d: ReadinessDeps | null): void => {
 companyRoutes.get("/projects/:slug/readiness", async (c) => {
   try {
     return c.json(await withDb((db) => projectReadiness(db, c.req.param("slug"), readinessDeps)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// NEWPROJ-6: the Ajustes view (src/api/project-settings.ts). Every write goes through setProject or attachDoc with the
+// version the screen read; a body with a key it does not know (a token field, say) is INVALID_BODY.
+companyRoutes.get("/projects/:slug/settings", async (c) => {
+  try {
+    return c.json(await withDb((db) => settingsRead(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+const Version = z.number().int().min(1);
+const CodeBody = z.object({ version: Version, repo_path: z.string().max(500).optional(), github_repo: z.string().max(140).optional(), no_code: z.boolean().optional() }).strict();
+const ReleaseBody = z
+  .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional() }).strict().nullable() })
+  .strict();
+const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
+const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
+
+companyRoutes.put("/projects/:slug/settings/code", async (c) => {
+  const input = await body(c, CodeBody);
+  if (input instanceof Response) return input;
+  try {
+    // The same folder check as creating a project (setNewProjectRepoCheck swaps it in tests).
+    const out = await withDb((db) => setCodeLocation(db, c.req.param("slug"), input, newProjectRepoCheck));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.put("/projects/:slug/settings/release", async (c) => {
+  const input = await body(c, ReleaseBody);
+  if (input instanceof Response) return input;
+  try {
+    return c.json(await withDb((db) => setReleaseStep(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.put("/projects/:slug/settings/verify", async (c) => {
+  const input = await body(c, VerifyBody);
+  if (input instanceof Response) return input;
+  try {
+    return c.json(await withDb((db) => setVerifyList(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.put("/projects/:slug/settings/context/:doc", async (c) => {
+  const doc = c.req.param("doc") as ContextDocId;
+  if (!(CONTEXT_DOC_IDS as readonly string[]).includes(doc)) return c.json({ error: "DOC_NOT_FOUND", doc }, 404);
+  const input = await body(c, ContextBody);
+  if (input instanceof Response) return input;
+  try {
+    return c.json(await withDb((db) => putContextDoc(db, c.req.param("slug"), doc, input)));
   } catch (e) {
     return fail(c, e);
   }

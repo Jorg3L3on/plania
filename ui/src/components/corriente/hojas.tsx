@@ -16,12 +16,19 @@ import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
-import { seatName } from "@/lib/corriente";
+import { linkTo, seatName } from "@/lib/corriente";
 import { CODIGO_OPCIONES, codigoBody, nuevoProyectoError, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
 import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
+
+// NEWPROJ-6: the readiness list's way to the project's Ajustes door (opening it closes the sheet).
+const AjustesLink = ({ slug }: { slug: string }) => (
+  <Link className="cor-btn secondary cor-listo-ajustes" to={linkTo({ slug, tab: "ajustes" })} data-control="ir-ajustes">
+    Abrir los ajustes del proyecto
+  </Link>
+);
 
 export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta";
 
@@ -97,7 +104,7 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
             {aviso}
           </p>
         )}
-        {listo.data ? <ListoLista r={listo.data} look="cor" /> : listo.isError ? <p className="cor-cap">No pude revisar qué le falta.</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
+        {listo.data ? <ListoLista r={listo.data} look="cor" ajustes={<AjustesLink slug={make.data.slug} />} /> : listo.isError ? <p className="cor-cap">No pude revisar qué le falta.</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
         <div className="cor-acts">
           <Btn kind="primary" onClick={() => onOpen(make.data!.slug)} data-control="abrir-proyecto">
             Abrir el proyecto
@@ -219,7 +226,7 @@ export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p:
       {listo.data && listo.data.blocking > 0 && (
         <details className="cor-listo-mas" data-reanudar-lista>
           <summary className="cor-cap">Ver qué le falta y qué hacer</summary>
-          <ListoLista r={listo.data} look="cor" />
+          <ListoLista r={listo.data} look="cor" ajustes={p && <AjustesLink slug={p.slug} />} />
         </details>
       )}
       {companyPaused && <p className="cor-state amber">La compañía está detenida: aunque reanudes este proyecto, nada arranca hasta que la reanudes en Plomería.</p>}

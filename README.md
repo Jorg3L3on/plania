@@ -133,7 +133,7 @@ Restart with `pnpm server:restart`: it lists what a restart would cut (a running
 
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
 next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
-`settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
+`settings.release` (on screen in the project's Ajustes, «Fusionar desde Plania», or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
 `settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
 `~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
 the release row keeps the command to copy.
@@ -798,6 +798,15 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - Clicking any ticket opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
   blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
+- **Ajustes** (NEWPROJ-6): a project's settings, a door beside Archivo, Equipo and Máquinas in Compañía
+  (`/ceo?proyecto=<slug>&t=ajustes`), also linked from the readiness list and from `/p/<slug>`. It sets where the code
+  is (a folder on this Mac, checked with git before it is saved; a GitHub repo; or no code yet), the release step
+  (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
+  and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
+  `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
+  concurrent change is refused, not overwritten. Token fields are not on screen. Still MCP-only (`set_project`):
+  `vercel`, `resources`, `quotas`, `branch_pattern`, `claim_from`, `release_target`, `release_on`, `auto_done`,
+  `capture` beyond Máquinas' minimal one, `maquinas`, and the runner's areas.
 - **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.

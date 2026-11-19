@@ -5,6 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { Listo } from "@/lib/listo";
+import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
@@ -168,6 +169,15 @@ export const api = {
   hecho: (slug: string, hasta?: string | null) => request<Hecho>("GET", `/company/projects/${encodeURIComponent(slug)}/hecho${hasta ? `?hasta=${encodeURIComponent(hasta)}` : ""}`),
   // NEWPROJ-4: what a run needs, ready / missing / not_needed. Reads only.
   readiness: (slug: string) => request<Listo>("GET", `/company/projects/${encodeURIComponent(slug)}/readiness`),
+  // NEWPROJ-6: the Ajustes view. Each save sends the version it read and answers with the view read again.
+  ajustes: (slug: string) => request<Ajustes>("GET", `/company/projects/${encodeURIComponent(slug)}/settings`),
+  ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),
+  ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge" } | null }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
+  ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
+  ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),

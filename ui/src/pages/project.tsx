@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2Icon, ChevronLeftIcon, ListIcon, WaypointsIcon } from "lucide-react";
+import { Building2Icon, ChevronLeftIcon, ListIcon, Settings2Icon, WaypointsIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError, type OrgProject } from "@/lib/api";
 import { listoAviso } from "@/lib/listo";
+import { linkTo } from "@/lib/corriente";
 import { ListoLista } from "@/components/listo";
 import { branchEdges, buildLanes, projectProgress, statusCounts } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
@@ -140,7 +141,20 @@ function ProjectOrg({ slug }: { slug: string }) {
             <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Qué le falta a {project.title}</SheetTitle>
             <SheetDescription>{aviso ?? "Nada impide que el equipo trabaje."}</SheetDescription>
           </SheetHeader>
-          <div className="px-4 pb-8">{listo.data && <ListoLista r={listo.data} look="page" />}</div>
+          <div className="px-4 pb-8">
+            {listo.data && (
+              <ListoLista
+                r={listo.data}
+                look="page"
+                ajustes={
+                  // NEWPROJ-6: what is missing is set in the project's Ajustes door.
+                  <Link to={linkTo({ slug, tab: "ajustes" })} className="inline-flex min-h-11 items-center justify-self-start rounded-full border bg-card px-4 text-sm font-medium hover:bg-foreground/5" data-control="ir-ajustes">
+                    Abrir los ajustes del proyecto
+                  </Link>
+                }
+              />
+            )}
+          </div>
         </SheetContent>
       </Sheet>
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
@@ -303,6 +317,14 @@ export function ProjectPage() {
             data-control="ver-piso"
           >
             <Building2Icon className="size-3.5" aria-hidden /> Ver el piso
+          </Link>
+          {/* NEWPROJ-6: the project's settings (La corriente's Ajustes door). */}
+          <Link
+            to={linkTo({ slug, tab: "ajustes" })}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-full border bg-card px-3.5 text-[13px] font-medium hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            data-control="ajustes"
+          >
+            <Settings2Icon className="size-3.5" aria-hidden /> Ajustes
           </Link>
           <ViewToggle view={view} onChange={(v) => setParam("view", v === "lista" ? "lista" : null)} />
         </div>

@@ -1,6 +1,6 @@
 // NEWPROJ-4: a project's readiness list, grouped «Falta» / «Listo» / «No hace falta» (wording in @/lib/listo).
 // Two looks: "cor" inside Compañía's sheets (corriente.css), "page" on the project page (Tailwind).
-// ajustes is the place for the link to the project's settings view, which a later step adds; nothing passes it yet.
+// ajustes is the place for the link to the project's settings view (NEWPROJ-6: the Ajustes door).
 import type { ReactNode } from "react";
 import { listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
 import { cn } from "@/lib/utils";
