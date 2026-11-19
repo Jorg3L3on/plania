@@ -25,6 +25,50 @@ if (process.env.FAKE_SIGNED_OUT === "1") {
   out({ type: "result", subtype: "success", is_error: true, num_turns: 1, session_id: "fake-session", result: "Not logged in · Please run /login" });
   process.exit(1);
 }
+// PLA-I2-15: CLAUDE_FAKE_COMMENT=<text> does what a real run does with the plan: it reads the MCP config the runner
+// wrote (--mcp-config), expands ${PLANIA_RUNNER_TOKEN} from its own env, and comments <text> on the ticket named in
+// the prompt ("Ticket: KEY: title"), in the project the prompt names. A refused call fails the run (exit 1).
+if (process.env.CLAUDE_FAKE_COMMENT) {
+  const { readFileSync } = await import("node:fs");
+  const arg = (name) => {
+    const i = process.argv.indexOf(name);
+    return i >= 0 ? process.argv[i + 1] : undefined;
+  };
+  const prompt = arg("-p") ?? "";
+  const project = /for project (\S+) /.exec(prompt)?.[1];
+  const key = /Ticket: ([A-Z][A-Z0-9]*-[A-Z0-9-]+):/.exec(prompt)?.[1];
+  const server = JSON.parse(readFileSync(arg("--mcp-config"), "utf8")).mcpServers.plania;
+  const headers = Object.fromEntries(
+    Object.entries(server.headers ?? {}).map(([k, v]) => [k, String(v).replace(/\$\{(\w+)\}/g, (_m, n) => process.env[n] ?? "")]),
+  );
+  const call = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "comment", arguments: { project, key, body: process.env.CLAUDE_FAKE_COMMENT, actor: { session_id: "fake-session" } } },
+  };
+  let failure = null;
+  try {
+    const res = await fetch(server.url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify(call),
+    });
+    const text = await res.text();
+    // The answer is plain JSON or one server-sent event; either way the JSON-RPC message is the last {...} line.
+    const line = text.split("\n").map((l) => l.replace(/^data:\s*/, "")).filter((l) => l.startsWith("{")).at(-1) ?? "{}";
+    const msg = JSON.parse(line);
+    if (!res.ok || msg.error || msg.result?.isError) failure = `comment refused (${res.status}): ${line.slice(0, 300)}`;
+  } catch (e) {
+    failure = `comment failed: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  if (!project || !key) failure = `no project or ticket in the prompt (${project}, ${key})`;
+  if (failure) {
+    out({ type: "result", subtype: "success", is_error: true, num_turns: 1, session_id: "fake-session", result: failure });
+    process.exit(1);
+  }
+  out({ type: "assistant", message: { content: [{ type: "text", text: `commented on ${key}` }], usage: { input_tokens: 10, output_tokens: 5 } } });
+}
 const steps = 3;
 for (let i = 0; i < steps; i++) {
   await new Promise((r) => setTimeout(r, ms / steps));
