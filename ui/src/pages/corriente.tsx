@@ -34,6 +34,8 @@ import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
+import { PasoLado } from "@/components/corriente/lado";
+import { cosaOfPaso } from "@/lib/lado";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { Ajustes } from "@/components/corriente/ajustes";
@@ -42,7 +44,7 @@ import { metaLine, teamWord } from "@/lib/barra";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
 import { ApiError, api, type Decision, type OrgCompany, type OrgProject } from "@/lib/api";
-import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
+import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, pasoAt, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { doneOf, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
@@ -63,6 +65,8 @@ export function hojaOf(search: string): { kind: HojaKind; slug: string | null } 
 export function escFrom(at: At): Partial<At> {
   if (!at.slug) return { view: "corriente" };
   if (at.ver) return { slug: at.slug, tab: at.tab };
+  // PLA-I3-5: the step's panel closes first; the list stays.
+  if (at.paso) return { slug: at.slug, tab: at.tab };
   // A door steps back to the list (Motores to Equipo, where it opens from); the list back to the stream.
   if (at.tab === "motores") return { slug: at.slug, tab: "equipo" };
   if (at.tab !== "todo") return { slug: at.slug };
@@ -295,11 +299,47 @@ export const CorrientePage = () => {
         publicar: hojaHref("publicar", p.slug),
         ahora: ahoraLinks(p.slug),
       };
+      // PLA-I3-5: a step of a row's thread opens in the panel beside the list (?paso=<K>). Opening it from the list adds
+      // one entry to the history (Back closes it); moving between steps replaces it; Cerrar goes back to that entry.
+      const fromList = !!(location.state as { lado?: boolean } | null)?.lado;
+      const openPaso = (k: string | null) => {
+        if (k === null) {
+          if (fromList) navigate(-1);
+          else navigate(hrefOf(pasoAt(p.slug, null)), { replace: true });
+          return;
+        }
+        if (k === at.paso) return;
+        navigate(hrefOf(pasoAt(p.slug, k)), { replace: !!at.paso, state: at.paso ? location.state : { lado: true } });
+      };
+      const tickets = [...(p.tablero?.initiatives.flatMap((i) => i.tickets) ?? []), ...(p.tablero?.loose ?? [])];
+      const panel = (cosas: Parameters<typeof cosaOfPaso>[0]) => {
+        const k = at.paso;
+        if (!k) return null;
+        const c = cosaOfPaso(cosas, k);
+        const ticket = tickets.find((t) => t.key === k) ?? null;
+        const parent = ticket?.parent_key ? (p.tablero?.initiatives.find((i) => i.key === ticket.parent_key) ?? null) : null;
+        const iniciativa = c?.tipo === "iniciativa" ? { key: c.key, title: c.title } : parent ? { key: parent.key, title: parent.title } : null;
+        return (
+          <PasoLado
+            slug={p.slug}
+            k={k}
+            tramos={c?.hilo.tramos ?? []}
+            etapa={ticket?.etapa ?? null}
+            iniciativa={iniciativa}
+            links={{ full: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }) }}
+            onMove={openPaso}
+            onClose={() => openPaso(null)}
+            now={now}
+          />
+        );
+      };
       return (
         <Todo
           p={p}
           decisions={decisions}
           links={todoLinks}
+          lado={{ open: at.paso ?? null, onPaso: openPaso }}
+          panel={panel}
           timeZone={timeZone}
           companyPaused={paused}
           actOf={(c, cosas) => <Palanca p={p} c={c} primary={!p.paused && c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}

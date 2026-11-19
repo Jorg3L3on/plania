@@ -9,6 +9,7 @@ import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
 import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
 import { cuentaAria, cuentasOf, filtrar, tokensLabel, tokensTitle, type Filtro } from "@/lib/fila";
 import { Hilo, HiloHead } from "./hilo";
+import { ladoFits } from "./lado";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
 import { REANUDAR_LINE, pulsoLabel, reanudarLabel, type MetaLine } from "@/lib/barra";
@@ -18,8 +19,9 @@ export type TodoLinks = {
   open: (c: Cosa) => string;
   hecha: (key: string) => string;
   idea: (key: string) => string;
-  /** PLA-I3-4: where a step of a row's thread opens (today the step's page; phase 5 opens it beside the list).
-   *  Absent: the thread stays decorative. */
+  /** PLA-I3-4: where a step of a row's thread opens (the step's page). PLA-I3-5: with Todo's onPaso, a step opens
+   *  in the panel beside the list instead, and this is the phone's way (639 px and under). Absent: the thread stays
+   *  decorative. */
   paso?: (key: string) => string;
   /** Everything done (the Hecho door). */
   hecho: string;
@@ -80,10 +82,15 @@ const TokensLine = ({ c }: { c: Cosa }) => {
   );
 };
 
-const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) => {
+/** PLA-I3-5: the step open in the panel beside the list, and how a step's click opens it. */
+export type Lado = { open: string | null; onPaso: (key: string) => void };
+
+const Row = ({ c, links, act, lado }: { c: Cosa; links: TodoLinks; act?: ReactNode; lado?: Lado }) => {
   const toca = c.grupo === "toca";
   const navigate = useNavigate();
   const paso = links.paso;
+  // PLA-I3-5: the panel where it fits; on a phone the step's page.
+  const onOpen = paso ? (k: string) => (lado && ladoFits() ? lado.onPaso(k) : navigate(paso(k))) : undefined;
   return (
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
@@ -96,7 +103,7 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
         </b>
         <TokensLine c={c} />
       </Link>
-      <Hilo h={c.hilo} onOpen={paso ? (k) => navigate(paso(k)) : undefined} label={`Pasos de «${c.title}»`} />
+      <Hilo h={c.hilo} onOpen={onOpen} label={`Pasos de «${c.title}»`} openKey={lado ? lado.open : undefined} />
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
           <span className={cls("cor-label", toca && "amber")}>{c.cap}</span>
@@ -161,6 +168,7 @@ export const TodoList = ({
   companyPaused,
   actOf,
   plan,
+  lado,
 }: {
   p: OrgProject;
   cosas: Cosas;
@@ -168,6 +176,7 @@ export const TodoList = ({
   timeZone?: string;
   companyPaused: boolean;
   actOf?: (c: Cosa) => ReactNode;
+  lado?: Lado;
   /** PLA-I64-5: the empty project's «Arma el plan» (null: not offered, e.g. a plan is already asked for). */
   plan?: ReactNode;
 }) => {
@@ -277,7 +286,7 @@ export const TodoList = ({
             {k > 0 && (
               <ul>
                 {g.cosas.slice(0, k).map((c) => (
-                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} />
+                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} lado={lado} />
                 ))}
               </ul>
             )}
@@ -339,6 +348,8 @@ export const Todo = ({
   top,
   bottom,
   plan,
+  lado,
+  panel,
 }: {
   p: OrgProject;
   decisions: Decision[];
@@ -349,19 +360,25 @@ export const Todo = ({
   top?: (cosas: Cosas) => ReactNode;
   bottom?: (cosas: Cosas) => ReactNode;
   plan?: ReactNode;
+  lado?: Lado;
+  /** PLA-I3-5: the open step's panel, drawn over the list's right side (above the Pedir bar, never over it). */
+  panel?: (cosas: Cosas) => ReactNode;
 }) => {
   const f = useFicha(p.slug);
   const cosas = cosasOf({ p, decisions, ficha: f.data ?? null, companyPaused });
   return (
     <div className="cor-todo" data-todo-screen={p.slug}>
-      <div className="cor-todo-scroll">
-        {top?.(cosas)}
-        {f.isError && !f.data ? (
-          <div className="cor-todo-err">
-            <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
-          </div>
-        ) : null}
-        {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} />}
+      <div className="cor-todo-mid">
+        <div className="cor-todo-scroll">
+          {top?.(cosas)}
+          {f.isError && !f.data ? (
+            <div className="cor-todo-err">
+              <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
+            </div>
+          ) : null}
+          {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} lado={lado} />}
+        </div>
+        {panel?.(cosas)}
       </div>
       {bottom?.(cosas)}
     </div>

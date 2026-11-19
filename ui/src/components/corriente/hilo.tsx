@@ -66,7 +66,7 @@ const TramoTooltip = ({ t, i, n, el }: { t: Tramo; i: number; n: number; el: HTM
 };
 
 /** The construction segments as buttons. */
-const Pasos = ({ tramos, fin, label, onOpen }: { tramos: Tramo[]; fin: boolean; label: string; onOpen: (key: string) => void }) => {
+const Pasos = ({ tramos, fin, label, onOpen, openKey }: { tramos: Tramo[]; fin: boolean; label: string; onOpen: (key: string) => void; openKey?: string | null }) => {
   const [active, setActive] = useState(() => firstOpen(tramos));
   const [tip, setTip] = useState<Tip | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -128,8 +128,9 @@ const Pasos = ({ tramos, fin, label, onOpen }: { tramos: Tramo[]; fin: boolean; 
           <button
             key={t.key}
             type="button"
-            className={cls("cor-paso", tip?.i === i && "on")}
+            className={cls("cor-paso", tip?.i === i && "on", openKey === t.key && "open")}
             tabIndex={i === at ? 0 : -1}
+            aria-pressed={openKey === undefined ? undefined : openKey === t.key}
             aria-label={tt.aria}
             data-paso={t.key}
             data-tono={t.tono}
@@ -153,7 +154,9 @@ const Pasos = ({ tramos, fin, label, onOpen }: { tramos: Tramo[]; fin: boolean; 
   );
 };
 
-export const Hilo = ({ h, small, onOpen, label = "Pasos" }: { h: HiloT; small?: boolean; onOpen?: (key: string) => void; label?: string }) => {
+/** PLA-I3-5: openKey is the step open in the panel beside the list (its button is pressed and ringed); undefined
+ *  where steps do not open a panel (no aria-pressed at all). */
+export const Hilo = ({ h, small, onOpen, label = "Pasos", openKey }: { h: HiloT; small?: boolean; onOpen?: (key: string) => void; label?: string; openKey?: string | null }) => {
   const valve = h.valvula;
   const fin = h.publicado;
   const segs = h.tramos.length ? h.tramos.map((t) => (fin ? "fin" : SEG[t.tono])) : valve === "atorada" || valve === "toca" || valve === "pasando" ? ["", "", ""] : [];
@@ -167,7 +170,7 @@ export const Hilo = ({ h, small, onOpen, label = "Pasos" }: { h: HiloT; small?: 
       <span className="cor-h-c">
         {valve === "atorada" && <i className="cor-h-y" aria-hidden />}
         {live ? (
-          <Pasos tramos={h.tramos} fin={fin} label={label} onOpen={onOpen!} />
+          <Pasos tramos={h.tramos} fin={fin} label={label} onOpen={onOpen!} openKey={openKey} />
         ) : (
           segs.length > 0 && (
             <span className="cor-h-sg">

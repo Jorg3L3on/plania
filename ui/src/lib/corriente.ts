@@ -3,6 +3,7 @@
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
 //   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
+//   &paso=<K>                 PLA-I3-5: the step open in the side panel beside the list (the list stays); never with ver
 // The stream is the first screen; inside a project it shrinks to a strip on top.
 
 export const VIEWS = ["corriente", "tetoca", "asistente", "pedir", "brief", "piezas"] as const;
@@ -44,7 +45,9 @@ export type Ver =
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string };
 
-export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null };
+/** PLA-I3-5: paso is the step open in the panel beside the list. Present only when the address has one, on a
+ *  project's list (no ver, tab todo). */
+export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
 const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "sumar", "maq", "tabla"] as const;
 
@@ -115,7 +118,8 @@ export function atOf(search: string): At {
   const tab: Tab = ver && (!t || (q.get("t") && OLD_TAB[q.get("t")!] && tabOfVer(ver) !== t)) ? tabOfVer(ver) : (t ?? "todo");
   const v = q.get("v") as View | null;
   const view: View = slug ? "corriente" : v && (VIEWS as readonly string[]).includes(v) ? v : "corriente";
-  return { view, slug, tab, ver };
+  const paso = slug && !ver && tab === "todo" ? q.get("paso")?.trim() : null;
+  return paso ? { view, slug, tab, ver, paso } : { view, slug, tab, ver };
 }
 
 export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): string {
@@ -125,11 +129,15 @@ export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): 
     const tab = at.tab ?? (at.ver ? tabOfVer(at.ver) : "todo");
     if (tab !== "todo") q.set("t", tab);
     if (at.ver) q.set("ver", verParam(at.ver));
+    else if (at.paso && tab === "todo") q.set("paso", at.paso);
   } else if (at.view && at.view !== "corriente") q.set("v", at.view);
   for (const [k, val] of Object.entries(at.extra ?? {})) q.set(k, val);
   const s = q.toString();
   return s ? `?${s}` : "";
 }
+
+/** PLA-I3-5: the list with step k open beside it (null: the list alone). */
+export const pasoAt = (slug: string, k: string | null): Partial<At> => (k ? { slug, tab: "todo", paso: k } : { slug, tab: "todo" });
 
 /** Where La corriente lives: Compañía (PLA-I62-9; it was built at /corriente, which now redirects here). */
 export const HOME = "/ceo";

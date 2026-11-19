@@ -1322,3 +1322,48 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-tip.toca .cor-tip-st { color: #ffb454; }
 .cor-tip.toca .cor-tip-st i { background: #ffb454; }
 .cor-tip-hint { margin-top: 2px; padding-top: 7px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #9a9aa6; }
+
+/* PLA-I3-5 (board «Un paso abierto»): a step opens in a panel beside the list: 480 px on the right, from under the
+   project's bar to above the Pedir bar (it lives in .cor-todo-mid, which ends where Pedir starts), over the list,
+   with no scrim. The open step's button in its row wears a ring. No panel at 639 px and under (phase 7's sheet). */
+.cor-todo-mid { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cor-lado { position: absolute; z-index: 4; top: 0; right: 0; bottom: 0; width: 480px; max-width: 100%; display: flex; flex-direction: column; background: var(--cor-surface); border-left: 1px solid var(--cor-line); box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45); }
+.cor .cor-lado:focus, .cor .cor-lado:focus-visible { outline: none; }
+.cor-lado-head { display: flex; align-items: center; gap: 12px; height: 56px; flex: none; padding: 0 12px 0 24px; border-bottom: 1px solid var(--cor-line); }
+.cor-lado-nav { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.cor-lado-ic { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-body); cursor: pointer; }
+.cor-lado-ic:hover { background: var(--cor-raised); color: var(--cor-text); }
+.cor-lado-ic[aria-disabled="true"] { opacity: 0.32; cursor: default; }
+.cor-lado-ic[aria-disabled="true"]:hover { background: transparent; color: var(--cor-body); }
+.cor-lado-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 20px; }
+.cor-lado-strip { display: flex; align-items: center; gap: 3px; margin: -4px 0 -6px; }
+.cor-lado-sg { flex: 1; min-width: 0; height: 44px; padding: 0; display: flex; align-items: center; border: 0; background: transparent; cursor: pointer; }
+.cor-lado-sg i { display: block; width: 100%; height: 8px; border-radius: 2px; background: rgba(255, 255, 255, 0.2); transition: height 120ms ease-out; }
+.cor-lado-sg.hecho i { background: #7c6ad6; }
+.cor-lado-sg.fila i { background: #4a4270; }
+.cor-lado-sg.vivo i { background: #fff; box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
+.cor-lado-sg.toca i { background: var(--cor-amber); }
+.cor-lado-sg:hover i { height: 12px; }
+.cor-lado-sg.open i { height: 20px; }
+.cor-lado-sg.open { cursor: default; }
+@media (prefers-reduced-motion: reduce) { .cor-lado-sg i { transition: none; } }
+.cor-lado-st { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 13.5px; }
+.cor-lado-word { color: var(--cor-text); font-weight: 500; }
+.cor-lado-sq { width: 10px; height: 10px; flex: none; border-radius: 2px; background: rgba(255, 255, 255, 0.3); }
+.cor-lado-sq.hecho { background: #7c6ad6; }
+.cor-lado-sq.fila { background: #4a4270; }
+.cor-lado-sq.vivo { background: #fff; box-shadow: 0 0 8px 2px rgba(139, 92, 246, 0.7); }
+.cor-lado-sq.toca { background: var(--cor-amber); }
+.cor-lado-t { margin: -6px 0 0; overflow-wrap: anywhere; }
+.cor-lado-sum { margin: 0; white-space: pre-line; }
+.cor-lado-espera { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--cor-line); border-radius: 12px; background: var(--cor-raised); }
+.cor-lado-espera p { margin: 0; }
+.cor-lado-dl { margin: 0; border-top: 1px solid var(--cor-line); }
+.cor-lado-dl > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 14px; }
+.cor-lado-dl dd { margin: 0; min-width: 0; color: var(--cor-body); }
+.cor-lado-ini { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--cor-text); }
+.cor-lado-ini:hover .cor-ellipsis { text-decoration: underline; text-underline-offset: 3px; }
+.cor-lado-abrir { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.cor-lado-foot { flex: none; margin: 0; padding: 12px 24px; border-top: 1px solid var(--cor-line); }
+.cor-paso.open i { outline: 2px solid var(--cor-violet-4); outline-offset: 2px; }
+@media (max-width: 639px) { .cor-lado { display: none; } }
