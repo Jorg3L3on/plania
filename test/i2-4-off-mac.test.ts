@@ -376,6 +376,9 @@ describe("parts this system cannot run say so (check 7)", () => {
       const p = (await raw.query(`select * from projects where slug = 'micasa'`)).rows[0];
       const gate = probadorGate({ settings: p.settings } as never, { muestra: { vistas: [] }, probador: null } as never, null);
       assert.deepEqual(gate, { pending: false, hold: `Fotos: ${NO_DISPONIBLE.toLowerCase()}` });
+      // A saved error still wins over what this machine lacks: the owner reads what happened.
+      const saved = probadorGate({ settings: p.settings } as never, { muestra: { vistas: [] }, probador: { state: "lista", commit: null, error: "Sin antes: la copia de prueba no arrancó" } } as never, null);
+      assert.deepEqual(saved, { pending: false, hold: "Faltan fotos: Sin antes: la copia de prueba no arrancó" });
     } finally {
       support.useSystemSupport(null);
       resetPrueba();
