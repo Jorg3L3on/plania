@@ -861,6 +861,10 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 /* NEWPROJ-8: the creation sheet's name and goal row stacks at phone width; its inputs never push the sheet sideways. */
 .cor-hoja-nuevo .cor-hoja-two > label { min-width: 0; }
 @media (max-width: 639px) { .cor-hoja-nuevo .cor-hoja-two { flex-direction: column; } }
+/* NEWPROJ-7: the same for every sheet with a two-field row (Borrar's code field ran past the sheet's edge). */
+.cor-hoja-two > label { min-width: 0; }
+.cor-hoja-two > label > .cor-input { min-width: 0; width: 100%; }
+@media (max-width: 639px) { .cor-hoja-two { flex-direction: column; } }
 /* NEWPROJ-3: «¿Dónde está su código?» in the sheet Nuevo proyecto. */
 .cor-hoja-codigo { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .cor-hoja-codigo legend { padding: 0; margin-bottom: 6px; }

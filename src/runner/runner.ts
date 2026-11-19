@@ -13,6 +13,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { makeDb, type Db } from "../db/client.js";
+import { bus } from "../events.js";
 import {
   agentRuns,
   agentSessions,
@@ -1099,6 +1100,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const taskKey = run.taskKey;
   const fail = async (summary: string): Promise<WakeOutcome> => {
     await endWithoutProcess(db, run, "fail", summary, new Date());
+    // NEWPROJ-5: a run that never started writes no event, so open screens kept showing the step as about to
+    // start until their next poll. Tell them now.
+    bus.publish({ type: "task", project: project.slug, ...(taskKey ? { key: taskKey } : {}) });
     return { kind: "fail", summary, taskKey, recorded: true };
   };
 

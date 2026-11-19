@@ -135,8 +135,14 @@ test("NEWPROJ-5 #3: the ask answers before the PO's run starts; the failed start
   for (let i = 0; i < 100 && !reached; i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(reached, "the wake runs in the background");
   assert.equal((await raw.query(`select count(*)::int as n from agent_runs where task_key = $1 and status = 'fail'`, [out.key])).rows[0].n, 0);
+  // The failed start tells open screens, so the row changes without waiting for a poll.
+  const { bus } = await import("../src/events.js");
+  const told: string[] = [];
+  const off = bus.subscribe((e) => told.push(`${e.type}:${e.project}:${e.key ?? ""}`));
   release();
   await actions.waitForAskWakes();
+  off();
+  assert.ok(told.includes(`task:workia:${out.key}`), "a failed start publishes a change for its step");
   const run = (await raw.query(`select status, summary, trigger from agent_runs where task_key = $1 order by queued_at desc limit 1`, [out.key])).rows[0];
   assert.deepEqual([run.status, run.summary, run.trigger], ["fail", "fail: missing env PLANIA_RUNNER_TOKEN", "owner"]);
 
