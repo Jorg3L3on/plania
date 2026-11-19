@@ -260,11 +260,26 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
   .cor-pedir { flex-wrap: wrap; }
 }
 
-/* PLA-I62-3: the strip, the project's row and Ahora (board B1). */
-.cor-strip { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 32px; border-bottom: 1px solid var(--cor-line); }
+/* PLA-I62-3: the way back and the projects' chips (board B1). PLA-I3-2: one 56 px bar; the chips live in the switcher's menu. */
+.cor-topbar { position: relative; z-index: 5; display: flex; align-items: center; gap: 0 24px; height: 56px; flex: none; padding: 0 32px; border-bottom: 1px solid var(--cor-line); }
+.cor-topbar .cor-strip-back { padding-right: 0; }
+.cor-switch { position: relative; min-width: 0; flex: 0 1 auto; }
+.cor-switch-h { display: flex; min-width: 0; }
+.cor-switch-btn { display: inline-flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; margin-left: -10px; padding: 0 10px; border-radius: 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--cor-text); }
+.cor-switch-btn:hover, .cor-switch-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.05); }
+.cor-switch-btn svg { flex: none; color: var(--cor-muted); }
+.cor-switch-menu { position: absolute; top: calc(100% + 6px); left: -10px; display: flex; flex-direction: column; gap: 2px; width: 300px; max-height: min(70vh, 520px); overflow: auto; padding: 6px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
+.cor-switch-menu .cor-chip { padding: 9px 12px; }
+.cor-topbar .cor-doors { margin-left: 8px; }
+.cor-topbar .cor-door { min-height: 55px; margin-bottom: -1px; white-space: nowrap; }
+.cor-topbar-end { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+.cor-topbar-state { display: inline-flex; align-items: center; gap: 8px; font-family: var(--cor-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cor-body); white-space: nowrap; }
+.cor-topbar-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-3); box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
+.cor-topbar-state.off i { background: rgba(255, 255, 255, 0.28); box-shadow: none; }
+@media (max-width: 1360px) { .cor-topbar { gap: 0 16px; } .cor-topbar .cor-doors { gap: 0 16px; } }
+@media (max-width: 900px) { .cor-topbar { height: auto; flex-wrap: wrap; padding: 6px 16px; } .cor-topbar .cor-door { min-height: 44px; } }
 .cor-strip-back { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 0; font-size: 13.5px; color: var(--cor-body); flex: none; }
 .cor-strip-back:hover { color: #fff; }
-.cor-chips { flex: 1 1 600px; min-width: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 6px; }
 .cor-chip { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-height: 44px; min-width: 0; padding: 7px 12px; border-radius: 10px; border: 1px solid transparent; }
 .cor-chip:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-chip[aria-current="page"] { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
@@ -280,13 +295,7 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-mini .t.on { background: var(--cor-violet-2); }
 .cor-mini .t.ag { width: 7px; height: 7px; background: #fff; box-shadow: 0 0 10px 3px rgba(139, 92, 246, 0.9); }
 .cor-mini .t.yo { width: 6px; height: 6px; border-radius: 1px; transform: rotate(45deg); background: var(--cor-bg); border: 1.5px solid var(--cor-amber); box-shadow: 0 0 10px 2px rgba(255, 180, 84, 0.6); }
-.cor-strip > .cor-btn { margin-left: 8px; flex: none; }
 
-.cor-pbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 28px; padding: 0 32px; border-bottom: 1px solid var(--cor-line); }
-.cor-pname { display: flex; align-items: center; gap: 10px; min-height: 52px; font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
-.cor-pbar .cor-tabs { gap: 0 20px; }
-.cor-pbar .cor-tabs.side { margin-left: auto; gap: 0 18px; }
-.cor-pbar .cor-tabs.side .cor-tab { font-size: 13px; }
 .cor-tab.tall { min-height: 52px; margin-bottom: -1px; }
 
 .cor-project { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -976,17 +985,24 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cabeza { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; padding: 16px 0 12px; }
 .cor-frase { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .cor-frase-h { display: flex; flex-direction: column; font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; }
+/* PLA-I3-2: the sentence at the page's title size. */
+.cor-frase-h.cor-h1 { font-size: clamp(34px, 3.7vw, 52px); line-height: 1.06; font-weight: 500; letter-spacing: -0.035em; text-wrap: balance; }
 .cor-frase-h .amber { color: var(--cor-amber); }
 .cor-frase-falta { font-size: 14px; color: var(--cor-body); max-width: 860px; }
-.cor-pulso { flex: none; margin: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 200px; }
+.cor-pulso { flex: none; margin: 0; display: flex; align-items: flex-end; gap: 18px; min-width: 200px; }
+.cor-pulso-n { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-bottom: 18px; }
+.cor-pulso-n .cor-label { max-width: 110px; text-align: right; line-height: 1.35; }
+.cor-pulso-chart { display: flex; flex-direction: column; gap: 6px; }
 .cor-pulso-bars { display: flex; align-items: flex-end; gap: 4px; height: 44px; }
 .cor-pulso-bars i { width: 9px; min-height: 2px; border-radius: 2px 2px 0 0; background: #7c6ad6; }
 .cor-pulso-bars i.z { background: rgba(255, 255, 255, 0.14); }
 .cor-pulso-bars i.hoy { background: var(--cor-violet-4); box-shadow: 0 0 12px 2px rgba(139, 92, 246, 0.7); }
 .cor-pulso-ends { display: flex; justify-content: space-between; width: 100%; font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); }
-@media (max-width: 900px) { .cor-cabeza { flex-direction: column; } .cor-pulso { align-items: flex-start; } }
-.cor-pmeta { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; font-size: 13.5px; color: var(--cor-body); }
-.cor-pmeta-tx { max-width: 360px; }
+@media (max-width: 900px) { .cor-cabeza { flex-direction: column; } .cor-pulso-n { align-items: flex-start; } .cor-pulso-n .cor-label { text-align: left; } }
+/* PLA-I3-2: the meta line above the sentence; Reanudar under it while paused. */
+.cor-pmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; min-width: 0; font-size: 13.5px; color: var(--cor-body); }
+.cor-pmeta .cor-btn.link { min-height: 32px; }
+.cor-reanudar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 6px; }
 /* PLA-I64-4: the lever on a row. */
 .cor-palanca { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 260px; }
 .cor-palanca-btns { display: flex; align-items: center; gap: 8px; }
@@ -998,7 +1014,6 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cosa.ghost:hover { background: none; }
 .cor-vacio-plan { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-top: 1px solid var(--cor-line); }
 .cor-todo .cor-pedir { padding: 10px 32px 12px; }
-.cor-pbar-end { display: flex; align-items: center; gap: 8px; }
 /* PLA-I64-6: the Archivo and Hecho doors. */
 .cor-pbody:has(.cor-archivo), .cor-pbody:has(.cor-hecho) { padding-top: 16px; }
 .cor-door { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 4px; font-size: 13.5px; color: #a9a9b6; border-bottom: 2px solid transparent; }
@@ -1031,14 +1046,11 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-hecho-day { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--cor-line); }
 .cor-hecho-day .cor-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cor-hecho-nav { display: flex; gap: 16px; }
-.cor-pbar-back { gap: 6px; }
 @media (max-width: 1100px) { .cor-archivo-cols, .cor-hecho-cols { grid-template-columns: 1fr; } }
 /* PLA-I64-7: the bar's doors. */
 .cor-doors { margin-left: auto; display: flex; align-items: center; gap: 0 22px; }
 .cor-door .n { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); letter-spacing: 0.04em; }
-.cor-pbar { min-height: 52px; flex-wrap: nowrap; }
-.cor-pbar .cor-pmeta { flex: 0 1 auto; min-width: 0; }
-@media (max-width: 900px) { .cor-pbar { flex-wrap: wrap; } .cor-doors { margin-left: 0; flex-wrap: wrap; } }
+@media (max-width: 900px) { .cor-doors { margin-left: 0; flex-wrap: wrap; } }
 .cor-cabeza-l { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .cor-nudge { display: flex; align-items: center; gap: 10px; }
 .cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }

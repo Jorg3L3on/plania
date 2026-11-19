@@ -5,6 +5,7 @@
 // Wording and checks: @/lib/ajustes. Token fields are never shown here: they stay MCP-only, as variable names.
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
 import {
@@ -13,6 +14,7 @@ import {
   LANZAMIENTO_CAMPOS,
   SECCIONES,
   ajustesError,
+  borrarBoton,
   codigoDe,
   comandos,
   comandosAviso,
@@ -269,7 +271,18 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
   );
 };
 
-export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
+/** PLA-I3-2: Borrar proyecto opens from Ajustes (its sheet is ?hoja=borrar, unchanged). */
+export const AjustesBorrar = ({ title, to }: { title: string; to: string }) => (
+  <Seccion id="borrar" titulo={SECCIONES.borrar.titulo} texto={SECCIONES.borrar.texto}>
+    <div className="cor-acts">
+      <Link className="cor-btn danger" to={to} data-control="borrar">
+        {borrarBoton(title)}
+      </Link>
+    </div>
+  </Seccion>
+);
+
+export const Ajustes = ({ p, borrarTo }: { p: { slug: string; title: string }; borrarTo?: string }) => {
   const q = useQuery({ queryKey: ["ajustes", p.slug], queryFn: () => api.ajustes(p.slug) });
   if (q.isError && !q.data) return <ReadError what="los ajustes" onRetry={() => void q.refetch()} />;
   const a = q.data;
@@ -294,6 +307,7 @@ export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
               ))}
             </ul>
           </Seccion>
+          {borrarTo && <AjustesBorrar title={p.title} to={borrarTo} />}
         </div>
       )}
     </div>

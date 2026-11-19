@@ -31,13 +31,14 @@ import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
 import { PedirBar } from "@/components/corriente/pedir-bar";
 import { Piezas } from "@/components/corriente/piezas";
-import { ProjectBar, Strip } from "@/components/corriente/strip";
+import { ProjectBar } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { Ajustes } from "@/components/corriente/ajustes";
 import { cosasOf, fraseOf } from "@/lib/cosas";
+import { metaLine, teamWord } from "@/lib/barra";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
 import { ApiError, api, type Decision, type OrgCompany, type OrgProject } from "@/lib/api";
@@ -300,9 +301,9 @@ export const CorrientePage = () => {
           links={todoLinks}
           timeZone={timeZone}
           companyPaused={paused}
-          actOf={(c, cosas) => <Palanca p={p} c={c} primary={c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}
+          actOf={(c, cosas) => <Palanca p={p} c={c} primary={!p.paused && c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}
           bottom={(cosas) => (
-            <PedirBar projects={company?.projects ?? [p]} fixed={p} primary={!cosas.grupos[0]?.cosas.length} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />
+            <PedirBar projects={company?.projects ?? [p]} fixed={p} primary={!p.paused && !cosas.grupos[0]?.cosas.length} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />
           )}
           plan={
             !p.paused && !paused && !(p.route && p.route.legs.length > 0) ? (
@@ -323,7 +324,17 @@ export const CorrientePage = () => {
                   {reason.action.label}
                 </Link>
               ) : null;
-            return <Cabeza slug={p.slug} f={fraseOf(p, cosas, line, { now, companyPaused: paused, totals })} nudge={nudge} />;
+            const r = rumboText(p);
+            // PLA-I3-2: the meta line above the sentence; a paused project's Reanudar under it (the bar shows the state only).
+            return (
+              <Cabeza
+                slug={p.slug}
+                f={fraseOf(p, cosas, line, { now, companyPaused: paused, totals })}
+                nudge={nudge}
+                meta={{ m: metaLine(r.goal, r.date, r.missing), href: hojaHref("meta", p.slug) }}
+                reanudar={p.paused ? { title: p.title, href: hojaHref("reanudar", p.slug) } : undefined}
+              />
+            );
           }}
         />
       );
@@ -414,7 +425,8 @@ export const CorrientePage = () => {
         />
       );
     // NEWPROJ-6: the project's settings.
-    if (at.tab === "ajustes") return <Ajustes p={p} />;
+    // PLA-I3-2: Borrar opens from here (the same ?hoja=borrar sheet), no longer from the bar.
+    if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 
@@ -433,23 +445,8 @@ export const CorrientePage = () => {
             </Btn>
           </div>
         );
-      const r = rumboText(project);
-      const working = project.team.filter((m) => m.state === "running").length;
-      const team = paused || project.paused ? "EN PAUSA" : working ? `${working} ${working === 1 ? "TRABAJANDO" : "TRABAJANDO"}` : `${project.team.length} ${project.team.length === 1 ? "LIBRE" : "LIBRES"}`;
       return (
         <div className="cor-project" data-project={project.slug}>
-          <ProjectBar
-            slug={project.slug}
-            title={project.title}
-            tab={at.tab}
-            back={at.tab !== "todo" ? { href: linkTo({ slug: project.slug }), label: `Todo ${project.title}` } : undefined}
-            meta={at.tab === "todo" && !at.ver ? { text: [r.goal ?? "Sin meta todavía", r.date ?? (r.goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: r.missing, href: hojaHref("meta", project.slug) } : undefined}
-            team={team}
-            paused={project.paused}
-            pauseHref={hojaHref(project.paused ? "reanudar" : "pausar", project.slug)}
-            deleteHref={hojaHref("borrar", project.slug)}
-            href={(t) => linkTo({ slug: project.slug, tab: t })}
-          />
           <div className="cor-pbody">{projectBody(project)}</div>
         </div>
       );
@@ -502,12 +499,29 @@ export const CorrientePage = () => {
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 
+  // PLA-I3-2: the project view's one bar (the strip and the project's bar, merged).
+  const working = project ? project.team.filter((m) => m.state === "running").length : 0;
+  const bar = project ? (
+    <ProjectBar
+      slug={project.slug}
+      title={project.title}
+      lanes={lanes}
+      tab={at.tab}
+      href={(t) => linkTo({ slug: project.slug, tab: t })}
+      projectHref={(slug) => linkTo({ slug, tab: at.tab })}
+      back={hrefOf({ view: "corriente" })}
+      pedirTo={pedirTo(project.slug)}
+      team={teamWord(project.team.length, working, paused || project.paused)}
+      open={project.work.open}
+      paused={project.paused}
+      pauseHref={hojaHref("pausar", project.slug)}
+    />
+  ) : null;
+
   return (
     <div className="cor" data-corriente={at.slug ? `proyecto:${at.tab}` : at.view}>
       <span className="cor-aura" aria-hidden />
-      {at.slug && company ? (
-        <Strip lanes={lanes} open={at.slug} href={(slug) => linkTo({ slug, tab: at.tab })} back={hrefOf({ view: "corriente" })} pedirTo={pedirTo(at.slug)} />
-      ) : (
+      {bar ?? (
         <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} briefToca={briefToca} closeTo={at.view === "pedir" ? hrefOf({ view: "corriente" }) : undefined} />
       )}
       {paused && (

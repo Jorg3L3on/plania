@@ -35,7 +35,12 @@ export const SECCIONES = {
   pruebas: { titulo: "Lo que QA comprueba", texto: "Un comando por línea. QA los corre en orden en cada entrega; si uno falla, la entrega vuelve a Taller." },
   vista: { titulo: "Vista previa y planes", texto: "Dónde ves la app corriendo, y si un plan del PO espera tu «Sí, empiecen»." },
   contexto: { titulo: "Contexto del equipo", texto: "Tres notas que cada corrida lee al empezar. Se crean de una plantilla y se editan aquí." },
+  // PLA-I3-2: Borrar left the project's bar; it opens from here (the same sheet, which asks for the name and the code).
+  borrar: { titulo: "Borrar el proyecto", texto: "Se borra su plan en Plania; su código y su repositorio se quedan. Antes de borrar te pido su nombre y tu código." },
 } as const;
+
+/** The button of Ajustes' last section, which opens Borrar proyecto's sheet. */
+export const borrarBoton = (title: string): string => `Borrar ${title}`;
 
 export const LANZAMIENTO_CAMPOS = {
   from: { label: "Rama de prueba", hint: "La que recibe lo que aceptas." },

@@ -10,6 +10,7 @@ import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type
 import { Hilo, HiloHead } from "./hilo";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
+import { REANUDAR_LINE, pulsoLabel, reanudarLabel, type MetaLine } from "@/lib/barra";
 
 export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
@@ -336,11 +337,13 @@ export const Todo = ({
   );
 };
 
-// ---- PLA-I64-3: the sentence and the pulse (board A1, A2).
+// ---- PLA-I64-3: the sentence and the pulse (board A1, A2). PLA-I3-2: the meta line sits above the sentence, the
+// sentence takes the page's title size, Reanudar sits under it while the project is paused, and the pulse's count is
+// a figure beside the bars.
 
 export const FraseView = ({ f }: { f: Frase }) => (
   <div className="cor-frase" data-frase>
-    <h2 className="cor-frase-h">
+    <h2 className="cor-frase-h cor-h1">
       <span>{f.mueve}</span>
       {f.toca && (
         <span className="amber" data-frase-toca>
@@ -362,15 +365,20 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
   const first = pulso.days[0]?.day;
   return (
     <figure className="cor-pulso" data-pulso={pulso.total}>
-      <figcaption className="cor-label">{`Últimos ${pulso.days.length} días · ${pulso.total} ${pulso.total === 1 ? "paso hecho" : "pasos hechos"}`}</figcaption>
-      <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
-        {pulso.days.map((d, i) => (
-          <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
-        ))}
-      </div>
-      <div className="cor-pulso-ends" aria-hidden>
-        <span>{first ? shortDay(first) : ""}</span>
-        <span>HOY</span>
+      <figcaption className="cor-pulso-n">
+        <b className="cor-figure">{pulso.total}</b>
+        <span className="cor-label">{pulsoLabel(pulso.days.length)}</span>
+      </figcaption>
+      <div className="cor-pulso-chart">
+        <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
+          {pulso.days.map((d, i) => (
+            <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
+          ))}
+        </div>
+        <div className="cor-pulso-ends" aria-hidden>
+          <span>{first ? shortDay(first) : ""}</span>
+          <span>HOY</span>
+        </div>
       </div>
     </figure>
   );
@@ -378,13 +386,35 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
 
 export const usePulso = (slug: string) => useQuery({ queryKey: ["pulso", slug], queryFn: () => api.pulso(slug), staleTime: 60_000, refetchInterval: 120_000, retry: 1 });
 
-export const Cabeza = ({ f, slug, nudge }: { f: Frase; slug: string; nudge?: ReactNode }) => {
+/** The meta line above the sentence: «Meta · Sin meta todavía · Fijar meta». */
+export const MetaView = ({ m, href }: { m: MetaLine; href: string }) => (
+  <div className="cor-pmeta" data-pmeta>
+    <span className="cor-label">Meta</span>
+    <span className="cor-pmeta-tx">{m.text}</span>
+    <Link to={href} className="cor-btn link" data-control="fijar">
+      {m.link}
+    </Link>
+  </div>
+);
+
+/** PLA-I3-2: the paused project's one white button, under its sentence. */
+export const ReanudarView = ({ title, href }: { title: string; href: string }) => (
+  <div className="cor-reanudar" data-reanudar>
+    <Link className="cor-btn primary" to={href} data-control="reanudar">
+      {reanudarLabel(title)}
+    </Link>
+    <span className="cor-text">{REANUDAR_LINE}</span>
+  </div>
+);
+
+export const Cabeza = ({ f, slug, nudge, meta, reanudar }: { f: Frase; slug: string; nudge?: ReactNode; meta?: { m: MetaLine; href: string }; reanudar?: { title: string; href: string } }) => {
   const q = usePulso(slug);
   return (
     <div className="cor-cabeza" data-cabeza>
       <div className="cor-cabeza-l">
+        {meta && <MetaView m={meta.m} href={meta.href} />}
         <FraseView f={f} />
-        {nudge && <div className="cor-nudge">{nudge}</div>}
+        {reanudar ? <ReanudarView title={reanudar.title} href={reanudar.href} /> : nudge && <div className="cor-nudge">{nudge}</div>}
       </div>
       <PulsoView pulso={q.data ?? null} />
     </div>
