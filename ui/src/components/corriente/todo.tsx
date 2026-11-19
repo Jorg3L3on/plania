@@ -3,19 +3,27 @@
 // mueve, En fila, Quieto, Hecho), always in that order. An empty group is one line; a long group folds («Ver las
 // otras N»). A row opens today's view of the thing (the idea, the initiative, the step) and comes back here.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
 import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
+import { cuentaAria, cuentasOf, filtrar, tokensLabel, tokensTitle, type Filtro } from "@/lib/fila";
 import { Hilo, HiloHead } from "./hilo";
+import { ladoFits } from "./lado";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
+import { TramosBoton, TramosHoja } from "./tramos";
+import { REANUDAR_LINE, pulsoLabel, pulsoLine, reanudarLabel, type MetaLine } from "@/lib/barra";
 
 export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
   open: (c: Cosa) => string;
   hecha: (key: string) => string;
   idea: (key: string) => string;
+  /** PLA-I3-4: where a step of a row's thread opens (the step's page). PLA-I3-5: with Todo's onPaso, a step opens
+   *  in the panel beside the list instead, and this is the phone's way (639 px and under). Absent: the thread stays
+   *  decorative. */
+  paso?: (key: string) => string;
   /** Everything done (the Hecho door). */
   hecho: string;
 };
@@ -24,15 +32,18 @@ const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean)
 
 /** How many rows each group shows before it folds. The list measures its own height (ResizeObserver) and spends
  *  it in group order: a Te toca row costs more than a quiet one, a row in line or done costs least. Te toca always
- *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2). */
-export const ROW_PX = { toca: 86, mueve: 58, fila: 52, quieto: 66, hecho: 46 } as const;
-// The column header is 30px; a group's line is 30, or 48 when it carries a «Ver…» link (a 44px target).
-export const LINE_PX = { head: 30, group: 30, folded: 48 } as const;
+ *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2); PLA-I3-3
+ *  re-measured them once titles and «qué toca» took two lines and initiatives a token line. */
+export const ROW_PX = { toca: 96, mueve: 94, fila: 80, quieto: 80, hecho: 46 } as const;
+// The column header is 30px; the counts' row is 56 (44px controls); a group's line is 30, or 48 when it carries a
+// «Ver…» link (a 44px target). Only groups with rows get a line (PLA-I3-3).
+export const LINE_PX = { head: 30, cuentas: 56, group: 30, folded: 48 } as const;
 export const FOLD = { perGroup: 3, hecho: 2, fallback: 420 } as const;
 export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD.fallback): Record<Grupo, number> {
-  // Fixed lines: the column header, one line per group shown (empty groups share the next one), Hecho's line.
-  let left = height - LINE_PX.head - c.grupos.filter((g) => g.cosas.length > 0).length * LINE_PX.group - LINE_PX.folded;
-  const out = {} as Record<Grupo, number>;
+  // Fixed lines: the column header, the counts, one line per group with rows, Hecho's line when it has any.
+  const hechoLine = c.hecho.iniciativas.length > 0 || c.hecho.sueltos > 0 ? LINE_PX.folded : 0;
+  let left = height - LINE_PX.head - LINE_PX.cuentas - c.grupos.filter((g) => g.cosas.length > 0).length * LINE_PX.group - hechoLine;
+  const out = { toca: 0, mueve: 0, fila: 0, quieto: 0, hecho: 0 } as Record<Grupo, number>;
   for (const g of c.grupos) {
     const n = g.cosas.length;
     let show = 0;
@@ -60,8 +71,32 @@ export function groupLine(g: Exclude<Grupo, "hecho">, n: number, paused: boolean
   return "no se mueven solas; cada una dice qué espera";
 }
 
-const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) => {
+// PLA-I3-3: an initiative's token line under its name: one figure, violet with a dot while one of its steps is live.
+const TokensLine = ({ c }: { c: Cosa }) => {
+  if (!c.tokens) return null;
+  const live = c.hilo.tramos.some((t) => t.tono === "vivo");
+  return (
+    <span className={cls("cor-tokens", live && "live")} title={tokensTitle(c.tokens)} data-tokens={c.tokens.used}>
+      {live && <i aria-hidden />}
+      {tokensLabel(c.tokens.used)}
+    </span>
+  );
+};
+
+/** PLA-I3-5: the step open in the panel beside the list, and how a step's click opens it. */
+export type Lado = { open: string | null; onPaso: (key: string) => void };
+
+/** PLA-I3-7: an initiative's steps on a phone: one control on its card, and the sheet it opens. */
+type Tramos = { open: string | null; onOpen: (key: string) => void };
+
+const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?: ReactNode; lado?: Lado; tramos?: Tramos }) => {
   const toca = c.grupo === "toca";
+  const navigate = useNavigate();
+  const paso = links.paso;
+  // PLA-I3-5: the panel where it fits; on a phone the step's page.
+  const onOpen = paso ? (k: string) => (lado && ladoFits() ? lado.onPaso(k) : navigate(paso(k))) : undefined;
+  // PLA-I3-7: drawn only at 639 px and under (corriente.css), where it takes the thread's place.
+  const control = !!paso && !!tramos && c.tipo === "iniciativa" && c.hilo.tramos.length > 0;
   return (
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
@@ -69,17 +104,46 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
           <Label tone={toca ? "amber" : undefined}>{TIPO_NAME[c.tipo]}</Label>
           {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
-        <b className="cor-ellipsis">{c.title}</b>
+        <b className="cor-cosa-t" title={c.title}>
+          {c.title}
+        </b>
+        <TokensLine c={c} />
       </Link>
-      <Hilo h={c.hilo} />
+      <Hilo h={c.hilo} onOpen={onOpen} label={`Pasos de «${c.title}»`} openKey={lado ? lado.open : undefined} />
+      {control && <TramosBoton c={c} open={tramos!.open === c.key} onOpen={() => tramos!.onOpen(c.key)} />}
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
           <span className={cls("cor-label", toca && "amber")}>{c.cap}</span>
-          <span className="cor-cosa-espera">{c.espera}</span>
+          <span className="cor-cosa-espera" title={c.espera}>
+            {c.espera}
+          </span>
         </span>
         {act}
       </div>
     </li>
+  );
+};
+
+/** PLA-I3-3: the counts above the list (Todo, Te toca, Se mueve, En fila, Quieto), each a pressed-state button that
+ *  filters it, and Hecho as the link to its door. They replace the line «TE TOCA · 0 SE MUEVE · 0 …». */
+export const Cuentas = ({ cosas, filtro, onFiltro, hechoHref }: { cosas: Cosas; filtro: Filtro; onFiltro: (f: Filtro) => void; hechoHref: string }) => {
+  const { cuentas, hecho } = cuentasOf(cosas);
+  return (
+    <div className="cor-cuentas" role="group" aria-label="Filtrar la lista" data-cuentas>
+      {cuentas.map((k) => (
+        <button key={k.id} type="button" className={cls("cor-cuenta", k.id === "toca" && k.n > 0 && "you")} aria-pressed={filtro === k.id} aria-label={cuentaAria(k)} onClick={() => onFiltro(k.id)} data-control={`filtro-${k.id}`}>
+          <span className="cor-label">{k.label}</span>
+          <b className="cor-cuenta-n">{k.n}</b>
+        </button>
+      ))}
+      <Link className="cor-cuenta hecho" to={hechoHref} aria-label={`Hecho: ${hecho}. Ver todo lo hecho`} data-control="filtro-hecho">
+        <span className="cor-label">Hecho</span>
+        <b className="cor-cuenta-n">{hecho}</b>
+        <span className="cor-cuenta-go" aria-hidden>
+          →
+        </span>
+      </Link>
+    </div>
   );
 };
 
@@ -111,6 +175,7 @@ export const TodoList = ({
   companyPaused,
   actOf,
   plan,
+  lado,
 }: {
   p: OrgProject;
   cosas: Cosas;
@@ -118,10 +183,19 @@ export const TodoList = ({
   timeZone?: string;
   companyPaused: boolean;
   actOf?: (c: Cosa) => ReactNode;
+  lado?: Lado;
   /** PLA-I64-5: the empty project's «Arma el plan» (null: not offered, e.g. a plan is already asked for). */
   plan?: ReactNode;
 }) => {
   const [open, setOpen] = useState<Set<Grupo>>(new Set());
+  // PLA-I3-3: the count pressed above the list; a group's count shows that group whole.
+  const [filtro, setFiltro] = useState<Filtro>("todo");
+  // PLA-I3-7: the initiative whose steps' sheet is open (a phone's control opens it).
+  const [tramosDe, setTramosDe] = useState<string | null>(null);
+  const tramos = { open: tramosDe, onOpen: setTramosDe };
+  const hojaDe = tramosDe ? (cosas.grupos.flatMap((g) => g.cosas).find((c) => c.key === tramosDe) ?? null) : null;
+  const vista = filtrar(cosas, filtro);
+  const abiertos: ReadonlySet<Grupo> = filtro === "todo" ? open : new Set<Grupo>([filtro]);
   const paused = companyPaused || p.paused;
   // The room the list has (its scroll box), read on every resize.
   const ref = useRef<HTMLDivElement>(null);
@@ -151,28 +225,21 @@ export const TodoList = ({
   // floor went blank. It now corrects at most MAX_FIT_TRIES times per box size, and never past the room itself; what
   // still overflows then scrolls.
   const tries = useRef(0);
-  const shown = foldOf(cosas, open, room === undefined ? undefined : room - over);
+  const shown = foldOf(vista, abiertos, room === undefined ? undefined : room - over);
   useLayoutEffect(() => {
     const box = ref.current?.closest(".cor-todo-scroll") as HTMLElement | null;
-    if (!box || open.size > 0) return;
+    if (!box || abiertos.size > 0) return;
     const extra = box.scrollHeight - box.clientHeight;
     if (!shouldRefit(extra, tries.current, over, room)) return;
     tries.current += 1;
     setOver((o) => o + extra);
   });
   const toggle = (g: Grupo) => setOpen((s) => (s.has(g) ? new Set([...s].filter((x) => x !== g)) : new Set([...s, g])));
-  // Empty groups share the line of the group after them (or one line of their own at the end).
-  const blocks: ({ kind: "empty"; grupos: Exclude<Grupo, "hecho">[] } | { kind: "group"; i: number; lead: Exclude<Grupo, "hecho">[] })[] = [];
-  let pend: Exclude<Grupo, "hecho">[] = [];
-  cosas.grupos.forEach((g, i) => {
-    if (g.cosas.length === 0) pend.push(g.grupo);
-    else {
-      blocks.push({ kind: "group", i, lead: pend });
-      pend = [];
-    }
-  });
-  if (pend.length) blocks.push({ kind: "empty", grupos: pend });
-  const hecho = cosas.hecho;
+  // PLA-I3-3: the counts say every group's size, so only groups with rows get a header; a pressed count whose group is
+  // empty says so in its line.
+  const grupos = vista.grupos.filter((g) => g.cosas.length > 0 || filtro !== "todo");
+  const cuentas = <Cuentas cosas={cosas} filtro={filtro} onFiltro={setFiltro} hechoHref={links.hecho} />;
+  const hecho = vista.hecho;
   const hechoRows = hecho.iniciativas.slice(0, shown.hecho);
   if (cosas.abiertas === 0 && hecho.iniciativas.length === 0 && hecho.sueltos === 0)
     return (
@@ -195,11 +262,7 @@ export const TodoList = ({
             </span>
           </div>
         </div>
-        <div className="cor-grp" data-grupo-vacio="toca mueve fila quieto hecho">
-          {(["toca", "mueve", "fila", "quieto", "hecho"] as const).map((g) => (
-            <span key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</span>
-          ))}
-        </div>
+        {cuentas}
         {plan && (
           <div className="cor-vacio-plan">
             <p className="cor-text">¿Prefieres que el PO proponga por dónde empezar? Arma el plan del proyecto: los entregables y los pasos de cada uno.</p>
@@ -215,29 +278,17 @@ export const TodoList = ({
         <HiloHead />
         <span className="cor-label">Qué toca</span>
       </div>
-      {blocks.map((b) => {
-        if (b.kind === "empty")
-          return (
-            <div key={b.grupos.join("-")} className="cor-grp" data-grupo-vacio={b.grupos.join(" ")}>
-              {b.grupos.map((g) => (
-                <h2 key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</h2>
-              ))}
-              <span className="cor-grp-tx">{b.grupos.length > 1 ? b.grupos.map((g) => groupLine(g, 0, paused)).join(" ") : groupLine(b.grupos[0]!, 0, paused)}</span>
-            </div>
-          );
-        const g = cosas.grupos[b.i]!;
+      {cuentas}
+      {grupos.map((g) => {
         const n = g.cosas.length;
         const k = shown[g.grupo];
         const more = n - k;
         return (
           <section key={g.grupo} aria-label={GRUPO_NAME[g.grupo]} data-grupo={g.grupo}>
             <div className="cor-grp">
-              {b.lead.map((e) => (
-                <span key={e} className="cor-label" data-grupo-vacio={e}>{`${GRUPO_NAME[e]} · 0`}</span>
-              ))}
-              <h2 className={cls("cor-label", g.grupo === "toca" && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
-              {g.grupo !== "toca" && <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>}
-              {(more > 0 || open.has(g.grupo)) && (
+              <h2 className={cls("cor-label", g.grupo === "toca" && n > 0 && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
+              <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>
+              {filtro === "todo" && (more > 0 || open.has(g.grupo)) && (
                 <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has(g.grupo)} onClick={() => toggle(g.grupo)} data-control={`ver-${g.grupo}`}>
                   {open.has(g.grupo) ? "Ver menos" : k === 0 ? (n === 1 ? "Verla" : `Ver las ${n}`) : more === 1 ? "Ver la otra" : `Ver las otras ${more}`}
                 </button>
@@ -246,30 +297,31 @@ export const TodoList = ({
             {k > 0 && (
               <ul>
                 {g.cosas.slice(0, k).map((c) => (
-                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} />
+                  <Row key={c.key} c={c} links={links} act={actOf?.(c)} lado={lado} tramos={tramos} />
                 ))}
               </ul>
             )}
           </section>
         );
       })}
-      <section aria-label="Hecho" data-grupo="hecho">
-        <div className="cor-grp">
-          <h2 className="cor-label green">{["Hecho", hecho.iniciativas.length ? `${hecho.iniciativas.length} ${hecho.iniciativas.length === 1 ? "iniciativa" : "iniciativas"}` : null, hecho.sueltos ? `${hecho.sueltos} ${hecho.sueltos === 1 ? "paso suelto" : "pasos sueltos"}` : null].filter(Boolean).join(" · ") || "Hecho · 0"}</h2>
-          {!hecho.iniciativas.length && !hecho.sueltos && <span className="cor-grp-tx">Todavía nada.</span>}
-          <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
-            Ver todo lo hecho
-          </Link>
-        </div>
-        {hechoRows.length > 0 && (
-          <ul>
-            {hechoRows.map((h) => (
-              <HechaRow key={h.key} h={h} links={links} timeZone={timeZone} />
-            ))}
-          </ul>
-        )}
-      </section>
-      {cosas.guardadas > 0 && (
+      {(hecho.iniciativas.length > 0 || hecho.sueltos > 0) && (
+        <section aria-label="Hecho" data-grupo="hecho">
+          <div className="cor-grp">
+            <h2 className="cor-label green">{["Hecho", hecho.iniciativas.length ? `${hecho.iniciativas.length} ${hecho.iniciativas.length === 1 ? "iniciativa" : "iniciativas"}` : null, hecho.sueltos ? `${hecho.sueltos} ${hecho.sueltos === 1 ? "paso suelto" : "pasos sueltos"}` : null].filter(Boolean).join(" · ")}</h2>
+            <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
+              Ver todo lo hecho
+            </Link>
+          </div>
+          {hechoRows.length > 0 && (
+            <ul>
+              {hechoRows.map((h) => (
+                <HechaRow key={h.key} h={h} links={links} timeZone={timeZone} />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {vista.guardadas > 0 && (
         <section aria-label="Guardadas" data-guardadas={cosas.guardadas}>
           <div className="cor-grp">
             <h2 className="cor-label">{`Guardadas · ${cosas.guardadas}`}</h2>
@@ -292,6 +344,7 @@ export const TodoList = ({
           )}
         </section>
       )}
+      {hojaDe && links.paso && <TramosHoja c={hojaDe} paso={links.paso} onClose={() => setTramosDe(null)} />}
     </div>
   );
 };
@@ -307,6 +360,8 @@ export const Todo = ({
   top,
   bottom,
   plan,
+  lado,
+  panel,
 }: {
   p: OrgProject;
   decisions: Decision[];
@@ -317,30 +372,38 @@ export const Todo = ({
   top?: (cosas: Cosas) => ReactNode;
   bottom?: (cosas: Cosas) => ReactNode;
   plan?: ReactNode;
+  lado?: Lado;
+  /** PLA-I3-5: the open step's panel, drawn over the list's right side (above the Pedir bar, never over it). */
+  panel?: (cosas: Cosas) => ReactNode;
 }) => {
   const f = useFicha(p.slug);
   const cosas = cosasOf({ p, decisions, ficha: f.data ?? null, companyPaused });
   return (
     <div className="cor-todo" data-todo-screen={p.slug}>
-      <div className="cor-todo-scroll">
-        {top?.(cosas)}
-        {f.isError && !f.data ? (
-          <div className="cor-todo-err">
-            <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
-          </div>
-        ) : null}
-        {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} />}
+      <div className="cor-todo-mid">
+        <div className="cor-todo-scroll">
+          {top?.(cosas)}
+          {f.isError && !f.data ? (
+            <div className="cor-todo-err">
+              <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
+            </div>
+          ) : null}
+          {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} lado={lado} />}
+        </div>
+        {panel?.(cosas)}
       </div>
       {bottom?.(cosas)}
     </div>
   );
 };
 
-// ---- PLA-I64-3: the sentence and the pulse (board A1, A2).
+// ---- PLA-I64-3: the sentence and the pulse (board A1, A2). PLA-I3-2: the meta line sits above the sentence, the
+// sentence takes the page's title size, Reanudar sits under it while the project is paused, and the pulse's count is
+// a figure beside the bars.
 
 export const FraseView = ({ f }: { f: Frase }) => (
   <div className="cor-frase" data-frase>
-    <h2 className="cor-frase-h">
+    <h2 className="cor-frase-h cor-h1">
       <span>{f.mueve}</span>
       {f.toca && (
         <span className="amber" data-frase-toca>
@@ -349,7 +412,8 @@ export const FraseView = ({ f }: { f: Frase }) => (
       )}
       {f.sub && <span className="sub">{f.sub}</span>}
     </h2>
-    <p className="cor-frase-falta">{f.falta}</p>
+    {/* PLA-I3-2: paused, the same line sits beside Reanudar; it is not said twice. */}
+    {f.falta !== REANUDAR_LINE && <p className="cor-frase-falta">{f.falta}</p>}
   </div>
 );
 
@@ -362,29 +426,60 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
   const first = pulso.days[0]?.day;
   return (
     <figure className="cor-pulso" data-pulso={pulso.total}>
-      <figcaption className="cor-label">{`Últimos ${pulso.days.length} días · ${pulso.total} ${pulso.total === 1 ? "paso hecho" : "pasos hechos"}`}</figcaption>
-      <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
-        {pulso.days.map((d, i) => (
-          <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
-        ))}
+      <figcaption className="cor-pulso-n">
+        <b className="cor-figure">{pulso.total}</b>
+        <span className="cor-label">{pulsoLabel(pulso.days.length)}</span>
+      </figcaption>
+      <div className="cor-pulso-chart">
+        <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
+          {pulso.days.map((d, i) => (
+            <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
+          ))}
+        </div>
+        <div className="cor-pulso-ends" aria-hidden>
+          <span>{first ? shortDay(first) : ""}</span>
+          <span>HOY</span>
+        </div>
       </div>
-      <div className="cor-pulso-ends" aria-hidden>
-        <span>{first ? shortDay(first) : ""}</span>
-        <span>HOY</span>
-      </div>
+      {/* PLA-I3-7: a phone shows this line instead of the figure and the bars. */}
+      <p className="cor-pulso-line" data-pulso-line>
+        {pulsoLine(pulso.total, pulso.days.length)}
+      </p>
     </figure>
   );
 };
 
 export const usePulso = (slug: string) => useQuery({ queryKey: ["pulso", slug], queryFn: () => api.pulso(slug), staleTime: 60_000, refetchInterval: 120_000, retry: 1 });
 
-export const Cabeza = ({ f, slug, nudge }: { f: Frase; slug: string; nudge?: ReactNode }) => {
+/** The meta line above the sentence: «Meta · Sin meta todavía · Fijar meta». */
+export const MetaView = ({ m, href }: { m: MetaLine; href: string }) => (
+  <div className="cor-pmeta" data-pmeta>
+    <span className="cor-label">Meta</span>
+    <span className="cor-pmeta-tx">{m.text}</span>
+    <Link to={href} className="cor-btn link" data-control="fijar">
+      {m.link}
+    </Link>
+  </div>
+);
+
+/** PLA-I3-2: the paused project's one white button, under its sentence. */
+export const ReanudarView = ({ title, href }: { title: string; href: string }) => (
+  <div className="cor-reanudar" data-reanudar>
+    <Link className="cor-btn primary" to={href} data-control="reanudar">
+      {reanudarLabel(title)}
+    </Link>
+    <span className="cor-text">{REANUDAR_LINE}</span>
+  </div>
+);
+
+export const Cabeza = ({ f, slug, nudge, meta, reanudar }: { f: Frase; slug: string; nudge?: ReactNode; meta?: { m: MetaLine; href: string }; reanudar?: { title: string; href: string } }) => {
   const q = usePulso(slug);
   return (
     <div className="cor-cabeza" data-cabeza>
       <div className="cor-cabeza-l">
+        {meta && <MetaView m={meta.m} href={meta.href} />}
         <FraseView f={f} />
-        {nudge && <div className="cor-nudge">{nudge}</div>}
+        {reanudar ? <ReanudarView title={reanudar.title} href={reanudar.href} /> : nudge && <div className="cor-nudge">{nudge}</div>}
       </div>
       <PulsoView pulso={q.data ?? null} />
     </div>

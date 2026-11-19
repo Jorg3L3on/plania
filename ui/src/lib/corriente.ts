@@ -3,6 +3,7 @@
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
 //   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
+//   &paso=<K>                 PLA-I3-5: the step open in the side panel beside the list (the list stays); never with ver
 // The stream is the first screen; inside a project it shrinks to a strip on top.
 
 export const VIEWS = ["corriente", "tetoca", "asistente", "pedir", "brief", "piezas"] as const;
@@ -44,7 +45,9 @@ export type Ver =
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string };
 
-export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null };
+/** PLA-I3-5: paso is the step open in the panel beside the list. Present only when the address has one, on a
+ *  project's list (no ver, tab todo). */
+export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
 const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "sumar", "maq", "tabla"] as const;
 
@@ -115,7 +118,8 @@ export function atOf(search: string): At {
   const tab: Tab = ver && (!t || (q.get("t") && OLD_TAB[q.get("t")!] && tabOfVer(ver) !== t)) ? tabOfVer(ver) : (t ?? "todo");
   const v = q.get("v") as View | null;
   const view: View = slug ? "corriente" : v && (VIEWS as readonly string[]).includes(v) ? v : "corriente";
-  return { view, slug, tab, ver };
+  const paso = slug && !ver && tab === "todo" ? q.get("paso")?.trim() : null;
+  return paso ? { view, slug, tab, ver, paso } : { view, slug, tab, ver };
 }
 
 export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): string {
@@ -125,11 +129,15 @@ export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): 
     const tab = at.tab ?? (at.ver ? tabOfVer(at.ver) : "todo");
     if (tab !== "todo") q.set("t", tab);
     if (at.ver) q.set("ver", verParam(at.ver));
+    else if (at.paso && tab === "todo") q.set("paso", at.paso);
   } else if (at.view && at.view !== "corriente") q.set("v", at.view);
   for (const [k, val] of Object.entries(at.extra ?? {})) q.set(k, val);
   const s = q.toString();
   return s ? `?${s}` : "";
 }
+
+/** PLA-I3-5: the list with step k open beside it (null: the list alone). */
+export const pasoAt = (slug: string, k: string | null): Partial<At> => (k ? { slug, tab: "todo", paso: k } : { slug, tab: "todo" });
 
 /** Where La corriente lives: Compañía (PLA-I62-9; it was built at /corriente, which now redirects here). */
 export const HOME = "/ceo";
@@ -261,6 +269,35 @@ export const MODES: { id: AskMode; name: string; line: string }[] = [
   { id: "ya", name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
   { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
 ];
+
+// PLA-I3-6 «Un solo Pedir»: the bar at the foot is the only Pedir. Its words and its keys, tested without a browser.
+/** The input's placeholder: the selected mode's line, short enough to read inside the bar. */
+export const PEDIR_PLACEHOLDER: Record<AskMode, string> = {
+  forma: "Una idea para darle forma: el PO la entiende y te pregunta…",
+  ya: "Un cambio pequeño y claro, directo al tablero…",
+  pregunta: "¿Qué quieres saber? El PO lee el código y te contesta…",
+};
+export const pedirPlaceholder = (mode: AskMode): string => PEDIR_PLACEHOLDER[mode];
+/** The send button's word. */
+export const pedirSendLabel = (mode: AskMode, sending = false): string => (sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir");
+/** Shift+Tab from the input: the next mode, round. */
+export const nextMode = (mode: AskMode): AskMode => MODES[(MODES.findIndex((m) => m.id === mode) + 1) % MODES.length]?.id ?? "forma";
+export const PEDIR_PAST = "Lo pedido";
+export const PEDIR_PICTURE = "Añadir una imagen";
+export const PEDIR_ERROR = "No se pudo enviar. Si la Mac está dormida, intenta al despertar.";
+/** Paused: one sentence instead of a disabled input. */
+export const pedirHeld = (title: string): string => `En pausa. Reanuda ${title} para pedir algo nuevo; lo que ya pediste sigue aquí.`;
+/** PLA-I3-7: on a phone the mode is one chip; its menu holds the three modes, the picture button and «Lo pedido». */
+export const pedirChipAria = (mode: AskMode): string => `Cómo: ${MODES.find((m) => m.id === mode)?.name ?? ""}`;
+export const PEDIR_MENU = "Cómo pedirlo";
+/** The key hint: `/` at rest, `↵` while the input has focus. */
+export const pedirKeyHint = (focused: boolean): string => (focused ? "↵" : "/");
+/** `/` focuses the input unless a field already has focus, a modifier is held, or a sheet is open. */
+export function slashFocuses(e: { key: string; meta?: boolean; ctrl?: boolean; alt?: boolean }, active: { tag: string; editable?: boolean } | null, sheetOpen: boolean): boolean {
+  if (e.key !== "/" || e.meta || e.ctrl || e.alt || sheetOpen) return false;
+  if (!active) return true;
+  return !active.editable && !["INPUT", "TEXTAREA", "SELECT"].includes(active.tag.toUpperCase());
+}
 
 // ---- PLA-I62-9: the building's addresses, each to its screen in La corriente (null: nothing to move).
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card

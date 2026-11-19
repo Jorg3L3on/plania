@@ -465,7 +465,7 @@ const fakeActs = { refresh: noop, decisions: { decide: noop, withActed: (d: Json
 const links = { entrega: () => "/e", tetoca: () => "/t", paso: () => "/p", tablero: "/tb", equipo: "/eq", miembro: () => "/m", publicar: "/pub", pausar: "/pausar", pagina: "/pg", hash: () => "/h" };
 // PLA-I64-7: the project's bar carries Pausar (Ahora is retired); Te toca's cards are La corriente's.
 function renderCard(p: Json) {
-  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, React.createElement(stripUi.ProjectBar, { slug: p.slug, title: p.title, tab: "todo", href: () => "/t", paused: !!p.paused, pauseHref: "/pausar" }))));
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, React.createElement(stripUi.ProjectBar, { slug: p.slug, title: p.title, lanes: [], tab: "todo", href: () => "/t", projectHref: () => "/p", back: "/c", pedirTo: "/pedir", paused: !!p.paused, pauseHref: "/pausar" }))));
 }
 function renderTeToca(decisions: Json[]) {
   return renderToStaticMarkup(

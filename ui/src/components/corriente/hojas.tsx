@@ -34,7 +34,9 @@ const AjustesLink = ({ slug }: { slug: string }) => (
 export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta" | "borrar";
 
 // NEWPROJ-8: closeOnBack false keeps the sheet open on a mouse-down on the dimmed background (Esc still closes).
-export const Hoja = ({ label, title, onClose, children, wide, closeOnBack = true }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean; closeOnBack?: boolean }) => {
+// PLA-I3-7: bottom draws it from the foot of a phone, above the app's tab bar (an initiative's steps, tramos.tsx); its
+// label may carry a key.
+export const Hoja = ({ label, title, onClose, children, wide, bottom, closeOnBack = true }: { label: ReactNode; title: string; onClose: () => void; children: ReactNode; wide?: boolean; bottom?: boolean; closeOnBack?: boolean }) => {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
@@ -60,7 +62,7 @@ export const Hoja = ({ label, title, onClose, children, wide, closeOnBack = true
   }, []);
   return (
     <div className="cor-hoja-back" onMouseDown={fondoMouseDown(closeOnBack, onClose)}>
-      <div ref={box} className={`cor-hoja ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="hoja-t">
+      <div ref={box} className={`cor-hoja ${wide ? "wide" : bottom ? "abajo" : ""}`} role="dialog" aria-modal="true" aria-labelledby="hoja-t">
         <Label>{label}</Label>
         <h2 id="hoja-t" className="cor-h2">
           {title}

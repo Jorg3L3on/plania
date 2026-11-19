@@ -8,8 +8,8 @@
 //   hecho   finished initiatives and loose steps (a summary, not rows of work)
 // Pure: it reads what GET /api/company (the project, its board, its pedidos, the decisions, the server's move) and
 // GET /api/company/projects/:slug/ficha (open ideas with their state, which idea became which initiative) give.
-import type { Decision, DecisionAction, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket } from "./api";
-import { ETAPA_WORD } from "./etapas";
+import type { Decision, DecisionAction, EtapaHolder, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket, Tokens } from "./api";
+import { ETAPA_WORD, wordOf } from "./etapas";
 import { seatName } from "./corriente";
 import { arranqueLine } from "./arranque";
 
@@ -43,7 +43,17 @@ export const GRUPO_NAME: Record<Grupo, string> = { toca: "Te toca", mueve: "Se m
 
 /** One step of the construction part of the thread. */
 export type TramoTono = "hecho" | "vivo" | "toca" | "fila" | "quieto";
-export type Tramo = { key: string; title: string; etapa: EtapaId; tono: TramoTono };
+export type Tramo = {
+  key: string;
+  title: string;
+  etapa: EtapaId;
+  tono: TramoTono;
+  /** PLA-I3-4: what the step's tooltip says about its state: the stage word (wordOf), who holds it, since when.
+   *  Optional: the Hecho rows and older callers build a Tramo without them. */
+  word?: string;
+  holder?: EtapaHolder | null;
+  since?: string | null;
+};
 export type Valvula = "cerrada" | "toca" | "atorada" | "pasando" | "abierta";
 export type Hilo = {
   /** Index of the idea stop it stands at (0 Buzón … 5 Lista); null when it never was an idea here. */
@@ -89,6 +99,8 @@ export type Cosa = {
   decisions: string[];
   /** Since when it stands where it is (the order inside a group). */
   since: string | null;
+  /** PLA-I3-3: what an initiative spent (phase 1's roll-up); absent on other things and from older servers. */
+  tokens?: Tokens | null;
 };
 export type Hecha = { key: string; title: string; idea_key: string | null; done_at: string | null };
 export type Cosas = {
@@ -170,14 +182,14 @@ function decisionLever(d: Decision, p: OrgProject): Palanca {
 
 /** A ticket-made thing (an initiative or a loose step) from its steps. */
 function ticketThing(
-  base: { key: string; tipo: "iniciativa" | "suelto"; title: string; idea_key: string | null; ideaDone: boolean },
+  base: { key: string; tipo: "iniciativa" | "suelto"; title: string; idea_key: string | null; ideaDone: boolean; tokens: Tokens | null },
   ts: ProjectTicket[],
   ctx: { p: OrgProject; paused: boolean; mine: Decision[]; canClose: boolean; version: number | null; done: number; total: number },
 ): Cosa {
   const { p, paused } = ctx;
   const tramos: Tramo[] = [...ts]
     .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key))
-    .map((t) => ({ key: t.key, title: t.title, etapa: t.etapa.etapa, tono: tonoOf(t, paused) }));
+    .map((t) => ({ key: t.key, title: t.title, etapa: t.etapa.etapa, tono: tonoOf(t, paused), word: wordOf(t.etapa), holder: t.etapa.holder, since: t.etapa.since }));
   const keys = new Set([base.key, ...ts.map((t) => t.key)]);
   const decisions = ctx.mine.filter((d) => refsOf(d).some((r) => keys.has(r)));
   const deliveries = decisions.filter(isDelivery);
@@ -350,7 +362,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   for (const ini of board?.initiatives ?? []) {
     const idea = promoted.get(ini.key) ?? null;
     out.push(
-      ticketThing({ key: ini.key, tipo: "iniciativa", title: ini.title, idea_key: idea, ideaDone: !!idea }, ini.tickets, {
+      ticketThing({ key: ini.key, tipo: "iniciativa", title: ini.title, idea_key: idea, ideaDone: !!idea, tokens: ini.tokens ?? null }, ini.tickets, {
         p,
         paused,
         mine,
@@ -363,7 +375,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   }
   for (const t of board?.loose ?? []) {
     if (DONE.has(t.etapa.etapa)) continue;
-    out.push(ticketThing({ key: t.key, tipo: "suelto", title: t.title, idea_key: null, ideaDone: false }, [t], { p, paused, mine, canClose: false, version: null, done: 0, total: 1 }));
+    out.push(ticketThing({ key: t.key, tipo: "suelto", title: t.title, idea_key: null, ideaDone: false, tokens: null }, [t], { p, paused, mine, canClose: false, version: null, done: 0, total: 1 }));
   }
 
   // A request of his nobody took: Reenviar on its row (or a row of its own).
