@@ -20,6 +20,8 @@ import { findProject } from "../mcp/queries.js";
 import { WEB_ACTOR, type Ctx } from "../mcp/tx.js";
 import { kitRoot } from "../runner/kit.js";
 import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheckDeps } from "../runner/repo-check.js";
+import { checkGithubRepo } from "../runner/repo-setup.js";
+import { startBranchOf } from "../runner/start-branch.js";
 import { CONTEXT_DOCS } from "../runner/runner.js";
 import type { QaSettings } from "../runner/qa-settings.js";
 
@@ -92,9 +94,15 @@ export async function setCodeLocation(
   if (githubRepo !== undefined && !GITHUB_REPO.test(githubRepo)) return { error: "INVALID_BODY", status: 400, field: "github_repo" };
   if (repoPath !== undefined && !repoPathShapeOk(repoPath)) return { error: "INVALID_BODY", status: 400, field: "repo_path" };
   const p = await findProject(db, slug);
+  // PLA-I2-5: the project's working branch, and the GitHub choice runs its own check as the folder choice does.
+  const start = startBranchOf(p.settings);
   if (repoPath) {
-    const check = await checkRepoFolder(repoPath, repoCheck);
+    const check = await checkRepoFolder(repoPath, repoCheck, start);
     if (check.failed) return { error: check.failed, status: 400, field: "repo_path", path: repoPath, branch: check.branch, checks: check.checks };
+  }
+  if (githubRepo && repoCheck.gh) {
+    const gh = await checkGithubRepo(githubRepo, start, repoCheck.gh, process.cwd());
+    if (gh.failed) return { error: gh.failed, status: 400, field: "github_repo", repo: githubRepo, branch: start };
   }
   const github = p.settings.github;
   await setProject(

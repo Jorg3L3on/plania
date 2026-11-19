@@ -789,6 +789,9 @@ export type ProjectSettings = {
   // Where the project's repo lives on the Mac the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
   // NEWPROJ-3: no_code says on purpose that the project has no code yet (never together with repo_path).
   local?: { repo_path?: string; no_code?: boolean };
+  // PLA-I2-5: the branch every worktree is cut from and the only one Aceptar merges into. Default "sandbox"; never
+  // main, master, production or prod. Read it through startBranchOf (src/runner/start-branch.ts).
+  start_branch?: string;
   // 2.10: the release step only Jorge takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
   release?: ReleaseSettings;
   // PLA-I21: how long since a check-in counts as idle. A live claim past this is stuck. Default 120.

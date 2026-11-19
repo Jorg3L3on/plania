@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { runInGroup, type GroupRun } from "./gh-process.js";
 import { oneLine, readTokenFile } from "./gh-token.js";
+import { ghLoginOn } from "../install-state.js";
 import { commandPath } from "./machine/run.js";
 import { branches, checks, pollState, projects, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
 import { DRIFT_STATUSES } from "../mcp/audit.js";
@@ -98,7 +99,7 @@ function ghAuthEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
   return merged;
 }
 
-// Env var, then the token file, then (only with PLANIA_GH_FALLBACK=1) `gh auth token`.
+// Env var, then the token file, then `gh auth token` (PLANIA_GH_FALLBACK=1, or an install made by first start).
 // `source` is the poll_state error when there is no token.
 export async function githubToken(deps: GithubDeps, cfg: { token_env?: string }): Promise<{ token: string | null; source: string }> {
   const env = deps.env ?? process.env;
@@ -111,7 +112,8 @@ export async function githubToken(deps: GithubDeps, cfg: { token_env?: string })
   const fromFile = oneLine(file.token);
   if (fromFile) return { token: fromFile, source: "~/.config/plania/github-token" };
 
-  const fallback = deps.fallback ?? env.PLANIA_GH_FALLBACK === "1";
+  // PLA-I2-5: on for an install made by first start (ghLoginOn), else only with PLANIA_GH_FALLBACK=1.
+  const fallback = deps.fallback ?? ghLoginOn(env as NodeJS.ProcessEnv);
   if (!fallback) return { token: null, source: gap };
 
   const now = deps.now?.getTime() ?? Date.now();

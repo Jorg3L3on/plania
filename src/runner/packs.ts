@@ -157,11 +157,12 @@ export const isPackPath = (p: string): boolean => {
 
 // The guard: pack files committed on the branch (against origin/sandbox) or staged in the worktree.
 // [] when the folder is not a git worktree or git cannot answer.
-export async function packsInDiff(cwd: string, git: GitFn = defaultGit): Promise<string[]> {
+// PLA-I2-5: base is the project's start branch (startBranchOf).
+export async function packsInDiff(cwd: string, git: GitFn = defaultGit, base: string = ALLOWED_BASE): Promise<string[]> {
   if (!existsSync(path.join(cwd, ".git"))) return [];
   const found = new Set<string>();
   for (const args of [
-    ["diff", "--name-only", `origin/${ALLOWED_BASE}...HEAD`],
+    ["diff", "--name-only", `origin/${base}...HEAD`],
     ["diff", "--name-only", "--cached"],
   ]) {
     const out = await git(args, cwd);
