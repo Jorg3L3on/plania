@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import type { Decision, OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
-import { APPROVE, acceptWords } from "@/lib/evidencia";
+import { acceptWords, evidenciaWords } from "@/lib/evidencia";
 import { frameOf } from "@/lib/probador";
 import { checksText, evidenceText, ordered, releaseText, stateText } from "@/lib/v2";
 import { getLanguage, words, type Language } from "@/lib/i18n";
@@ -174,7 +174,7 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
           </Btn>
         )}
       </div>
-      <p className="cor-cap">{APPROVE.plan.hint}</p>
+      <p className="cor-cap">{evidenciaWords().approve.plan.hint}</p>
       {changing && (
         <form
           className="cor-ajuste-row"

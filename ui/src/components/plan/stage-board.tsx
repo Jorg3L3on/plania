@@ -15,7 +15,7 @@ import type { ProjectTicket, Tablero } from "@/lib/api";
 import { ZonaTags } from "@/components/plan/zona-tags";
 import { words } from "@/lib/i18n";
 import { PLAN } from "@/lib/plan-words";
-import { boardOf, ciTone, ciWord, closedPct, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
+import { boardOf, ciTone, ciWord, closedPct, openStationsOf, stationLine, stationsOf, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
 
 // The stage colours, from the app's status tokens. «pending» text uses the idle grey so it can be read on the card.
 export const TONE_VAR: Record<StageTone, string> = {
@@ -200,7 +200,7 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
       <div className="sb-scroll">
         <div className="sb-grid">
           <div className="sb-cell sb-corner">{corner ?? <span className="sb-eyebrow">{w.initiative}</span>}</div>
-          {STATIONS.map((s) => (
+          {stationsOf().map((s) => (
             <StationCell key={s.id} s={s} tone={b.lit[s.id]} head={station?.(s) ?? null} />
           ))}
           {below && <div className="sb-below">{below}</div>}
@@ -208,7 +208,7 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
           {b.tracks.map((tr) => (
             <div key={tr.key ?? "sueltos"} className="sb-row" data-row={tr.key ?? "sueltos"}>
               <TrackLabel tr={tr} onTrack={onTrack} />
-              {OPEN_STATIONS.map((s) => {
+              {openStationsOf().map((s) => {
                 const id = s.id as Exclude<StationId, "hecho">;
                 const cards = tr.cells[id].map((t) => <Card key={t.key} t={t} now={now} selected={selected === t.key} onTicket={onTicket} tagsFor={tagsFor} actsFor={actsFor} />);
                 const items = !tr.key && extra?.[id] ? [...extra[id]!, ...cards] : cards;

@@ -1,7 +1,7 @@
 // PLA-I2-10: the words of Progreso (the recap, the log and the detail pages), in both languages (lib/i18n.ts).
 // No "@/" imports: the server and node tests import wording modules directly.
 import { defineWords, getLanguage, type Language } from "./i18n.js";
-import { LOCALE } from "./locale.js";
+import { FALLBACK_LOCALES, LOCALE } from "./locale.js";
 
 const things = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
@@ -222,7 +222,7 @@ export const PROGRESS_WORDS = defineWords({
  */
 export function monthMark(month: number, language: Language = getLanguage(), locale: string = LOCALE): string {
   if (!Number.isInteger(month) || month < 1 || month > 12) return "";
-  const loc = language === getLanguage() ? locale : language === "es" ? "es-MX" : "en-US";
+  const loc = language === getLanguage() ? locale : FALLBACK_LOCALES[language];
   const name = new Intl.DateTimeFormat(loc, { month: "short", timeZone: "UTC" }).format(Date.UTC(2000, month - 1, 1));
   return name.replace(".", "").slice(0, 3).toUpperCase();
 }

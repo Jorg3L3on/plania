@@ -10,7 +10,7 @@ import { ApiError, api } from "@/lib/api";
 import {
   ajustesError,
   ajustesWords,
-  CODIGO_OPCIONES,
+  codigoOpciones,
   codigoBody,
   type CodigoOpcion,
   codigoDe,
@@ -80,7 +80,7 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
         }}
       >
         <div className="cor-opts" role="radiogroup" aria-label={w.codeChoice}>
-          {CODIGO_OPCIONES.map((o) => (
+          {codigoOpciones().map((o) => (
             <button key={o.key} type="button" role="radio" aria-checked={opcion === o.key} className="cor-opt" onClick={() => setOpcion(o.key)} data-codigo-opcion={o.key}>
               {o.label}
             </button>

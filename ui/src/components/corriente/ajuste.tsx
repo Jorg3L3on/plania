@@ -2,14 +2,17 @@
 // Taller reads «reason: line» as a note (the same cambios text).
 import { useState } from "react";
 import type { Decision, Marca } from "@/lib/api";
-import { NOTE_MAX, RETURN_REASONS, returnText } from "@/lib/evidencia";
+import { evidenciaWords, NOTE_MAX, returnText } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Btn, Label } from "./parts";
 import { words } from "@/lib/i18n";
 import { AJUSTE_WORDS } from "@/lib/ajuste-words";
 
+// PLA-I2-10: the reasons in the screen's language; Taller reads either, as free text.
+const REASONS = evidenciaWords().returnReasons;
+
 export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: CorrienteActs; onDone: () => void; marcas?: Marca[] }) => {
-  const [reason, setReason] = useState<string>(RETURN_REASONS[0]);
+  const [reason, setReason] = useState<string>(REASONS[0]);
   const [line, setLine] = useState("");
   const busy = acts.decisions.busy?.id === d.id;
   const w = words(AJUSTE_WORDS);
@@ -27,7 +30,7 @@ export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: Co
         {w.title}
       </Label>
       <div className="cor-seg" role="radiogroup" aria-labelledby={`aj-${d.id}`}>
-        {RETURN_REASONS.map((x) => (
+        {REASONS.map((x) => (
           <button key={x} type="button" role="radio" aria-checked={reason === x} className="cor-opt" onClick={() => setReason(x)} disabled={busy} data-reason={x}>
             {x}
           </button>

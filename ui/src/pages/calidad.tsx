@@ -9,9 +9,9 @@ import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import {
   GROUPS,
-  GROUP_HINT,
-  GROUP_LABEL,
-  KIND_WORD,
+  groupHint,
+  groupLabel,
+  kindWord,
   NONE,
   PERIODS,
   compact,
@@ -118,10 +118,10 @@ function Groups({ data }: { data: Scoreboard }) {
     <Card className="gap-0 py-0">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1080px] border-collapse text-sm">
-          <caption className="sr-only">{w.caption(GROUP_LABEL[data.by].toLowerCase())}</caption>
+          <caption className="sr-only">{w.caption(groupLabel(data.by).toLowerCase())}</caption>
           <thead>
             <tr>
-              <th scope="col" className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{GROUP_LABEL[data.by]}</th>
+              <th scope="col" className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{groupLabel(data.by)}</th>
               {w.columns.map((c) => (
                 <th key={c.label} scope="col" title={c.hint} className="px-3 py-2.5 text-right align-bottom text-[11px] leading-tight font-semibold tracking-wide text-muted-foreground uppercase">
                   {c.label}
@@ -191,7 +191,7 @@ function Reading({ items, now }: { items: ReadItem[]; now?: number }) {
             <article key={`${i.kind}-${i.at}-${n}`} className="grid gap-2 px-4 py-3.5 text-sm">
               <header className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                 <span className={cn("text-xs font-bold tracking-wide uppercase", KIND_TONE[i.kind])}>
-                  {KIND_WORD[i.kind]}
+                  {kindWord(i.kind)}
                   {i.kind === "returned" && i.attempt && i.attempt > 1 ? w.review(i.attempt) : ""}
                 </span>
                 <span className="min-w-0 font-medium break-words">{i.title ?? (i.key ? w.untitled : w.noTask)}</span>
@@ -269,9 +269,9 @@ export function CalidadView({ data, now }: { data: Scoreboard; now?: number }) {
 
       <section className="grid gap-3" aria-labelledby="calidad-grupos">
         <div className="grid gap-1">
-          <h2 id="calidad-grupos" className="font-display text-xl font-bold tracking-tight">{w.byTitle(GROUP_LABEL[data.by].toLowerCase())}</h2>
+          <h2 id="calidad-grupos" className="font-display text-xl font-bold tracking-tight">{w.byTitle(groupLabel(data.by).toLowerCase())}</h2>
           <p className="text-sm text-muted-foreground">
-            {GROUP_HINT[data.by]}
+            {groupHint(data.by)}
             {w.byHint(NONE)}
           </p>
         </div>
@@ -311,7 +311,7 @@ export function CalidadPage() {
       </header>
 
       <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
-        <Choice label={w.groupBy} value={by} options={GROUPS.map((g) => ({ id: g, label: GROUP_LABEL[g] }))} onPick={(v) => set("por", v === "role" ? null : v)} />
+        <Choice label={w.groupBy} value={by} options={GROUPS.map((g) => ({ id: g, label: groupLabel(g) }))} onPick={(v) => set("por", v === "role" ? null : v)} />
         <Choice label={w.period} value={days} options={PERIODS.map((d) => ({ id: d as number, label: w.days(d) }))} onPick={(v) => set("dias", v === 28 ? null : String(v))} />
         <div className="grid gap-1.5">
           <span id="calidad-proyecto" className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{w.project}</span>

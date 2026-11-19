@@ -10,7 +10,7 @@ import {
   roleWord,
   tokens,
   ROLE_LABEL,
-  RUN_WORD,
+  runWord,
   type RunBrief,
   type RunnerRole,
 } from "@/lib/compania";
@@ -40,7 +40,7 @@ export const RunList = ({ runs, now, projectTitle }: { runs: RunBrief[]; now: nu
                   </>
                 )}
                 {" · "}
-                {RUN_WORD[run.status] ?? run.status}
+                {runWord(run.status)}
                 {run.resolved && <span className="text-muted-foreground">{words(COMPANIA_SHEETS).resolved}</span>}
               </span>
               {run.summary && <span className={cn("truncate text-xs text-muted-foreground", run.resolved && "line-through")}>{run.summary}</span>}

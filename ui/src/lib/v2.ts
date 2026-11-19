@@ -6,9 +6,14 @@ import { ago, tokens, type Tone } from "./compania";
 import type { AskResult, Decision, DecisionState, OrderKind, OrderStage, OrgOrder, OrgPlan, OrgProject, OrgRun, ThreadMessage } from "./api";
 import { roleName } from "./org";
 import { LOCALE } from "./locale.js";
+import { getLanguage, words, type Language } from "./i18n.js";
+import { V2_WORDS } from "./v2-words";
+// PLA-I2-10: the words are in V2_WORDS (lib/v2-words.ts), in both languages; the functions that return words take
+// the language last, the screen's by default. The exported constants keep their Spanish for the tests.
+const W = (language: Language) => words(V2_WORDS, language);
 
 export const TE_TOCA_MAX = 5;
-export const TE_TOCA_EMPTY = "Nada te espera. El equipo sigue; Asistente te avisa cuando haga falta.";
+export const TE_TOCA_EMPTY = V2_WORDS.es.teTocaEmpty;
 
 // ---- Te toca
 
@@ -18,23 +23,24 @@ export const waitingPlan = (d: Decision) => d.state === null && d.kind === "plan
 export const pending = (d: Decision) => d.state === null && !waitingPlan(d) && (d.actions.length > 0 || d.kind === "release");
 
 // PLA-I36-2: "Nada te espera" only when Bandeja's decisiones and pasos are empty too.
-export function teTocaEmpty(inbox: { decisiones: number; pasos: number } | undefined): string {
+export function teTocaEmpty(inbox: { decisiones: number; pasos: number } | undefined, language: Language = getLanguage()): string {
   const n = (inbox?.decisiones ?? 0) + (inbox?.pasos ?? 0);
-  if (n === 0) return TE_TOCA_EMPTY;
-  return `Nada urgente aquí · ${n === 1 ? "1 cosa te espera" : `${n} cosas te esperan`} en Bandeja.`;
+  if (n === 0) return W(language).teTocaEmpty;
+  return W(language).nothingUrgent(n);
 }
 
 // "2 checks abiertos · pruebas fallando"; null when there is nothing to say.
-export function checksText(d: Pick<Decision, "checks">): { text: string; tone: Tone; open: boolean } | null {
+export function checksText(d: Pick<Decision, "checks">, language: Language = getLanguage()): { text: string; tone: Tone; open: boolean } | null {
+  const w = W(language);
   const c = d.checks;
   if (!c) return null;
   const parts: string[] = [];
-  if (c.open > 0) parts.push(c.open === 1 ? "1 check abierto" : `${c.open} checks abiertos`);
-  if (c.ci === "failure") parts.push("pruebas fallando");
-  else if (c.ci === "pending") parts.push("pruebas corriendo");
-  else if (c.ci === "success") parts.push("pruebas en verde");
-  else if (c.ci === "none") parts.push("repo sin CI");
-  if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: "checks completos", tone: "ok", open: false };
+  if (c.open > 0) parts.push(w.openChecks(c.open));
+  if (c.ci === "failure") parts.push(w.testsFailing);
+  else if (c.ci === "pending") parts.push(w.testsRunning);
+  else if (c.ci === "success") parts.push(w.testsGreen);
+  else if (c.ci === "none") parts.push(w.noCi);
+  if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: w.checksDone, tone: "ok", open: false };
   const open = c.open > 0 || c.ci === "failure" || c.ci === "pending";
   // PLA-23: a repo with no CI is neither good nor bad news: neutral, unless something else is open.
   const tone: Tone = c.ci === "failure" ? "stop" : open ? "warn" : c.ci === "none" ? "idle" : "ok";
@@ -42,14 +48,15 @@ export function checksText(d: Pick<Decision, "checks">): { text: string; tone: T
 }
 
 // "4 commits · 3 cambios · 1 check abierto · 1 paso antes".
-export function releaseText(d: Pick<Decision, "release">): string | null {
+export function releaseText(d: Pick<Decision, "release">, language: Language = getLanguage()): string | null {
+  const w = W(language);
   const r = d.release;
   if (!r) return null;
   return [
-    r.ahead == null ? "sin datos de GitHub" : r.ahead === 1 ? "1 commit" : `${r.ahead} commits`,
-    r.tickets.length === 1 ? "1 cambio" : `${r.tickets.length} cambios`,
-    r.open_checks ? (r.open_checks === 1 ? "1 check abierto" : `${r.open_checks} checks abiertos`) : "",
-    r.before ? (r.before === 1 ? "1 paso antes" : `${r.before} pasos antes`) : "",
+    r.ahead == null ? w.noGithub : w.commits(r.ahead),
+    w.changes(r.tickets.length),
+    r.open_checks ? w.openChecks(r.open_checks) : "",
+    r.before ? w.stepsBefore(r.before) : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -64,72 +71,61 @@ export function teToca(decisions: Decision[]): { rows: Decision[]; waiting: numb
 // The recommended option first; the rest in their order.
 export const ordered = (d: Decision) => [...(d.options ?? [])].sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.n - b.n);
 
-const WAKE: Record<string, string> = {
-  queued: "el PO despierta en su turno",
-  busy: "el PO lo toma al terminar lo que corre",
-  paused: "el proyecto está en pausa: lo ve al reanudar",
-  off: "el PO lo ve al despertar",
-  no_agent: "el proyecto no tiene PO",
-};
-
 const str = (v: unknown) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
 
 // "✓ Elegiste 1 · Planear el formulario · el PO despierta en su turno".
-export function stateText(s: DecisionState): string {
+export function stateText(s: DecisionState, language: Language = getLanguage()): string {
+  const w = W(language);
+  const WAKE = w.wake;
   const r = s.result ?? {};
   const ticket = str(r.ticket);
   switch (s.action) {
     case "elegir": {
       const option = Array.isArray(r.option) ? r.option.join(" + ") : str(r.option);
       const label = str(r.label) || str(r.answer);
-      return ["Elegiste" + (option ? ` ${option}` : ""), label, WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
+      return [w.chose(option), label, WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     }
     case "responder":
-      return ["Respondiste", str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
+      return [w.answered, str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     case "hecho":
-      return "Hecho";
+      return w.done;
     case "aplicar": {
       const n = typeof r.added === "number" ? r.added : 0;
-      const at = [str(r.path), str(r.branch) && `en ${str(r.branch)}`].filter(Boolean).join(" ");
+      const at = [str(r.path), str(r.branch) && w.onBranch(str(r.branch))].filter(Boolean).join(" ");
       const commit = str(r.commit) ? ` (${str(r.commit).slice(0, 7)})` : "";
-      const base = n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+      const base = n ? w.addedToPr(n, at, commit) : w.alreadyInPr(at);
       // A new commit on a delivery with no CI: its owner was asked to run the checks again (or why not).
       const v = str(r.verify);
       if (!v) return base;
-      return v === "taller" || v === "product-owner" ? `${base} · ${v === "taller" ? "Taller" : "El PO"} vuelve a probar el último commit` : `${base} · ${v}`;
+      return v === "taller" || v === "product-owner" ? w.testsAgain(base, v === "taller" ? w.taller : w.thePo) : `${base} · ${v}`;
     }
     case "aplazar":
-      return "Aplazado · vuelve a la lista de pendientes";
+      return w.postponed;
     case "aceptar":
-      return r.already ? "Ya estaba aprobado · en la copia de prueba" : r.merged ? "Aprobado · en la copia de prueba" : "Aprobado · cerrado";
+      return r.already ? w.alreadyApproved : r.merged ? w.approvedCopy : w.approvedClosed;
     case "fusionar":
-      return "Aprobado · en la copia de prueba";
+      return w.approvedCopy;
     case "empezar": {
       const n = Array.isArray(r.created) ? r.created.length : 0;
-      return `Empezó · ${n === 1 ? "1 paso" : `${n} pasos`} en marcha`;
+      return w.started(n);
     }
     case "cambiar":
-      return "Lo cambias · el pedido volvió a la caja";
+      return w.youChange;
     case "cancelar":
-      return "Cancelado";
+      return w.canceled;
     case "cambios":
-      return "Cambios pedidos · vuelve al equipo";
+      return w.changesAsked;
     default:
-      return "Hecho";
+      return w.done;
   }
 }
 
-export const KIND_POINTER: Record<string, string> = {
-  question: "↑ Responder en Te toca",
-  proposal: "↑ Decidir en Te toca",
-  step: "↑ Un paso tuyo en Te toca",
-  release: "↑ Listo para publicar en Te toca",
-};
+export const KIND_POINTER: Record<string, string> = V2_WORDS.es.kindPointer;
 // The card's pointer when its project has a decision waiting.
-export const pointerFor = (decisions: Decision[], slug: string): string | null => {
+export const pointerFor = (decisions: Decision[], slug: string, language: Language = getLanguage()): string | null => {
   const d = decisions.find((x) => x.project === slug && pending(x));
   if (!d) return null;
-  return KIND_POINTER[d.kind] ?? "↑ Decidir en Te toca";
+  return W(language).kindPointer[d.kind] ?? W(language).decidePointer;
 };
 
 // ---- the card as a report
@@ -137,61 +133,65 @@ export const pointerFor = (decisions: Decision[], slug: string): string | null =
 const MONTH = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone: "UTC" });
 export const shortDate = (day: string) => MONTH.format(new Date(`${day}T12:00:00Z`)).replace(".", "");
 
-export function paceText(plan: OrgPlan): { text: string; tone: Tone } | null {
+export function paceText(plan: OrgPlan, language: Language = getLanguage()): { text: string; tone: Tone } | null {
+  const w = W(language);
   if (!plan.pace) return null;
-  const due = plan.due_on ? ` · entrega ${shortDate(plan.due_on)}` : "";
-  if (plan.pace === "ok") return { text: `a tiempo${due}`, tone: "ok" };
+  const due = plan.due_on ? w.due(shortDate(plan.due_on)) : "";
+  if (plan.pace === "ok") return { text: w.onTime(due), tone: "ok" };
   const n = plan.weeks_behind ?? 1;
-  return { text: `${n === 1 ? "1 semana" : `${n} semanas`} atrás${due}`, tone: plan.pace === "late" ? "warn" : "stop" };
+  return { text: w.behind(n, due), tone: plan.pace === "late" ? "warn" : "stop" };
 }
 
 // PLA-I36-5: one bar, two marks. null without a delivery date: no fake weeks.
-export function calendarBar(plan: OrgPlan): { weeks: number; today: number; done: number; line: string } | null {
+export function calendarBar(plan: OrgPlan, language: Language = getLanguage()): { weeks: number; today: number; done: number; line: string } | null {
+  const w = W(language);
   if (plan.weeks == null || plan.today_pct == null || plan.done_pct == null) return null;
   const gap = plan.today_pct - plan.done_pct;
   const behind = plan.weeks_behind ?? 0;
   const line =
     behind > 0
-      ? `Hoy va al ${plan.today_pct}% del tiempo y la obra al ${plan.done_pct}%: ${behind === 1 ? "1 semana" : `${behind} semanas`} atrás`
+      ? w.calendarBehind(plan.today_pct, plan.done_pct, behind)
       : gap <= 0
-        ? `La obra (${plan.done_pct}%) va por delante del tiempo (${plan.today_pct}%)`
-        : `La obra (${plan.done_pct}%) va con el tiempo (${plan.today_pct}%)`;
+        ? w.calendarAhead(plan.done_pct, plan.today_pct)
+        : w.calendarEven(plan.done_pct, plan.today_pct);
   return { weeks: plan.weeks, today: plan.today_pct, done: plan.done_pct, line };
 }
 
 // PLA-I36-4: Rumbo. The goal sentence, the delivery date and the forecast; or what is missing.
-export function rumboText(p: OrgProject): { goal: string | null; date: string | null; forecast: { text: string; tone: Tone } | null; missing: boolean } {
+export function rumboText(p: OrgProject, language: Language = getLanguage()): { goal: string | null; date: string | null; forecast: { text: string; tone: Tone } | null; missing: boolean } {
+  const w = W(language);
   const r = p.rumbo;
   if (!r || r.missing) return { goal: r?.goal ?? null, date: r?.target_on ? shortDate(r.target_on) : null, forecast: null, missing: true };
   const behind = r.weeks_behind ?? 0;
   const forecast = r.forecast_on
     ? behind > 0
-      ? { text: `pronóstico ${shortDate(r.forecast_on)}`, tone: (behind === 1 ? "warn" : "stop") as Tone }
-      : { text: "a tiempo", tone: "ok" as Tone }
+      ? { text: w.forecast(shortDate(r.forecast_on)), tone: (behind === 1 ? "warn" : "stop") as Tone }
+      : { text: w.onTime(""), tone: "ok" as Tone }
     : null;
   return { goal: r.goal, date: shortDate(r.target_on!), forecast, missing: false };
 }
-export const RUMBO_MISSING = "Sin meta ni fecha";
+export const RUMBO_MISSING = V2_WORDS.es.rumboMissing;
 
-export function thisWeekText(p: OrgProject, now: number): string {
+export function thisWeekText(p: OrgProject, now: number, language: Language = getLanguage()): string {
+  const t = W(language);
   const w = p.this_week;
   const parts = [
-    w.done ? `${w.done} ${w.done === 1 ? "hecho" : "hechos"}` : "",
+    w.done ? t.doneCount(w.done) : "",
     w.docs ? `${w.docs} ${w.docs === 1 ? "doc" : "docs"}` : "",
     w.prs ? `${w.prs} ${w.prs === 1 ? "PR" : "PRs"}` : "",
   ].filter(Boolean);
-  if (parts.length) return `Esta semana: ${parts.join(" · ")}`;
-  return w.last_at ? `Esta semana: nada · la última vez, ${ago(w.last_at, now)}` : "Esta semana: nada todavía";
+  if (parts.length) return t.thisWeek(parts.join(" · "));
+  return w.last_at ? t.thisWeekLast(ago(w.last_at, now, language)) : t.thisWeekNothing;
 }
 
-export const ownerChip = (owner: string): { text: string; mine: boolean } =>
-  owner === "owner" ? { text: "te toca", mine: true } : { text: owner === "po" ? "PO" : roleName(owner), mine: false };
+export const ownerChip = (owner: string, language: Language = getLanguage()): { text: string; mine: boolean } =>
+  owner === "owner" ? { text: W(language).yourTurn, mine: true } : { text: owner === "po" ? "PO" : roleName(owner), mine: false };
 
 // "Quieto 3 días" from the last event.
-export function lightWord(p: OrgProject, base: string, now: number): string {
+export function lightWord(p: OrgProject, base: string, now: number, language: Language = getLanguage()): string {
   if (p.light !== "quiet" || !p.this_week.last_at) return base;
   const days = Math.floor((now - new Date(p.this_week.last_at).getTime()) / 86_400_000);
-  return days >= 1 ? `${base} ${days === 1 ? "1 día" : `${days} días`}` : base;
+  return days >= 1 ? `${base} ${W(language).days(days)}` : base;
 }
 
 // The PO's last line, when the last message in the thread is not the owner's.
@@ -203,78 +203,82 @@ export function poLine(p: OrgProject): { role: string; at: string; body: string 
 
 // Ahora: who runs or is stuck. Nobody: why, in a few words.
 // PLA-I36-1: a member whose last run failed says so ("su última corrida falló").
-export function nowLines(p: OrgProject): { role: string; text: string; tone: Tone; since: string | null }[] {
+export function nowLines(p: OrgProject, language: Language = getLanguage()): { role: string; text: string; tone: Tone; since: string | null }[] {
+  const w = W(language);
   return p.team
     .filter((m) => m.state === "running" || m.state === "waiting_owner" || (m.state !== "paused" && m.last?.status === "fail"))
     .map((m) =>
       m.state === "running"
-        ? { role: roleName(m.role), text: "trabaja", tone: "ok" as Tone, since: m.now?.since ?? null }
+        ? { role: roleName(m.role), text: w.works, tone: "ok" as Tone, since: m.now?.since ?? null }
         : m.state === "waiting_owner"
-          ? { role: roleName(m.role), text: m.waiting ? `espera: ${m.waiting}` : "te espera", tone: "stop" as Tone, since: null }
-          : { role: roleName(m.role), text: "su última corrida falló", tone: "stop" as Tone, since: m.last?.at ?? null },
+          ? { role: roleName(m.role), text: m.waiting ? w.waitsFor(m.waiting) : w.waitsForYou, tone: "stop" as Tone, since: null }
+          : { role: roleName(m.role), text: w.lastRunFailedIts, tone: "stop" as Tone, since: m.last?.at ?? null },
     );
 }
-export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: boolean): string {
-  if (companyPaused) return "la compañía está detenida";
-  if (p.light === "failed") return "la última corrida falló";
-  if (p.light === "blocked") return "el trabajo está bloqueado";
+export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: boolean, language: Language = getLanguage()): string {
+  const w = W(language);
+  if (companyPaused) return w.companyStopped;
+  if (p.light === "failed") return w.lastRunFailed;
+  if (p.light === "blocked") return w.workBlocked;
   const d = decisions.find((x) => x.project === p.slug && pending(x));
   if (d)
     return d.kind === "question"
-      ? "el PO espera tu respuesta"
+      ? w.poWaitsAnswer
       : d.kind === "action" || d.kind === "step"
-        ? "lo siguiente es tuyo"
+        ? w.nextIsYours
         : d.kind === "release"
-          ? "hay cambios listos para publicar"
-          : "el PO espera tu elección";
-  if (!p.next) return "sin trabajo listo";
-  if (p.next.owner === "owner") return "lo siguiente es tuyo";
-  return "lo siguiente arranca en su turno";
+          ? w.readyToPublish
+          : w.poWaitsChoice;
+  if (!p.next) return w.noWorkReady;
+  if (p.next.owner === "owner") return w.nextIsYours;
+  return w.nextOnTurn;
 }
 
 // ---- Tus órdenes (PLA-I36-3)
 
-export function orderText(o: OrgOrder, now: number): { text: string; tone: Tone } {
+export function orderText(o: OrgOrder, now: number, language: Language = getLanguage()): { text: string; tone: Tone } {
+  const w = W(language);
   switch (o.state) {
     case "entregada":
-      return { text: "entregada", tone: "ok" };
+      return { text: w.delivered, tone: "ok" };
     case "en_curso":
-      return { text: o.who ? `en curso · ${roleName(o.who)}` : "en curso", tone: "ok" };
+      return { text: o.who ? w.inProgressBy(roleName(o.who)) : w.inProgress, tone: "ok" };
     case "entendida":
-      return { text: "entendida", tone: "idle" };
+      return { text: w.understood, tone: "idle" };
     case "sin_tomar": {
       const h = o.age_h ?? 0;
-      return { text: `sin tomar · ${h >= 48 ? `${Math.floor(h / 24)} días` : `${h} h`}`, tone: "warn" };
+      return { text: w.notTaken(h >= 48 ? w.ageDays(Math.floor(h / 24)) : w.ageHours(h)), tone: "warn" };
     }
     case "cancelada":
-      return { text: "cancelada", tone: "idle" };
+      return { text: w.orderCanceled, tone: "idle" };
     default:
-      return { text: `enviada · ${ago(o.at, now)}`, tone: "idle" };
+      return { text: w.sent(ago(o.at, now)), tone: "idle" };
   }
 }
 
 // ---- En pausa
 
-export function pausedText(p: OrgProject, now: number): string {
+export function pausedText(p: OrgProject, now: number, language: Language = getLanguage()): string {
+  const w = W(language);
   const open = p.work.open;
-  const head = open === 0 ? "Sin trabajo abierto" : `${open} ${open === 1 ? "ticket abierto guardado" : "tickets abiertos guardados"}`;
+  const head = open === 0 ? w.noOpenWork : w.openTickets(open);
   if (!p.this_week.last_at) return head;
   const days = Math.floor((now - new Date(p.this_week.last_at).getTime()) / 86_400_000);
-  return days >= 1 ? `${head} · quieto ${days === 1 ? "1 día" : `${days} días`}` : head;
+  return days >= 1 ? w.quietFor(head, w.days(days)) : head;
 }
 
 // ---- the company line under the greeting: "Tienda avanza, cinco proyectos en pausa"
 
-const NUM = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez"];
-const num = (n: number) => NUM[n] ?? String(n);
-export function companyLine(projects: OrgProject[]): string {
+export function companyLine(projects: OrgProject[], language: Language = getLanguage()): string {
+  const w = W(language);
+  const num = (n: number) => w.nums[n] ?? String(n);
   const live = projects.filter((p) => !p.paused && p.light !== "paused");
   const paused = projects.length - live.length;
   const names = live.map((p) => p.title);
   const head =
-    names.length === 0 ? "Nada avanza" : names.length === 1 ? `${names[0]} avanza` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} y ${names.at(-1)} avanzan` : `${num(names.length)} proyectos avanzan`;
+    names.length === 0 ? w.nothingMoves : names.length === 1 ? w.oneMoves(names[0]!) : names.length <= 3 ? w.fewMove(names.slice(0, -1).join(", "), names.at(-1)!) : w.manyMove(num(names.length));
   if (paused === 0) return head;
-  return `${head}, ${paused === 1 ? "uno en pausa" : `${num(paused)} proyectos en pausa`}`;
+  return paused === 1 ? w.pausedOne(head) : w.pausedMany(head, num(paused));
 }
 
 // ---- Asistente folded
@@ -289,62 +293,60 @@ export function latestFromAsistente(messages: ThreadMessage[]): ThreadMessage | 
   const mine = (m: ThreadMessage) => m.author.agent === "owner" || m.author.role === "ceo" || m.author.role === "owner";
   return [...messages].sort((a, b) => b.at.localeCompare(a.at)).find((m) => !mine(m)) ?? null;
 }
-export const foldLine = (n: number) => `Conversación de hoy · ${n === 1 ? "1 mensaje" : `${n} mensajes`}`;
-export const SUGGESTIONS = (projects: OrgProject[]) => {
+export const foldLine = (n: number, language: Language = getLanguage()) => W(language).foldLine(n);
+export const SUGGESTIONS = (projects: OrgProject[], language: Language = getLanguage()) => {
+  const w = W(language);
   const first = projects.find((p) => !p.paused)?.title ?? projects[0]?.title;
-  return [first ? `¿Cómo va ${first}?` : "¿Cómo va todo?", "¿Qué espera de mí?", ...(first ? [`${first}: `] : [])];
+  return [first ? w.howIs(first) : w.howIsAll, w.whatWaits, ...(first ? [`${first}: `] : [])];
 };
 
 export { tokens };
 
 // ---- PLA-I36-6/8/9/10/11: steering from the card
 
-export const KIND_WORDS: { id: OrderKind; word: string; hint: string }[] = [
-  { id: "cambio", word: "Cambio", hint: "algo concreto que cambiar" },
-  { id: "direccion", word: "Dirección", hint: "hacia dónde llevar el proyecto" },
-  { id: "idea", word: "Idea", hint: "algo para pensar antes de hacer" },
-];
+// The Spanish lists, kept for the tests; kindWords and stages read them in the screen's language.
+export const KIND_WORDS: { id: OrderKind; word: string; hint: string }[] = V2_WORDS.es.kinds;
+export const kindWords = (language: Language = getLanguage()) => W(language).kinds;
 
-export const STAGES: { id: OrderStage; word: string }[] = [
-  { id: "entendido", word: "Lo entendí" },
-  { id: "trabajando", word: "Trabajando" },
-  { id: "pruebalo", word: "Pruébalo" },
-  { id: "listo", word: "Listo" },
-];
+export const STAGES: { id: OrderStage; word: string }[] = V2_WORDS.es.stages;
+export const stages = (language: Language = getLanguage()) => W(language).stages;
 // How many of the four stages are reached (0 = sent, nothing understood yet).
 export const stageReached = (stage: OrderStage | undefined) => (stage ? STAGES.findIndex((s) => s.id === stage) + 1 : 0);
 
 // NEWPROJ-5: starting, the ask answered before the PO's run started (src/api/company-actions.ts askPo).
-const WOKE: Record<string, string> = { starting: "el PO arranca ahora", queued: "en cola: el PO arranca en cuanto haya lugar", busy: "el PO termina lo que corre y sigue con esto", idle: "el PO no tenía trabajo listo" };
-export function askText(r: AskResult): string {
-  if (r.woke) return r.woke.woke ? "Enviado · el PO ya está en ello" : `Enviado · ${WOKE[r.woke.reason] ?? r.woke.summary ?? r.woke.reason}`;
-  return r.wake === "queued" ? "Enviado · el PO lo toma en su turno" : r.wake === "busy" ? "Enviado · el PO lo toma al terminar lo que corre" : "Enviado · el PO lo ve en su próximo turno";
+export function askText(r: AskResult, language: Language = getLanguage()): string {
+  const w = W(language);
+  if (r.woke) return r.woke.woke ? w.sentOnIt : w.sentWhy(w.woke[r.woke.reason] ?? r.woke.summary ?? r.woke.reason);
+  return r.wake === "queued" ? w.sentTurn : r.wake === "busy" ? w.sentBusy : w.sentLater;
 }
 
 // "Taller trabaja en «Formulario» desde 10:42 · último: registró pruebas"
-export function runText(run: OrgRun, clockOf: (iso: string) => string): string {
-  if (run.status === "stopped") return `Detenido · ${roleName(run.role)} en «${run.step}»`;
-  return [`${roleName(run.role)} trabaja en «${run.step}» desde ${clockOf(run.since)}`, run.last ? `último: ${run.last}` : ""].filter(Boolean).join(" · ");
+export function runText(run: OrgRun, clockOf: (iso: string) => string, language: Language = getLanguage()): string {
+  const w = W(language);
+  if (run.status === "stopped") return w.stopped(roleName(run.role, language), run.step);
+  return [w.worksOn(roleName(run.role, language), run.step, clockOf(run.since)), run.last ? w.lastDid(run.last) : ""].filter(Boolean).join(" · ");
 }
 
 // "Pruebas: 12 pasan · 1 falla · 8 archivos cambiados"
-export function evidenceText(d: Pick<Decision, "evidence" | "files">): { text: string; tone: Tone } | null {
+export function evidenceText(d: Pick<Decision, "evidence" | "files">, language: Language = getLanguage()): { text: string; tone: Tone } | null {
+  const w = W(language);
   const e = d.evidence;
   const parts: string[] = [];
   if (e) {
-    if (e.pass != null) parts.push(`${e.pass} ${e.pass === 1 ? "pasa" : "pasan"}`);
-    if (e.fail != null) parts.push(`${e.fail} ${e.fail === 1 ? "falla" : "fallan"}`);
-    if (e.pass == null && e.fail == null) parts.push(e.verdict === "pass" ? "en verde" : e.verdict === "fail" ? "fallaron" : "con avisos");
+    if (e.pass != null) parts.push(w.pass(e.pass));
+    if (e.fail != null) parts.push(w.fail(e.fail));
+    if (e.pass == null && e.fail == null) parts.push(e.verdict === "pass" ? w.green : e.verdict === "fail" ? w.failed : w.warnings);
   }
-  if (d.files != null) parts.push(`${d.files} ${d.files === 1 ? "archivo cambiado" : "archivos cambiados"}`);
+  if (d.files != null) parts.push(w.files(d.files));
   if (parts.length === 0) return null;
   const red = e && (e.verdict === "fail" || (e.fail ?? 0) > 0);
-  return { text: `${e ? "Pruebas: " : ""}${parts.join(" · ")}`, tone: red ? "stop" : e?.verdict === "pass" ? "ok" : "idle" };
+  return { text: e ? w.tests(parts.join(" · ")) : parts.join(" · "), tone: red ? "stop" : e?.verdict === "pass" ? "ok" : "idle" };
 }
 
 // Plain words for a link on the main lines: no keys, no "PR de …".
-export function plainLink(l: { kind: string; ref: string; title: string }): string {
-  if (l.kind === "pr") return "Ver el cambio";
-  if (l.kind === "doc") return `doc «${l.title || "sin título"}»`;
-  return l.title || "Abrir";
+export function plainLink(l: { kind: string; ref: string; title: string }, language: Language = getLanguage()): string {
+  const w = W(language);
+  if (l.kind === "pr") return w.seeChange;
+  if (l.kind === "doc") return w.doc(l.title || w.untitled);
+  return l.title || w.open;
 }

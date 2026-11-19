@@ -6,7 +6,7 @@
 import { githubWords, type CodigoOpcion } from "./nuevo-proyecto.js";
 // PLA-I2-10: re-exported for the Ajustes view, whose import of the module by name read as a Spanish sentence to
 // scripts/inline-words.ts.
-export { CODIGO_OPCIONES, codigoBody, type CodigoOpcion } from "./nuevo-proyecto.js";
+export { CODIGO_OPCIONES, codigoBody, codigoOpciones, type CodigoOpcion } from "./nuevo-proyecto.js";
 import { avanzadoError, type ArranqueRead, type AvanzadoRead } from "./ajustes-avanzado.js";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
@@ -35,8 +35,6 @@ export function codigoDe(c: AjustesCodigo): CodigoOpcion | null {
   if (c.github_repo) return "github";
   return null;
 }
-
-const GITHUB_CODES = ["REPO_GITHUB_NO_GH", "REPO_GITHUB_SIGNED_OUT", "REPO_GITHUB_NOT_FOUND", "REPO_GITHUB_NO_WRITE", "REPO_GITHUB_FAILED"] as const;
 
 export const AJUSTES_WORDS = defineWords({
   es: {
@@ -74,8 +72,6 @@ export const AJUSTES_WORDS = defineWords({
     noOrigin: (folder: string) => `No se guardó: ${folder} no está conectada a GitHub. «Preparar el código» crea su repositorio en GitHub con tu cuenta.`,
     originUnreachable: (folder: string) => `No se guardó: no pude leer el repositorio en GitHub de ${folder}. Revisa en «Qué le falta» (en Máquina) que GitHub tenga la sesión iniciada.`,
     noStartBranch: "No se guardó: el repositorio en GitHub no tiene la rama de trabajo. «Crear la rama de trabajo» la crea desde la rama principal.",
-    // The Spanish GitHub lines are githubWords' (./nuevo-proyecto.ts), shared with the new-project sheet.
-    github: Object.fromEntries(GITHUB_CODES.map((c) => [c, githubWords(c)!])) as Record<string, string>,
     stale: "No se guardó: esto cambió mientras lo editabas. Recarga para ver lo último y vuelve a hacer tu cambio.",
     docExists: "No se guardó: esta nota ya existe. Recarga para editarla.",
     docNotFound: "No se guardó: esa nota ya no está. Recarga la página.",
@@ -124,13 +120,6 @@ export const AJUSTES_WORDS = defineWords({
     noOrigin: (folder: string) => `Not saved: ${folder} is not connected to GitHub. «Prepare the code» creates its repository on GitHub with your account.`,
     originUnreachable: (folder: string) => `Not saved: I couldn't read the GitHub repository of ${folder}. Check in «What's missing» (in Machine) that GitHub is signed in.`,
     noStartBranch: "Not saved: the GitHub repository doesn't have the working branch. «Create the working branch» creates it from the main branch.",
-    github: {
-      REPO_GITHUB_NO_GH: "Not saved: GitHub is not installed on this machine. «What's missing» (in Machine) says how to install it.",
-      REPO_GITHUB_SIGNED_OUT: "Not saved: GitHub is not signed in on this machine. «What's missing» (in Machine) says how to sign in.",
-      REPO_GITHUB_NOT_FOUND: "Not saved: your GitHub account can't find that repository. Check the owner and the name.",
-      REPO_GITHUB_NO_WRITE: "Not saved: your GitHub account can't write to that repository. Ask for write access or use another.",
-      REPO_GITHUB_FAILED: "Not saved: GitHub didn't answer. Try again in a moment.",
-    },
     stale: "Not saved: this changed while you were editing it. Reload to see the latest and make your change again.",
     docExists: "Not saved: this note already exists. Reload to edit it.",
     docNotFound: "Not saved: that note is gone. Reload the page.",
@@ -229,7 +218,8 @@ export function ajustesError(code: string | null, detail: Record<string, unknown
     case "REPO_GITHUB_NOT_FOUND":
     case "REPO_GITHUB_NO_WRITE":
     case "REPO_GITHUB_FAILED":
-      return w.github[code] ?? githubWords(code)!;
+      // The GitHub lines are githubWords' (./nuevo-proyecto.ts), shared with the new-project sheet.
+      return githubWords(code, "save", language)!;
     case "STALE_VERSION":
       return w.stale;
     case "DOC_EXISTS":

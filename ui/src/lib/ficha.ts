@@ -4,9 +4,17 @@
 // the floor they name). Pure; the page owns the navigation.
 // PLA-I54-3: Pedido, the owner's requests taking shape (a capsule in the tube opens there).
 // PLA-I59-3: Motores, the model and effort of each teammate on this floor (motores.tsx).
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+
 export const FICHA_TABS = ["resumen", "pedido", "ideas", "diseno", "prs", "docs", "motores"] as const;
 export type FichaTab = (typeof FICHA_TABS)[number];
-export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", pedido: "Pedido", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs", motores: "Motores" };
+// PLA-I2-10: the tabs' names in both languages; TAB_WORD keeps the Spanish for callers that read the constant.
+export const TAB_WORDS = defineWords({
+  es: { resumen: "Resumen", pedido: "Pedido", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs", motores: "Motores" } as Record<FichaTab, string>,
+  en: { resumen: "Summary", pedido: "Request", ideas: "Ideas", diseno: "Design", prs: "PRs", docs: "Docs", motores: "Engines" },
+});
+export const TAB_WORD: Record<FichaTab, string> = TAB_WORDS.es;
+export const tabWord = (tab: FichaTab, language: Language = getLanguage()): string => words(TAB_WORDS, language)[tab];
 
 export type FichaRef =
   | { kind: "tab"; tab: FichaTab }

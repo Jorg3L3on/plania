@@ -4,7 +4,7 @@
 // PLA-I64-7: the doors (Archivo, Equipo, Máquinas) and Pausar or Reanudar; the seven work tabs are retired.
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
-import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
+import { DOORS, tabName, type Tab } from "@/lib/corriente";
 import { STRIP } from "@/lib/corriente-parts-words";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
 import { words } from "@/lib/i18n";
@@ -109,7 +109,7 @@ export const ProjectBar = ({
       <nav className="cor-doors" aria-label={w.doorsOf(title)}>
         {DOORS.map((t) => (
           <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
-            {TAB_NAME[t]}
+            {tabName(t)}
             {t === "archivo" && <ArchivoCount slug={slug} />}
             {t === "equipo" && team && <span className="n">{team}</span>}
           </Link>

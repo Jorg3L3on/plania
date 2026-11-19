@@ -14,7 +14,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
 import { api, type Decision, type IdeaAnswerInput, type IdeaBuilt, type IdeaDetail, type IdeaNote, type IdeaStop, type OrgProject, type PedidoStop, type PedidoTrailItem } from "@/lib/api";
-import { cardActs, deliveryFor, ETAPA_WORD, type CardAct } from "@/lib/etapas";
+import { cardActs, deliveryFor, etapaWord, type CardAct } from "@/lib/etapas";
 import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Decisiones, forwardOf } from "./decisiones";
@@ -750,13 +750,13 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
   if (live)
     return (
       <Bar tone="live" label={w.tallerBuildsLabel} side={<Link className="cor-btn secondary" to={links.paso(live.key)} data-control="ficha-ver-paso">{w.seeStep}</Link>}>
-        {w.onStep(b.steps.indexOf(live) + 1, b.total, live.title)} <span>{w.stageNothingWaits(ETAPA_WORD[live.etapa!])}</span>
+        {w.onStep(b.steps.indexOf(live) + 1, b.total, live.title)} <span>{w.stageNothingWaits(etapaWord(live.etapa!))}</span>
       </Bar>
     );
   const next = b.steps.find((s) => !["Merged", "Released", "Done"].includes(s.status));
   return (
     <Bar tone="calm" label={m.steps.total ? w.onBoard : w.noStepsLabel} side={next ? <Link className="cor-btn secondary" to={links.paso(next.key)} data-control="ficha-ver-paso">{w.seeStep}</Link> : undefined}>
-      {next ? w.nextStep(b.steps.indexOf(next) + 1, next.title) : w.noStepsYet} <span>{next ? w.stageNobody(ETAPA_WORD[next.etapa ?? "lista"]) : ""}</span>
+      {next ? w.nextStep(b.steps.indexOf(next) + 1, next.title) : w.noStepsYet} <span>{next ? w.stageNobody(etapaWord(next.etapa ?? "lista")) : ""}</span>
     </Bar>
   );
 };

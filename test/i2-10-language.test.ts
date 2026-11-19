@@ -14,7 +14,7 @@ useTestEnv();
 for (const k of ["PLANIA_PASSWORD_HASH", "PLANIA_LANGUAGE", "PLANIA_LOCALE", "PLANIA_JOBS"]) delete process.env[k];
 
 const ROOT = path.join(import.meta.dirname, "..");
-const { findInline, isSpanish, spanishIn, scannedFiles } = await import("../scripts/inline-words.js");
+const { findInline, findLibSpanish, isSpanish, spanishIn, scannedFiles, wordsRanges } = await import("../scripts/inline-words.js");
 const i18n = await import("../ui/src/lib/i18n.js");
 const { pickLocale } = await import("../ui/src/lib/locale.js");
 const { makeDb } = await import("../src/db/client.js");
@@ -143,6 +143,29 @@ test("I2-10 #4: no screen file holds an inline Spanish sentence unless it is on 
   assert.deepEqual(clean, [], "these files hold no inline Spanish now: remove them from test/inline-words-allow.txt");
   const gone = allowed.filter((f) => !files.has(f));
   assert.deepEqual(gone, [], "these files no longer exist: remove them from test/inline-words-allow.txt");
+});
+
+// The same guard for ui/src/lib: Spanish only inside defineWords (where the English twin is checked), or a module on
+// test/lib-words-allow.txt with its reason. Single-word labels are not detected (the same limit as above).
+test("I2-10 #4: a ui/src/lib module holds Spanish only inside defineWords, unless allow-listed with a reason", () => {
+  const found = findLibSpanish(ROOT);
+  const lines = readFileSync(path.join(ROOT, "test/lib-words-allow.txt"), "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  const entries = lines.map((l) => ({ file: l.split("#")[0]!.trim(), reason: l.includes("#") ? l.slice(l.indexOf("#") + 1).trim() : "" }));
+  assert.deepEqual(entries.filter((e) => !e.reason).map((e) => e.file), [], "every entry of test/lib-words-allow.txt says why after #");
+  const allowed = entries.map((e) => e.file);
+  const unlisted = [...found.keys()].filter((f) => !allowed.includes(f)).map((f) => `${f}:${found.get(f)![0]!.line} ${found.get(f)![0]!.text.slice(0, 60)}`);
+  assert.deepEqual(unlisted, [], "put these words in a defineWords({ es, en }) call (docs/screen-words.md)");
+  assert.deepEqual(allowed.filter((f) => !found.has(f)), [], "these modules hold no Spanish outside defineWords now: remove them from test/lib-words-allow.txt");
+});
+
+test("I2-10: the lib guard reads defineWords calls by their parentheses", () => {
+  const src = ['const a = "Hola, ¿cómo estás?";', "export const W = defineWords({", '  es: { t: (n: number) => `Hay ${n} (más)` },', '  en: { t: (n: number) => `There are ${n} (more)` },', "});", 'const b = "Ya está.";'].join("\n");
+  assert.deepEqual(wordsRanges(src), [[2, 5]]);
+  const inside = spanishIn(src).filter((f) => !wordsRanges(src).some(([a, z]) => f.line >= a && f.line <= z));
+  assert.deepEqual(inside.map((f) => f.line), [1, 6]);
 });
 
 // ---- the install's language

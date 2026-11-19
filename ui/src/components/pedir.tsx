@@ -9,11 +9,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import { ASK_MAX, MODES, type AskMode } from "@/lib/corriente";
+import { ASK_MAX, modesOf, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { cn } from "@/lib/utils";
 import { words } from "@/lib/i18n";
 import { PEDIR_HOME } from "@/lib/pedir-home-words";
+
+// PLA-I2-10: the ask modes in the screen's language (fixed for the page load).
+const MODES = modesOf();
 
 // The project Inicio's field asked for last, per device.
 const LAST_PROJECT = "plania.pedir.project";

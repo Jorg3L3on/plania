@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject, type ProjectTicket } from "@/lib/api";
 import { actAria, actBusyKey, actLabel, cardActs, type CardAct } from "@/lib/etapas";
-import { ETAPA_WORD, statusWord } from "@/lib/etapas";
+import { etapaWord, statusWord } from "@/lib/etapas";
 import type { LogEntry } from "@/lib/types";
 import type { CorrienteActs } from "./acts";
 import { Btn, Key, Label, ReadError, State } from "./parts";
@@ -86,7 +86,7 @@ const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; 
               <span className="cor-ellipsis" style={{ flex: 1 }}>
                 {t.title}
               </span>
-              <State>{ETAPA_WORD[t.etapa.etapa]}</State>
+              <State>{etapaWord(t.etapa.etapa)}</State>
             </Link>
           </li>
         ))}
@@ -147,7 +147,7 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
           <span className="cor-label violet">{t?.kind === "initiative" ? w.initiative : w.step} ·</span>
           <Key>{k}</Key>
           <h2 className="cor-ellipsis">{t?.title ?? here?.title ?? ""}</h2>
-          {here && <span className="cor-state" style={{ marginLeft: "auto" }}>{ETAPA_WORD[here.etapa.etapa]}</span>}
+          {here && <span className="cor-state" style={{ marginLeft: "auto" }}>{etapaWord(here.etapa.etapa)}</span>}
         </div>
         {q.isError ? (
           <ReadError what={w.readWhat} onRetry={() => void q.refetch()} />

@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { words } from "./i18n";
+import { QUESTION_ANSWER_WORDS } from "./task-patch-words";
 
 type SendInput = { answer: string; decision?: string };
 
@@ -17,9 +19,10 @@ export const useQuestionAnswer = (slug: string, questionId: string) => {
   const send = useMutation({
     mutationFn: (input: SendInput) => api.answer(slug, questionId, input.answer, input.decision),
     onSuccess: (_data, input) => {
-      toast(input.decision ? "Respuesta guardada como decisión" : "Respuesta guardada");
+      const w = words(QUESTION_ANSWER_WORDS);
+      toast(input.decision ? w.savedAsDecision : w.saved);
     },
-    onError: () => toast.error("No se pudo guardar la respuesta."),
+    onError: () => toast.error(words(QUESTION_ANSWER_WORDS).failed),
     onSettled: refresh,
   });
 

@@ -9,35 +9,237 @@
 // Pure: it reads what GET /api/company (the project, its board, its pedidos, the decisions, the server's move) and
 // GET /api/company/projects/:slug/ficha (open ideas with their state, which idea became which initiative) give.
 import type { Decision, DecisionAction, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket } from "./api";
-import { ETAPA_WORD } from "./etapas";
+import { etapaWord } from "./etapas";
 import { seatName } from "./corriente";
 import { arranqueLine } from "./arranque";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 // ---- words
 
 /** The nine stops of a thing's thread (PLA-IDEA27): six idea stops, the valve, construction, published. */
 export const PARADAS = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista", "valvula", "construccion", "publicado"] as const;
 export type Parada = (typeof PARADAS)[number];
-export const PARADA_NAME: Record<Parada, string> = {
-  buzon: "Buzón",
-  entendido: "Entendido",
-  investigacion: "Investigación",
-  diseno: "Diseño",
-  plan: "Plan",
-  lista: "Lista",
-  valvula: "Constrúyelo",
-  construccion: "Construcción",
-  publicado: "Publicado",
-};
 const IDEA_STOPS: readonly PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
 const STAGE_STOP: Record<string, PedidoStop> = { idea: "entendido", research: "investigacion", design: "diseno", planning: "plan", ready: "lista" };
 
 export type Tipo = "pedido" | "idea" | "iniciativa" | "suelto" | "decision" | "publicar" | "jugada";
-export const TIPO_NAME: Record<Tipo, string> = { pedido: "Pedido tuyo", idea: "Idea", iniciativa: "Iniciativa", suelto: "Paso suelto", decision: "Decisión", publicar: "Publicar", jugada: "Tu jugada" };
 
 export const GRUPOS = ["toca", "mueve", "fila", "quieto", "hecho"] as const;
 export type Grupo = (typeof GRUPOS)[number];
-export const GRUPO_NAME: Record<Grupo, string> = { toca: "Te toca", mueve: "Se mueve", fila: "En fila", quieto: "Quieto", hecho: "Hecho" };
+
+// PLA-I2-10: every word of the list and its sentence, in both languages. The Spanish constants (PARADA_NAME,
+// TIPO_NAME, GRUPO_NAME, RETRY) stay for callers that read them; cosasOf and fraseOf take the language last.
+export const COSAS_WORDS = defineWords({
+  es: {
+    paradas: {
+      buzon: "Buzón",
+      entendido: "Entendido",
+      investigacion: "Investigación",
+      diseno: "Diseño",
+      plan: "Plan",
+      lista: "Lista",
+      valvula: "Constrúyelo",
+      construccion: "Construcción",
+      publicado: "Publicado",
+    } as Record<Parada, string>,
+    /** PLA-62: the short names, when the thread is narrow (hilo.tsx). */
+    paradasShort: { entendido: "Entend.", investigacion: "Invest.", construccion: "Constr.", publicado: "Public." } as Partial<Record<Parada, string>>,
+    tipos: { pedido: "Pedido tuyo", idea: "Idea", iniciativa: "Iniciativa", suelto: "Paso suelto", decision: "Decisión", publicar: "Publicar", jugada: "Tu jugada" } as Record<Tipo, string>,
+    grupos: { toca: "Te toca", mueve: "Se mueve", fila: "En fila", quieto: "Quieto", hecho: "Hecho" } as Record<Grupo, string>,
+    retry: "Volver a intentar",
+    quote: (s: string) => `«${s}»`,
+    // A loose step's sentence without its title: «X» está lista → Está lista.
+    ownIs: " está ",
+    ownIsCap: "Está ",
+    listaPaused: (t: string) => `${t} está lista: arranca cuando reanudes.`,
+    lista: (t: string) => `${t} está lista: arranca sola.`,
+    enQa: (t: string) => `${t} está en QA: no te necesita.`,
+    enRevisionWhy: (t: string, why: string) => `${t}: ${why}. No te necesita.`,
+    enRevision: (t: string) => `${t} está en revisión: no te necesita.`,
+    integrado: (t: string) => `${t} ya está en la copia de prueba: espera publicación.`,
+    beingFixed: "la están arreglando.",
+    seePlan: "Ver el plan",
+    answer: "Responder",
+    decide: "Decidir",
+    of: (done: number, total: number) => `${done} de ${total}`,
+    aDelivery: "Una entrega",
+    delivered: "entregada: espera que la aceptes.",
+    manyDelivered: (n: number) => `Taller entregó ${n} pasos; cada uno espera que lo aceptes o pidas ajuste.`,
+    waitsForYou: "Te espera",
+    manyWaitForYou: (n: number) => `${n} te esperan`,
+    closeIt: "Todos sus pasos están hechos: ciérrala.",
+    readyToClose: "Lista para cerrar",
+    couldNotStartLine: "No pudo arrancar.",
+    couldNotStart: "No pudo arrancar",
+    someone: "Alguien",
+    works: (who: string, t: string) => `${who} trabaja ${t}.`,
+    missingStep: (t: string, why: string) => `Falta ${t}. ${why}`,
+    stepsDone: "Sus pasos están hechos: espera publicarse.",
+    noStepsYet: "Sin pasos todavía.",
+    done: "Hecha",
+    noSteps: "Sin pasos",
+    docMissing: (d: string) => `Falta el doc ${d}.`,
+    poAsks: "El PO te pregunta algo.",
+    asksYou: (stop: string) => `${stop} · te pregunta`,
+    putsOnBoard: (seat: string) => `${seat} la sube al tablero.`,
+    movingToBoard: "Pasando al tablero",
+    stuckValve: "Dijiste «Constrúyelo» y nadie la está subiendo al tablero.",
+    stuck: "Atorada",
+    planReady: "El plan está: «Constrúyelo» la sube al tablero.",
+    readyToBuild: "Lista para construir",
+    theTeam: "El equipo",
+    worksIt: (who: string, stop: string) => `${who} la trabaja: ${stop}.`,
+    inboxPaused: "En el buzón: el PO la toma cuando reanudes.",
+    inbox: "En el buzón: el PO la toma en su turno.",
+    readyIdea: "Lista: el PO la vuelve iniciativa.",
+    nobodyWorksIt: (rest: string) => `Nadie la trabaja. ${rest}`,
+    atStop: (stop: string) => `Está en ${stop}.`,
+    move: {
+      fijar: "Sin meta, el equipo no sabe qué va primero.",
+      planear: "Lo que sigue no está planeado todavía.",
+      arrancar: "Está listo y espera tu señal.",
+      ver: "Míralo cuando puedas.",
+    } as Record<string, string>,
+    nobodyTook: (t: string) => `Nadie tomó ${t}.`,
+    notTaken: "Sin tomar",
+    asks: (seat: string) => `${seat} pregunta`,
+    publishTitle: (title: string) => `Publicar ${title}`,
+    acceptedWaits: "Lo aceptado espera publicarse.",
+    stepReady: (t: string) => `${t} está listo y espera tu señal.`,
+    minutes: (m: number) => `${m} min`,
+    hours: (h: number) => `${h} h`,
+    days: (d: number) => `${d} días`,
+    // Feminine number words (cosa, entrega), 0 to 10.
+    numF: ["Cero", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    emptyMueve: "Todavía no hay nada aquí.",
+    emptySub: "Pide lo primero y se vuelve una fila.",
+    emptyFalta: "Cada cosa que pidas avanza sola de Buzón a Lista. Nadie escribe código hasta que digas «Constrúyelo».",
+    companyStopped: "La compañía está detenida.",
+    projectPaused: (title: string) => `${title} está en pausa.`,
+    movingNow: (num: string, n: number) => `${num} ${n === 1 ? "cosa se mueve" : "cosas se mueven"} ahora.`,
+    nobodyWorks: "Nadie trabaja ahora.",
+    stuckFor: (t: string) => `Tu «Constrúyelo» lleva ${t} sin subir al tablero.`,
+    stuckNoTime: "Tu «Constrúyelo» no ha subido al tablero.",
+    deliveriesWait: (num: string, n: number) => `${num} ${n === 1 ? "entrega te espera" : "entregas te esperan"}.`,
+    thingsWait: (num: string, n: number) => `${num} ${n === 1 ? "cosa te espera" : "cosas te esperan"}.`,
+    // The word the deliveries sentence carries (the paused line says «aceptarlas» after it).
+    deliveriesWord: "entregas",
+    nothingYet: "Todavía no hay nada aquí: pide lo primero, o pide al PO que arme el plan.",
+    pausedToca: (one: boolean, company: boolean, fila: number) =>
+      `Puedes ${one ? "atenderla" : "aceptarlas"} en pausa. Nada nuevo arranca hasta que ${company ? "reanudes la compañía" : "lo reanudes"}${fila ? `: ${fila === 1 ? "una cosa tiene" : `${fila} cosas tienen`} un paso listo.` : "."}`,
+    pausedNothing: "Nada arranca hasta que lo reanudes.",
+    stepsLeft: (open: number, total: number, title: string) => `${open === 1 ? "Falta 1 paso" : `Faltan ${open} pasos`} de ${total} para terminar ${title}.`,
+    filaWait: (num: string, n: number) => `${num} ${n === 1 ? "cosa espera" : "cosas esperan"} turno; no te necesitan.`,
+    nothingElse: "Nada más por ahora.",
+  },
+  en: {
+    paradas: {
+      buzon: "Inbox",
+      entendido: "Understood",
+      investigacion: "Research",
+      diseno: "Design",
+      plan: "Plan",
+      lista: "Ready",
+      valvula: "Build it",
+      construccion: "Building",
+      publicado: "Published",
+    },
+    paradasShort: { entendido: "Underst.", investigacion: "Research", construccion: "Building", publicado: "Publ." },
+    tipos: { pedido: "Your request", idea: "Idea", iniciativa: "Initiative", suelto: "Loose step", decision: "Decision", publicar: "Publish", jugada: "Your move" },
+    grupos: { toca: "Your turn", mueve: "Moving", fila: "In line", quieto: "Still", hecho: "Done" },
+    retry: "Try again",
+    quote: (s: string) => `“${s}”`,
+    ownIs: " is ",
+    ownIsCap: "Is ",
+    listaPaused: (t: string) => `${t} is ready: it starts when you resume.`,
+    lista: (t: string) => `${t} is ready: it starts by itself.`,
+    enQa: (t: string) => `${t} is in QA: it does not need you.`,
+    enRevisionWhy: (t: string, why: string) => `${t}: ${why}. It does not need you.`,
+    enRevision: (t: string) => `${t} is in review: it does not need you.`,
+    integrado: (t: string) => `${t} is already on the test copy: it waits to be published.`,
+    beingFixed: "it is being fixed.",
+    seePlan: "See the plan",
+    answer: "Answer",
+    decide: "Decide",
+    of: (done: number, total: number) => `${done} of ${total}`,
+    aDelivery: "A delivery",
+    delivered: "delivered: it waits for you to accept it.",
+    manyDelivered: (n: number) => `Taller delivered ${n} steps; each waits for you to accept it or ask for changes.`,
+    waitsForYou: "Waiting for you",
+    manyWaitForYou: (n: number) => `${n} waiting for you`,
+    closeIt: "All its steps are done: close it.",
+    readyToClose: "Ready to close",
+    couldNotStartLine: "It could not start.",
+    couldNotStart: "Could not start",
+    someone: "Someone",
+    works: (who: string, t: string) => `${who} is working on ${t}.`,
+    missingStep: (t: string, why: string) => `Still to do: ${t}. ${why}`,
+    stepsDone: "Its steps are done: it waits to be published.",
+    noStepsYet: "No steps yet.",
+    done: "Done",
+    noSteps: "No steps",
+    docMissing: (d: string) => `The ${d} doc is missing.`,
+    poAsks: "The PO is asking you something.",
+    asksYou: (stop: string) => `${stop} · asks you`,
+    putsOnBoard: (seat: string) => `${seat} is putting it on the board.`,
+    movingToBoard: "Moving to the board",
+    stuckValve: "You said “Build it” and nobody is putting it on the board.",
+    stuck: "Stuck",
+    planReady: "The plan is done: “Build it” puts it on the board.",
+    readyToBuild: "Ready to build",
+    theTeam: "The team",
+    worksIt: (who: string, stop: string) => `${who} is working on it: ${stop}.`,
+    inboxPaused: "In the inbox: the PO takes it when you resume.",
+    inbox: "In the inbox: the PO takes it in its turn.",
+    readyIdea: "Ready: the PO turns it into an initiative.",
+    nobodyWorksIt: (rest: string) => `Nobody is working on it. ${rest}`,
+    atStop: (stop: string) => `It is at ${stop}.`,
+    move: {
+      fijar: "Without a goal, the team does not know what comes first.",
+      planear: "What comes next is not planned yet.",
+      arrancar: "It is ready and waits for your signal.",
+      ver: "Look at it when you can.",
+    },
+    nobodyTook: (t: string) => `Nobody took ${t}.`,
+    notTaken: "Not taken",
+    asks: (seat: string) => `${seat} asks`,
+    publishTitle: (title: string) => `Publish ${title}`,
+    acceptedWaits: "What you accepted waits to be published.",
+    stepReady: (t: string) => `${t} is ready and waits for your signal.`,
+    minutes: (m: number) => `${m} min`,
+    hours: (h: number) => `${h} h`,
+    days: (d: number) => `${d} days`,
+    numF: ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    emptyMueve: "There is nothing here yet.",
+    emptySub: "Ask for the first thing and it becomes a row.",
+    emptyFalta: "Each thing you ask for moves by itself from Inbox to Ready. Nobody writes code until you say “Build it”.",
+    companyStopped: "The company is stopped.",
+    projectPaused: (title: string) => `${title} is paused.`,
+    movingNow: (num: string, n: number) => `${num} ${n === 1 ? "thing is moving" : "things are moving"} now.`,
+    nobodyWorks: "Nobody is working now.",
+    stuckFor: (t: string) => `Your “Build it” has waited ${t} to reach the board.`,
+    stuckNoTime: "Your “Build it” has not reached the board.",
+    deliveriesWait: (num: string, n: number) => `${num} ${n === 1 ? "delivery waits for you" : "deliveries wait for you"}.`,
+    thingsWait: (num: string, n: number) => `${num} ${n === 1 ? "thing waits for you" : "things wait for you"}.`,
+    deliveriesWord: "deliveries",
+    nothingYet: "There is nothing here yet: ask for the first thing, or ask the PO to make the plan.",
+    pausedToca: (one: boolean, company: boolean, fila: number) =>
+      `You can ${one ? "handle it" : "accept them"} while paused. Nothing new starts until you ${company ? "resume the company" : "resume it"}${fila ? `: ${fila === 1 ? "one thing has" : `${fila} things have`} a step ready.` : "."}`,
+    pausedNothing: "Nothing starts until you resume it.",
+    stepsLeft: (open: number, total: number, title: string) => `${open === 1 ? "1 step" : `${open} steps`} of ${total} left to finish ${title}.`,
+    filaWait: (num: string, n: number) => `${num} ${n === 1 ? "thing waits its" : "things wait their"} turn; they do not need you.`,
+    nothingElse: "Nothing else for now.",
+  },
+});
+type W = (typeof COSAS_WORDS)["es"];
+
+export const PARADA_NAME: Record<Parada, string> = COSAS_WORDS.es.paradas;
+export const TIPO_NAME: Record<Tipo, string> = COSAS_WORDS.es.tipos;
+export const GRUPO_NAME: Record<Grupo, string> = COSAS_WORDS.es.grupos;
+export const paradaName = (p: Parada, language: Language = getLanguage()): string => words(COSAS_WORDS, language).paradas[p];
+export const tipoName = (t: Tipo, language: Language = getLanguage()): string => words(COSAS_WORDS, language).tipos[t];
+export const paradaShort = (p: Parada, language: Language = getLanguage()): string => { const w = words(COSAS_WORDS, language); return w.paradasShort[p] ?? w.paradas[p]; };
+export const grupoName = (g: Grupo, language: Language = getLanguage()): string => words(COSAS_WORDS, language).grupos[g];
 
 // ---- shapes
 
@@ -127,15 +329,14 @@ export function tonoOf(t: Pick<ProjectTicket, "etapa">, paused: boolean): TramoT
   return "fila";
 }
 
-const quote = (s: string) => `«${s}»`;
 const runOn = (key: string, p: OrgProject): string | null => p.team.find((m) => m.state === "running" && m.now?.ticket === key)?.now?.run_id ?? null;
 const workerOn = (key: string, p: OrgProject) => p.team.find((m) => m.state === "running" && m.now?.ticket === key) ?? null;
 
 /** NEWPROJ-5: the teammate whose next start is this step (its hold, else its queue). */
 const starterOf = (key: string, p: OrgProject): string | null =>
   p.team.find((m) => m.next_start?.key === key)?.agent ?? p.team.find((m) => (m.queue ?? []).some((q) => q.key === key))?.agent ?? null;
-/** NEWPROJ-5: the retry on a step whose run could not start. */
-export const RETRY = "Volver a intentar";
+/** NEWPROJ-5: the retry on a step whose run could not start (Spanish; the rows read the screen's language). */
+export const RETRY = COSAS_WORDS.es.retry;
 
 /** The next step that is not done, in phase order then key order. */
 const focusOf = (ts: ProjectTicket[], paused: boolean, tono: TramoTono) =>
@@ -146,24 +347,25 @@ function quietLever(t: ProjectTicket): Palanca | null {
   return t.status === "Backlog" && t.etapa.etapa === "despues" && !(t.etapa.reason ?? "").startsWith("Espera a") ? { kind: "lista", key: t.key } : null;
 }
 
-function filaWords(t: ProjectTicket, paused: boolean): string {
+function filaWords(t: ProjectTicket, paused: boolean, w: W, language: Language): string {
   const e = t.etapa.etapa;
-  if (e === "lista") return paused ? `${quote(t.title)} está lista: arranca cuando reanudes.` : `${quote(t.title)} está lista: arranca sola.`;
-  if (e === "en_qa") return `${quote(t.title)} está en QA: no te necesita.`;
-  if (e === "en_revision") return t.etapa.reason ? `${quote(t.title)}: ${t.etapa.reason.replace(/\.$/, "")}. No te necesita.` : `${quote(t.title)} está en revisión: no te necesita.`;
-  if (e === "integrado") return `${quote(t.title)} ya está en la copia de prueba: espera publicación.`;
-  if (e === "devuelto") return `${quote(t.title)}: ${t.etapa.reason ?? "la están arreglando."}`;
-  return `${quote(t.title)}: ${t.etapa.reason ?? ETAPA_WORD[e]}`;
+  const q = w.quote(t.title);
+  if (e === "lista") return paused ? w.listaPaused(q) : w.lista(q);
+  if (e === "en_qa") return w.enQa(q);
+  if (e === "en_revision") return t.etapa.reason ? w.enRevisionWhy(q, t.etapa.reason.replace(/\.$/, "")) : w.enRevision(q);
+  if (e === "integrado") return w.integrado(q);
+  if (e === "devuelto") return `${q}: ${t.etapa.reason ?? w.beingFixed}`;
+  return `${q}: ${t.etapa.reason ?? etapaWord(e, language)}`;
 }
 
 /** The decision the server's move points at, if any. */
 const moveDecision = (p: OrgProject) => (p.next_move?.origen.kind === "decision" ? p.next_move.origen.id : null);
 
-function decisionLever(d: Decision, p: OrgProject): Palanca {
+function decisionLever(d: Decision, p: OrgProject, w: W): Palanca {
   if (moveDecision(p) === d.id && p.next_move) return { kind: "jugada", action: p.next_move.accion, decision: d.id };
   if (isDelivery(d)) return { kind: "entregas", ids: [d.id] };
   const action = d.actions[0] ?? "responder";
-  return { kind: "decision", id: d.id, action, label: d.kind === "plan" ? "Ver el plan" : d.kind === "question" ? "Responder" : "Decidir" };
+  return { kind: "decision", id: d.id, action, label: d.kind === "plan" ? w.seePlan : d.kind === "question" ? w.answer : w.decide };
 }
 
 // ---- the read
@@ -172,9 +374,10 @@ function decisionLever(d: Decision, p: OrgProject): Palanca {
 function ticketThing(
   base: { key: string; tipo: "iniciativa" | "suelto"; title: string; idea_key: string | null; ideaDone: boolean },
   ts: ProjectTicket[],
-  ctx: { p: OrgProject; paused: boolean; mine: Decision[]; canClose: boolean; version: number | null; done: number; total: number },
+  ctx: { p: OrgProject; paused: boolean; mine: Decision[]; canClose: boolean; version: number | null; done: number; total: number; w: W; language: Language },
 ): Cosa {
-  const { p, paused } = ctx;
+  const { p, paused, w, language } = ctx;
+  const quote = w.quote;
   const tramos: Tramo[] = [...ts]
     .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key))
     .map((t) => ({ key: t.key, title: t.title, etapa: t.etapa.etapa, tono: tonoOf(t, paused) }));
@@ -190,13 +393,14 @@ function ticketThing(
     publicado: allDone && ts.every((t) => t.etapa.etapa === "publicado" || t.etapa.etapa === "hecho"),
     at: allDone ? "publicado" : "construccion",
   };
-  const count = base.tipo === "iniciativa" ? `${ctx.done} de ${ctx.total}` : null;
+  const count = base.tipo === "iniciativa" ? w.of(ctx.done, ctx.total) : null;
   const cap = (word: string) => [count, word].filter(Boolean).join(" · ").toUpperCase();
   const since = (t: ProjectTicket | null) => t?.etapa.since ?? null;
   // A loose step is its own only step: its sentence does not repeat its title.
   const own = (e: string) => {
     if (base.tipo !== "suelto" || !e.startsWith(quote(base.title))) return e;
-    const rest = e.slice(quote(base.title).length).replace(/^(: | está )/, (m) => (m === ": " ? "" : "Está "));
+    const after = e.slice(quote(base.title).length);
+    const rest = after.startsWith(": ") ? after.slice(2) : after.startsWith(w.ownIs) ? w.ownIsCap + after.slice(w.ownIs.length) : after;
     return rest ? rest[0]!.toUpperCase() + rest.slice(1) : e;
   };
   const out = (grupo: Cosa["grupo"], espera: string, word: string, palanca: Palanca | null, s: string | null): Cosa => ({ ...base, grupo, hilo, espera: own(espera), cap: cap(word), palanca, decisions: decisions.map((d) => d.id), since: s });
@@ -210,51 +414,51 @@ function ticketThing(
       ? { kind: "jugada", action: p.next_move.accion, decision: moveDecision(p) }
       : { kind: "entregas", ids: deliveries.map((d) => d.id) };
     const t0 = tocaT[0] ?? null;
-    const espera = nd === 1 ? `${t0 ? quote(t0.title) : (first?.title ?? "Una entrega")}: ${t0?.etapa.reason ?? "entregada: espera que la aceptes."}` : `Taller entregó ${nd} pasos; cada uno espera que lo aceptes o pidas ajuste.`;
-    return out("toca", espera, nd === 1 ? "Te espera" : `${nd} te esperan`, palanca, since(t0) ?? first?.at ?? null);
+    const espera = nd === 1 ? `${t0 ? quote(t0.title) : (first?.title ?? w.aDelivery)}: ${t0?.etapa.reason ?? w.delivered}` : w.manyDelivered(nd);
+    return out("toca", espera, nd === 1 ? w.waitsForYou : w.manyWaitForYou(nd), palanca, since(t0) ?? first?.at ?? null);
   }
   const other = decisions[0];
-  if (other) return out("toca", other.title, TIPO_NAME.decision, decisionLever(other, p), other.at);
-  if (base.tipo === "iniciativa" && ctx.canClose) return out("toca", "Todos sus pasos están hechos: ciérrala.", "Lista para cerrar", { kind: "cerrar", key: base.key, version: ctx.version }, null);
+  if (other) return out("toca", other.title, w.tipos.decision, decisionLever(other, p, w), other.at);
+  if (base.tipo === "iniciativa" && ctx.canClose) return out("toca", w.closeIt, w.readyToClose, { kind: "cerrar", key: base.key, version: ctx.version }, null);
 
   // NEWPROJ-5: a step whose newest run could not start waits on the owner: what happened and what to fix, and a retry
   // (never «Que empiece ya», nor «arranca sola», while that cause may stand).
   const roto = [...ts].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key)).find((t) => t.arranque && !t.etapa.live && tonoOf(t, paused) !== "hecho");
   if (roto) {
-    const line = arranqueLine(roto.arranque!.summary) ?? "No pudo arrancar.";
+    const line = arranqueLine(roto.arranque!.summary, language) ?? w.couldNotStartLine;
     const agent = starterOf(roto.key, p);
-    const palanca: Palanca | null = agent && !paused ? { kind: "jugada", action: { kind: "start", agent, label: RETRY }, decision: null } : null;
-    return out("toca", base.tipo === "iniciativa" ? `${quote(roto.title)}: ${line}` : line, "No pudo arrancar", palanca, roto.arranque!.at ?? since(roto));
+    const palanca: Palanca | null = agent && !paused ? { kind: "jugada", action: { kind: "start", agent, label: w.retry }, decision: null } : null;
+    return out("toca", base.tipo === "iniciativa" ? `${quote(roto.title)}: ${line}` : line, w.couldNotStart, palanca, roto.arranque!.at ?? since(roto));
   }
 
   // Se mueve: someone works one of its steps now.
   const vivo = focusOf(ts, paused, "vivo");
   if (vivo) {
-    const w = workerOn(vivo.key, p);
-    const who = w ? seatName(w.role) : vivo.etapa.holder ? seatName(vivo.etapa.holder.role) : "Alguien";
+    const m = workerOn(vivo.key, p);
+    const who = m ? seatName(m.role) : vivo.etapa.holder ? seatName(vivo.etapa.holder.role) : w.someone;
     const run = runOn(vivo.key, p);
-    return out("mueve", `${who} trabaja ${quote(vivo.title)}.`, ETAPA_WORD[vivo.etapa.etapa], run ? { kind: "detener", run } : null, w?.now?.since ?? since(vivo));
+    return out("mueve", w.works(who, quote(vivo.title)), etapaWord(vivo.etapa.etapa, language), run ? { kind: "detener", run } : null, m?.now?.since ?? since(vivo));
   }
   // En fila: it starts by itself or is in review.
   const fila = focusOf(ts, paused, "fila");
   if (fila) {
     const lever: Palanca | null = fila.etapa.etapa === "lista" && p.next_first !== fila.key ? { kind: "primero", key: fila.key } : null;
-    return out("fila", filaWords(fila, paused), ETAPA_WORD[fila.etapa.etapa], lever, since(fila));
+    return out("fila", filaWords(fila, paused, w, language), etapaWord(fila.etapa.etapa, language), lever, since(fila));
   }
   // Quieto: the first step that does not move, with its reason and its lever.
   const q = focusOf(ts, paused, "quieto");
   if (q) {
-    const why = q.etapa.reason ?? ETAPA_WORD[q.etapa.etapa];
-    const espera = base.tipo === "iniciativa" ? `Falta ${quote(q.title)}. ${why}` : why;
-    return out("quieto", espera, ETAPA_WORD[q.etapa.etapa], quietLever(q), since(q));
+    const why = q.etapa.reason ?? etapaWord(q.etapa.etapa, language);
+    const espera = base.tipo === "iniciativa" ? w.missingStep(quote(q.title), why) : why;
+    return out("quieto", espera, etapaWord(q.etapa.etapa, language), quietLever(q), since(q));
   }
   // Every step landed but the initiative is not closed (it waits to be published or closed by Plania).
-  return out("fila", allDone ? "Sus pasos están hechos: espera publicarse." : "Sin pasos todavía.", allDone ? "Hecha" : "Sin pasos", null, null);
+  return out("fila", allDone ? w.stepsDone : w.noStepsYet, allDone ? w.done : w.noSteps, null, null);
 }
 
 /** An idea not promoted yet: a pedido (origin owner) or the team's idea. */
-function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null; ordered_at?: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[] }): Cosa {
-  const { p, paused } = ctx;
+function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null; ordered_at?: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[]; w: W }): Cosa {
+  const { p, paused, w } = ctx;
   const tipo: Tipo = i.origin === "owner" ? "pedido" : "idea";
   const worker = workerOn(i.key, p);
   const live = !!worker && !paused;
@@ -263,37 +467,38 @@ function ideaThing(i: { key: string; title: string; origin: string | null; stop:
   const valve = i.state === "valvula";
   const hilo = (ideaTono: TramoTono, valvula: Valvula): Hilo => ({ idea: at, ideaTono, valvula, tramos: [], publicado: false, at: valvula === "atorada" || valvula === "pasando" ? "valvula" : i.stop });
   const base = { key: i.key, tipo, idea_key: null, title: i.title, decisions: decisions.map((d) => d.id) };
-  const stopName = PARADA_NAME[i.stop];
-  const waits = i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => `Falta el doc ${d}.`) : null;
+  const stopName = w.paradas[i.stop];
+  const waits = i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => w.docMissing(d)) : null;
 
   if (i.question || i.state === "espera") {
-    const text = i.question?.text ?? waits ?? "El PO te pregunta algo.";
-    return { ...base, grupo: "toca", hilo: hilo("toca", "cerrada"), espera: text, cap: `${stopName} · te pregunta`.toUpperCase(), palanca: { kind: "responder", key: i.key, question: i.question?.id ?? "" }, since: i.at };
+    const text = i.question?.text ?? waits ?? w.poAsks;
+    return { ...base, grupo: "toca", hilo: hilo("toca", "cerrada"), espera: text, cap: w.asksYou(stopName).toUpperCase(), palanca: { kind: "responder", key: i.key, question: i.question?.id ?? "" }, since: i.at };
   }
   const d = decisions[0];
-  if (d) return { ...base, grupo: "toca", hilo: hilo("toca", "cerrada"), espera: d.title, cap: stopName.toUpperCase(), palanca: decisionLever(d, p), since: d.at };
-  if (valve && live) return { ...base, grupo: "mueve", hilo: hilo("hecho", "pasando"), espera: `${seatName(worker!.role)} la sube al tablero.`, cap: "Pasando al tablero", palanca: worker?.now?.run_id ? { kind: "detener", run: worker.now.run_id } : null, since: worker?.now?.since ?? i.at };
+  if (d) return { ...base, grupo: "toca", hilo: hilo("toca", "cerrada"), espera: d.title, cap: stopName.toUpperCase(), palanca: decisionLever(d, p, w), since: d.at };
+  if (valve && live) return { ...base, grupo: "mueve", hilo: hilo("hecho", "pasando"), espera: w.putsOnBoard(seatName(worker!.role)), cap: w.movingToBoard, palanca: worker?.now?.run_id ? { kind: "detener", run: worker.now.run_id } : null, since: worker?.now?.since ?? i.at };
   // PLA-62: the valve's clock is the «Constrúyelo» itself, not the idea's last edit.
-  if (valve) return { ...base, grupo: "toca", hilo: hilo("hecho", "atorada"), espera: "Dijiste «Constrúyelo» y nadie la está subiendo al tablero.", cap: "Atorada", palanca: { kind: "despertar", key: i.key }, since: i.ordered_at ?? i.at };
-  if (i.stop === "lista" && tipo === "pedido") return { ...base, grupo: "toca", hilo: hilo("hecho", "toca"), espera: "El plan está: «Constrúyelo» la sube al tablero.", cap: "Lista para construir", palanca: { kind: "construir", key: i.key }, since: i.at };
+  if (valve) return { ...base, grupo: "toca", hilo: hilo("hecho", "atorada"), espera: w.stuckValve, cap: w.stuck, palanca: { kind: "despertar", key: i.key }, since: i.ordered_at ?? i.at };
+  if (i.stop === "lista" && tipo === "pedido") return { ...base, grupo: "toca", hilo: hilo("hecho", "toca"), espera: w.planReady, cap: w.readyToBuild, palanca: { kind: "construir", key: i.key }, since: i.at };
   if (live || i.state === "trabajando") {
-    const who = worker ? seatName(worker.role) : "El equipo";
-    return { ...base, grupo: "mueve", hilo: hilo("vivo", "cerrada"), espera: `${who} la trabaja: ${stopName}.`, cap: stopName.toUpperCase(), palanca: worker?.now?.run_id ? { kind: "detener", run: worker.now.run_id } : null, since: worker?.now?.since ?? i.at };
+    const who = worker ? seatName(worker.role) : w.theTeam;
+    return { ...base, grupo: "mueve", hilo: hilo("vivo", "cerrada"), espera: w.worksIt(who, stopName), cap: stopName.toUpperCase(), palanca: worker?.now?.run_id ? { kind: "detener", run: worker.now.run_id } : null, since: worker?.now?.since ?? i.at };
   }
-  if (i.state === "cola") return { ...base, grupo: "fila", hilo: hilo("fila", "cerrada"), espera: paused ? "En el buzón: el PO la toma cuando reanudes." : "En el buzón: el PO la toma en su turno.", cap: stopName.toUpperCase(), palanca: null, since: i.at };
+  if (i.state === "cola") return { ...base, grupo: "fila", hilo: hilo("fila", "cerrada"), espera: paused ? w.inboxPaused : w.inbox, cap: stopName.toUpperCase(), palanca: null, since: i.at };
   // Quieta: nobody works it; it says what its stop still needs.
-  const espera = i.stop === "lista" ? "Lista: el PO la vuelve iniciativa." : `Nadie la trabaja. ${waits && waits !== "Puede avanzar" ? waits : `Está en ${stopName}.`}`;
+  const espera = i.stop === "lista" ? w.readyIdea : w.nobodyWorksIt(waits && waits !== "Puede avanzar" ? waits : w.atStop(stopName));
   return { ...base, grupo: "quieto", hilo: hilo("quieto", "cerrada"), espera, cap: stopName.toUpperCase(), palanca: paused ? null : { kind: "despertar", key: i.key }, since: i.at };
 }
 
-const ESPERA_MOVE: Record<string, string> = { fijar: "Sin meta, el equipo no sabe qué va primero.", planear: "Lo que sigue no está planeado todavía.", arrancar: "Está listo y espera tu señal.", ver: "Míralo cuando puedas.", aceptar: "", publicar: "", responder: "" };
 
 // Te toca: the row carrying the server's move first (it gets the screen's white button and matches the sentence),
 // then the longest waiting.
 const ORDER_TOCA = (a: Cosa, b: Cosa) => Number(b.palanca?.kind === "jugada") - Number(a.palanca?.kind === "jugada") || (a.since ?? "9").localeCompare(b.since ?? "9") || byKey(a.key, b.key);
 const ORDER_REST = (a: Cosa, b: Cosa) => (b.since ?? "").localeCompare(a.since ?? "") || byKey(a.key, b.key);
 
-export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInput): Cosas {
+export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInput, language: Language = getLanguage()): Cosas {
+  const w = words(COSAS_WORDS, language);
+  const quote = w.quote;
   const paused = companyPaused || p.paused;
   const mine = decisions.filter((d) => d.project === p.slug && isPending(d) && d.kind !== "release");
   const promoted = new Map<string, string>(); // initiative → idea
@@ -331,7 +536,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
           at: i.updated_at,
           ordered_at: i.ordered_at ?? null,
         },
-        { p, paused, mine },
+        { p, paused, mine, w },
       ),
     );
   }
@@ -342,7 +547,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       guardadasList.push({ key: pd.key, title: pd.title });
       continue;
     }
-    out.push(ideaThing({ key: pd.key, title: pd.title, origin: "owner", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine }));
+    out.push(ideaThing({ key: pd.key, title: pd.title, origin: "owner", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine, w }));
   }
 
   // Open initiatives and loose steps from the board.
@@ -358,18 +563,20 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
         version: ini.version ?? null,
         done: ini.done,
         total: ini.total,
+        w,
+        language,
       }),
     );
   }
   for (const t of board?.loose ?? []) {
     if (DONE.has(t.etapa.etapa)) continue;
-    out.push(ticketThing({ key: t.key, tipo: "suelto", title: t.title, idea_key: null, ideaDone: false }, [t], { p, paused, mine, canClose: false, version: null, done: 0, total: 1 }));
+    out.push(ticketThing({ key: t.key, tipo: "suelto", title: t.title, idea_key: null, ideaDone: false }, [t], { p, paused, mine, canClose: false, version: null, done: 0, total: 1, w, language }));
   }
 
   // A request of his nobody took: Reenviar on its row (or a row of its own).
   for (const s of p.stale_requests ?? []) {
     const c = out.find((x) => x.key === s.key);
-    if (c) Object.assign(c, { grupo: "toca", espera: `Nadie tomó ${quote(s.title)}.`, cap: "Sin tomar", palanca: { kind: "reenviar", key: s.key }, since: s.since });
+    if (c) Object.assign(c, { grupo: "toca", espera: w.nobodyTook(quote(s.title)), cap: w.notTaken, palanca: { kind: "reenviar", key: s.key }, since: s.since });
     else
       out.push({
         key: s.key,
@@ -378,8 +585,8 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
         title: s.title,
         grupo: "toca",
         hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "construccion" },
-        espera: `Nadie tomó ${quote(s.title)}.`,
-        cap: "SIN TOMAR",
+        espera: w.nobodyTook(quote(s.title)),
+        cap: w.notTaken.toUpperCase(),
         palanca: { kind: "reenviar", key: s.key },
         decisions: [],
         since: s.since,
@@ -398,8 +605,8 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       grupo: "toca",
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "construccion" },
       espera: d.detail ?? d.title,
-      cap: (d.asker ? `${seatName(d.asker.role)} pregunta` : "Decisión").toUpperCase(),
-      palanca: decisionLever(d, p),
+      cap: (d.asker ? w.asks(seatName(d.asker.role)) : w.tipos.decision).toUpperCase(),
+      palanca: decisionLever(d, p, w),
       decisions: [d.id],
       since: d.at,
     });
@@ -412,11 +619,11 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       key: "publicar",
       tipo: "publicar",
       idea_key: null,
-      title: release.title || `Publicar ${p.title}`,
+      title: release.title || w.publishTitle(p.title),
       grupo: "toca",
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "publicado" },
-      espera: release.detail ?? "Lo aceptado espera publicarse.",
-      cap: "Publicar",
+      espera: release.detail ?? w.acceptedWaits,
+      cap: w.tipos.publicar,
       palanca: { kind: "publicar" },
       decisions: [release.id],
       since: release.at,
@@ -431,8 +638,8 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   const holder = moveKey ? out.find((c) => c.key === moveKey || c.hilo.tramos.some((t) => t.key === moveKey)) : undefined;
   if (mv && holder) {
     const step = holder.hilo.tramos.find((t) => t.key === moveKey);
-    const espera = holder.tipo === "iniciativa" && step ? `${quote(step.title)} está listo y espera tu señal.` : ESPERA_MOVE.arrancar!;
-    if (holder.grupo !== "toca") Object.assign(holder, { grupo: "toca", espera, cap: "Te toca".toUpperCase(), palanca: { kind: "jugada", action: mv.accion, decision: null } });
+    const espera = holder.tipo === "iniciativa" && step ? w.stepReady(quote(step.title)) : w.move.arrancar!;
+    if (holder.grupo !== "toca") Object.assign(holder, { grupo: "toca", espera, cap: w.grupos.toca.toUpperCase(), palanca: { kind: "jugada", action: mv.accion, decision: null } });
   } else if (mv && mv.origen.kind !== "decision" && out.length > 0)
     out.push({
       key: "jugada",
@@ -441,8 +648,8 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       title: mv.texto,
       grupo: "toca",
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "construccion" },
-      espera: ESPERA_MOVE[mv.verbo] ?? "",
-      cap: "Te toca",
+      espera: w.move[mv.verbo] ?? "",
+      cap: w.grupos.toca,
       palanca: { kind: "jugada", action: mv.accion, decision: null },
       decisions: [],
       since: null,
@@ -458,22 +665,23 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
 // is left.
 export type Frase = { mueve: string; toca: string | null; falta: string; /** A grey second line (the empty project). */ sub?: string };
 
-const elapsed = (since: string | null, now: number): string | null => {
+const elapsed = (since: string | null, now: number, w: W): string | null => {
   if (!since) return null;
   const m = Math.max(0, Math.round((now - Date.parse(since)) / 60_000));
-  if (m < 60) return `${m} min`;
+  if (m < 60) return w.minutes(m);
   const h = Math.floor(m / 60);
-  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} días`;
+  return h < 48 ? w.hours(h) : w.days(Math.floor(h / 24));
 };
-const NUM_ES = ["Cero", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
-const countFem = (n: number, one: string, many: string) => `${n <= 10 ? NUM_ES[n] : String(n)} ${n === 1 ? one : many}`;
 
 export function fraseOf(
   p: OrgProject,
   c: Cosas,
   line: { state: string; say: string; why: string },
   opts: { now: number; companyPaused?: boolean; totals?: { open: number; done: number } | null },
+  language: Language = getLanguage(),
 ): Frase {
+  const w = words(COSAS_WORDS, language);
+  const num = (n: number) => (n <= 10 ? w.numF[n]! : String(n));
   const g = (k: Exclude<Grupo, "hecho">) => c.grupos.find((x) => x.grupo === k)?.cosas ?? [];
   const toca = g("toca");
   const mueve = g("mueve");
@@ -483,16 +691,16 @@ export function fraseOf(
 
   // An empty project: what will happen when he asks (board A4).
   if (c.abiertas === 0 && c.hecho.iniciativas.length === 0 && c.hecho.sueltos === 0 && !paused)
-    return { mueve: "Todavía no hay nada aquí.", toca: null, sub: "Pide lo primero y se vuelve una fila.", falta: "Cada cosa que pidas avanza sola de Buzón a Lista. Nadie escribe código hasta que digas «Constrúyelo»." };
+    return { mueve: w.emptyMueve, toca: null, sub: w.emptySub, falta: w.emptyFalta };
 
   // What moves.
   let first: string;
-  if (opts.companyPaused) first = "La compañía está detenida.";
-  else if (p.paused) first = `${p.title} está en pausa.`;
+  if (opts.companyPaused) first = w.companyStopped;
+  else if (p.paused) first = w.projectPaused(p.title);
   else if ((line.state === "work" || line.state === "back") && mueve.length > 0) first = line.say;
   else if (mueve.length === 1) first = mueve[0]!.espera;
-  else if (mueve.length > 1) first = `${countFem(mueve.length, "cosa se mueve", "cosas se mueven")} ahora.`;
-  else first = "Nadie trabaja ahora.";
+  else if (mueve.length > 1) first = w.movingNow(num(mueve.length), mueve.length);
+  else first = w.nobodyWorks;
 
   // What waits on him (amber), only when something does.
   let amber: string | null = null;
@@ -500,24 +708,24 @@ export function fraseOf(
     const stuck = toca.find((x) => x.hilo.valvula === "atorada");
     const deliveries = toca.reduce((n, x) => n + (x.palanca?.kind === "entregas" ? x.palanca.ids.length : x.palanca?.kind === "jugada" && x.tipo === "iniciativa" ? 1 : 0), 0);
     if (stuck) {
-      const t = elapsed(stuck.since, opts.now);
-      amber = t ? `Tu «Constrúyelo» lleva ${t} sin subir al tablero.` : "Tu «Constrúyelo» no ha subido al tablero.";
-    } else if (deliveries > 1) amber = `${countFem(deliveries, "entrega te espera", "entregas te esperan")}.`;
+      const t = elapsed(stuck.since, opts.now, w);
+      amber = t ? w.stuckFor(t) : w.stuckNoTime;
+    } else if (deliveries > 1) amber = w.deliveriesWait(num(deliveries), deliveries);
     else if (line.state === "you") amber = line.say;
     else if (toca.length === 1) amber = toca[0]!.espera;
-    else amber = `${countFem(toca.length, "cosa te espera", "cosas te esperan")}.`;
+    else amber = w.thingsWait(num(toca.length), toca.length);
   }
 
   // What is left.
   let last: string;
-  if (c.abiertas === 0) last = "Todavía no hay nada aquí: pide lo primero, o pide al PO que arme el plan.";
-  else if (paused && toca.length > 0) last = `Puedes ${toca.length === 1 && amber && !/entregas/.test(amber) ? "atenderla" : "aceptarlas"} en pausa. Nada nuevo arranca hasta que ${opts.companyPaused ? "reanudes la compañía" : "lo reanudes"}${fila.length ? `: ${fila.length === 1 ? "una cosa tiene" : `${fila.length} cosas tienen`} un paso listo.` : "."}`;
-  else if (paused) last = line.why || "Nada arranca hasta que lo reanudes.";
+  if (c.abiertas === 0) last = w.nothingYet;
+  else if (paused && toca.length > 0) last = w.pausedToca(toca.length === 1 && !!amber && !amber.includes(w.deliveriesWord), !!opts.companyPaused, fila.length);
+  else if (paused) last = line.why || w.pausedNothing;
   else {
     const t = opts.totals;
-    const left = t && t.open > 0 ? `${t.open === 1 ? "Falta 1 paso" : `Faltan ${t.open} pasos`} de ${t.open + t.done} para terminar ${p.title}.` : null;
+    const left = t && t.open > 0 ? w.stepsLeft(t.open, t.open + t.done, p.title) : null;
     const still = mueve.length === 0 && fila.length === 0 && quieto.length > 0 ? quieto[0]!.espera : null;
-    last = [left, still].filter(Boolean).join(" ") || (fila.length ? `${countFem(fila.length, "cosa espera", "cosas esperan")} turno; no te necesitan.` : "Nada más por ahora.");
+    last = [left, still].filter(Boolean).join(" ") || (fila.length ? w.filaWait(num(fila.length), fila.length) : w.nothingElse);
   }
   return { mueve: first, toca: amber, falta: last };
 }

@@ -2,7 +2,8 @@
 // sentence per piece of work (newest first), and a second line: who is idle, or, when nobody works, «Nadie trabaja en
 // este piso ahora.» with the true reason. Hook-free; the floor and the project page pass the same view.
 import type { CSSProperties } from "react";
-import { QUIET_SAY, type AhoraView } from "@/lib/ahora-piso";
+import type { AhoraView } from "@/lib/ahora-piso";
+import { AHORA_PISO_WORDS } from "@/lib/ahora-piso-words";
 import type { StageTone } from "@/lib/etapas";
 import { words } from "@/lib/i18n";
 import { PLAN } from "@/lib/plan-words";
@@ -39,7 +40,7 @@ export const AhoraLine = ({ view, className }: { view: AhoraView; className?: st
           </ul>
         ) : (
           <p className="ahl-say" data-ahora-quiet>
-            {QUIET_SAY}
+            {words(AHORA_PISO_WORDS).quietSay}
           </p>
         )}
         {view.why && (

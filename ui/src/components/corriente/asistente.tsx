@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { useThread } from "@/components/compania/use-thread";
 import type { ThreadAction, ThreadMessage } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
-import { ACTION_EFFECT, actionStateText, visibleMessages, waitsOnOwner } from "@/lib/org";
+import { actionEffect, actionStateText, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { plainWords } from "@/lib/plain-words";
 import { Btn, Label, Live, ReadError, You } from "./parts";
 import { LOCALE } from "@/lib/locale";
@@ -27,7 +27,7 @@ const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: Thre
   const here = busy?.id === m.id;
   const long = m.body.length > 320;
   const work = m.links.filter((l) => l.kind === "ticket" || l.kind === "idea");
-  const effect = m.actions.map((a) => ACTION_EFFECT[a]).find(Boolean);
+  const effect = m.actions.map((a) => actionEffect(a)).find(Boolean);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!open || text.trim().length < 2) return;
