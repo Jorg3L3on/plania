@@ -10,6 +10,7 @@ import path from "node:path";
 import { parseEnv, parseArgs } from "node:util";
 import { install, InstallError, type MachineCheck } from "../src/db/install.js";
 import { withDatabase } from "../src/db/migrate.js";
+import { installGate } from "../src/machine-check/index.js";
 
 const repoDir = path.resolve(import.meta.dirname, "..");
 const envPath = path.join(repoDir, ".env");
@@ -26,9 +27,12 @@ const existing = existsSync(envPath) ? parseEnv(readFileSync(envPath, "utf8")).D
 let url = values.url ?? (existing || DEFAULT_URL);
 if (values.database) url = withDatabase(url, values.database);
 
-// PLA-I2-12 builds the machine check in its own module. Until it lands this is the no-op; afterwards the install
-// passes it here.
-const machineCheck: MachineCheck | undefined = undefined;
+// PLA-I2-12: the machine check runs before anything changes. The database may not exist yet, so Postgres is
+// probed through the server's own `postgres` database.
+const machineCheck: MachineCheck = async () => {
+  const gate = await installGate({ env: { ...process.env, DATABASE_URL: withDatabase(url, "postgres") } });
+  return { ok: gate.proceed, lines: [gate.text] };
+};
 
 async function buildScreen(): Promise<void> {
   if (values["skip-screen"] || existsSync(path.join(repoDir, "dist/ui/index.html"))) return;
