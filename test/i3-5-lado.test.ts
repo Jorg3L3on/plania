@@ -68,7 +68,7 @@ test("I3-5 #1: a link with the step in the address opens the list with that pane
 });
 
 test("I3-5: the panel's words from the row's steps", () => {
-  const l = lado.ladoOf("FIL-2", tramos, three[1].etapa, NOW);
+  const l = lado.ladoOf("FIL-2", tramos, three[1]!.etapa, NOW);
   assert.deepEqual(l, {
     key: "FIL-2",
     i: 1,
@@ -82,8 +82,8 @@ test("I3-5: the panel's words from the row's steps", () => {
     title: "Paso FIL-2",
     espera: lado.ESPERA_OF.vivo,
   });
-  assert.equal(lado.ladoOf("FIL-3", tramos, three[2].etapa, NOW).espera, "Espera a que FIL-2 se integre.");
-  assert.equal(lado.ladoOf("FIL-1", tramos, three[0].etapa, NOW).who, null, "a done step says no time");
+  assert.equal(lado.ladoOf("FIL-3", tramos, three[2]!.etapa, NOW).espera, "Espera a que FIL-2 se integre.");
+  assert.equal(lado.ladoOf("FIL-1", tramos, three[0]!.etapa, NOW).who, null, "a done step says no time");
   assert.equal(lado.ladoOf("FIL-9", tramos, null, NOW), null);
   assert.equal(lado.prioridadWord("P1"), "P1 · alta");
   assert.equal(lado.prioridadWord(null), "Sin prioridad");
