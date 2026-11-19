@@ -45,6 +45,7 @@ import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
 import { machineCheckRoutes } from "./machine-check.js";
+import { limitsRoutes } from "./limits.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
@@ -710,6 +711,8 @@ api.route("/projects", maquinasRoutes);
 api.route("/maquinas", tableroRoutes);
 // PLA-I2-12: what this machine lacks to run Plania (src/api/machine-check.ts).
 api.route("/machine-check", machineCheckRoutes());
+// PLA-I2-7: what the team may never do, from the real rules (src/api/limits.ts).
+api.route("/limits", limitsRoutes());
 // PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).

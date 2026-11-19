@@ -5,9 +5,11 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { PROTECTED_BRANCHES } from "./deny.js";
 
 export const ALLOWED_BASE = "sandbox";
-const PROTECTED = new Set(["main", "master", "production", "prod"]);
+// PLA-I2-7: one list, shared with the deny rules (deny.ts).
+const PROTECTED = new Set<string>(PROTECTED_BRANCHES);
 
 export type GitResult = { code: number; stdout: string; stderr: string };
 export type GitFn = (args: string[], cwd: string) => Promise<GitResult>;
