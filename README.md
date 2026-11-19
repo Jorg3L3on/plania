@@ -304,25 +304,95 @@ pnpm scan:diff --json <repo-path> --base main --head HEAD
 It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
 
-## Running locally as a service
+## Packaging a release
 
-Plania runs on this Mac.
-
-- Database: local Postgres 14 (Homebrew service), database `plania`.
-- Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
-  It starts at login, restarts on crash, and logs to `~/Library/Logs/plania/server.log`.
-  It runs nvm's Node by absolute path, so update the plist after switching Node versions.
-- Clients, all pointing at `http://localhost:3737/mcp` with the Bearer from `.env`:
-  Claude Code (user scope), Cursor (`~/.cursor/mcp.json`), Codex (`~/.codex/config.toml`).
+Plania reaches a buyer as a numbered package, already built (PLA-I2-17). The buyer never gets the repository and
+never builds anything.
 
 ```bash
-pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server   # deploy code changes locally
-launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
-tail -f ~/Library/Logs/plania/server.log
+pnpm release:pack                 # type-checks, builds the screen, writes release/plania-<version>.tar.gz and .sha256
+pnpm release:pack --skip-build    # pack the dist/ui already built
+pnpm notices                      # regenerate THIRD_PARTY_NOTICES after a dependency changes (--check to compare)
 ```
 
-Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `launchctl kickstart` is enough after a code deploy; the plist stays as it is. A group-readable token file still works and logs one line, with no token in it.
+Before a release: bump `version` in `package.json` and add a `## <version>` entry to `CHANGELOG.md`, in plain Spanish
+for the owner and the buyer (the screen shows it on Novedades, and the version in Plomería). The checkout must be
+committed (`--allow-dirty` packs anyway, and the manifest then names no commit). `release/` is ignored by git.
+
+What a package holds: the built screen (`dist/ui`), the server's TypeScript sources (`src/`, and `ui/src/lib/` whose
+words and pure logic the server imports) run through `tsx`, which is a production dependency for that reason;
+`drizzle/migrations/`, `kit/`, `prompts/`, `config/`, `docs/templates/`; the scripts a buyer runs (start, install,
+migrate, service, restart, machine check, password and VAPID tools, project registration, kit, brief); `package.json`
+with only those scripts, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `.env.example`, `README.md`,
+`CHANGELOG.md`, `LICENSE`, a fresh `THIRD_PARTY_NOTICES`, `VERSION` and `release.json`. Never: tests, `spike/`,
+`replay/`, the screen's other sources, build configs, `.env`, `node_modules`.
+
+Dependencies are not in the archive: `@node-rs/argon2` and `esbuild` ship per-platform binaries, so one archive
+serves macOS and Linux and the buyer installs production dependencies from the lockfile it carries.
+
+On the buyer's machine (Node 22+, pnpm through corepack, Postgres 14+ already installed):
+
+```bash
+tar -xzf plania-0.1.0.tar.gz && cd plania-0.1.0
+pnpm install --prod --frozen-lockfile
+pnpm plania:install --service
+```
+
+A package serves its `dist/ui` as shipped: the start-up rebuild (PLA-I46-1) only happens in a git checkout, and a
+`release.json` at the root turns it off even when the folder sits inside another git repository.
+
+### The manifest (`release.json`)
+
+The update command (PLA-I2-8) reads this file; its format is a contract. `VERSION` holds the same version, alone.
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. Bumped when a field changes meaning. |
+| `name` | `"plania"`. |
+| `version` | `package.json`'s version, `MAJOR.MINOR.PATCH`. The archive is `plania-<version>.tar.gz`, with `plania-<version>.tar.gz.sha256` beside it (`<hex>  <file name>`). |
+| `commit` | The full commit packed, or `null` when packed with uncommitted changes. |
+| `built_at` | ISO time the package was made. |
+| `node` | The `engines.node` range it needs. |
+| `migrations` | The last migration file it carries, e.g. `0062_owner_neutral.sql`, so an update can tell whether it brings new ones. |
+
+`GET /health/ui` (no auth) returns `{ version: { version, commit, built_at, packaged }, ui, head }`; in a checkout
+`version` comes from `package.json` and the HEAD commit, with `packaged: false`. `GET /api/release` (session) adds
+`notes`, the CHANGELOG.
+
+### Licence and product copy
+
+`LICENSE` is a placeholder until the owner writes the text; `pnpm release:pack` warns while it is. Plania's copy may
+say in plain text that Plania runs Claude Code. Plania's own name and logo never use Claude's or Anthropic's names or
+marks, per Anthropic's published conditions for products built on Claude Code.
+
+## Running locally as a service
+
+`pnpm service:install` (or `pnpm plania:install --service`) leaves Plania running as a service of the user who runs
+it, from the folder it is run in, on port 3737: it starts at login, restarts when it crashes, and runs the Node that
+ran the command, with that shell's `PATH` (so it finds `claude`, `git` and `gh`). Run it again after moving the folder
+or switching Node versions. `pnpm service:uninstall` stops it and removes the service; data and logs stay.
+
+| | macOS | Linux (and WSL with systemd) |
+|---|---|---|
+| Service | launchd agent `com.plania.server`, `~/Library/LaunchAgents/com.plania.server.plist` | systemd user unit `~/.config/systemd/user/plania.service` |
+| Logs | `~/Library/Logs/plania/server.log` | the user journal: `journalctl --user -u plania -f` |
+| Starts | at login | at login; `--at-boot` also runs `loginctl enable-linger` so it starts at boot |
+| Restart by hand | `launchctl kickstart -k gui/$(id -u)/com.plania.server` | `systemctl --user restart plania.service` |
+| Stop | `launchctl bootout gui/$(id -u)/com.plania.server` | `systemctl --user stop plania.service` |
+
+WSL without systemd: the command changes nothing and says how to turn systemd on (`[boot]` `systemd=true` in
+`/etc/wsl.conf`, then `wsl --shutdown`); until then start Plania by hand with `pnpm start`. Windows outside WSL is not
+supported.
+
+`pnpm server:restart` restarts the service on either system, and refuses while a run, a QA check or a test copy's pass
+is in flight (`--check` lists them, `--force` restarts anyway). In a checkout the restart is the deploy: the server
+rebuilds `dist/ui` at start when its stamp is not HEAD.
+
+On the owner's Mac: local Postgres 14 (Homebrew service), database `plania`; the MCP clients point at
+`http://localhost:3737/mcp` with the Bearer from `.env`: Claude Code (user scope), Cursor (`~/.cursor/mcp.json`),
+Codex (`~/.codex/config.toml`).
+
+Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `pnpm server:restart` is enough after a code deploy; the plist or unit stays as it is. A group-readable token file still works and logs one line, with no token in it.
 
 Owner: create a read-only fine-grained token for the plania repo and save it with `umask 077; mkdir -p ~/.config/plania; pbpaste > ~/.config/plania/github-token` (non-blocking).
 

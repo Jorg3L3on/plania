@@ -16,3 +16,6 @@ scan-hashes.local.json
 
 # AUDIT-10: replay runs are local results, not source (replay/README.md).
 replay/results/
+
+# PLA-I2-17: release packages made by pnpm release:pack.
+release/

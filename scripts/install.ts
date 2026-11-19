@@ -2,6 +2,7 @@
 //   pnpm plania:install                       database `plania` on localhost:5432, created here
 //   pnpm plania:install --database <name>     another database name (an existing one is used only when named)
 //   pnpm plania:install --url postgres://user@host:5432/<name>
+//   pnpm plania:install --service             then leave it running as a service (PLA-I2-17, scripts/service.ts)
 // Machine check, create the database, write .env with generated secrets, migrate, build the screen when it is
 // missing. Node only, so it runs the same from PowerShell and bash. Safe to run again.
 import { execFileSync } from "node:child_process";
@@ -18,7 +19,7 @@ const examplePath = path.join(repoDir, ".env.example");
 const DEFAULT_URL = "postgres://localhost:5432/plania";
 
 const { values } = parseArgs({
-  options: { database: { type: "string" }, url: { type: "string" }, "skip-screen": { type: "boolean" } },
+  options: { database: { type: "string" }, url: { type: "string" }, "skip-screen": { type: "boolean" }, service: { type: "boolean" } },
   strict: true,
 });
 
@@ -53,9 +54,13 @@ try {
     buildScreen,
     log: (line) => console.log(line),
   });
-  console.log(
-    `Listo: base ${r.database}${r.created ? " (nueva)" : ""}, ${r.applied.length} migraciones aplicadas. Enciende Plania con pnpm start.`,
-  );
+  console.log(`Listo: base ${r.database}${r.created ? " (nueva)" : ""}, ${r.applied.length} migraciones aplicadas.`);
+  // PLA-I2-17: --service leaves Plania running as a service (scripts/service.ts); without it, how to start it.
+  if (values.service) {
+    execFileSync(process.execPath, ["--import", "tsx", path.join(repoDir, "scripts/service.ts"), "install"], { cwd: repoDir, stdio: "inherit" });
+  } else {
+    console.log("Enciende Plania con pnpm start, o déjala como servicio que arranca sola con pnpm service:install.");
+  }
 } catch (e) {
   if (e instanceof InstallError) {
     console.error(e.message);
