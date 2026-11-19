@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
-import { SWITCHER_MENU, TE_ESPERA, archivoCount, barState, switcherLabel, todoCount } from "@/lib/barra";
+import { PEERS_LABEL, SWITCHER_MENU, TE_ESPERA, peerTitle,archivoCount, barState, switcherLabel, todoCount } from "@/lib/barra";
 import { useFicha } from "./listas";
 import { Logo } from "./parts";
 
@@ -102,7 +102,36 @@ export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { sl
   );
 };
 
-export const BAR_DOORS = ["todo", ...DOORS] as const;
+/** PLA-I3-2: the other projects at a glance, as the old strip gave them: each one's mark and mini stream, a link to
+ *  the same door there. Nothing with one project; the switcher's menu still lists them all by name. */
+export const Peers = ({ slug, lanes, href }: { slug: string; lanes: Lane[]; href: (slug: string) => string }) => {
+  const others = lanes.filter((l) => l.slug !== slug);
+  if (others.length === 0) return null;
+  return (
+    <nav className="cor-peers" aria-label={PEERS_LABEL} data-peers>
+      {others.map((l, i) => (
+        <Link
+          key={l.slug}
+          to={href(l.slug)}
+          className={`cor-peer ${l.pace !== "live" ? "quiet" : ""}`}
+          title={peerTitle(l.title, l.you.length > 0)}
+          aria-label={peerTitle(l.title, l.you.length > 0)}
+          data-peer={l.slug}
+          style={{ "--cor-speed": `${6 + (i % 3) * 2}s`, "--cor-delay": `-${i * 1.7}s` } as CSSProperties}
+        >
+          <Logo slug={l.slug} title={l.title} size="sm" />
+          <span className={`cor-mini ${l.pace === "off" ? "off" : ""}`} aria-hidden>
+            {COLUMNS.map((c) => (
+              <span key={c} className={`t ${l.you.some((y) => y.col === c) ? "yo" : l.agents.some((a) => a.col === c) ? "ag" : l.cells[c].length ? "on" : ""}`} />
+            ))}
+          </span>
+        </Link>
+      ))}
+    </nav>
+  );
+};
+
+export const BAR_DOORS =["todo", ...DOORS] as const;
 
 /** PLA-I3-2: the project view's one bar. */
 export const ProjectBar = ({
@@ -161,6 +190,7 @@ export const ProjectBar = ({
         ))}
       </nav>
       <div className="cor-topbar-end">
+        <Peers slug={slug} lanes={lanes} href={projectHref} />
         <span className={`cor-topbar-state ${paused ? "off" : "on"}`} data-estado={paused ? "pausa" : "marcha"}>
           <i aria-hidden />
           {state.label}

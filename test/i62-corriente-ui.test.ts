@@ -210,6 +210,12 @@ test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switch
   const bar = html(h(strip.ProjectBar, { ...base, tab: "motores", team: "4 LIBRES", paused: false }));
   assert.ok(!bar.includes("data-switcher"), "the menu starts closed");
   assert.match(bar, /aria-haspopup="menu" aria-expanded="false"/);
+  // PLA-I3-2: with the menu closed the other projects still show at a glance, each a link to the same door there.
+  assert.match(bar, /data-peers/);
+  assert.match(bar, /data-peer="micasa"/);
+  assert.match(bar, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
+  assert.ok(!bar.includes('data-peer="filmia"'), "the open project is not among the others");
+  assert.ok(!html(h(strip.ProjectBar, { ...base, lanes: [lanes[0]!], tab: "todo", paused: false })).includes("data-peers"), "one project: nothing to peek");
   for (const t of ["Todo", "Archivo", "Equipo", "Máquinas", "Ajustes", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
   for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Motores", "Borrar"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} in the bar`);
   assert.match(bar, /aria-current="page"[^>]*>Equipo/, "Motores opens from Equipo");
