@@ -6,6 +6,8 @@
 //              for a short read-only run (no edits, no commits, no pushes: the QA deny rules). Taller answers in the
 //              project thread with a message linked to the ticket that starts «Respuesta:»; the card shows it.
 import { randomUUID } from "node:crypto";
+import { installLanguage } from "../language.js";
+import { ownerName } from "../owner.js";
 import path from "node:path";
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -17,7 +19,9 @@ import { capturesDir, imageUrl, putFile, readFile } from "./store.js";
 
 export type Marca = { vista: string; side: "antes" | "despues"; width: "desktop" | "phone"; x: number; y: number; note: string };
 export const PREGUNTA_MARK = "[pregunta]";
-export const RESPUESTA = /^\s*Respuesta:\s*/i;
+// PLA-I2-10: the answer's marker in the owner's language («Respuesta:» or «Answer:»); both are read whatever the
+// language, so a switch never hides an older answer. A one-word marker, not a sentence.
+export const RESPUESTA = /^\s*(?:Respuesta|Answer):\s*/i;
 
 async function load(db: Db, slug: string, key: string): Promise<{ p: Project; t: Task }> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
@@ -117,10 +121,15 @@ export async function preguntar(db: Db, slug: string, key: string, text: string)
     .set({ preguntas: sql`${tasks.preguntas} || ${JSON.stringify([{ id, text: q, at }])}::jsonb` })
     .where(eq(tasks.id, t.id));
   const taller = await tallerOf(db, p, t);
+  // PLA-I2-10: in the owner's language; the Spanish is unchanged. PREGUNTA_MARK stays: it is a tag, not a sentence.
   const reason =
-    `${PREGUNTA_MARK} El dueño pregunta sobre la entrega ${t.key}: «${q}». Contesta en español, en tres frases o menos, ` +
-    `con thread_post en el hilo de ${p.slug}, links [{"kind":"ticket","ref":"${t.key}"}], empezando con «Respuesta: ». ` +
-    `Solo lee el código y la muestra (get_task fields muestra): esta corrida no puede editar, hacer commit ni push.`;
+    installLanguage() === "en"
+      ? `${PREGUNTA_MARK} ${ownerName("en", { capital: true })} asks about delivery ${t.key}: «${q}». Answer in English, in three sentences or fewer, ` +
+        `with thread_post in the ${p.slug} thread, links [{"kind":"ticket","ref":"${t.key}"}], starting with «Answer: ». ` +
+        `Only read the code and the preview (get_task fields muestra): this run cannot edit, commit or push.`
+      : `${PREGUNTA_MARK} El dueño pregunta sobre la entrega ${t.key}: «${q}». Contesta en español, en tres frases o menos, ` +
+        `con thread_post en el hilo de ${p.slug}, links [{"kind":"ticket","ref":"${t.key}"}], empezando con «Respuesta: ». ` +
+        `Solo lee el código y la muestra (get_task fields muestra): esta corrida no puede editar, hacer commit ni push.`;
   const w = await enqueueWake(db, { agent: taller, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason });
   return { id, wake: w.kind === "queued" ? "queued" : w.reason };
 }

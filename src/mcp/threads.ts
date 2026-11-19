@@ -132,7 +132,7 @@ export const registerThreadTools = (
         "Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them.",
         "Asistente may post in every thread; any other agent only in its own project's thread (THREAD_FORBIDDEN otherwise).",
         "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets «Aprobar y pasar a prueba» (with a PR) or «Aprobar y cerrar» (without one) and «Pedir cambios» on screen; a question link gets Responder.",
-        "body: plain Spanish, up to 4000 characters. You are the author (your roster slug and role).",
+        "body: plain words in the owner's language, up to 4000 characters. You are the author (your roster slug and role).",
       ].join(" "),
       inputSchema: {
         actor,

@@ -46,7 +46,7 @@ carries the link that proves it, and every gap is shown as a gap.
 
 ## The doc
 
-Plain Spanish under the English headings.
+Plain words in the owner's language under the English headings.
 
 - `What we learned`: the answers to your questions, each claim linked. Then «Lo que no se sabe».
 - `Options`: two to four real options, one of which may be to do nothing. Each with what it gives, what

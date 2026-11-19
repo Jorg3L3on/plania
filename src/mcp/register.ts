@@ -367,7 +367,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "blocked: BLOCKER_OPEN (unsatisfied blocker or Blocked), CI_FAILURE, DEPLOY_BLOCKED (failed deploy or env behind the integration branch, on a ticket In review), AREAS_OVERLAP, DECISION_PENDING (open question or human_action on the ticket to resume).",
         "caution: LEASE_EXPIRED, OWNER_ABSENT (footprint old or missing), CLAIM_QUIET (past PLANIA_QUIET_MIN), WORKTREE_DIRTY, DIRTY_UNKNOWN, ENV_UNKNOWN (missing environment commit or integration head, on a ticket In review), NOTE_STALE, PR_PENDING, PR_UNREADABLE, DECISION_ELSEWHERE, NO_NEXT.",
         "ready: a healthy live claim, a ticket In review with checks passing, or a clear next step, and none of the above. Unknown or missing data (dirty null, a live claim with no footprint, an unreadable PR, a missing environment commit or integration head) is caution, never ready.",
-        "Each reason is {code, severity, text, task_key}; text is one short Spanish sentence naming the ticket. line is one sentence.",
+        "Each reason is {code, severity, text, task_key}; text is one short sentence in the owner's language naming the ticket. line is one sentence.",
         "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on the owner, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
@@ -555,7 +555,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "list_events",
     {
       description: [
-        "What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish).",
+        "What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (in the owner's language).",
         "project: a slug, or all for every project in one feed (ids commit in order across projects, so one cursor is safe).",
         "Pass since = the next_cursor you got last time to see only what is new (e.g. a ticket re-scoped or claimed under you). more: true means call again.",
         "Filter by key (one project only), or by types (a prefix like claim matches claim.acquired, claim.released, claim.expired; pr matches pr.opened, pr.merged, pr.closed, pr.ci_failed). limit default 200, max 1000.",
@@ -603,7 +603,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_digest",
     {
       description: [
-        "One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with Spanish summaries and highlights",
+        "One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with summaries in the owner's language and highlights",
         "(done, to_review, blocked, needs_owner, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on the owner (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project.",
         "Without since, resumes from the cursor this token was last given (since_from: memory); the first time, the last 24 h. Pass since to override. Only an unscoped call (project all) moves that memory; a slug-scoped one reads from since or the last 24 h.",
         `project: all (default) or a slug. max_events_per_project default ${DIGEST_PER_PROJECT_DEFAULT} (the newest; changes_total counts all). truncated: true means more than 2000 events moved: call again.`,

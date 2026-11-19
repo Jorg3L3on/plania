@@ -21,6 +21,52 @@ import { queueRetro } from "../runner/retro.js";
 import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import type { ThreadRef } from "../runner/threads.js";
 import { ownerEs } from "../owner.js";
+import { ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the owner reads from the thread's actions, in the install's language; the Spanish is unchanged.
+// The request for changes is also stored as a field (owner_changes), so nothing reads these words back.
+export const THREAD_ACTION_WORDS = defineWords({
+  es: {
+    changesNote: (text: string) => `Cambios que pide ${ownerEs()}: ${text}`,
+    baseNotWork: "El PR no apunta a la rama de trabajo: desde aquí solo se fusiona ahí.",
+    prNotOpen: (n: unknown) => `El PR #${n} está cerrado sin fusionar: pide cambios o abre otro.`,
+    noMergeCommit: "GitHub no muestra el commit de fusión.",
+    mergeFailed: "No se pudo fusionar el PR.",
+    conflict: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
+    noTicket: "El mensaje no enlaza un ticket de este hilo.",
+    notInReview: (k: string, s: string) => `${k} está en ${s}, no En revisión.`,
+    notAPr: "Solo una entrega con PR se acepta sola.",
+    closed: (k: string, s: string) => `${k} ya está cerrado (${s}).`,
+    noQuestion: "El mensaje no trae una pregunta.",
+    questionGone: "La pregunta ya no existe.",
+    answered: "La pregunta ya tiene respuesta.",
+    noMessage: "No hay ese mensaje en este hilo.",
+    acted: "Ya actuaste sobre este mensaje.",
+    writeChanges: "Escribe qué cambiar.",
+    writeAnswer: "Escribe tu respuesta.",
+  },
+  en: {
+    changesNote: (text: string) => `Changes ${ownerName("en")} asks for: ${text}`,
+    baseNotWork: "The PR does not aim at the working branch: from here it only merges there.",
+    prNotOpen: (n: unknown) => `PR #${n} was closed without merging: ask for changes or open another.`,
+    noMergeCommit: "GitHub does not show the merge commit.",
+    mergeFailed: "The PR could not be merged.",
+    conflict: "It clashes with the last thing you accepted: it went back to Taller to catch up and will reach you again.",
+    noTicket: "The message does not link a ticket in this thread.",
+    notInReview: (k: string, s: string) => `${k} is ${s}, not In review.`,
+    notAPr: "Only a delivery with a PR is accepted by itself.",
+    closed: (k: string, s: string) => `${k} is already closed (${s}).`,
+    noQuestion: "The message carries no question.",
+    questionGone: "The question no longer exists.",
+    answered: "The question already has an answer.",
+    noMessage: "That message is not in this thread.",
+    acted: "You already acted on this message.",
+    writeChanges: "Write what to change.",
+    writeAnswer: "Write your answer.",
+  },
+});
+const w = () => say(THREAD_ACTION_WORDS);
 
 // PLA-I2-5: the default; a project's own is startBranchOf(project.settings), the only base Aceptar merges into.
 export const MERGE_BASE = DEFAULT_START_BRANCH;
@@ -71,7 +117,7 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
       url: string;
     };
     // Never main, never anything but sandbox: the runner's deny rules hold for the screen too.
-    if (view.baseRefName !== base) return refuse("BASE_NOT_SANDBOX", "El PR no apunta a la rama de trabajo: desde aquí solo se fusiona ahí.", { base: view.baseRefName });
+    if (view.baseRefName !== base) return refuse("BASE_NOT_SANDBOX", w().baseNotWork, { base: view.baseRefName });
     // Already merged into sandbox (another card or GitHub, before the poller caught up): that is the accept the
     // owner asked for. This message records it; pr.merged is not written twice (the merge already has its event
     // or the poller writes it).
@@ -79,7 +125,7 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
       const done = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null };
       return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, already: true, pr: url, base, sha: done.mergeCommit?.oid ?? null, ticket: t.key } });
     }
-    if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", `El PR #${number} está cerrado sin fusionar: pide cambios o abre otro.`, { state: view.state });
+    if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", w().prNotOpen(number), { state: view.state });
     // PLA-108 (guided test PLA-86): MIA-I10-5 conflicted with sandbox after MIA-40 was accepted, and Aceptar only said
     // «No se pudo fusionar: revisa el PR», a step the owner cannot take. A conflict goes back to Taller to bring the
     // branch up to date, and the owner is told so.
@@ -97,7 +143,7 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     }
     const after = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
     const sha = after.mergeCommit?.oid;
-    if (!sha) return refuse("MERGE_FAILED", "GitHub no muestra el commit de fusión.", { step: "view" });
+    if (!sha) return refuse("MERGE_FAILED", w().noMergeCommit, { step: "view" });
     const project = await projectOf(db, t);
     // An automatic accept is the server's write and names the evidence it stood on.
     const auto = by === "auto";
@@ -109,7 +155,7 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     await mergedNow(db, project, t, { repo: repo!, number: Number(number), url: after.url || view.url, sha });
     return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base, sha, ticket: t.key, ...(auto ? { by: "auto" } : {}) } });
   } catch (e) {
-    if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", "No se pudo fusionar el PR.", e.detail);
+    if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", w().mergeFailed, e.detail);
     throw e;
   }
 }
@@ -128,7 +174,7 @@ async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Prom
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     if (owner) await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: conflictWake(base), appendReason: true }).catch(() => undefined);
   }
-  return refuse("MERGE_CONFLICT", "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.", { key: t.key, pr: number });
+  return refuse("MERGE_CONFLICT", w().conflict, { key: t.key, pr: number });
 }
 
 // PLA-82 (F-31): the merge Plania just made is known now; the floor read «Publicar 4 cambios» with the step still
@@ -152,12 +198,12 @@ async function mergedNow(db: Db, project: typeof projects.$inferSelect, t: Task,
 
 async function accept(db: Db, msg: ThreadMessage, ref: ThreadRef, by: AcceptBy = "screen"): Promise<ActionDone | ActionRefusal> {
   const t = await linkedTicket(db, msg, ref);
-  if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket de este hilo.");
-  if (t.status !== "In review") return refuse("NOT_IN_REVIEW", `${t.key} está en ${t.status}, no En revisión.`, { key: t.key, status: t.status });
+  if (!t) return refuse("NO_TICKET", w().noTicket);
+  if (t.status !== "In review") return refuse("NOT_IN_REVIEW", w().notInReview(t.key, t.status), { key: t.key, status: t.status });
   const pr = prOf(msg, t);
   if (pr && CODE.has(t.workType ?? "code")) return merge(db, msg, t, pr, by);
   // Only a PR is accepted automatically: a doc or a plan is the owner's to read.
-  if (by === "auto") return refuse("NOT_A_PR", "Solo una entrega con PR se acepta sola.");
+  if (by === "auto") return refuse("NOT_A_PR", w().notAPr);
   const project = await projectOf(db, t);
   await setTask(db, { project: project.slug, key: t.key, status: "Done", version: t.version } as never, { ...webCtx, tool: "screen.thread_accept" });
   return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { ticket: t.key, status: "Done" } });
@@ -165,10 +211,10 @@ async function accept(db: Db, msg: ThreadMessage, ref: ThreadRef, by: AcceptBy =
 
 async function changes(db: Db, msg: ThreadMessage, ref: ThreadRef, text: string): Promise<ActionDone | ActionRefusal> {
   const t = await linkedTicket(db, msg, ref);
-  if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket de este hilo.");
-  if (["Done", "Won't do", "Merged", "Released"].includes(t.status)) return refuse("TICKET_CLOSED", `${t.key} ya está cerrado (${t.status}).`, { key: t.key, status: t.status });
+  if (!t) return refuse("NO_TICKET", w().noTicket);
+  if (["Done", "Won't do", "Merged", "Released"].includes(t.status)) return refuse("TICKET_CLOSED", w().closed(t.key, t.status), { key: t.key, status: t.status });
   const project = await projectOf(db, t);
-  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `Cambios que pide ${ownerEs()}: ${text}` } as never, { ...webCtx, tool: "screen.thread_changes" });
+  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: w().changesNote(text), owner_changes: text } as never, { ...webCtx, tool: "screen.thread_changes" });
   // Moving to Ready wakes a PO-owned ticket's PO, or Taller for code (the event hook). Any other owner is
   // woken here, unless it already has a run queued or running.
   let wake: string = "event";
@@ -186,10 +232,10 @@ async function changes(db: Db, msg: ThreadMessage, ref: ThreadRef, text: string)
 }
 
 async function reply(db: Db, msg: ThreadMessage, text: string): Promise<ActionDone | ActionRefusal> {
-  if (!msg.questionId) return refuse("NO_QUESTION", "El mensaje no trae una pregunta.");
+  if (!msg.questionId) return refuse("NO_QUESTION", w().noQuestion);
   const [q] = await db.select().from(questions).where(eq(questions.id, msg.questionId)).limit(1);
-  if (!q) return refuse("NO_QUESTION", "La pregunta ya no existe.");
-  if (q.answeredAt) return refuse("ALREADY_ANSWERED", "La pregunta ya tiene respuesta.", { answer: q.answer });
+  if (!q) return refuse("NO_QUESTION", w().questionGone);
+  if (q.answeredAt) return refuse("ALREADY_ANSWERED", w().answered, { answer: q.answer });
   const [project] = await db.select().from(projects).where(eq(projects.id, q.projectId)).limit(1);
   await answer(db, { project: project!.slug, question_id: q.id, answer: text }, { ...webCtx, tool: "screen.thread_answer" });
   return record(db, msg, { action: "responder", at: new Date().toISOString(), result: { question_id: q.id, answer: text } });
@@ -201,11 +247,11 @@ export async function threadAction(db: Db, ref: ThreadRef, input: ActionInput, b
     .from(threadMessages)
     .where(and(eq(threadMessages.id, input.message_id), eq(threadMessages.threadId, ref.thread.id)))
     .limit(1);
-  if (!msg) return refuse("MESSAGE_NOT_FOUND", "No hay ese mensaje en este hilo.", {}, 404);
-  if (msg.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre este mensaje.", { action_state: msg.actionState });
+  if (!msg) return refuse("MESSAGE_NOT_FOUND", w().noMessage, {}, 404);
+  if (msg.actionState) return refuse("ALREADY_ACTED", w().acted, { action_state: msg.actionState });
   const text = input.text?.trim() ?? "";
   if (input.action === "aceptar" || input.action === "fusionar") return accept(db, msg, ref, by);
-  if (!text) return refuse("TEXT_REQUIRED", input.action === "cambios" ? "Escribe qué cambiar." : "Escribe tu respuesta.");
+  if (!text) return refuse("TEXT_REQUIRED", input.action === "cambios" ? w().writeChanges : w().writeAnswer);
   if (input.action === "cambios") return changes(db, msg, ref, text);
   return reply(db, msg, text);
 }

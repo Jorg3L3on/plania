@@ -9,6 +9,34 @@
 //   listConsultas   the project's questions for the side page, each with its state and what the PO read so far
 //                   (from the run's stream log).
 import { readFileSync } from "node:fs";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the owner reads of a question's run and its answer, in the install's language (Spanish unchanged).
+export const CONSULTA_WORDS = defineWords({
+  es: {
+    opened: (f: string) => `Abrió ${f}`,
+    searched: (q: string, where: string | null) => `Buscó «${q}»${where ? ` en ${where}` : ""}`,
+    globbed: (q: string) => `Buscó archivos ${q}`,
+    ran: (c: string) => `Corrió ${c}`,
+    missing: " (no existe)",
+    from: (q: string) => `Viene de una pregunta a Plania: «${q}»`,
+    poAnswer: (a: string) => `Respuesta del PO: ${a}`,
+    where: (s: string) => `Dónde: ${s}`,
+    readOn: (b: string, c: string | null) => `Leído en ${b}${c ? ` @ ${c}` : ""}.`,
+  },
+  en: {
+    opened: (f: string) => `Opened ${f}`,
+    searched: (q: string, where: string | null) => `Searched «${q}»${where ? ` in ${where}` : ""}`,
+    globbed: (q: string) => `Looked for files ${q}`,
+    ran: (c: string) => `Ran ${c}`,
+    missing: " (does not exist)",
+    from: (q: string) => `Comes from a question to Plania: «${q}»`,
+    poAnswer: (a: string) => `The PO's answer: ${a}`,
+    where: (s: string) => `Where: ${s}`,
+    readOn: (b: string, c: string | null) => `Read on ${b}${c ? ` @ ${c}` : ""}.`,
+  },
+});
+import { ownerLanguage } from "../runner/owner-language.js";
 import path from "node:path";
 import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -17,7 +45,7 @@ import { ToolError } from "../mcp/errors.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
-import { HELD_TEXT, type HeldCode } from "../runner/admission.js";
+import { heldText, type HeldCode } from "../runner/admission.js";
 import { ownerEs, ownerName } from "../owner.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
@@ -79,7 +107,7 @@ export function consultaPrompt(input: {
     where,
     "First see which branch is checked out and its commit (git rev-parse --abbrev-ref HEAD; git rev-parse --short HEAD). If what they ask about is not on that branch, look for it on the open branches (git for-each-ref refs/heads refs/remotes, then git show <branch>:<path>) and say which branch you read.",
     "Answer in the language of their question, in plain words: one short answer (two sentences at most), then the reasons (up to four, one or two sentences each). Name every file you rely on with its line. Say whether you saw it in the code or are guessing, and that you did not try it live. If knowing for sure needs running the app, say so instead of guessing.",
-    "If there is something to fix, write it as a request they could send to the team (fix: one or two sentences in Spanish, naming the branch when it is not main). Otherwise leave fix out. Never start the fix.",
+    `If there is something to fix, write it as a request they could send to the team (fix: one or two sentences in ${ownerLanguage()}, naming the branch when it is not main). Otherwise leave fix out. Never start the fix.`,
     `Finish with exactly one call: answer_consulta {project: "${input.project.slug}", id: "${input.consulta.id}", short, why, sources [{path, line}], branch, commit, sure ("seen" or "guess"), fix?} with actor session_id ${input.sessionId}. Paths are relative to the repo root; a file you looked for that does not exist goes in sources with missing true. Then stop.`,
   ].join("\n");
 }
@@ -167,10 +195,11 @@ export function trailOf(logText: string, cwd: string | null): string[] {
     for (const b of m.message?.content ?? []) {
       if (b.type !== "tool_use") continue;
       const i = b.input ?? {};
-      if (b.name === "Read") out.push(`Abrió ${rel(i.file_path)}`);
-      else if (b.name === "Grep") out.push(`Buscó «${clean(i.pattern, 60)}»${i.path ? ` en ${rel(i.path)}` : ""}`);
-      else if (b.name === "Glob") out.push(`Buscó archivos ${clean(i.pattern, 60)}`);
-      else if (b.name === "Bash") out.push(`Corrió ${clean(i.command, 70)}`);
+      const w = say(CONSULTA_WORDS);
+      if (b.name === "Read") out.push(w.opened(rel(i.file_path)));
+      else if (b.name === "Grep") out.push(w.searched(clean(i.pattern, 60), i.path ? rel(i.path) : null));
+      else if (b.name === "Glob") out.push(w.globbed(clean(i.pattern, 60)));
+      else if (b.name === "Bash") out.push(w.ran(clean(i.command, 70)));
     }
   }
   return out.slice(-14);
@@ -199,7 +228,7 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
     const run = c.runId ? byId.get(c.runId) : undefined;
     // PLA-69: queued is still in line (it said «Leyendo» while the machine held it); only a started run reads.
     const state: ConsultaState = c.answer ? "lista" : !run || run.status === "queued" ? "cola" : run.status === "running" || run.status === "starting" ? "leyendo" : "sin_respuesta";
-    const held = state === "cola" && run?.heldCode ? (HELD_TEXT[run.heldCode as HeldCode] ?? null) : null;
+    const held = state === "cola" && run?.heldCode ? heldText(run.heldCode as HeldCode) : null;
     // Only the newest few carry their trail: it is read from a log file each time.
     const trail = run && i < 5 ? readTrail(run.logPath, run.cwd) : [];
     return {
@@ -222,13 +251,14 @@ export async function answerNote(db: Db, projectId: string, id: string): Promise
   const [c] = await db.select().from(consultas).where(and(eq(consultas.id, id), eq(consultas.projectId, projectId))).limit(1);
   if (!c?.answer) return null;
   const a = c.answer;
-  const src = a.sources.map((s) => `${s.path}${s.line ? `:${s.line}` : ""}${s.missing ? " (no existe)" : ""}`).join(", ");
+  const w = say(CONSULTA_WORDS);
+  const src = a.sources.map((s) => `${s.path}${s.line ? `:${s.line}` : ""}${s.missing ? w.missing : ""}`).join(", ");
   return [
-    `Viene de una pregunta a Plania: «${c.text.slice(0, 300)}»`,
-    `Respuesta del PO: ${a.short}`,
-    ...a.why.map((w) => `- ${w}`),
-    src ? `Dónde: ${src}` : "",
-    a.branch ? `Leído en ${a.branch}${a.commit ? ` @ ${a.commit}` : ""}.` : "",
+    w.from(c.text.slice(0, 300)),
+    w.poAnswer(a.short),
+    ...a.why.map((x) => `- ${x}`),
+    src ? w.where(src) : "",
+    a.branch ? w.readOn(a.branch, a.commit ?? null) : "",
   ]
     .filter(Boolean)
     .join("\n");

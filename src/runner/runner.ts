@@ -858,18 +858,23 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
 
 // ---- Start
 
-// PLA-71: the owner's «Cambios que pide …» note (thread-actions changes) that is newer than the ticket's last move
-// to In review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+// PLA-71: the owner's request for changes (thread-actions changes) that is newer than the ticket's last move to In
+// review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+// PLA-I2-10: the request is the note's owner_changes field. LEGACY_CHANGES_LIKE / LEGACY_CHANGES_PREFIX read notes
+// written before that field existed (Spanish only); they are the one documented fallback (test/i2-10-server.test.ts).
+export const LEGACY_CHANGES_LIKE = "Cambios que pide %";
+export const LEGACY_CHANGES_PREFIX = /^Cambios que pide [^:\n]{1,80}:\s*/;
 export async function ownerChangesOf(db: Db, projectId: string, taskKey: string): Promise<string | null> {
-  const rows = await db.execute<{ text: string | null }>(sql`
-    select e.payload->>'text' as text from events e
+  const rows = await db.execute<{ text: string | null; changes: string | null }>(sql`
+    select e.payload->>'text' as text, e.payload->>'owner_changes' as changes from events e
     where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
-      and e.payload->>'text' like 'Cambios que pide %'
+      and (e.payload ? 'owner_changes' or e.payload->>'text' like ${LEGACY_CHANGES_LIKE})
       and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
                             and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
     order by e.id desc limit 1`);
-  const text = rows.rows[0]?.text ?? null;
-  return text ? text.replace(/^Cambios que pide [^:\n]{1,80}:\s*/, "").trim().slice(0, 1500) || null : null;
+  const row = rows.rows[0];
+  const text = row?.changes ?? (row?.text ? row.text.replace(LEGACY_CHANGES_PREFIX, "") : null);
+  return text ? text.trim().slice(0, 1500) || null : null;
 }
 
 export function userPrompt(input: {

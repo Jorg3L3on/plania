@@ -62,7 +62,7 @@ Classify each item by where it is, then take the one action for that state.
 
 ## The report
 
-One `thread_post` in the company thread, plain Spanish, eight lines at most, with links to the tickets:
+One `thread_post` in the company thread, plain words in the owner's language, eight lines at most, with links to the tickets:
 
 1. what moved since last time;
 2. what waits on him: how many, and the oldest;

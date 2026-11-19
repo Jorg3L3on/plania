@@ -4,6 +4,27 @@
 // that go with it: Usar estos comandos (settings.capture from the dev script) and the base lever (the brew
 // service of that db_server, never Plania's own Postgres). Session cookie only (src/api/maquinas.ts).
 import { hostname } from "node:os";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the floor's Máquinas says about a project's database, in the install's language (Spanish unchanged).
+export const MACHINE_WORDS = defineWords({
+  es: {
+    noBase: "No encuentro una base de datos de este piso",
+    elsewhere: "La base no está en esta máquina",
+    planias: "Es el Postgres de Plania; no se apaga desde un piso",
+    noService: "No es un servicio de brew ni de systemd del usuario; Plania no la enciende ni la apaga",
+    noCode: "el proyecto todavía no tiene código",
+    badService: "nombre de servicio inválido",
+  },
+  en: {
+    noBase: "I cannot find a database for this floor",
+    elsewhere: "The database is not on this machine",
+    planias: "It is Plania's own Postgres; it is not turned off from a floor",
+    noService: "It is not a brew service or a user systemd unit; Plania does not turn it on or off",
+    noCode: "the project has no code yet",
+    badService: "invalid service name",
+  },
+});
 import { createConnection } from "node:net";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -129,7 +150,7 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   const portOf = (r: Fp) => Number(r.details.port ?? /:(\d+)$/.exec(r.locator)?.[1]);
   const mine = dbs.filter((r) => r.projectId === p.id || (address && String(r.details.name) === address.database && portOf(r) === address.port));
   const port = address?.port ?? (mine[0] ? portOf(mine[0]) : null);
-  const none: BaseRead = { state: "none", engine: null, version: null, host: null, port: null, databases: [], size_bytes: null, service: null, shared_with: [], lever: { can: false, reason: "No encuentro una base de datos de este piso" }, env_file: envFile };
+  const none: BaseRead = { state: "none", engine: null, version: null, host: null, port: null, databases: [], size_bytes: null, service: null, shared_with: [], lever: { can: false, reason: say(MACHINE_WORDS).noBase }, env_file: envFile };
   if (!port) return none;
   const host = address?.host ?? "127.0.0.1";
   const server = rows.find((r) => r.kind === "db_server" && r.locator === `postgres:${port}`);
@@ -152,11 +173,11 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   const reason = !supported("base_lever")
     ? NO_DISPONIBLE
     : !local
-    ? "La base no está en esta máquina"
+    ? say(MACHINE_WORDS).elsewhere
     : planiaPorts().has(port)
-      ? "Es el Postgres de Plania; no se apaga desde un piso"
+      ? say(MACHINE_WORDS).planias
       : !service
-        ? "No es un servicio de brew ni de systemd del usuario; Plania no la enciende ni la apaga"
+        ? say(MACHINE_WORDS).noService
         : null;
   const version = String(onPort[0]?.details.version ?? server?.details.version ?? "") || null;
   const size = databases.reduce<number | null>((a, d) => (d.size_bytes === null ? a : (a ?? 0) + d.size_bytes), null);
@@ -206,7 +227,7 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
 export async function configurar(db: Db, slug: string): Promise<MaquinasRead> {
   const p = await projectOf(db, slug);
   if (p.settings.capture) return maquinasRead(db, slug);
-  if (p.settings.local?.no_code) throw new MaquinaError("NOT_CONFIGURED", "el proyecto todavía no tiene código");
+  if (p.settings.local?.no_code) throw new MaquinaError("NOT_CONFIGURED", say(MACHINE_WORDS).noCode);
   const dirs = appDirs(p.slug, p.settings, menv());
   const found = findScripts(dirs.prueba ?? dirs.repo);
   if (!found.dev) throw new MaquinaError("NOT_CONFIGURED", `no encuentro ${found.missing.join(", ") || "un script dev"}`);
@@ -222,7 +243,7 @@ export async function baseLever(db: Db, slug: string, want: "encender" | "apagar
   const { env, address } = appEnvOf(p);
   const b = await baseRead(db, p, address, env.file);
   if (b.state === "none" || !b.lever.can || !b.service || !b.port) throw new MaquinaError("BASE_LEVER_REFUSED", b.lever.reason ?? "no hay base");
-  if (!/^[a-z0-9@._+-]+$/i.test(b.service)) throw new MaquinaError("BASE_LEVER_REFUSED", "nombre de servicio inválido");
+  if (!/^[a-z0-9@._+-]+$/i.test(b.service)) throw new MaquinaError("BASE_LEVER_REFUSED", say(MACHINE_WORDS).badService);
   // PLA-I2-19: a systemd user unit is started and stopped with systemctl --user.
   const verb = want === "encender" ? "start" : "stop";
   const command = b.manager === "systemd" ? `systemctl --user ${verb} ${b.service}` : `brew services ${verb} ${b.service}`;

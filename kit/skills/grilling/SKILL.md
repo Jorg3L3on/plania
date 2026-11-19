@@ -48,7 +48,7 @@ an idea never waits.
 
 ## Writing a closed question
 
-The owner reads these in Te toca, away from the code. Write them in plain Spanish.
+The owner reads these in Te toca, away from the code. Write them in plain words in the owner's language.
 
 - One sentence, one decision. Never "¿Qué prefieres?" and never two questions joined by "y".
 - Two to four options that exclude each other. Do not pad to four, and offer nothing you would not build.

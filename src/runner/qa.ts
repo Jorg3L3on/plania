@@ -23,7 +23,7 @@ import { createServer } from "node:net";
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { OWNER_LANGUAGE } from "./owner-language.js";
+import { ownerLanguage } from "./owner-language.js";
 import type { Db } from "../db/client.js";
 import {
   agentRuns,
@@ -891,7 +891,7 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<
     ...(t.workType === "bug"
       ? ["This ticket fixes a bug: also confirm what must not change. Read the callers and the tests of what the diff touches, and say in the spec notes which behaviour around the fix you confirmed still works. A regression fails code."]
       : []),
-    `Fail only a real defect, never a preference. Write the notes in ${OWNER_LANGUAGE}, exact: file:line, what is wrong, what would fix it. A verdict that passes gets one line on what you checked.`,
+    `Fail only a real defect, never a preference. Write the notes in ${ownerLanguage()}, exact: file:line, what is wrong, what would fix it. A verdict that passes gets one line on what you checked.`,
     ...walkLines,
     ...missLines(misses),
     "End your run with exactly one block, the last thing you write:",

@@ -21,6 +21,7 @@
 // ALREADY_ACTED: a message's action_state is claimed before anything is posted, a ticket must still be Ready,
 // a question still open.
 import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { installLanguage } from "../language.js";
 import type { Db } from "../db/client.js";
 import { agents, checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Actor, type Agent, type Project, type PlanQuestion, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
 import { POSTPONED, checkChecklist, costText, isLegPlan, makeSteps } from "../mcp/proposals.js";
@@ -147,8 +148,10 @@ export type Decision = {
 export type Proposal = { title: string; options: DecisionOption[]; note: string | null };
 
 const OPTION = /^\s*(?:[-*]\s*)?(?:\*\*)?(\d{1,2})[.)](?:\*\*)?\s+(.+?)\s*$/;
-const ORDINAL: Record<string, number> = { primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercero: 3, tercera: 3, tercer: 3, cuarto: 4, cuarta: 4, quinto: 5, quinta: 5 };
-const RECOMMEND_IN_LINE = /\s*[·(—–-]*\s*\(?\s*(?:recomendad[oa]|recomiendo(?: est[ae])?)\s*\)?\s*\.?$/i;
+// PLA-I2-10: the PO writes its proposal in the owner's language; its recommendation is read in Spanish or English.
+const ORDINAL: Record<string, number> = { primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercero: 3, tercera: 3, tercer: 3, cuarto: 4, cuarta: 4, quinto: 5, quinta: 5, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+const RECOMMEND_IN_LINE = /\s*[·(—–-]*\s*\(?\s*(?:recomendad[oa]|recomiendo(?: est[ae])?|recommended|i recommend(?: this)?)\s*\)?\s*\.?$/i;
+const RECOMMEND_OUTSIDE = /(?:recomiendo|i recommend)\s+(?:la\s+|el\s+|the\s+)?(?:opci[oó]n\s+|option\s+)?(\d{1,2}|primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa]|first|second|third|fourth|fifth)\b/i;
 const clean = (s: string) => s.replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -172,13 +175,13 @@ export function parseProposal(body: string): Proposal | null {
   let recommended: number | null = null;
   const options = list.map((f) => {
     const text = clean(f.text);
-    const marked = RECOMMEND_IN_LINE.test(text) || /\brecomend/i.test(text);
+    const marked = RECOMMEND_IN_LINE.test(text) || /\brecomm?end/i.test(text);
     if (marked && recommended == null) recommended = f.n;
     return { n: f.n, label: cut(text.replace(RECOMMEND_IN_LINE, "").replace(/\s*[·—–-]\s*$/, "").trim(), 200), recommended: false };
   });
   const outside = [...lines.slice(0, list[0]!.line), ...lines.slice(list.at(-1)!.line + 1)].join(" ");
   if (recommended == null) {
-    const m = /recomiendo\s+(?:la\s+|el\s+)?(?:opci[oó]n\s+)?(\d{1,2}|primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa])\b/i.exec(outside) ?? /(\d{1,2}|primer[oa]?|segund[oa]|tercer[oa]?)[^.\n]{0,20}\brecomend/i.exec(outside);
+    const m = RECOMMEND_OUTSIDE.exec(outside) ?? /(\d{1,2}|primer[oa]?|segund[oa]|tercer[oa]?)[^.\n]{0,20}\brecomend/i.exec(outside);
     if (m) {
       const word = m[1]!.toLowerCase();
       const n = /^\d+$/.test(word) ? Number(word) : ORDINAL[word];
@@ -190,12 +193,12 @@ export function parseProposal(body: string): Proposal | null {
   const intro = clean(lines.slice(0, list[0]!.line).join(" ")).replace(/:$/, "");
   const sentences = intro.split(/(?<=[.!?])\s+/).filter(Boolean);
   const lastIntro = sentences.at(-1)?.replace(/[.:]$/, "") ?? "";
-  const title = lastIntro && lastIntro.length <= 120 ? lastIntro : `El PO propone ${options.length} opciones`;
+  const title = lastIntro && lastIntro.length <= 120 ? lastIntro : installLanguage() === "en" ? `The PO proposes ${options.length} options` : `El PO propone ${options.length} opciones`;
   const after = lines
     .slice(list.at(-1)!.line + 1)
     .map(clean)
     .filter(Boolean)
-    .filter((l) => !/^recomiendo\b/i.test(l));
+    .filter((l) => !/^(?:recomiendo|i recommend)\b/i.test(l));
   return { title, options, note: after[0] ? cut(after[0], 160) : null };
 }
 
@@ -855,7 +858,7 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
       if (order && !["Done", "Won't do"].includes(order.status)) {
         await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `${ownerEs(undefined, { capital: true })} cambia el plan: va otro pedido al PO.` } as never, ctx);
       }
-      const posted = await ownerPosts(db, ref, `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
+      const posted = await ownerPosts(db, ref, installLanguage() === "en" ? `Plan «${leg.title}» again. Change this: ${text}` : `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
       result = { leg: leg.key, change: text, order: posted.created?.key ?? null };
       extra = { created: posted.created, wake: posted.wake };
     }
@@ -869,8 +872,11 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
   return after(db, id, state, extra);
 }
 
-// The words the owner typed, from the order's scope (`Pedido de the owner desde …: "texto"`), else its title.
-export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
+// The words the owner typed for an order. PLA-I2-10: the field (tasks.owner_words) first; LEGACY_ORDER_LINE reads the
+// Spanish scope line of orders made before it (`Pedido del dueño desde …: "texto"`), the one documented fallback
+// (test/i2-10-server.test.ts); else the title.
+export const LEGACY_ORDER_LINE = /^Pedido de[^:]*: "([\s\S]*?)"\s*$/m;
+export const orderText = (t: Pick<Task, "scope" | "title"> & { ownerWords?: string | null }) => t.ownerWords || LEGACY_ORDER_LINE.exec(t.scope ?? "")?.[1] || t.title;
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);

@@ -7,6 +7,7 @@
 //   origen  where the move comes from (a decision, the light, a teammate's hold, the route)
 // Pure: companyRead calls it once the decisions are read; test/compania-move.test.ts feeds it plain objects.
 import type { Decision, DecisionAction } from "./company-decisions.js";
+import { installLanguage } from "../language.js";
 
 export type MoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
 export type MoveAction =
@@ -67,7 +68,9 @@ export const returnedDelivery = <D extends Pick<Decision, "project" | "kind" | "
   );
 };
 
-export const PLAN_LEG = (title: string) => `Planea «${title}»: sus pasos y qué significa hecho en cada uno.`;
+// PLA-I2-10: in the install's language; legTitleOf (src/mcp/proposals.ts) reads both.
+export const PLAN_LEG = (title: string) =>
+  installLanguage() === "en" ? `Plan «${title}»: its steps and what done means in each.` : `Planea «${title}»: sus pasos y qué significa hecho en cada uno.`;
 
 export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPaused?: boolean } = {}): NextMove | null {
   if (opts.companyPaused || p.paused || p.light === "paused") return null;

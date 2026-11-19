@@ -11,6 +11,7 @@
 // PLA-I54-5: the detail's pictures come from task_images (src/pedidos/images.ts); the tab hangs each under the
 // owner's trail item it was sent with.
 import { and, asc, desc, eq } from "drizzle-orm";
+import { isUnderstood } from "./understood.js";
 import type { Db } from "../db/client.js";
 import { agents, docs, events, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
 import { listTaskImages } from "../pedidos/images.js";
@@ -125,8 +126,9 @@ export function fichaOf(list: { markdown: string }[]): FichaIdea {
 }
 
 const ASKED = /\(Darle forma\): "([\s\S]*)"\n/;
-export const askedText = (scope: string, title: string) => ASKED.exec(scope)?.[1] ?? title;
-const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
+// PLA-I2-10: the idea's owner_words field first; ASKED reads the Spanish scope line of ideas made before it (the
+// documented fallback in test/i2-10-server.test.ts).
+export const askedText = (scope: string, title: string, ownerWords?: string | null) => ownerWords || ASKED.exec(scope)?.[1] || title;
 const SCREEN_NOTE = /^De Compañía:\s*/;
 const BUILD_NOTE = /^Constrúyelo \(orden de/;
 // PLA-I61-4: the note an answer leaves for the stage owner; the answer's own line already tells it.
@@ -176,15 +178,18 @@ export async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
     if (e.type === "task.created") push("pedido", "Lo pediste.");
     else if (e.type === "note") {
       const text = String(p.text ?? "");
-      const dropped = DROPPED.exec(text);
+      // PLA-I2-10: the screen's notes carry their kind (and the owner's words); the patterns read older notes.
+      const kind = typeof p.kind === "string" ? p.kind : null;
+      const dropped = kind === "dropped" ? [text, String(p.words ?? "") || undefined] : kind ? null : DROPPED.exec(text);
       if (dropped) {
         // Descartar writes the status and its reason: one item says both.
         const line = dropped[1] ? `La descartaste: ${dropped[1]}` : "La descartaste.";
         const prev = out.findLast((x) => x.kind === "descartada");
         if (prev) prev.text = line;
         else push("descartada", line);
-      } else if (BUILD_NOTE.test(text) || ANSWER_NOTE.test(text)) continue;
-      else push(UNDERSTOOD.test(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
+      } else if (kind === "build" || kind === "answer" || (!kind && (BUILD_NOTE.test(text) || ANSWER_NOTE.test(text)))) continue;
+      else if (kind === "screen") push("nota", String(p.words ?? text));
+      else push(isUnderstood(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
     } else if (e.type === "question.asked") push("pregunta", `Preguntó: ${String(p.question ?? "")}`);
     else if (e.type === "question.answered") push("respuesta", String(p.answer ?? ""));
     else if (e.type === "doc.put") push("doc", Number(p.version ?? 1) > 1 ? `Actualizó «${String(p.title)}».` : `Escribió «${String(p.title)}».`, { doc: { id: String(p.doc_id), title: String(p.title) } });
@@ -229,7 +234,7 @@ export async function pedidoDetail(db: Db, slug: string, key: string): Promise<P
   return {
     ...base,
     mode: "forma",
-    text: askedText(t.scope, t.title),
+    text: askedText(t.scope, t.title, t.ownerWords),
     status: t.status,
     stage: t.stage,
     promoted_to: t.promotedTo,
@@ -262,7 +267,7 @@ export async function descartarPedido(db: Db, slug: string, key: string, reason?
   const closed = open(found.t);
   if (closed) return closed;
   const note = `Descartada ${ownerEs("por")} desde Compañía${reason?.trim() ? `: ${reason.trim()}` : "."}`;
-  await setTask(db, { project: slug, key, status: "Won't do", reason: note, note, version: found.t.version } as never, { ...webCtx, tool: "company.pedido" });
+  await setTask(db, { project: slug, key, status: "Won't do", reason: note, note, note_kind: "dropped", note_words: reason?.trim() ?? "", version: found.t.version } as never, { ...webCtx, tool: "company.pedido" });
   return { key, status: "Won't do" };
 }
 
@@ -294,7 +299,7 @@ export async function construirPedido(db: Db, slug: string, key: string): Promis
   const t = { id: found.t.id, key: found.t.key };
   return writeTx(db, p, { ...webCtx, tool: "company.pedido" }, async (tx, emit) => {
     await emit(CONSTRUIR, t, { stage: found.t.stage });
-    await emit("note", t, { text: buildNoteText() });
+    await emit("note", t, { text: buildNoteText(), kind: "build" });
     if (!eventWakesEnabled() || !po) return { key, state: "valvula" as const, wake: "off" as const };
     const w = await queueWake(tx, p, t, { agent: po, taskKey: key, reason: buildReason() }, CONSTRUIR);
     return { key, state: "valvula" as const, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };

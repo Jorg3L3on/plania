@@ -33,7 +33,7 @@ A step is too big when any of these holds. Split it.
 
 ## What each step carries
 
-- **Title**: the outcome, verb first, plain Spanish, up to 200 characters.
+- **Title**: the outcome, verb first, plain words in the owner's language, up to 200 characters.
 - **Done when**: one sentence a person can check by trying it or by running one command. It names
   concrete values. "Funciona el filtro" is not testable; "Al escribir «le» en el buscador solo quedan
   los productos cuyo nombre contiene «le»" is.

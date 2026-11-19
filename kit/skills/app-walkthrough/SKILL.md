@@ -70,7 +70,7 @@ for a Done when or check-list item; mark that item.
 ## The report
 
 The walk-through goes into the same report block as the review, in the format the run prompt gives.
-Set `walked` to true only if you completed the walk at both widths. Notes are in Spanish.
+Set `walked` to true only if you completed the walk at both widths. Notes are in the owner's language.
 
 ## Done when
 

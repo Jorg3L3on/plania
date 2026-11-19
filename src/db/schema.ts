@@ -185,6 +185,9 @@ export const tasks = pgTable(
     introducedBy: text("introduced_by"), // bugs: a key or a sha
     regression: boolean("regression"),
     costNote: text("cost_note"), // debt: what it costs while it stays
+    // PLA-I2-10 (0066): the words the owner typed for an order or an idea, kept as written. Null on agents' tickets
+    // and on orders made before 0066 (orderText falls back to their scope line).
+    ownerWords: text("owner_words"),
     // Bumped by every field change; appends (notes, results, checks) leave it alone.
     version: integer("version").notNull().default(1),
     // Lease: who is working on it and until when. An expired lease is free to claim and is cleared
