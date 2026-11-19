@@ -1,10 +1,13 @@
-// PLA-53: pnpm server:restart — restarts the Plania server (launchd, com.plania.server) only when nothing it would kill is
-// in flight. --check lists and exits (1 when something is in flight); --force restarts anyway.
+// PLA-53: pnpm server:restart — restarts the Plania server only when nothing it would kill is in flight. --check lists
+// and exits (1 when something is in flight); --force restarts anyway.
+// PLA-I2-17: the service is launchd's com.plania.server on macOS or the systemd user unit plania.service on Linux
+// (src/packaging/service.ts restartCommand).
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import { makeDb, resetPool } from "../src/db/client.js";
 import { inFlight } from "../src/ops/in-flight.js";
+import { detectSystem, restartCommand } from "../src/packaging/service.js";
 
 const { values } = parseArgs({ options: { check: { type: "boolean", default: false }, force: { type: "boolean", default: false } }, strict: true });
 const found = await inFlight(makeDb().db);
@@ -18,5 +21,10 @@ if (found.length && !values.force) {
   console.log("No se reinició: un reinicio corta ese trabajo. Espera a que termine, o usa --force.");
   process.exit(1);
 }
-execFileSync("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/com.plania.server`], { stdio: "inherit" });
+const restart = restartCommand({ platform: process.platform, uid: userInfo().uid, ...detectSystem() });
+if (!restart) {
+  console.log("Plania no corre como servicio en esta máquina: deténla y vuelve a encenderla con pnpm start.");
+  process.exit(1);
+}
+execFileSync(restart.cmd, restart.args, { stdio: "inherit" });
 console.log("Plania reiniciado.");

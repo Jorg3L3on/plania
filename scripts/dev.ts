@@ -16,7 +16,7 @@ import { withDb } from "../src/db/client.js";
 import { loadOwnerName } from "../src/owner.js";
 import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
-import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
+import { healthUi, readUiBuild, rebuildReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
 import { exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
 
@@ -40,7 +40,8 @@ if (dbProblem) {
 // restart on a newer HEAD kept serving the old bundle. Rebuild here when the stamp is not HEAD.
 // Only for the launchd server (3737); the dev API behind Vite never serves dist/ui.
 if ((port === 3737 && process.env.PLANIA_UI_BUILD !== "0") || process.env.PLANIA_UI_BUILD === "1") {
-  const reason = staleReason(readUiBuild(distDir), gitState(repoDir), existsSync(indexPath));
+  // PLA-I2-17: null in a release package, which serves its dist/ui as shipped.
+  const reason = rebuildReason(repoDir, distDir);
   if (reason) {
     console.log(`[ui] rebuilding dist/ui: ${reason}`);
     try {
@@ -60,7 +61,8 @@ const server = new Hono();
 // Which commit the screen is on, for a check after a deploy (no auth: it names a commit, nothing else).
 server.get("/health/ui", (c) => {
   c.header("Cache-Control", "no-store");
-  return c.json({ ui: readUiBuild(distDir), head: gitState(repoDir) });
+  // PLA-I2-17: and which release (the package manifest, or package.json and HEAD in a checkout).
+  return c.json(healthUi(repoDir, distDir));
 });
 server.route("/", app);
 

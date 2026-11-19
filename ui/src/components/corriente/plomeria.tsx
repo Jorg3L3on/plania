@@ -12,7 +12,8 @@ import { tokens, type CompanyProjectRow, type RunBrief } from "@/lib/compania";
 import { seatName, thousands } from "@/lib/corriente";
 import { tableroView } from "@/lib/maquinas";
 import { logWords } from "@/lib/calidad";
-import { Btn, Key, Label, Switch } from "./parts";
+import { NOVEDADES, versionLine } from "@/lib/version";
+import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -74,6 +75,20 @@ const OwnerCode = () => {
         </p>
       )}
     </div>
+  );
+};
+
+// PLA-I2-17: which release this is, with its notes one click away (words in lib/version.ts).
+export const ReleaseLine = () => {
+  const release = useQuery({ queryKey: ["release"], queryFn: api.releaseInfo, staleTime: 5 * 60_000 });
+  if (!release.data) return null;
+  return (
+    <span className="cor-text" data-version={release.data.version}>
+      <span data-version-line>{versionLine(release.data)}</span>{" "}
+      <BtnLink kind="link" to="/novedades" data-control="novedades">
+        {NOVEDADES.link}
+      </BtnLink>
+    </span>
   );
 };
 
@@ -332,6 +347,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
         <Btn kind="link" aria-expanded={inventory} onClick={onInventory} data-control="ver-que-corre">
           {inventory ? "Ocultar lo que corre" : "Ver qué corre"}
         </Btn>
+        <ReleaseLine />
       </div>
     </div>
   );
