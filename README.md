@@ -400,6 +400,19 @@ supported.
 is in flight (`--check` lists them, `--force` restarts anyway). In a checkout the restart is the deploy: the server
 rebuilds `dist/ui` at start when its stamp is not HEAD.
 
+PLA-I2-9: the live server changes only when you restart it. After a restart, `pnpm server:restart` waits up to two
+minutes for `/health/ui` to report the commit (or version) the folder holds. If it never does, it checks out the last
+commit that started well (detached) and restarts again, and says so; your checkout is then on that commit with no
+branch. The service records a good start in `~/.config/plania/last-good.json` (`PLANIA_LAST_GOOD_FILE`) once it has
+been up for 30 seconds; dev servers and test copies (`PLANIA_JOBS=0`) never do. A release package cannot go back by
+itself: the restart names the last version that started.
+
+When a project's repo is this server's own checkout (Plania working on Plania, `src/self/plania-self.ts`): its test
+copies get a new database of their own (`<live>_prueba`, `<live>_entrega`, built from the copy's migrations), a
+rewritten env file with `PLANIA_JOBS=0`, and never the live port; its runs carry extra deny rules (no live database,
+no migrations, no restart) and do not start when their folder points at the live database. Migrations agents wrote in
+its deliveries are listed on its Máquinas page, for you to apply with `pnpm db:migrate`.
+
 On the owner's Mac: local Postgres 14 (Homebrew service), database `plania`; the MCP clients point at
 `http://localhost:3737/mcp` with the Bearer from `.env`: Claude Code (user scope), Cursor (`~/.cursor/mcp.json`),
 Codex (`~/.codex/config.toml`).

@@ -2,7 +2,7 @@
 // no real claude, no real worktree, no live database (test/helpers.ts throwaway DB).
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -249,6 +249,47 @@ test("I29-2 #1 / I2-13 #1 #2: the child env keeps Claude's sign-in, holds no Pla
   f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
   f.spawned[0]!.child.exit(0);
   await runner.waitForAllRuns();
+});
+
+// PLA-I2-9 check 3: a run of Plania itself (the project's repo is the running server's checkout) carries the rules
+// that keep it off the live database, and does not start when its folder points at that database.
+test("I2-9 #3: a run of Plania itself gets the live-database rules, and refuses to start pointed at the live database", async () => {
+  const LIVE = "postgres://owner@localhost:5432/plania";
+  const f = fakes();
+  const deps = { ...f.deps, serverRoot: repo, env: { ...f.deps.env, DATABASE_URL: LIVE } };
+  await ready("micasa", "SELF-RUN");
+  const res = await wake("taller", deps, "SELF-RUN");
+  assert.equal(res.reason, "ok");
+  const { args, env } = f.spawned[0]!;
+  const deny = (JSON.parse(readFileSync(args[args.indexOf("--settings") + 1]!, "utf8")) as { permissions: { deny: string[] } }).permissions.deny;
+  for (const cmd of ["psql plania", "pnpm db:migrate", "pnpm server:restart", "DATABASE_URL=postgres://localhost/plania pnpm dev"]) assert.notEqual(deniedBy("Bash", cmd, deny), null, cmd);
+  assert.equal(env.DATABASE_URL, undefined);
+  f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+  f.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+
+  // Any other project's run: no such rules.
+  const g = fakes();
+  await ready("micasa", "OTHER-RUN");
+  await wake("taller", { ...g.deps, env: { ...g.deps.env, DATABASE_URL: LIVE } }, "OTHER-RUN");
+  const otherArgs = g.spawned[0]!.args;
+  const otherDeny = (JSON.parse(readFileSync(otherArgs[otherArgs.indexOf("--settings") + 1]!, "utf8")) as { permissions: { deny: string[] } }).permissions.deny;
+  assert.equal(deniedBy("Bash", "pnpm db:migrate", otherDeny), null);
+  g.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+  g.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+
+  // The check: an env file in the run's folder that points at the live database stops the run before it starts.
+  const h = fakes();
+  await ready("micasa", "SELF-BAD");
+  const cwd = worktreePathFor(wtRoot, "micasa", "SELF-BAD");
+  mkdirSync(cwd, { recursive: true });
+  writeFileSync(path.join(cwd, ".env"), "DATABASE_URL=postgres://127.0.0.1/plania\n");
+  const bad = await wake("taller", { ...h.deps, serverRoot: repo, env: { ...h.deps.env, DATABASE_URL: LIVE } }, "SELF-BAD");
+  assert.equal(h.spawned.length, 0, "no process started");
+  const [row] = (await raw.query(`select status, summary from agent_runs where task_key = 'SELF-BAD' order by queued_at desc limit 1`)).rows as { status: string; summary: string }[];
+  assert.equal(row!.status, "fail", JSON.stringify(bad));
+  assert.match(row!.summary, /\.env in the run's folder points at the live database/);
 });
 
 test("I29-2 #2: the timeout sends SIGINT, then SIGTERM, then SIGKILL, in that order", async () => {

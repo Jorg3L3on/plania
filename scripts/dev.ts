@@ -20,6 +20,8 @@ import { sweepOrphans } from "../src/runner/runner.js";
 import { healthUi, readUiBuild, rebuildReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
 import { exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
+import { GOOD_AFTER_MS, lastGoodFile, recordsGoodStart, writeLastGood } from "../src/ops/last-good.js";
+import { isPackage, readRelease } from "../src/release.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -97,6 +99,17 @@ server.get("*", (c) => {
 const http = serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http://localhost:${port}`));
 // PLA-111 (F-39): a restart lets the requests in flight finish before the process exits.
 setHttpServer(http as never);
+// PLA-I2-9: still up after a while: this commit (or version) is the one a failed restart goes back to.
+if (recordsGoodStart(port)) {
+  setTimeout(() => {
+    try {
+      const r = readRelease(repoDir);
+      writeLastGood(lastGoodFile(), { commit: r.commit, version: r.version, packaged: isPackage(repoDir), root: repoDir, at: new Date().toISOString() });
+    } catch (e) {
+      console.log(`[restart] last good start not recorded: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, GOOD_AFTER_MS).unref();
+}
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.once(sig, () => exitAfterDrain(sig === "SIGINT" ? 130 : 143));
 
 // PLA-I2-14: the owner's display name, read once at start (setOwnerName keeps it current after that).

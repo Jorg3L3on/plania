@@ -26,6 +26,8 @@ import type { CaptureSettings } from "./settings.js";
 import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
 import { pgSearchPath } from "../lib/pg-bin.js";
 import { supported } from "../lib/system-support.js";
+import { isSelfProject, serverRoot } from "../self/plania-self.js";
+import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
 
 export const BRANCH = "sandbox";
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
@@ -81,6 +83,9 @@ export type PruebaDeps = {
   now?: () => number;
   sweep?: boolean; // false: no minute timer (tests call sweepIdle)
   signals?: boolean; // false: no exit/signal hooks (tests)
+  // PLA-I2-9: the running server's checkout (to tell a copy of Plania itself) and how its copy's database is built.
+  serverRoot?: string;
+  selfDb?: SelfDbBuild;
 };
 
 // PLA-I52-2: two lanes per project. «sandbox» is Encenderla's copy (the before, and what the Ventana shows);
@@ -330,7 +335,15 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // the branch. Without it the delivery's pages crashed on the new columns and El Probador photographed the error.
   // PLA-77: the sandbox copy too (<db>_prueba, migrated to sandbox): once a delivery with a migration was merged,
   // the app's own database lagged behind sandbox and «Antes» crashed («Sin antes» on MIA-I9-2).
-  if (s.database) {
+  // PLA-I2-9: a copy of Plania itself never uses the live database, not even to copy it: a new one, built by the
+  // migrate module from the copy's own files, then its env file is rewritten once the port is known.
+  const self = isSelfProject(repo, deps.serverRoot ?? serverRoot());
+  if (self) {
+    const made = await selfCopyDatabase(env().DATABASE_URL, c.lane === "sandbox" ? "_prueba" : "_entrega", wt, deps.selfDb ?? defaultSelfDbBuild);
+    if (!made.ok) return fail(db, c, made.error);
+    c.dbEnv = made.env;
+    if (copies.get(c.id) !== c || c.stopping) return;
+  } else if (s.database) {
     const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database, c.lane === "sandbox" ? "_prueba" : "_entrega");
     if (!made.ok) return fail(db, c, made.error);
     if (copies.get(c.id) !== c || c.stopping) return;
@@ -348,6 +361,11 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   const port = await picking;
   if (!port) return fail(db, c, `No hay un puerto libre entre ${s.port} y ${s.port + PORT_SPAN - 1}`);
   if (copies.get(c.id) !== c || c.stopping) return;
+  if (self) {
+    const ready = selfCopyEnvFile(wt, envFile, c.dbEnv ?? {}, port, env());
+    if (!ready.ok) return fail(db, c, ready.error);
+    c.dbEnv = ready.env;
+  }
   const command = s.start_command.replaceAll("{port}", String(port));
   c.command = command;
   let child: ChildLike;

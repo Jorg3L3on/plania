@@ -40,7 +40,8 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
+import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
@@ -120,6 +121,8 @@ export type ReadyWork = {
 };
 
 export type RunnerDeps = {
+  // PLA-I2-9: the running server's own checkout, to tell a run of Plania itself (src/self/plania-self.ts). Tests set it.
+  serverRoot?: string;
   spawn?: SpawnFn;
   kill?: KillFn;
   git?: GitFn;
@@ -1218,7 +1221,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const readOnly = !!consulta || role === "qa" || asks;
   // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
-  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
+  // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
+  const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
+  const laneRules = consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
+  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
@@ -1288,13 +1294,17 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const onStdout = liveFlusher(db, run.id, reader, deps.liveFlushMs ?? 5_000);
   // PLA-I60-3: the real runner starts the run through wrapper.mjs, detached, so it outlives a server restart. Tests
   // that inject spawn keep the piped child.
+  // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
+  // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
+  const runEnvValue = childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
+  const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
+  if (selfProblem) return fail(`fail: ${selfProblem}`);
   const supervised = {
     command,
     args,
     cwd,
-    // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
-    // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings)),
+    env: runEnvValue,
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,

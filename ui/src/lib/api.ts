@@ -92,6 +92,8 @@ export const api = {
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-7: the page of limits, built from the real rules.
   limits: () => request<LimitsPage>("GET", "/limits"),
+  // PLA-I2-9: migrations agents wrote in deliveries of Plania itself, not applied yet.
+  selfMigrations: (slug: string) => request<import("./migraciones-propias").AgentMigrations>("GET", `/projects/${encodeURIComponent(slug)}/migraciones-propias`),
   // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
