@@ -2,6 +2,8 @@
 // clock, what waits on the owner in amber, and Pedir (always secondary: the white button is each page's own action).
 import { Link } from "react-router";
 import { clockLine, hrefOf, type View } from "@/lib/corriente";
+import { HEADER_WORDS } from "@/lib/header-words";
+import { words } from "@/lib/i18n";
 import { Live, You } from "./parts";
 
 export type HeadProps = {
@@ -27,55 +29,58 @@ const Tab = ({ to, on, children }: { to: string; on: boolean; children: React.Re
   </Link>
 );
 
-export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo, closeTo, briefToca = 0 }: HeadProps) => (
-  <header className="cor-head" data-cor-head>
-    <nav className="cor-head-left" aria-label="Compañía">
-      <span className="cor-head-name">Compañía</span>
-      <Tab to={hrefOf({ view: "corriente" })} on={view === "corriente"}>
-        Corriente
-      </Tab>
-      <Tab to={hrefOf({ view: "tetoca" })} on={view === "tetoca"}>
-        Te toca
-        {waiting > 0 && <span className="cor-count amber">{waiting}</span>}
-      </Tab>
-      <Tab to={hrefOf({ view: "asistente" })} on={view === "asistente"}>
-        Asistente
-        {asistenteUnread > 0 && (
-          <span className="cor-unread" aria-label={`${asistenteUnread} sin leer`}>
-            {asistenteUnread}
-          </span>
+export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo, closeTo, briefToca = 0 }: HeadProps) => {
+  const w = words(HEADER_WORDS);
+  return (
+    <header className="cor-head" data-cor-head>
+      <nav className="cor-head-left" aria-label={w.company}>
+        <span className="cor-head-name">{w.company}</span>
+        <Tab to={hrefOf({ view: "corriente" })} on={view === "corriente"}>
+          {w.corriente}
+        </Tab>
+        <Tab to={hrefOf({ view: "tetoca" })} on={view === "tetoca"}>
+          {w.tetoca}
+          {waiting > 0 && <span className="cor-count amber">{waiting}</span>}
+        </Tab>
+        <Tab to={hrefOf({ view: "asistente" })} on={view === "asistente"}>
+          {w.asistente}
+          {asistenteUnread > 0 && (
+            <span className="cor-unread" aria-label={w.unread(asistenteUnread)}>
+              {asistenteUnread}
+            </span>
+          )}
+        </Tab>
+        <Tab to="/machine" on={view === "plomeria"}>
+          {w.plomeria}
+        </Tab>
+        {/* PLA-I63-5: the Morning brief, after Plomería; its count is what still waits on the owner in today's brief. */}
+        <Tab to={hrefOf({ view: "brief" })} on={view === "brief"}>
+          {w.brief}
+          {briefToca > 0 && <span className="cor-count amber">{briefToca}</span>}
+        </Tab>
+      </nav>
+      <div className="cor-head-right">
+        <span className="cor-clock" data-clock>
+          <Live />
+          <b>{w.live}</b>
+          <span>· {clockLine(now, timeZone)}</span>
+        </span>
+        {waiting > 0 && (
+          <Link to={tocaTo} className="cor-btn amber" data-te-esperan={waiting}>
+            <You flat />
+            {w.waiting(waiting)}
+          </Link>
         )}
-      </Tab>
-      <Tab to="/machine" on={view === "plomeria"}>
-        Plomería
-      </Tab>
-      {/* PLA-I63-5: the Morning brief, after Plomería; its count is what still waits on the owner in today's brief. */}
-      <Tab to={hrefOf({ view: "brief" })} on={view === "brief"}>
-        Brief
-        {briefToca > 0 && <span className="cor-count amber">{briefToca}</span>}
-      </Tab>
-    </nav>
-    <div className="cor-head-right">
-      <span className="cor-clock" data-clock>
-        <Live />
-        <b>En vivo</b>
-        <span>· {clockLine(now, timeZone)}</span>
-      </span>
-      {waiting > 0 && (
-        <Link to={tocaTo} className="cor-btn amber" data-te-esperan={waiting}>
-          <You flat />
-          {waiting === 1 ? "1 te espera" : `${waiting} te esperan`}
-        </Link>
-      )}
-      {closeTo ? (
-        <Link to={closeTo} className="cor-btn secondary" data-control="cerrar-pedir">
-          Cerrar
-        </Link>
-      ) : (
-        <Link to={pedirTo} className="cor-btn secondary" data-pedir>
-          Pedir
-        </Link>
-      )}
-    </div>
-  </header>
-);
+        {closeTo ? (
+          <Link to={closeTo} className="cor-btn secondary" data-control="cerrar-pedir">
+            {w.close}
+          </Link>
+        ) : (
+          <Link to={pedirTo} className="cor-btn secondary" data-pedir>
+            {w.pedir}
+          </Link>
+        )}
+      </div>
+    </header>
+  );
+};

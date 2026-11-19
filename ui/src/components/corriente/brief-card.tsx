@@ -31,27 +31,30 @@ import {
 } from "@/lib/brief";
 import type { CityCard, KeyCommand, Station } from "@/lib/brief-city";
 import { hhmm, type Light, type Local } from "@/lib/brief-delta";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { BRIEF_CARD_WORDS } from "@/lib/brief-card-words";
 import { Btn, Logo } from "./parts";
 
 /** The card's place when nothing is in hand: loading, no brief yet, off, could not read. */
-export function EmptyHand({ state, onRetry, line }: { state: "loading" | "empty" | "off" | "failed" | "brief"; onRetry?: () => void; line?: string }) {
-  if (state === "loading") return <div className="cor-bf-hand cor-skel" role="status" aria-label="Leyendo el brief" data-brief="loading" />;
+export function EmptyHand({ state, onRetry, line, language }: { state: "loading" | "empty" | "off" | "failed" | "brief"; onRetry?: () => void; line?: string; language?: Language }) {
+  const w = words(BRIEF_CARD_WORDS, language);
+  if (state === "loading") return <div className="cor-bf-hand cor-skel" role="status" aria-label={w.reading} data-brief="loading" />;
   const text =
     line ??
     (state === "empty"
-      ? "Cuando el brief llegue, lo primero que te toca aparece aquí."
+      ? w.empty
       : state === "off"
-        ? "Con el brief apagado no llega nada cada mañana. Ajustes lo enciende."
+        ? w.off
         : state === "failed"
-          ? "No se pudo leer el brief."
+          ? w.failed
           : "");
   return (
-    <section className="cor-bf-hand" aria-label="En la mano" data-brief="empty-hand">
-      <h2 className="cor-h3">Nada en la mano.</h2>
+    <section className="cor-bf-hand" aria-label={w.inHand} data-brief="empty-hand">
+      <h2 className="cor-h3">{w.nothingInHand}</h2>
       {text && <p className="cor-text">{text}</p>}
       {state === "failed" && onRetry && (
         <Btn kind="secondary" onClick={onRetry} data-brief="retry">
-          Reintentar
+          {w.retry}
         </Btn>
       )}
     </section>
@@ -59,15 +62,16 @@ export function EmptyHand({ state, onRetry, line }: { state: "loading" | "empty"
 }
 
 /** The card's head: «En la mano · i de n» and the two steps (K, J). */
-export function HandHead({ position, onStep }: { position: [number, number] | null; onStep: (d: 1 | -1) => void }) {
+export function HandHead({ position, onStep, language }: { position: [number, number] | null; onStep: (d: 1 | -1) => void; language?: Language }) {
+  const w = words(BRIEF_CARD_WORDS, language);
   return (
     <div className="cor-bf-fh">
-      <span className="cor-label">En la mano{position ? ` · ${position[0]} de ${position[1]}` : ""}</span>
+      <span className="cor-label">{`${w.inHand}${position ? w.position(position[0], position[1]) : ""}`}</span>
       <span className="cor-bf-step">
-        <button type="button" aria-label="Anterior (K)" onClick={() => onStep(-1)} data-step="-1">
+        <button type="button" aria-label={w.prev} onClick={() => onStep(-1)} data-step="-1">
           ↑
         </button>
-        <button type="button" aria-label="Siguiente (J)" onClick={() => onStep(1)} data-step="1">
+        <button type="button" aria-label={w.next} onClick={() => onStep(1)} data-step="1">
           ↓
         </button>
       </span>
@@ -121,12 +125,13 @@ const isWake = (a: RowAction) => a.level === "wake" || WAKES.includes(a.id);
 export const appLabel = (st: Station | undefined, t: BriefLabels) => (!st ? "" : st.slug === CROSS ? t.c.cross : st.app.name || st.slug);
 
 /** The stamp of a settled card: its word, when, the result line and whether Deshacer can bring it back. */
-export function stampOf(cd: CityCard, state: BriefStateReply | undefined, local: Local | undefined, t: BriefLabels) {
+export function stampOf(cd: CityCard, state: BriefStateReply | undefined, local: Local | undefined, t: BriefLabels, language: Language = getLanguage()) {
   const d = t.d;
+  const w = words(BRIEF_CARD_WORDS, language);
   if (cd.kind === "item") {
     const s = state?.items[cd.id];
     if (s && s.state !== "open") {
-      const word = s.action ? d.stamps[s.action as DeskAction] : s.state === "dismissed" ? d.stamps.dismiss : s.state === "later" ? d.stamps.later : s.state === "gone" ? "Ya no está" : "Resuelto";
+      const word = s.action ? d.stamps[s.action as DeskAction] : s.state === "dismissed" ? d.stamps.dismiss : s.state === "later" ? d.stamps.later : s.state === "gone" ? w.gone : w.settled;
       return { word: local?.word ?? word, at: s.at ?? local?.at ?? null, line: s.line ?? local?.line ?? null, actionId: s.action_id ?? local?.actionId ?? null, undo: s.undo || !!local?.undo };
     }
     return local ? { word: local.word, at: local.at, line: local.line ?? null, actionId: local.actionId, undo: local.undo } : null;
@@ -139,7 +144,7 @@ export function stampOf(cd: CityCard, state: BriefStateReply | undefined, local:
 
 export function BriefCard(p: CardProps) {
   // A fresh card (pending, text, notice) for each light in hand.
-  if (!p.light || !p.station) return <EmptyHand state="brief" line={`Nada en el brief de hoy. El de mañana llega a las ${p.runAt ?? "07:00"}.`} />;
+  if (!p.light || !p.station) return <EmptyHand state="brief" language={p.language} line={words(BRIEF_CARD_WORDS, p.language).nothingToday(p.runAt ?? "07:00")} />;
   return <Card key={p.light.id} {...p} light={p.light} station={p.station} />;
 }
 
@@ -148,6 +153,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
   const t = corLabels(language);
   const d = t.d;
   const c = t.c;
+  const w = words(BRIEF_CARD_WORDS, language);
   const cd = light.card;
   const name = appLabel(station, t);
   const [pending, setPending] = useState<Pending>(p.initialPending ?? null);
@@ -159,7 +165,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
     setPending(null);
     setText("");
   };
-  const s = stampOf(cd, p.state, p.local[cd.id], t);
+  const s = stampOf(cd, p.state, p.local[cd.id], t, language);
   const item: Item | null = cd.kind === "item" ? cd.item : null;
   const ist: ItemState | undefined = item ? p.state?.items[cd.id] : undefined;
   const actions = ist?.actions ?? [];
@@ -189,7 +195,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
       } else if (reply.status === "stale") {
         reset();
         setNotice(reply.line ?? d.stale);
-      } else if (reply.status === "running") setNotice("Esto ya está en curso; el resultado llega en un momento.");
+      } else if (reply.status === "running") setNotice(w.running);
       else setPending({ kind: "failed", action, target, error: reply.error, hint: reply.hint, input });
     } catch (e) {
       fail(e, action, target, input);
@@ -209,7 +215,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
       } else if (reply.status === "stale") {
         reset();
         setNotice(reply.line ?? d.stale);
-      } else if (reply.status === "running") setNotice("Esto ya está en curso; el resultado llega en un momento.");
+      } else if (reply.status === "running") setNotice(w.running);
       else setPending({ kind: "failed", action, target: null, error: reply.error, hint: reply.hint, input });
     } catch (e) {
       fail(e, action, null, input);
@@ -270,7 +276,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
   const kindWord =
     cd.kind === "idea"
       ? `${c.newIdea}${cd.idea.code ? ` · ${cd.idea.code}` : ""}`
-      : `${!cd.open || s ? "Resuelto" : light.kind === "block" ? "Bloquea" : light.kind === "toca" ? "Te toca" : "Sigue"} · ${releaseOr(item!, ist, t)}`;
+      : `${!cd.open || s ? w.settled : light.kind === "block" ? w.kind.block : light.kind === "toca" ? w.kind.toca : w.kind.next} · ${releaseOr(item!, ist, t, language)}`;
   const tone = !cd.open || s ? "done" : light.kind === "block" || light.kind === "toca" ? "you" : "live";
 
   const stampLine = s && (
@@ -292,8 +298,8 @@ function Card(p: CardProps & { light: Light; station: Station }) {
 
   return (
     <>
-      <HandHead position={p.position} onStep={p.onStep} />
-      <section className={`cor-bf-card ${tone}`} aria-label={`En la mano: ${light.title}`} data-brief="card" data-card={cd.id}>
+      <HandHead position={p.position} onStep={p.onStep} language={language} />
+      <section className={`cor-bf-card ${tone}`} aria-label={w.cardLabel(light.title)} data-brief="card" data-card={cd.id}>
         <div className="cor-bf-ck">
           {station.slug === CROSS ? <CrossMark className="cor-logo" /> : <Logo slug={station.slug} title={name} />}
           <span className="pn">{name}</span>
@@ -301,12 +307,12 @@ function Card(p: CardProps & { light: Light; station: Station }) {
         </div>
         <h2>{light.title}</h2>
         {cd.kind === "item" ? item!.detail && !(l?.kind === "question" && l.question.trim() === item!.detail.trim()) && <p className="cor-text cor-bf-tx">{item!.detail}</p> : <p className="cor-text cor-bf-tx">{cd.idea.why}</p>}
-        {cd.kind === "item" ? <Evidence rows={evidence(l, language).map(([k, v]) => [k === BRIEF_TICKET[language] ? d.ev.ticket : k, v])} /> : <IdeaFacts cd={cd} t={t} />}
+        {cd.kind === "item" ? <Evidence rows={evidence(l, language).map(([k, v]) => [k === BRIEF_TICKET[language] ? d.ev.ticket : k, v])} /> : <IdeaFacts cd={cd} t={t} language={language} />}
         {(link || gh) && (
           <div className="cor-bf-links">
             {link && (
               <Link className="cor-btn link" to={link.to} data-see={link.key}>
-                Ver {link.key}
+                {w.see(link.key)}
               </Link>
             )}
             {gh && (
@@ -324,7 +330,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
         {stampLine}
         {busy && !s && (
           <p className="cor-bf-note" role="status" data-brief="running">
-            <span className="cor-live" aria-hidden /> En curso: {busy in d.verbs ? d.verbs[busy as DeskAction] : busy in d.idea ? (d.idea as unknown as Record<string, string>)[busy] : busy}…
+            <span className="cor-live" aria-hidden /> {w.underWay} {busy in d.verbs ? d.verbs[busy as DeskAction] : busy in d.idea ? (d.idea as unknown as Record<string, string>)[busy] : busy}…
           </p>
         )}
         <div className="cor-bf-you">{body()}</div>
@@ -427,7 +433,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
         <div className="cor-bf-ask" data-brief="changes">
           <label className="cor-bf-field">
             <span className="cor-text">{d.changesAsk}</span>
-            <textarea className="cor-textarea" value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} rows={2} placeholder="Escribe qué debe cambiar…" data-brief="changes-text" />
+            <textarea className="cor-textarea" value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} rows={2} placeholder={w.changesPlaceholder} data-brief="changes-text" />
           </label>
           <div className="cor-bf-row">
             <Btn kind="primary" disabled={acting || !text.trim()} onClick={() => void runItem("request_changes", pending.target, { text: text.trim() })} data-act="changes-send">
@@ -518,7 +524,7 @@ function Card(p: CardProps & { light: Light; station: Station }) {
   function ideaBody(ic: Extract<CityCard, { kind: "idea" }>): ReactNode {
     const ideaState = p.state?.ideas?.[ic.id];
     const paused = !!ideaState?.paused;
-    const po = `${d.roles.po}${station.slug !== CROSS ? ` de ${name}` : ""}`;
+    const po = station.slug !== CROSS ? w.poOf(d.roles.po, name) : d.roles.po;
     if (pending?.kind === "discard")
       return (
         <div className="cor-bf-ask" data-brief="discard">
@@ -593,11 +599,12 @@ function Card(p: CardProps & { light: Light; station: Station }) {
 const BRIEF_TICKET: Record<BriefLanguage, string> = { es: "Ticket", en: "Ticket" };
 
 /** The kind of row, as the card's head says it (a release says whether it is ready). */
-function releaseOr(item: Item, st: ItemState | undefined, t: BriefLabels): string {
+function releaseOr(item: Item, st: ItemState | undefined, t: BriefLabels, language: Language): string {
+  const w = words(BRIEF_CARD_WORDS, language);
   const l = st?.live;
   if (l?.kind === "release") {
     const why = l.reason ?? (l.unknown ? "no_github_data" : null);
-    return l.ready && l.pending ? "lista" : `no lista: ${why ? (t.d.reasons[why] ?? why) : "—"}`;
+    return l.ready && l.pending ? w.ready : w.notReady(why ? (t.d.reasons[why] ?? why) : "—");
   }
   return t.d.kinds[kindOf(item, st)];
 }
@@ -616,10 +623,11 @@ function Evidence({ rows }: { rows: [string, string][] }) {
   );
 }
 
-function IdeaFacts({ cd, t }: { cd: Extract<CityCard, { kind: "idea" }>; t: BriefLabels }) {
+function IdeaFacts({ cd, t, language }: { cd: Extract<CityCard, { kind: "idea" }>; t: BriefLabels; language: Language }) {
+  const w = words(BRIEF_CARD_WORDS, language);
   const flags = (cd.idea.flags ?? []).map((f) => parseFlag(f)).filter((f): f is NonNullable<ReturnType<typeof parseFlag>> => !!f);
-  const rows: [string, string][] = [["De", cd.idea.source || "—"]];
-  if (flags.length) rows.push(["Ojo", flags.map((f) => (f.key === "overlap" ? t.flags.overlap(f.ref ?? "") : t.flags[f.key])).join(" · ")]);
-  if (cd.idea.seen) rows.push(["Vista", t.d.idea.seen(cd.idea.seen)]);
+  const rows: [string, string][] = [[w.from, cd.idea.source || "—"]];
+  if (flags.length) rows.push([w.watch, flags.map((f) => (f.key === "overlap" ? t.flags.overlap(f.ref ?? "") : t.flags[f.key])).join(" · ")]);
+  if (cd.idea.seen) rows.push([w.seen, t.d.idea.seen(cd.idea.seen)]);
   return <Evidence rows={rows} />;
 }

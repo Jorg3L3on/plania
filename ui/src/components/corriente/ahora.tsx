@@ -7,8 +7,11 @@ import type { NowAction } from "@/lib/edificio";
 import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Btn } from "./parts";
+import { words } from "@/lib/i18n";
+import { AHORA_WORDS } from "@/lib/ahora-words";
 
-export const PLAN_ASK = "Arma el plan del proyecto: los entregables y los pasos de cada uno.";
+// PLA-I2-10: the words are in @/lib/ahora-words; the export stays for pages/corriente.tsx.
+export const PLAN_ASK: string = words(AHORA_WORDS).planAsk;
 
 export type AhoraLinks = {
   entrega: (d: Decision) => string;
@@ -65,7 +68,7 @@ export const MoveButton = ({ p, a, d, primary, acts, links, onFijar }: { p: OrgP
   };
   return (
     <Btn kind={kind} onClick={onClick} disabled={busy} title={accept} aria-label={accept} {...data}>
-      {busy ? "…" : accept ? "Aceptar" : a.label}
+      {busy ? "…" : accept ? words(AHORA_WORDS).accept : a.label}
     </Btn>
   );
 };

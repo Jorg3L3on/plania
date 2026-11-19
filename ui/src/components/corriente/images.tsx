@@ -3,26 +3,29 @@
 // nothing: the page sends them once the request has its key (uploadPedidoImages).
 import { useEffect, useId, useRef, useState, type DragEvent, type RefObject } from "react";
 import { PEDIDO_IMAGE_MAX, PEDIDO_IMAGE_MAX_BYTES } from "@/lib/api";
+import { words } from "@/lib/i18n";
+import { IMAGES_WORDS } from "@/lib/images-words";
 import { Btn } from "./parts";
 
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 
 export function pickImages(incoming: readonly File[], current: readonly File[], max: number): { files: File[]; error: string | null } {
+  const w = words(IMAGES_WORDS);
   const room = Math.max(0, max - current.length);
   const ok: File[] = [];
   let error: string | null = null;
   for (const f of incoming) {
     if (!(IMAGE_TYPES as readonly string[]).includes(f.type)) {
-      error ??= "Solo se aceptan imágenes PNG, JPEG o WebP.";
+      error ??= w.badType;
       continue;
     }
     if (f.size > PEDIDO_IMAGE_MAX_BYTES) {
-      error ??= "Esa imagen pesa más de 5 MB.";
+      error ??= w.tooBig;
       continue;
     }
     if (current.includes(f) || ok.includes(f)) continue;
     if (ok.length >= room) {
-      error ??= `Un pedido admite hasta ${PEDIDO_IMAGE_MAX} imágenes.`;
+      error ??= w.tooMany(PEDIDO_IMAGE_MAX);
       continue;
     }
     ok.push(f);
@@ -41,6 +44,7 @@ export function pastedFiles(data: DataTransfer | null): File[] {
 }
 
 export const Images = ({ files, onChange, textarea, count, disabled }: { files: File[]; onChange: (f: File[]) => void; textarea?: RefObject<HTMLTextAreaElement | null>; count?: string; disabled?: boolean }) => {
+  const w = words(IMAGES_WORDS);
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
@@ -98,18 +102,18 @@ export const Images = ({ files, onChange, textarea, count, disabled }: { files: 
         <path d="m3 12 3.5-3 2.5 2 2-1.5L13 12" />
       </svg>
       {files.length > 0 ? (
-        <ul className="cor-thumbs" aria-label="Imágenes del pedido">
+        <ul className="cor-thumbs" aria-label={w.list}>
           {files.map((f, i) => (
             <li key={`${f.name}-${i}`}>
-              {urls[i] && <img src={urls[i]} alt={`Imagen ${i + 1}`} />}
-              <button type="button" aria-label={`Quitar imagen ${i + 1}`} onClick={() => onChange(files.filter((x) => x !== f))}>
+              {urls[i] && <img src={urls[i]} alt={w.image(i + 1)} />}
+              <button type="button" aria-label={w.remove(i + 1)} onClick={() => onChange(files.filter((x) => x !== f))}>
                 ×
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <span className="cor-images-hint">Arrastra, pega con ⌘V o elige imágenes. PNG, JPEG o WebP, hasta 5 MB cada una.</span>
+        <span className="cor-images-hint">{w.hint}</span>
       )}
       {error && (
         <span className="cor-state bad" role="alert">
@@ -119,7 +123,7 @@ export const Images = ({ files, onChange, textarea, count, disabled }: { files: 
       {count && <span className="cor-cap">{count}</span>}
       <input ref={input} id={id} type="file" accept={IMAGE_TYPES.join(",")} multiple hidden onChange={(e) => (add(Array.from(e.target.files ?? [])), (e.target.value = ""))} data-control="imagenes-input" />
       <Btn kind="secondary" onClick={() => input.current?.click()} disabled={disabled || files.length >= PEDIDO_IMAGE_MAX} data-control="elegir-imagenes">
-        Elegir imágenes
+        {w.choose}
       </Btn>
     </div>
   );

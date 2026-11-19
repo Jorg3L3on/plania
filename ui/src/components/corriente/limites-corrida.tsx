@@ -4,17 +4,19 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { LIMITES_CORRIDA, LIMITES_TEXTO, LIMITES_TITULO, deFabrica, limiteAviso, limiteValor, type LimiteCorrida } from "@/lib/limites-corrida";
+import { words } from "@/lib/i18n";
+import { LIMITES_WORDS, deFabrica, limiteAviso, limitesCorrida, limiteValor, type LimiteCorrida } from "@/lib/limites-corrida";
 import { Btn, Label } from "./parts";
 
 const Fila = ({ k, value, canEdit, onSaved }: { k: LimiteCorrida; value: number; canEdit: boolean; onSaved: () => void }) => {
+  const w = words(LIMITES_WORDS);
   const [text, setText] = useState(String(value));
   const save = useMutation({
     mutationFn: (n: number) => api.setRunnerSettings({ [k]: n }),
-    onSuccess: () => (toast("Guardado"), onSaved()),
-    onError: () => toast.error("No se pudo guardar"),
+    onSuccess: () => (toast(w.guardado), onSaved()),
+    onError: () => toast.error(w.noGuardo),
   });
-  const l = LIMITES_CORRIDA[k];
+  const l = limitesCorrida()[k];
   const n = limiteValor(k, text);
   const id = `limite-${k}`;
   return (
@@ -36,19 +38,22 @@ const Fila = ({ k, value, canEdit, onSaved }: { k: LimiteCorrida; value: number;
       <input id={id} inputMode="numeric" className="cor-input cor-mono" style={{ width: 90 }} value={text} onChange={(e) => setText(e.target.value)} disabled={!canEdit} />
       {canEdit && n !== null && n !== value && (
         <Btn kind="secondary" type="submit" disabled={save.isPending} data-control={`guardar-${id}`}>
-          Guardar
+          {w.guardar}
         </Btn>
       )}
     </form>
   );
 };
 
-export const LimitesCorrida = ({ settings, canEdit, onSaved }: { settings: Record<LimiteCorrida, number>; canEdit: boolean; onSaved: () => void }) => (
-  <section aria-label={LIMITES_TITULO} data-block="cada-corrida">
-    <Label as="h2">{LIMITES_TITULO}</Label>
-    <p className="cor-cap">{LIMITES_TEXTO}</p>
-    {(Object.keys(LIMITES_CORRIDA) as LimiteCorrida[]).map((k) => (
-      <Fila key={`${k}:${settings[k]}`} k={k} value={settings[k]} canEdit={canEdit} onSaved={onSaved} />
-    ))}
-  </section>
-);
+export const LimitesCorrida = ({ settings, canEdit, onSaved }: { settings: Record<LimiteCorrida, number>; canEdit: boolean; onSaved: () => void }) => {
+  const w = words(LIMITES_WORDS);
+  return (
+    <section aria-label={w.titulo} data-block="cada-corrida">
+      <Label as="h2">{w.titulo}</Label>
+      <p className="cor-cap">{w.texto}</p>
+      {(Object.keys(limitesCorrida()) as LimiteCorrida[]).map((k) => (
+        <Fila key={`${k}:${settings[k]}`} k={k} value={settings[k]} canEdit={canEdit} onSaved={onSaved} />
+      ))}
+    </section>
+  );
+};

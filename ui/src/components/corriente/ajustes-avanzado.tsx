@@ -7,15 +7,11 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import type { Ajustes as AjustesRead } from "@/lib/ajustes";
 import {
-  ARRANQUE,
-  AUTOMATICO,
-  AVANZADO_ETIQUETAS,
-  AVANZADO_SECCION,
-  OPCIONES,
   arranqueBody,
   arranqueForm,
   avanzadoTexto,
   avanzadoValor,
+  avanzadoWords,
   porDefecto,
   type ArranqueForm,
   type ArranqueRead,
@@ -23,11 +19,15 @@ import {
 } from "@/lib/ajustes-avanzado";
 import { Falla, Seccion, useGuardar } from "./ajustes";
 import { Btn, Switch } from "./parts";
+import { words } from "@/lib/i18n";
+import { AJUSTES_VIEW_WORDS } from "@/lib/ajustes-words";
 
 export const Arranque = ({ a }: { a: AjustesRead }) => {
   const [form, setForm] = useState<ArranqueForm>(arranqueForm(a.capture));
   const save = useGuardar(a.slug, (capture: ArranqueRead | null) => api.ajustesArranque(a.slug, { version: a.version, capture }));
   const out = arranqueBody(form);
+  const ARRANQUE = avanzadoWords().arranque;
+  const v = words(AJUSTES_VIEW_WORDS);
   const field = (k: Exclude<keyof ArranqueForm, "pages">, w: { label: string; hint: string }, mono = true) => (
     <label>
       <span className="cor-text">{w.label}</span>
@@ -60,7 +60,7 @@ export const Arranque = ({ a }: { a: AjustesRead }) => {
         <Falla error={save.error} />
         <div className="cor-acts">
           <Btn kind="secondary" type="submit" disabled={!out.ok || save.isPending} data-control="guardar-arranque">
-            {save.isPending ? "Guardando…" : "Guardar"}
+            {save.isPending ? v.saving : v.save}
           </Btn>
         </div>
       </form>
@@ -71,7 +71,9 @@ export const Arranque = ({ a }: { a: AjustesRead }) => {
 const Campo = ({ a, f }: { a: AjustesRead; f: AvanzadoRead }) => {
   const [text, setText] = useState(avanzadoTexto(f));
   const save = useGuardar(a.slug, (value: unknown) => api.ajustesAvanzado(a.slug, { version: a.version, field: f.field, value }));
-  const label = AVANZADO_ETIQUETAS[f.field] ?? f.field;
+  const aw = avanzadoWords();
+  const v = words(AJUSTES_VIEW_WORDS);
+  const label = aw.etiquetas[f.field] ?? f.field;
   const id = `avanzado-${f.field}`;
   const parsed = avanzadoValor(f.editor, text);
   const changed = text !== avanzadoTexto(f);
@@ -88,10 +90,10 @@ const Campo = ({ a, f }: { a: AjustesRead; f: AvanzadoRead }) => {
         <Switch id={id} on={f.value === null ? true : f.value === true} label={label} onChange={(on) => save.mutate(on)} disabled={save.isPending} data-campo={id} />
       ) : f.editor === "select" ? (
         <select id={id} className="cor-select" value={typeof f.value === "string" ? f.value : ""} disabled={save.isPending} onChange={(e) => save.mutate(e.target.value || null)} data-campo={id}>
-          <option value="">{AUTOMATICO}</option>
+          <option value="">{aw.automatico}</option>
           {(f.options ?? []).map((o) => (
             <option key={o} value={o}>
-              {OPCIONES[o] ?? o}
+              {aw.opciones[o] ?? o}
             </option>
           ))}
         </select>
@@ -112,7 +114,7 @@ const Campo = ({ a, f }: { a: AjustesRead; f: AvanzadoRead }) => {
           {changed && parsed.ok && (
             <div className="cor-acts">
               <Btn kind="secondary" small type="submit" disabled={save.isPending} data-control="guardar-avanzado">
-                {save.isPending ? "Guardando…" : "Guardar"}
+                {save.isPending ? v.saving : v.save}
               </Btn>
             </div>
           )}
@@ -125,8 +127,8 @@ const Campo = ({ a, f }: { a: AjustesRead; f: AvanzadoRead }) => {
 
 export const Avanzado = ({ a }: { a: AjustesRead }) => (
   <details className="cor-card cor-ajustes-sec" data-ajustes="avanzado" id="ajustes-avanzado">
-    <summary className="cor-ajustes-h">{AVANZADO_SECCION.titulo}</summary>
-    <p className="cor-text">{AVANZADO_SECCION.texto}</p>
+    <summary className="cor-ajustes-h">{avanzadoWords().seccion.titulo}</summary>
+    <p className="cor-text">{avanzadoWords().seccion.texto}</p>
     <ul className="cor-ajustes-notas">
       {a.avanzado.map((f) => (
         <Campo key={`${f.field}:${a.version}`} a={a} f={f} />

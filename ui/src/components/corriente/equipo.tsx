@@ -12,26 +12,24 @@ import { caption, sayTo, startsLine } from "@/lib/edificio";
 import { MODELS, motorLine, type ModelId } from "@/lib/motores";
 import { linkHref } from "@/lib/org";
 import { firstFree, hireLabel, roleChoices, suggestedPacks } from "@/lib/sumar";
+import { words } from "@/lib/i18n";
+import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import type { CorrienteActs } from "./acts";
 import { Agent, Btn, Key, Label, State } from "./parts";
 
-export const ROLE_LINE: Record<string, string> = {
-  "product-owner": "Entiende lo que pides y lo planea",
-  research: "Investiga antes de diseñar",
-  artist: "Dibuja bocetos y pantallas",
-  taller: "Construye lo que está en el plan",
-  qa: "Prueba cada entrega antes de la revisión",
-};
-const NUM = ["Nadie", "Uno", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho"];
+// PLA-I2-10: the words are in @/lib/equipo-words; the language is fixed for the page's life, so this reads it once.
+export const ROLE_LINE: Record<string, string> = words(EQUIPO_WORDS).roleLine;
 export function teamHeadline(team: OrgMember[], paused: boolean): { now: string; rest: string | null } {
-  if (paused) return { now: "El equipo está en pausa.", rest: null };
+  const t = words(EQUIPO_WORDS);
+  if (paused) return { now: t.paused, rest: null };
   const w = team.filter((m) => m.state === "running").length;
   const free = team.length - w;
-  return { now: w ? `${NUM[w] ?? w} trabajando.` : "Nadie trabajando.", rest: free ? `${NUM[free] ?? free} ${free === 1 ? "libre" : "libres"}.` : null };
+  return { now: w ? t.working(String(t.num[w] ?? w)) : t.nobodyWorking, rest: free ? t.free(String(t.num[free] ?? free), free) : null };
 }
 const mins = (since: string | undefined, now: number) => (since ? Math.max(0, Math.round((now - Date.parse(since)) / 60_000)) : 0);
 
 const Say = ({ p, m, acts }: { p: OrgProject; m: OrgMember; acts: CorrienteActs }) => {
+  const w = words(EQUIPO_WORDS);
   const [text, setText] = useState("");
   const [sent, setSent] = useState<string | null>(null);
   const submit = async (e: FormEvent) => {
@@ -40,29 +38,29 @@ const Say = ({ p, m, acts }: { p: OrgProject; m: OrgMember; acts: CorrienteActs 
     if (!say) return;
     if (say.kind === "note") {
       acts.note(p.slug, say.key, say.text);
-      setSent("Se lo dijiste; lo lee en su siguiente paso.");
+      setSent(w.toldIt);
     } else {
       try {
         await api.askProject(p.slug, { text: say.text, now: false });
         acts.refresh();
-        setSent("Se lo pediste al PO.");
+        setSent(w.askedPo);
       } catch (err) {
-        setSent(err instanceof ApiError ? `No se pudo (${err.code}).` : "No se pudo. Si la máquina está dormida, intenta al despertar.");
+        setSent(err instanceof ApiError ? w.failedCode(err.code) : w.notNow);
       }
     }
     setText("");
   };
   return (
     <form className="cor-say" onSubmit={(e) => void submit(e)} data-say={m.agent}>
-      <Label as="p">Dile algo</Label>
+      <Label as="p">{w.sayLabel}</Label>
       <span className="cor-ajuste-row">
-        <input className="cor-input" value={text} maxLength={1000} aria-label={`Dile algo a ${seatName(m.role)}`} placeholder={m.now?.ticket ? "Lo lee en su siguiente paso" : "Va al PO como pedido para este puesto"} onChange={(e) => setText(e.target.value)} />
+        <input className="cor-input" value={text} maxLength={1000} aria-label={w.sayTo(seatName(m.role))} placeholder={m.now?.ticket ? w.sayPlaceholderBusy : w.sayPlaceholderFree} onChange={(e) => setText(e.target.value)} />
         <Btn kind="secondary" type="submit" disabled={text.trim().length < 2} data-control="decir">
-          Enviar
+          {w.send}
         </Btn>
       </span>
       <span className="cor-cap" role="status">
-        {sent ?? (m.now?.ticket ? "Se anota en lo que hace ahora." : "No está en nada: se lo pides al PO.")}
+        {sent ?? (m.now?.ticket ? w.sayHintBusy : w.sayHintFree)}
       </span>
     </form>
   );
@@ -73,6 +71,7 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
   const stopped = !live && m.last?.status === "stopped" && m.last.run_id ? m.last.run_id : null;
   const href = m.produced ? linkHref(m.produced, p.slug) : null;
   const c = caption(m, now);
+  const w = words(EQUIPO_WORDS);
   return (
     <section className={`cor-card ${live ? "live" : ""} cor-litcard`} aria-label={seatName(m.role)} data-member={m.agent}>
       <div className="cor-lit-top">
@@ -82,7 +81,7 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
           <span className="cor-cap">{ROLE_LINE[m.role] ?? ""}</span>
         </div>
         <div className="cor-lit-now">
-          <span className={`cor-state ${live ? "live" : ""}`}>{live ? `Trabajando · ${mins(m.now?.since, now)} min` : m.state === "waiting_owner" ? "Te espera" : "Libre"}</span>
+          <span className={`cor-state ${live ? "live" : ""}`}>{live ? w.workingFor(mins(m.now?.since, now)) : m.state === "waiting_owner" ? w.waitsForYou : w.free1}</span>
           <span className="cor-ellipsis">
             {/* PLA-67 (F-6): what a seat works on opens from here, an idea or a step. */}
             {m.now?.ticket && (
@@ -99,22 +98,22 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
           )}
         </div>
         <Link className="cor-btn quiet" to={motorTo} data-control="motor">
-          Motor
+          {w.motor}
         </Link>
         {live && (
           <Btn kind="secondary" onClick={() => acts.stopRun(live)} disabled={acts.busy === `stop-${live}`} data-control="detener">
-            {acts.busy === `stop-${live}` ? "Deteniendo…" : "Detener"}
+            {acts.busy === `stop-${live}` ? w.stopping : w.stop}
           </Btn>
         )}
         {stopped && (
           <Btn kind="secondary" onClick={() => acts.resumeRun(stopped)} disabled={acts.busy === `resume-${stopped}`} data-control="reanudar-corrida">
-            Reanudar corrida
+            {w.resumeRun}
           </Btn>
         )}
       </div>
       <div className="cor-lit-grid">
         <div>
-          <Label as="p">En fila</Label>
+          <Label as="p">{w.queue}</Label>
           {(m.queue ?? []).length ? (
             <ol className="cor-queue">
               {m.queue!.slice(0, 2).map((q, i) => (
@@ -124,11 +123,11 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
               ))}
             </ol>
           ) : (
-            <p className="cor-text">Nada en fila para este puesto.</p>
+            <p className="cor-text">{w.queueEmpty}</p>
           )}
         </div>
         <div>
-          <Label as="p">Lo último que entregó</Label>
+          <Label as="p">{w.lastDelivered}</Label>
           {m.produced ? (
             href ? (
               /^https?:/.test(href) ? (
@@ -144,9 +143,9 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
               <p className="cor-text">{m.produced.title}</p>
             )
           ) : (
-            <p className="cor-text">Todavía nada entregado.</p>
+            <p className="cor-text">{w.nothingDelivered}</p>
           )}
-          {m.last && <p className="cor-cap">{`Su última corrida: ${c.sub || "hace un rato"}`}</p>}
+          {m.last && <p className="cor-cap">{w.lastRun(c.sub || w.aWhileAgo)}</p>}
         </div>
         <Say p={p} m={m} acts={acts} />
       </div>
@@ -155,10 +154,11 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
 };
 
 const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProject; m: OrgMember; now: number; acts: CorrienteActs; timeZone?: string; motorTo: string; open: boolean; onOpen: () => void }) => {
+  const w = words(EQUIPO_WORDS);
   const n = m.next_start;
-  const start = n && (n.hold === "rest" || n.hold === "usage" || n.hold === "unqueued") ? { label: n.hold === "usage" ? "Seguir de todos modos" : "Que empiece ya", past: n.hold === "usage" } : null;
+  const start = n && (n.hold === "rest" || n.hold === "usage" || n.hold === "unqueued") ? { label: n.hold === "usage" ? w.goAnyway : w.startNow, past: n.hold === "usage" } : null;
   const c = caption(m, now, { timeZone });
-  const line = n ? startsLine(n, now, timeZone) : m.state === "waiting_owner" ? c.sub : m.role === "product-owner" ? "Recibiría el siguiente pedido que hagas." : c.doing;
+  const line = n ? startsLine(n, now, timeZone) : m.state === "waiting_owner" ? c.sub : m.role === "product-owner" ? w.poWouldGet : c.doing;
   return (
     <li className="cor-trow" data-member={m.agent}>
       <i className="cor-ring" aria-hidden />
@@ -166,7 +166,7 @@ const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProje
         <b>{seatName(m.role)}</b>
         <span className="cor-cap">{ROLE_LINE[m.role] ?? ""}</span>
       </button>
-      <State tone={m.state === "waiting_owner" ? "amber" : undefined}>{p.paused ? "En pausa" : m.state === "waiting_owner" ? "Te espera" : "Libre"}</State>
+      <State tone={m.state === "waiting_owner" ? "amber" : undefined}>{p.paused ? w.inPause : m.state === "waiting_owner" ? w.waitsForYou : w.free1}</State>
       <span className="cor-text cor-clamp2">{line}</span>
       {start && !p.paused && (
         <Btn kind="secondary" onClick={() => acts.start(p.slug, m.agent, start.past)} disabled={acts.busy === `${p.slug}:start`} data-control="arrancar">
@@ -174,13 +174,14 @@ const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProje
         </Btn>
       )}
       <Link className="cor-btn quiet" to={motorTo} data-control="motor">
-        Motor
+        {w.motor}
       </Link>
     </li>
   );
 };
 
 const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { model: string | null; effort: string | null }; focus: boolean }) => {
+  const w = words(EQUIPO_WORDS);
   const client = useQueryClient();
   const detail = useQuery({ queryKey: ["company-project", p.slug], queryFn: () => api.companyProject(p.slug) });
   const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs() });
@@ -202,21 +203,21 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
   });
   if (p.team.length >= 8) return null;
   return (
-    <aside className={`cor-card cor-sumar ${focus ? "focus" : ""}`} aria-label="Sumar a alguien" data-sumar>
-      <Label>Sumar a alguien</Label>
+    <aside className={`cor-card cor-sumar ${focus ? "focus" : ""}`} aria-label={w.addSomeone} data-sumar>
+      <Label>{w.addSomeone}</Label>
       {detail.isPending ? (
         // PLA-82 (F-5): an empty grey box for ~2 s read as broken; it says what it is doing.
         <p className="cor-text cor-muted" style={{ minHeight: 160 }} role="status" aria-busy="true" data-sumar-loading>
-          Buscando los puestos libres…
+          {w.lookingSeats}
         </p>
       ) : free.length === 0 ? (
-        <p className="cor-text">Todos los puestos con su doc ya están en el equipo.</p>
+        <p className="cor-text">{w.allSeatsTaken}</p>
       ) : (
         <>
-          <h3 className="cor-h3">{role ? `Puesto vacío: ${hireLabel(role)}` : "Elige un puesto"}</h3>
+          <h3 className="cor-h3">{role ? w.emptySeat(hireLabel(role)) : w.pickSeat}</h3>
           {role && ROLE_LINE[role] && <p className="cor-text">{ROLE_LINE[role]}.</p>}
           <label className="cor-label" htmlFor="sumar-rol">
-            Plantilla de puesto
+            {w.seatTemplate}
           </label>
           <select id="sumar-rol" className="cor-select" value={role ?? ""} onChange={(e) => setPicked(e.target.value)} data-control="sumar-plantilla">
             {free.map((c) => (
@@ -226,9 +227,9 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
             ))}
           </select>
           <details className="cor-sumar-more">
-            <summary className="cor-btn link">{`Paquetes · ${pk.length} elegidos`}</summary>
+            <summary className="cor-btn link">{w.packs(pk.length)}</summary>
             {packs.isError ? (
-              <p className="cor-cap">No se pudieron leer los paquetes. Puedes sumar sin ellos.</p>
+              <p className="cor-cap">{w.packsFailed}</p>
             ) : (
               <ul>
                 {(packs.data?.packs ?? []).map((x) => (
@@ -239,15 +240,15 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
                     </label>
                   </li>
                 ))}
-                {(packs.data?.packs ?? []).length === 0 && <li className="cor-cap">Aún no hay paquetes.</li>}
+                {(packs.data?.packs ?? []).length === 0 && <li className="cor-cap">{w.noPacks}</li>}
               </ul>
             )}
           </details>
           <label className="cor-label" htmlFor="sumar-motor">
-            Motor
+            {w.motor}
           </label>
           <select id="sumar-motor" className="cor-select" value={model ?? ""} onChange={(e) => setModel((e.target.value || null) as ModelId | null)} data-control="sumar-modelo">
-            <option value="">{`El de la compañía · ${motorLine(motorDefault?.model ?? null, motorDefault?.effort ?? null)}`}</option>
+            <option value="">{w.companyMotor(motorLine(motorDefault?.model ?? null, motorDefault?.effort ?? null))}</option>
             {MODELS.map((x) => (
               <option key={x.id} value={x.id}>
                 {x.name}
@@ -255,15 +256,15 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
             ))}
           </select>
           <Btn kind="secondary" disabled={!role || add.isPending} onClick={() => role && add.mutate({ template: role, packs: pk, motor: model ? { model } : undefined })} data-control="sumar-rol">
-            {add.isPending ? "Sumando…" : "Añadir al equipo"}
+            {add.isPending ? w.adding : w.addToTeam}
           </Btn>
-          {add.isError && <p className="cor-state bad">{add.error instanceof ApiError ? `No se pudo sumar (${add.error.code}).` : "No se pudo. Si la máquina está dormida, intenta al despertar."}</p>}
+          {add.isError && <p className="cor-state bad">{add.error instanceof ApiError ? w.addFailed(add.error.code) : w.notNow}</p>}
           {added && (
             <p className="cor-state ok" role="status">
-              ✓ {added} se suma al equipo.
+              ✓ {w.joins(added)}
             </p>
           )}
-          <p className="cor-cap">Una plantilla de puesto; quien llega trabaja solo en este proyecto y usa el motor de la compañía hasta que le pongas uno en Motores.</p>
+          <p className="cor-cap">{w.sumarHint}</p>
         </>
       )}
     </aside>
@@ -276,6 +277,7 @@ export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, 
   const rest = p.team.filter((m) => m !== lit);
   const [open, setOpen] = useState<string | null>(null);
   const h = teamHeadline(p.team, paused);
+  const w = words(EQUIPO_WORDS);
   return (
     <div className="cor-equipo" data-equipo={p.team.length}>
       <div className="cor-equipo-main">
@@ -285,19 +287,19 @@ export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, 
           </h2>
           {p.team.length < 8 && (
             <Link className="cor-btn primary" to={sumarTo} data-control="sumar">
-              Sumar a alguien
+              {w.addSomeone}
             </Link>
           )}
         </div>
         {lit && <LitCard p={p} m={lit} now={now} acts={acts} motorTo={motorTo} />}
         {!lit && (
           <div className="cor-card cor-empty" data-nadie>
-            <p className="cor-text">{paused ? "Nada arranca mientras está en pausa." : "Nadie trabaja ahora. Abre un puesto para decirle algo o hazlo arrancar."}</p>
+            <p className="cor-text">{paused ? w.nothingStartsPaused : w.nobodyNow}</p>
           </div>
         )}
         {rest.length > 0 && (
-          <section aria-label="El resto del equipo">
-            <Label as="h3">{lit ? "El resto del equipo" : "El equipo"}</Label>
+          <section aria-label={w.restOfTeam}>
+            <Label as="h3">{lit ? w.restOfTeam : w.theTeam}</Label>
             <ul>
               {rest.map((m) => (
                 <Row key={m.agent} p={p} m={m} now={now} acts={acts} timeZone={timeZone} motorTo={motorTo} open={open === m.agent} onOpen={() => setOpen(open === m.agent ? null : m.agent)} />

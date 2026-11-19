@@ -6,11 +6,82 @@
 import { CROSS, type BriefStateReply, type IdeaFate, type Item, type ItemState, type ActionId } from "@/lib/brief";
 import type { Ink } from "@/lib/brief-row";
 import { cardsOf, type CityCard, type Station } from "@/lib/brief-city";
+import { BRIEF_LABELS } from "@/lib/brief-i18n";
 import { LOCALE } from "./locale.js";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
-const NUM = ["cero", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve", "veinte", "veintiuna", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve", "treinta"];
-/** A count in words up to thirty, then digits (feminine: «una cosa», «una bloquea»). */
-export const numWord = (n: number): string => NUM[n] ?? String(n);
+// PLA-I2-10: the delta's words in both languages (the brief's own labels stay in brief-i18n.ts).
+export const DELTA_WORDS = defineWords({
+  es: {
+    num: ["cero", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve", "veinte", "veintiuna", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve", "treinta"],
+    kickToday: (day: string, time: string) => `Brief · ${day} · generado ${time}`,
+    kickPast: (day: string) => `Brief del ${day} · solo lectura`,
+    waitingBuild: "Esperando la construcción en curso",
+    generating: (min: number) => `Generando… ${min} min`,
+    stillShowing: (what: string, time: string) => `${what} · sigues viendo el de las ${time}`,
+    kickNone: (day: string) => `Brief · ${day}`,
+    allDone: "Todo resuelto por hoy.",
+    tomorrow: (runAt: string) => `El brief de mañana llega a las ${runAt}.`,
+    nothing: "Nada en el brief de hoy.",
+    tomorrowShort: (runAt: string) => `El de mañana llega a las ${runAt}.`,
+    left: (open: string, total: string) => `Quedan ${open} de ${total}.`,
+    things: (n: number, word: string) => `${word} ${n === 1 ? "cosa" : "cosas"} esta mañana.`,
+    blocks: (n: number, word: string) => `${word} bloquea${n > 1 ? "n" : ""}`,
+    waits: (n: number, word: string) => `${word} te espera${n > 1 ? "n" : ""}`,
+    both: (b: string, n: string) => `${b} y ${n}.`,
+    quiet: "Nada te espera: lo demás puede seguir solo.",
+    noBrief: {
+      empty: (runAt: string) => ({ l1: "Aún no hay brief.", l2: `Corre a las ${runAt}, o genéralo ahora.` }),
+      off: { l1: "El brief está apagado.", l2: "Enciéndelo en Ajustes." },
+      failed: { l1: "No se pudo leer el brief.", l2: "Si la máquina está dormida, intenta al despertar." },
+      loading: { l1: "Leyendo el brief…" },
+    },
+    dayNeeds: (n: number) => (n === 1 ? "1 te tocaba" : `${n} te tocaban`),
+    dayIdeas: (n: number) => (n === 1 ? "1 idea" : `${n} ideas`),
+    verbs: { question: "Responder", step: "Tu paso", release: "Publicar", start: "Empezar", accept: "Aceptar", fix: "Corregir", runs: "Activar", initiative: "Construir", idea: "Decidir", see: "Ver" },
+    stopsStream: "detiene el cauce",
+    stopped: "detenido: tu paso",
+    toca: (n: number) => `${n} te toca${n > 1 ? "n" : ""}`,
+    canGoOn: "puede seguir solo",
+    upToDate: "al día",
+  },
+  en: {
+    num: ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three", "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight", "twenty-nine", "thirty"],
+    kickToday: (day: string, time: string) => `Brief · ${day} · generated ${time}`,
+    kickPast: (day: string) => `Brief for ${day} · read only`,
+    waitingBuild: "Waiting for the build in progress",
+    generating: (min: number) => `Generating… ${min} min`,
+    stillShowing: (what: string, time: string) => `${what} · still showing the one from ${time}`,
+    kickNone: (day: string) => `Brief · ${day}`,
+    allDone: "All settled for today.",
+    tomorrow: (runAt: string) => `Tomorrow's brief arrives at ${runAt}.`,
+    nothing: "Nothing in today's brief.",
+    tomorrowShort: (runAt: string) => `Tomorrow's arrives at ${runAt}.`,
+    left: (open: string, total: string) => `${open.charAt(0).toUpperCase()}${open.slice(1)} of ${total} left.`,
+    things: (n: number, word: string) => `${word} ${n === 1 ? "thing" : "things"} this morning.`,
+    blocks: (n: number, word: string) => `${word} block${n > 1 ? "" : "s"}`,
+    waits: (n: number, word: string) => `${word} wait${n > 1 ? "" : "s"} on you`,
+    both: (b: string, n: string) => `${b} and ${n}.`,
+    quiet: "Nothing waits on you: the rest can go on alone.",
+    noBrief: {
+      empty: (runAt: string) => ({ l1: "No brief yet.", l2: `It runs at ${runAt}, or generate it now.` }),
+      off: { l1: "The brief is off.", l2: "Turn it on in Settings." },
+      failed: { l1: "The brief could not be read.", l2: "If the machine is asleep, try again when it wakes." },
+      loading: { l1: "Reading the brief…" },
+    },
+    dayNeeds: (n: number) => (n === 1 ? "1 waited on you" : `${n} waited on you`),
+    dayIdeas: (n: number) => (n === 1 ? "1 idea" : `${n} ideas`),
+    verbs: { question: "Answer", step: "Your step", release: "Publish", start: "Start", accept: "Accept", fix: "Fix", runs: "Turn on", initiative: "Build", idea: "Decide", see: "See" },
+    stopsStream: "stops the stream",
+    stopped: "stopped: your step",
+    toca: (n: number) => `${n} ${n > 1 ? "wait" : "waits"} on you`,
+    canGoOn: "can go on alone",
+    upToDate: "up to date",
+  },
+});
+
+/** A count in words up to thirty, then digits (Spanish is feminine: «una cosa», «una bloquea»). */
+export const numWord = (n: number, language: Language = getLanguage()): string => words(DELTA_WORDS, language).num[n] ?? String(n);
 export const cap = (s: string): string => (s ? s.charAt(0).toLocaleUpperCase(LOCALE) + s.slice(1) : s);
 
 /** «mar 17 nov» for an instant (in the brief's zone) or a local date «2026-11-16». */
@@ -45,18 +116,19 @@ export type KickInput =
   | { kind: "none"; now: number; timeZone?: string };
 
 /** The date line over the headline. */
-export function kickOf(k: KickInput): string {
+export function kickOf(k: KickInput, language: Language = getLanguage()): string {
+  const w = words(DELTA_WORDS, language);
   switch (k.kind) {
     case "today":
-      return `Brief · ${dayShort(k.generatedAt, k.timeZone)} · generado ${hhmm(k.generatedAt, k.timeZone)}`;
+      return w.kickToday(dayShort(k.generatedAt, k.timeZone), hhmm(k.generatedAt, k.timeZone));
     case "past":
-      return `Brief del ${dayShort(k.localDate)} · solo lectura`;
+      return w.kickPast(dayShort(k.localDate));
     case "generating": {
-      const what = k.waitingBuild ? "Esperando la construcción en curso" : `Generando… ${Math.max(1, k.minutes)} min`;
-      return k.generatedAt ? `${what} · sigues viendo el de las ${hhmm(k.generatedAt, k.timeZone)}` : what;
+      const what = k.waitingBuild ? w.waitingBuild : w.generating(Math.max(1, k.minutes));
+      return k.generatedAt ? w.stillShowing(what, hhmm(k.generatedAt, k.timeZone)) : what;
     }
     case "none":
-      return `Brief · ${dayShort(k.now, k.timeZone)}`;
+      return w.kickNone(dayShort(k.now, k.timeZone));
   }
 }
 
@@ -65,37 +137,33 @@ export type Headline = { l1: string; l2: string; tone: "a" | "q" };
 export type HeadCounts = { total: number; open: number; blocked: number; needs: number };
 
 /** The headline: one sentence for the morning that rewrites itself as things are settled. */
-export function headlineOf(c: HeadCounts, runAt = "07:00"): Headline {
-  if (c.total > 0 && c.open === 0) return { l1: "Todo resuelto por hoy.", l2: `El brief de mañana llega a las ${runAt}.`, tone: "q" };
-  if (c.total === 0) return { l1: "Nada en el brief de hoy.", l2: `El de mañana llega a las ${runAt}.`, tone: "q" };
+export function headlineOf(c: HeadCounts, runAt = "07:00", language: Language = getLanguage()): Headline {
+  const w = words(DELTA_WORDS, language);
+  const num = (n: number) => numWord(n, language);
+  if (c.total > 0 && c.open === 0) return { l1: w.allDone, l2: w.tomorrow(runAt), tone: "q" };
+  if (c.total === 0) return { l1: w.nothing, l2: w.tomorrowShort(runAt), tone: "q" };
   const done = c.total - c.open;
-  const l1 = done ? `Quedan ${numWord(c.open)} de ${numWord(c.total)}.` : `${cap(numWord(c.total))} ${c.total === 1 ? "cosa" : "cosas"} esta mañana.`;
-  const b = c.blocked ? `${cap(numWord(c.blocked))} bloquea${c.blocked > 1 ? "n" : ""}` : "";
-  const n = c.needs ? `${numWord(c.needs)} te espera${c.needs > 1 ? "n" : ""}` : "";
-  if (b && n) return { l1, l2: `${b} y ${n}.`, tone: "a" };
+  const l1 = done ? w.left(num(c.open), num(c.total)) : w.things(c.total, cap(num(c.total)));
+  const b = c.blocked ? w.blocks(c.blocked, cap(num(c.blocked))) : "";
+  const n = c.needs ? w.waits(c.needs, num(c.needs)) : "";
+  if (b && n) return { l1, l2: w.both(b, n), tone: "a" };
   if (b) return { l1, l2: `${b}.`, tone: "a" };
   if (n) return { l1, l2: `${cap(n)}.`, tone: "a" };
-  return { l1, l2: "Nada te espera: lo demás puede seguir solo.", tone: "q" };
+  return { l1, l2: w.quiet, tone: "q" };
 }
 
 /** The headline when no brief is on screen. */
-export function noBriefHeadline(kind: "empty" | "off" | "failed" | "loading", runAt = "07:00"): Headline {
-  switch (kind) {
-    case "empty":
-      return { l1: "Aún no hay brief.", l2: `Corre a las ${runAt}, o genéralo ahora.`, tone: "q" };
-    case "off":
-      return { l1: "El brief está apagado.", l2: "Enciéndelo en Ajustes.", tone: "q" };
-    case "failed":
-      return { l1: "No se pudo leer el brief.", l2: "Si la máquina está dormida, intenta al despertar.", tone: "q" };
-    case "loading":
-      return { l1: "Leyendo el brief…", l2: "", tone: "q" };
-  }
+export function noBriefHeadline(kind: "empty" | "off" | "failed" | "loading", runAt = "07:00", language: Language = getLanguage()): Headline {
+  const w = words(DELTA_WORDS, language).noBrief;
+  // The loading line has no second line.
+  return { l2: "", ...(kind === "empty" ? w.empty(runAt) : w[kind]), tone: "q" };
 }
 
 /** One earlier day in «Días anteriores»: «lun 16 nov» and «3 te tocaban · 4 ideas». */
-export function dayLine(row: { local_date: string; needs: number; ideas: number }): { day: string; line: string } {
-  const toca = row.needs === 1 ? "1 te tocaba" : `${row.needs} te tocaban`;
-  const ideas = row.ideas === 1 ? "1 idea" : `${row.ideas} ideas`;
+export function dayLine(row: { local_date: string; needs: number; ideas: number }, language: Language = getLanguage()): { day: string; line: string } {
+  const w = words(DELTA_WORDS, language);
+  const toca = w.dayNeeds(row.needs);
+  const ideas = w.dayIdeas(row.ideas);
   return { day: cap(dayShort(row.local_date)), line: `${toca} · ${ideas}` };
 }
 
@@ -154,41 +222,42 @@ export const tail = (g: Geo, y: number) => `L ${g.xc} ${y} C ${g.xc + 92} ${y}, 
 export const outPath = (g: Geo) => `M ${g.gx} ${g.gy} C ${g.gx} ${g.gy + 150}, ${g.gx + 25} ${g.oy}, ${g.gx + 125} ${g.oy} L ${g.w} ${g.oy}`;
 
 /** The verb on an amber label, from what the row is about. */
-export function verbOf(item: Item, st: ItemState | undefined): string {
+export function verbOf(item: Item, st: ItemState | undefined, language: Language = getLanguage()): string {
+  const v = words(DELTA_WORDS, language).verbs;
   const kind = st?.live && st.live.kind !== "gone" ? st.live.kind : item.targets?.[0]?.kind;
   switch (kind) {
     case "question":
-      return "Responder";
+      return v.question;
     case "step":
-      return "Tu paso";
+      return v.step;
     case "release":
-      return "Publicar";
+      return v.release;
     case "pr":
     case "ticket":
-      return item.status === "next" || item.status === "open_pr" ? "Empezar" : "Aceptar";
+      return item.status === "next" || item.status === "open_pr" ? v.start : v.accept;
     case "finding":
     case "env":
-      return "Corregir";
+      return v.fix;
     case "runs":
-      return "Activar";
+      return v.runs;
     case "initiative":
-      return "Construir";
+      return v.initiative;
     case "idea":
-      return "Decidir";
+      return v.idea;
     default:
-      return "Ver";
+      return v.see;
   }
 }
 
 const kindOfCard = (c: CityCard): LightKind => (c.kind === "idea" ? "idea" : c.item.status === "blocker" ? "block" : c.item.status === "needs_you" ? "toca" : "next");
 
-function lightOf(c: CityCard, st: ItemState | undefined, name: string): Omit<Light, "x" | "y" | "label"> {
-  if (c.kind === "idea") return { id: c.id, kind: "idea", title: c.idea.title, key: c.idea.code, verb: "Idea nueva", sub: c.idea.title, card: c };
+function lightOf(c: CityCard, st: ItemState | undefined, name: string, language: Language): Omit<Light, "x" | "y" | "label"> {
+  if (c.kind === "idea") return { id: c.id, kind: "idea", title: c.idea.title, key: c.idea.code, verb: BRIEF_LABELS[language].c.newIdea, sub: c.idea.title, card: c };
   const kind = kindOfCard(c);
   const key = c.item.ref || c.item.targets?.[0]?.key || "";
-  const verb = verbOf(c.item, st);
+  const verb = verbOf(c.item, st, language);
   const head = kind === "block" ? `${verb}${key ? ` · ${key}` : ""}` : `${verb} ${key || name}`;
-  const sub = kind === "block" ? "detiene el cauce" : c.item.title;
+  const sub = kind === "block" ? words(DELTA_WORDS, language).stopsStream : c.item.title;
   return { id: c.id, kind, title: c.item.title, key, verb: head, sub, card: c };
 }
 
@@ -211,10 +280,11 @@ export function countsOf(list: Station[]): DeltaCounts {
 }
 
 /** The line under a stream's name. */
-export function streamSub(o: { blocked: boolean; toca: number; open: number }): string {
-  if (o.blocked) return "detenido: tu paso";
-  if (o.toca) return `${o.toca} te toca${o.toca > 1 ? "n" : ""}`;
-  return o.open ? "puede seguir solo" : "al día";
+export function streamSub(o: { blocked: boolean; toca: number; open: number }, language: Language = getLanguage()): string {
+  const w = words(DELTA_WORDS, language);
+  if (o.blocked) return w.stopped;
+  if (o.toca) return w.toca(o.toca);
+  return o.open ? w.canGoOn : w.upToDate;
 }
 
 export type DeltaInput = {
@@ -226,11 +296,14 @@ export type DeltaInput = {
   name?: (s: Station) => string;
   /** Settled ids in the order they were settled (the river's order); the rest follow in brief order. */
   settled?: string[];
+  /** The language of the words (the screen's by default). */
+  language?: Language;
 };
 
 export function deltaOf(d: DeltaInput): Delta {
+  const language = d.language ?? getLanguage();
   const g = geoOf(d.w, d.h, d.list.length);
-  const name = d.name ?? ((s: Station) => (s.slug === CROSS ? "Entre apps" : s.app.name || s.slug));
+  const name = d.name ?? ((s: Station) => (s.slug === CROSS ? BRIEF_LABELS[language].c.cross : s.app.name || s.slug));
   const limit = g.xc + 30;
   const streams: Stream[] = d.list.map((s, i) => {
     const y = g.y0 + i * g.step;
@@ -258,19 +331,19 @@ export function deltaOf(d: DeltaInput): Delta {
     const lights: Light[] = [];
     let x = g.x0 + 28;
     for (const c of ideas) {
-      lights.push({ ...lightOf(c, d.states?.[c.id], nm), label: "bare", x, y });
+      lights.push({ ...lightOf(c, d.states?.[c.id], nm, language), label: "bare", x, y });
       x += W.idea;
     }
     // The sketch's columns: what follows starts at 312, what waits at 420 (when there is room).
     x = Math.max(x, Math.min(g.x0 + 114, x + 10));
     for (const c of kNext) {
-      lights.push({ ...lightOf(c, d.states?.[c.id], nm), label: nextLabel, x, y });
+      lights.push({ ...lightOf(c, d.states?.[c.id], nm, language), label: nextLabel, x, y });
       x += nextLabel === "key" ? W.nextKey : W.nextBare;
     }
     x = Math.max(x, Math.min(g.x0 + 222, room + g.x0 - (tags * W.tag + (kToca.length - tags) * W.bare)));
     kToca.forEach((c, k) => {
       const lab: LightLabel = k < tags ? "tag" : "bare";
-      lights.push({ ...lightOf(c, d.states?.[c.id], nm), label: lab, x, y });
+      lights.push({ ...lightOf(c, d.states?.[c.id], nm, language), label: lab, x, y });
       x += lab === "tag" ? W.tag : W.bare;
     });
     let more: Stream["more"] = null;
@@ -281,10 +354,10 @@ export function deltaOf(d: DeltaInput): Delta {
     let dam: number | null = null;
     if (blocks.length) {
       dam = Math.max(x + 20, Math.min(g.x0 + 392, limit - W.block));
-      blocks.forEach((c, k) => lights.push({ ...lightOf(c, d.states?.[c.id], nm), label: k === 0 ? "tag" : "bare", x: dam! + k * W.bare, y }));
+      blocks.forEach((c, k) => lights.push({ ...lightOf(c, d.states?.[c.id], nm, language), label: k === 0 ? "tag" : "bare", x: dam! + k * W.bare, y }));
     }
     const toca = blocks.length + tocas.length;
-    return { slug: s.slug, name: nm, y, lights, more, dam, width: open.length ? Math.min(9, 1.4 + open.length * 0.9) : 1, open: open.length, sub: streamSub({ blocked: blocks.length > 0, toca, open: open.length }), amber: toca > 0 };
+    return { slug: s.slug, name: nm, y, lights, more, dam, width: open.length ? Math.min(9, 1.4 + open.length * 0.9) : 1, open: open.length, sub: streamSub({ blocked: blocks.length > 0, toca, open: open.length }, language), amber: toca > 0 };
   });
   // The river: what was settled, in the order it was settled.
   const all = d.list.flatMap((s) => cardsOf(s).map((c) => ({ c, s })));
@@ -298,7 +371,7 @@ export function deltaOf(d: DeltaInput): Delta {
   const start = g.riverX + 190;
   const fit = Math.max(1, Math.floor((g.w - 16 - start) / 16));
   const shown = settled.slice(-fit);
-  const river: Light[] = shown.map(({ c, s }, k) => ({ ...lightOf(c, d.states?.[c.id], name(s)), label: "bare", x: start + k * 16, y: g.oy }));
+  const river: Light[] = shown.map(({ c, s }, k) => ({ ...lightOf(c, d.states?.[c.id], name(s), language), label: "bare", x: start + k * 16, y: g.oy }));
   return { geo: g, streams, river, riverMore: settled.length - shown.length, counts: countsOf(d.list) };
 }
 
