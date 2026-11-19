@@ -40,7 +40,7 @@ import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
-import { createProjectFromTemplate } from "../runner/new-project.js";
+import { NEW_PROJECT_GOAL_MAX, NEW_PROJECT_NAME_MAX, createProjectFromTemplate } from "../runner/new-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
@@ -602,8 +602,8 @@ companyRoutes.put("/projects/:slug/options", async (c) => {
 // only), both, or no_code. Shapes are checked by createProjectFromTemplate so a refusal names its field.
 const NewProjectBody = z
   .object({
-    name: z.string().min(1).max(40),
-    goal: z.string().min(1).max(280),
+    name: z.string().min(1).max(NEW_PROJECT_NAME_MAX),
+    goal: z.string().min(1).max(NEW_PROJECT_GOAL_MAX),
     repo_path: z.string().max(500).optional(),
     github_repo: z.string().max(140).optional(),
     no_code: z.boolean().optional(),

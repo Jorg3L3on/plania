@@ -16,6 +16,10 @@ import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheck, type Rep
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
 
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
+// NEWPROJ-8: the name and goal limits. The route's body schema uses them; the sheet's inputs keep their own copy
+// (ui/src/lib/nuevo-proyecto.ts) and test/newproj-8-sheet-details.test.ts checks the two agree.
+export const NEW_PROJECT_NAME_MAX = 40;
+export const NEW_PROJECT_GOAL_MAX = 280;
 
 export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
 // NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
@@ -90,8 +94,8 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
   const requirePromptDoc = opts.requirePromptDoc ?? true;
   const name = input.name.trim();
   const goal = input.goal?.trim();
-  if (!name || name.length > 40) return { error: "INVALID_BODY", status: 400, field: "name" };
-  if (input.goal !== undefined && (!goal || goal.length > 280)) return { error: "INVALID_BODY", status: 400, field: "goal" };
+  if (!name || name.length > NEW_PROJECT_NAME_MAX) return { error: "INVALID_BODY", status: 400, field: "name" };
+  if (input.goal !== undefined && (!goal || goal.length > NEW_PROJECT_GOAL_MAX)) return { error: "INVALID_BODY", status: 400, field: "goal" };
   const slug = input.slug !== undefined ? input.slug.trim().toLowerCase() : slugOf(name);
   if (!slug || !SLUG.test(slug)) return { error: "INVALID_BODY", status: 400, field: input.slug !== undefined ? "slug" : "name" };
   if (input.key_prefix !== undefined && !PREFIX.test(input.key_prefix)) return { error: "INVALID_BODY", status: 400, field: "key_prefix" };

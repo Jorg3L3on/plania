@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { linkTo, seatName } from "@/lib/corriente";
-import { CODIGO_OPCIONES, codigoBody, nuevoProyectoError, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
+import { CODIGO_OPCIONES, META_MAX, NOMBRE_MAX, codigoBody, fondoMouseDown, nuevoProyectoError, nuevoProyectoSinTexto, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
 import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
@@ -32,7 +32,8 @@ const AjustesLink = ({ slug }: { slug: string }) => (
 
 export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta";
 
-export const Hoja = ({ label, title, onClose, children, wide }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean }) => {
+// NEWPROJ-8: closeOnBack false keeps the sheet open on a mouse-down on the dimmed background (Esc still closes).
+export const Hoja = ({ label, title, onClose, children, wide, closeOnBack = true }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean; closeOnBack?: boolean }) => {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
@@ -57,7 +58,7 @@ export const Hoja = ({ label, title, onClose, children, wide }: { label: string;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="cor-hoja-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="cor-hoja-back" onMouseDown={fondoMouseDown(closeOnBack, onClose)}>
       <div ref={box} className={`cor-hoja ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="hoja-t">
         <Label>{label}</Label>
         <h2 id="hoja-t" className="cor-h2">
@@ -117,9 +118,9 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
     );
   }
   return (
-    <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose}>
+    <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo])}>
       <form
-        className="cor-hoja-form"
+        className="cor-hoja-form cor-hoja-nuevo"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim() && goal.trim() && code) make.mutate({ name: name.trim(), goal: goal.trim(), ...code });
@@ -128,11 +129,11 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         <span className="cor-hoja-two">
           <label>
             <span className="cor-text">Nombre</span>
-            <input className="cor-input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder="Viajia" required />
+            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder="Viajia" required />
           </label>
           <label style={{ flex: 2 }}>
             <span className="cor-text">Meta, en una oración</span>
-            <input className="cor-input" value={goal} maxLength={240} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
+            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
           </label>
         </span>
         <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>

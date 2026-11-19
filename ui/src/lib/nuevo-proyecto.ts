@@ -31,6 +31,20 @@ export function nuevoProyectoError(code: string | null, detail: Record<string, u
   return "No se pudo crear el proyecto.";
 }
 
+// NEWPROJ-8: the inputs stop where the server does (NEW_PROJECT_NAME_MAX / NEW_PROJECT_GOAL_MAX in
+// src/runner/new-project.ts). The screen does not import server code; test/newproj-8-sheet-details.test.ts compares them.
+export const NOMBRE_MAX = 40;
+export const META_MAX = 280;
+
+// NEWPROJ-8: a mouse-down on the dimmed background closes the creation sheet only while nothing is typed, so a stray
+// click never throws text away. Esc and «Cancelar» still close. Pure, so the test drives it with fake events.
+export const nuevoProyectoSinTexto = (fields: string[]): boolean => fields.every((f) => !f.trim());
+export const fondoMouseDown =
+  (closes: boolean, onClose: () => void) =>
+  (e: { target: unknown; currentTarget: unknown }): void => {
+    if (closes && e.target === e.currentTarget) onClose();
+  };
+
 // NEWPROJ-3: where the project's code is. A folder on this Mac (with its GitHub repo if there is one), only a GitHub
 // repo, or no code yet. The same shapes the server checks (src/runner/repo-check.ts); GitHub is never called.
 export type CodigoOpcion = "carpeta" | "github" | "ninguno";

@@ -99,7 +99,8 @@ export type ProjectSheetData = {
   bot_work?: number;
 };
 
-export type NewProjectResult = { slug: string; key_prefix: string; paused: true; po: string; prompt_doc_id: string | null };
+// NEWPROJ-8: what POST /company/projects returns (NewProject in src/runner/new-project.ts): the team's agent slugs too.
+export type NewProjectResult = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
 
 // ---- words and numbers
 

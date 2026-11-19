@@ -858,6 +858,9 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-hoja-form { display: flex; flex-direction: column; gap: 12px; }
 .cor-hoja-two { display: flex; gap: 12px; }
 .cor-hoja-two > label { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+/* NEWPROJ-8: the creation sheet's name and goal row stacks at phone width; its inputs never push the sheet sideways. */
+.cor-hoja-nuevo .cor-hoja-two > label { min-width: 0; }
+@media (max-width: 639px) { .cor-hoja-nuevo .cor-hoja-two { flex-direction: column; } }
 /* NEWPROJ-3: «¿Dónde está su código?» in the sheet Nuevo proyecto. */
 .cor-hoja-codigo { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .cor-hoja-codigo legend { padding: 0; margin-bottom: 6px; }
