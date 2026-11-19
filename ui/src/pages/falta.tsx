@@ -57,14 +57,17 @@ function Row({ item }: { item: MachineItem }) {
   );
 }
 
-export function FaltaPage() {
+// PLA-I2-2: firstStart reads the same check before there is a session (GET /api/first-start/machine-check).
+export function FaltaPage({ firstStart = false }: { firstStart?: boolean } = {}) {
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
-  const check = useQuery({ queryKey: ["machine-check"], queryFn: () => api.machineCheck(), staleTime: 60_000 });
+  const read = firstStart ? api.firstStartMachineCheck : api.machineCheck;
+  const key = firstStart ? ["first-start", "machine-check"] : ["machine-check"];
+  const check = useQuery({ queryKey: key, queryFn: () => read(), staleTime: 60_000 });
   const again = async () => {
     setChecking(true);
     try {
-      queryClient.setQueryData(["machine-check"], await api.machineCheck(true));
+      queryClient.setQueryData(key, await read(true));
     } finally {
       setChecking(false);
     }

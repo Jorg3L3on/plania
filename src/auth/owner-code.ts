@@ -9,6 +9,7 @@ import { machineState } from "../db/schema.js";
 import { ownerEnrolled, ownerStore } from "./owner-store.js";
 import { base32Encode, matchTotp, otpauthUri, randomSecret } from "./owner-totp.js";
 import { verifyPassword } from "./password.js";
+import { storedPasswordHash } from "../install-state.js";
 
 const STATE_KEY = "owner.totp";
 const KEEP_STEPS = 20;
@@ -47,7 +48,7 @@ export const ownerCodeEnrolled = ownerEnrolled;
 
 // Enrol or replace: the Plania password, and the current code when one is already enrolled.
 export async function enrolOwnerCode(db: Db, input: { password: string; code?: string }): Promise<{ secret_base32: string; otpauth_uri: string } | { error: string; status: 401 | 403 | 409 | 500; hint: string }> {
-  const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
+  const stored = storedPasswordHash();
   if (!stored || !(await verifyPassword(stored, input.password))) return { error: "INVALID_PASSWORD", status: 401, hint: "Contraseña incorrecta." };
   if (await ownerStore().get()) {
     const refused = await checkOwnerCode(db, input.code);

@@ -14,6 +14,7 @@ import { app } from "../src/app.js";
 import { startJobs } from "../src/jobs/index.js";
 import { withDb } from "../src/db/client.js";
 import { loadOwnerName } from "../src/owner.js";
+import { loadInstallState } from "../src/install-state.js";
 import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { healthUi, readUiBuild, rebuildReason } from "../src/ui-build.js";
@@ -100,6 +101,10 @@ for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.once(sig, ()
 
 // PLA-I2-14: the owner's display name, read once at start (setOwnerName keeps it current after that).
 void withDb((db) => loadOwnerName(db)).catch((e) => console.log(`[owner] name not loaded: ${e instanceof Error ? e.message : String(e)}`));
+
+// PLA-I2-2: the password, tokens, time zone and wakes the first-start screen stored. Read before the jobs start,
+// since an install made by first start has wakes on with PLANIA_JOBS unset.
+await withDb((db) => loadInstallState(db)).catch((e) => console.log(`[install] state not loaded: ${e instanceof Error ? e.message : String(e)}`));
 
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();

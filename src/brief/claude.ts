@@ -18,6 +18,7 @@ import { childEnv, defaultKill, defaultSpawn, supervise, type ExitInfo, type Kil
 import { defaultProbeUsage, liveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
 import { StreamReader, parseUsageText, totalOf, type ModelTokens } from "../runner/stream.js";
 import { worktreeRoot } from "../runner/worktree.js";
+import { storedBriefToken } from "../install-state.js";
 
 export type BriefPass = "brief" | "ideas";
 
@@ -282,7 +283,7 @@ export async function spawnPass<T>(db: Db, input: SpawnPassInput<T>, deps: Spawn
   const logDir = deps.logDir ?? path.join(home(env), "Library", "Logs", "plania-runs");
   pruneBriefLogs(logDir, now());
 
-  const token = env.PLANIA_BRIEF_TOKEN?.trim() || env.MCP_READ_TOKEN?.trim();
+  const token = storedBriefToken(env) || env.MCP_READ_TOKEN?.trim(); // PLA-I2-2: or the one first start stored
   if (!token) return { ok: false, reason: "no_token", summary: "Add PLANIA_BRIEF_TOKEN (read scope) to .env", attempts: 0, logPath: null };
 
   // Hold the slot: reserve first (no new run starts), then wait until the live ones end.

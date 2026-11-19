@@ -33,15 +33,26 @@ pnpm plania:install
    (clients use the token as `PLANIA_MCP_TOKEN`). A value already set is kept.
 4. Applies every migration and records each one (see Database).
 5. Builds the screen into `dist/ui` when it is not there. `--skip-screen` leaves it as it is.
+6. While Plania has no owner, prints a one-time code for the first-start screen (only its hash is stored). Running
+   the install again prints a new one and the old one stops working.
 
-Then `pnpm start`. At start the server checks that the database is reachable and has no unapplied migration; when
+Then `pnpm start`, and open `http://localhost:3737` in a browser on the same machine. The first-start screen asks
+for the code, your name, a password (12 characters or more) and your time zone (taken from the browser), and links
+the machine check so you see what is missing before finishing. In one write it makes the home project, the `ceo` and
+`asistente` rows, the runner and brief tokens, and stores the password hash, the tokens and the zone in the database
+(`install_state`, migration 0063). No `pnpm hash-password`, `seed-org`, `/tokens`, `.env` edit or restart. The company
+starts paused, with wakes on while `PLANIA_JOBS` is unset: nothing runs until you press resume. The screen answers
+only on loopback (not through `tailscale serve`) and closes for good once an owner exists. Values set in `.env`
+(`PLANIA_PASSWORD_HASH`, `PLANIA_RUNNER_TOKEN`, `PLANIA_BRIEF_TOKEN`, `PLANIA_TZ`, `PLANIA_JOBS`) still win, so an
+install configured by hand is unchanged and never sees the first-start screen. Ten wrong passwords in a minute and the
+login waits before the next try. At start the server checks that the database is reachable and has no unapplied migration; when
 either fails it says so in one sentence and exits.
 
 The other settings in `.env` are optional:
 
 | Var | Value |
 |---|---|
-| `PLANIA_PASSWORD_HASH` | The screen's password, as the output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
+| `PLANIA_PASSWORD_HASH` | The screen's password, as the output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. Wins over the one made at first start; when set, first start never opens. |
 | `MCP_READ_TOKEN` | A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Token for `/hooks/*` only; it cannot use `/mcp`. |
 | `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
@@ -58,7 +69,7 @@ No SQL by hand and no `plania` project needed:
    `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
    A project-level doc `Prompt: <Role>` in the project named by `PLANIA_PROMPTS_PROJECT` (default `plania`)
    replaces the file for that role when it exists; neither the project nor the doc has to exist.
-3. Start the server (`pnpm dev`, or the service) and sign in on the screen.
+3. Start the server (`pnpm dev`, or the service) and finish first start (above), or sign in on the screen.
 4. Press «+ Nuevo proyecto», give it a name and a one-sentence goal. The project is created paused, with its team;
    resume it to wake its product owner. If a seat has no prompt, the sheet names it and nothing is created: add
    its file to `kit/roles/` (or its doc) and try again.

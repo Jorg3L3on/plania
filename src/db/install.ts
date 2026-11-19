@@ -6,6 +6,7 @@
 // no record is refused by migrate() and goes through `pnpm db:migrate --baseline`.
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import pg from "pg";
 import {
   assertDatabaseName,
@@ -16,6 +17,7 @@ import {
   type MigrationFile,
   withDatabase,
 } from "./migrate.js";
+import { hashSetupCode, newSetupCode } from "../install-state.js";
 
 // The machine check (PLA-I2-12) is built in its own module; the install command passes it in. ok false stops the
 // install before anything is created, and its lines are printed as they are.
@@ -38,10 +40,13 @@ export type InstallOptions = {
   buildScreen?: () => Promise<void>;
   files?: MigrationFile[];
   secret?: (bytes: number, encoding: "hex" | "base64") => string;
+  // PLA-I2-2: the one-time code for the first-start screen (tests pass a fixed one).
+  setupCode?: () => string;
   log?: (line: string) => void;
 };
 
-export type InstallResult = { database: string; created: boolean; applied: string[]; envKeys: string[] };
+// setupCode: the one-time code for the first-start screen, printed once; null when an owner already exists.
+export type InstallResult = { database: string; created: boolean; applied: string[]; envKeys: string[]; setupCode: string | null };
 
 const defaultSecret = (bytes: number, encoding: "hex" | "base64") => randomBytes(bytes).toString(encoding);
 
@@ -82,6 +87,7 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
   await c.connect();
   let applied: string[];
   let envKeys: string[];
+  let setupCode: string | null = null;
   try {
     if (!created && !opts.named && !(await hasRecord(c))) {
       throw new InstallError(
@@ -101,11 +107,28 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
       if (e instanceof MigrateError && e.file) throw new InstallError(`Falló la migración ${e.file}: ${e.message}`);
       throw e;
     }
+    setupCode = await issueSetupCode(c, opts.envPath, opts.setupCode ?? newSetupCode);
   } finally {
     await c.end().catch(() => {});
   }
   if (opts.buildScreen) await opts.buildScreen();
-  return { database: name, created, applied, envKeys };
+  return { database: name, created, applied, envKeys, setupCode };
+}
+
+// PLA-I2-2: while no owner exists (no PLANIA_PASSWORD_HASH in the settings file, no password from first start), a
+// new one-time code replaces any earlier one; only its sha256 is stored. Each run prints a fresh code, so a lost
+// one is fixed by running the install again. Once the owner exists there is no code to give.
+export async function issueSetupCode(c: pg.Client, envPath: string, make: () => string): Promise<string | null> {
+  const env = existsSync(envPath) ? parseEnv(readFileSync(envPath, "utf8")) : {};
+  if (env.PLANIA_PASSWORD_HASH?.trim()) return null;
+  const code = make();
+  const { rowCount } = await c.query(
+    `insert into install_state (id, setup_code_hash, setup_code_at) values (1, $1, now())
+     on conflict (id) do update set setup_code_hash = excluded.setup_code_hash, setup_code_at = now(), updated_at = now()
+     where install_state.password_hash is null`,
+    [hashSetupCode(code)],
+  );
+  return rowCount ? code : null;
 }
 
 // Writes the settings file: starts from .env.example when there is no .env, sets DATABASE_URL to the installed

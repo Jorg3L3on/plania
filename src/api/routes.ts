@@ -6,6 +6,9 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
+import { firstStart, firstStartOpen, fromLoopback } from "../auth/first-start.js";
+import { clearFailures, noteFailure, waitSeconds } from "../auth/login-limit.js";
+import { storedPasswordHash } from "../install-state.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -57,6 +60,7 @@ import { isOwnerAgent } from "../owner.js";
 export const api = new Hono();
 
 const HEARTBEAT_MS = 25_000;
+const LOGIN_DOOR = "login";
 
 // Contract errors keep their detail (e.g. STALE_VERSION carries current_version).
 function errorResponse(c: Context, e: unknown) {
@@ -100,16 +104,54 @@ async function readJson<T extends z.ZodType>(c: Context, schema: T): Promise<z.i
 
 // ---- Session
 
+// PLA-I2-2: the hash from .env, else the one first start stored; ten wrong passwords in a minute and the next
+// try waits (429 with Retry-After), right or wrong.
 api.post("/login", async (c) => {
   const body = await readJson(c, z.object({ password: z.string() }));
   if (body instanceof Response) return body;
-  const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
+  const wait = waitSeconds(LOGIN_DOOR);
+  if (wait != null) {
+    c.header("Retry-After", String(wait));
+    return c.json({ error: "TOO_MANY_TRIES", retry_after: wait }, 429);
+  }
+  const stored = storedPasswordHash();
   if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
+    noteFailure(LOGIN_DOOR);
     return c.json({ error: "INVALID_PASSWORD" }, 401);
   }
+  clearFailures(LOGIN_DOOR);
   setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions(c.req.raw));
   return c.body(null, 204);
 });
+
+// PLA-I2-2: first start. Open (no session) only while no owner exists; the POST also needs loopback and the
+// one-time code the install command printed. Success signs the owner in.
+const remoteAddress = (c: Context): string | undefined =>
+  (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+
+api.get("/first-start", (c) => c.json({ open: firstStartOpen(), loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
+
+api.post("/first-start", async (c) => {
+  const body = await readJson(c, z.object({ code: z.string().max(64), name: z.string().max(200), password: z.string().max(1024), time_zone: z.string().max(64) }).strict());
+  if (body instanceof Response) return body;
+  const out = await withDb((db) => firstStart(db, body, { loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
+  if ("error" in out) {
+    if (out.retry_after) c.header("Retry-After", String(out.retry_after));
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions(c.req.raw));
+  return c.json(out, 201);
+});
+
+// The machine check, before there is a session to open /api/machine-check: the first-start screen links it so the
+// owner sees what is missing before finishing. Only while first start is open, and only on loopback.
+api.use("/first-start/machine-check", async (c, next) => {
+  if (!firstStartOpen()) return c.json({ error: "FIRST_START_CLOSED" }, 410);
+  if (!fromLoopback(remoteAddress(c), c.req.raw)) return c.json({ error: "NOT_LOOPBACK" }, 403);
+  await next();
+});
+api.route("/first-start/machine-check", machineCheckRoutes());
 
 api.post("/logout", (c) => {
   deleteCookie(c, SESSION_COOKIE, { path: "/", secure: sessionCookieOptions(c.req.raw).secure });

@@ -106,6 +106,7 @@ import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, remov
 import { taskImagePaths } from "../pedidos/images.js";
 import { personalize } from "../owner.js";
 import { languageLine } from "./owner-language.js";
+import { storedRunnerToken } from "../install-state.js";
 
 export type ReadyWork = {
   project: string;
@@ -1111,7 +1112,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     return { kind: "fail", summary, taskKey, recorded: true };
   };
 
-  const token = env.PLANIA_RUNNER_TOKEN?.trim();
+  // PLA-I2-2: .env first, else the token first start stored.
+  const token = storedRunnerToken(env);
   if (!token) return fail("fail: missing env PLANIA_RUNNER_TOKEN");
   const settings = await loadSettings(db);
   const root = rootOf(deps, env);

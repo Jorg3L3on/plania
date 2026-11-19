@@ -25,6 +25,7 @@ import { insertRun, kickQueue } from "./queue.js";
 import { STAGE_REASON, stageOwner, type IdeaStage } from "./stages.js";
 import { isRunSession, runPrefixOf } from "./run-session.js";
 import { ownerEs } from "../owner.js";
+import { wakesOn } from "../install-state.js";
 import { buildReason } from "../api/company-pedido.js";
 
 export const EVENT_SUMMARY = "queued: event";
@@ -34,7 +35,8 @@ const TALLER_WORK = new Set(["code", "bug", "debt", "ops"]);
 const LANDED = new Set(["Merged", "Released", "Done"]);
 const PRIORITY = ["P0", "P1", "P2", "P3"];
 
-export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS === "1" || env.PLANIA_EVENT_WAKES === "1";
+// PLA-I2-2: wakesOn is PLANIA_JOBS=1, or PLANIA_JOBS unset on an install made by the first-start screen.
+export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => wakesOn(env) || env.PLANIA_EVENT_WAKES === "1";
 
 // A runner run writes as session run-<first 8 of its agent_runs id> (see userPrompt in runner.ts).
 export { isRunSession } from "./run-session.js";

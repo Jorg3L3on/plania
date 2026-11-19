@@ -7,6 +7,7 @@ import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { Listo } from "@/lib/listo";
 import type { MachineCheckReading } from "@/lib/falta";
 import type { ReleaseReading } from "@/lib/version";
+import type { FirstStartState } from "@/lib/primer-arranque";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -84,6 +85,10 @@ export const api = {
   machineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-17: which release this is and its notes (CHANGELOG.md).
   releaseInfo: () => request<ReleaseReading>("GET", "/release"),
+  // PLA-I2-2: first start, before any session: whether it is open, the form, and the machine check it links.
+  firstStart: () => request<FirstStartState>("GET", "/first-start"),
+  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
