@@ -53,6 +53,7 @@ import { addResult, type AddResultInput } from "../mcp/evidence.js";
 import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, type Ctx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { enqueueWake, serviceAgent } from "./events.js";
 import { loadSettings } from "./limits.js";
 import { modelFor, type QaSettings } from "./qa-settings.js";
@@ -514,7 +515,9 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
 
   let capture: QaCapture | null = null;
   const cs = p.settings.capture;
-  if (cs) {
+  // PLA-I2-4: no Chrome on this system: the captures are not available, said as a notice (never a failure).
+  if (cs && !supported("stills")) capture = { run_id: null, ok: 0, failed: 0, still_ids: [], error: NO_DISPONIBLE };
+  else if (cs) {
     const port = await (deps.freePort ?? freePort)();
     const base = `http://localhost:${port}`;
     let app: StartedApp | null = null;

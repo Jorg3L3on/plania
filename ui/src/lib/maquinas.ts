@@ -2,6 +2,7 @@
 // and the one view the floor draws from them: the state word, each lever's next action, the pipes, the window and
 // the two lights by the level switch. Pure, so the tests drive it with fake reads.
 import type { PruebaRead } from "./ventana";
+import { NO_DISPONIBLE, NO_DISPONIBLE_POR } from "./sistema";
 
 export type Nivel = "trabajo" | "maquinas";
 export const nivelOf = (search: string): Nivel => (new URLSearchParams(search).get("nivel") === "maquinas" ? "maquinas" : "trabajo");
@@ -49,7 +50,8 @@ export type TableroRead = { floors: TableroRow[]; on: number };
 
 // The five states of the sketch, plus the moment it is starting.
 // NEWPROJ-3: no-code, the project has no code yet on purpose; nothing to configure, so no Configurar.
-export type MaqState = "on" | "off" | "failed" | "base-down" | "unconfigured" | "no-code" | "starting";
+// PLA-I2-4: unavailable: this system cannot run a test copy (ui/src/lib/sistema.ts).
+export type MaqState = "on" | "off" | "failed" | "base-down" | "unconfigured" | "no-code" | "starting" | "unavailable";
 export type Light = "on" | "off" | "starting" | "error" | "none";
 export type ServerAct = "encender" | "apagar" | "reiniciar";
 
@@ -96,6 +98,8 @@ export function maqView(r: MaquinasRead): MaqView {
   };
   const server = (word: string, sub: string, lever: MaqView["server"]["lever"]): MaqView["server"] => ({ light: serverLight, word, sub, lever, outside });
   const common = { base, lights: { server: serverLight, base: baseLight }, drawers: baseOn };
+  if (ph === "unavailable")
+    return { ...common, state: "unavailable", word: NO_DISPONIBLE, say: NO_DISPONIBLE_POR.test_copy, server: server(NO_DISPONIBLE, NO_DISPONIBLE_POR.test_copy, null), pipes: { window: "dark", base: baseOn ? "lit" : "dark" }, window: "blinds", lights: { server: "none", base: baseLight } };
   if (!r.configured && r.no_code)
     return { ...common, state: "no-code", word: "Todavía sin código", say: NO_CODE_SAY, server: server("Sin código", "No hay nada que encender todavía", null), pipes: { window: "dark", base: "dark" }, window: "setup", lights: { server: "none", base: baseLight } };
   if (!r.configured)

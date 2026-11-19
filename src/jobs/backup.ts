@@ -11,6 +11,7 @@ import { machineState } from "../db/schema.js";
 import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
 import type { Job } from "./index.js";
+import { pgToolFor } from "../lib/pg-bin.js";
 
 // The nightly backup (2.9 fix b): once per local day after 03:00 (PLANIA_TZ), `pg_dump --no-owner`
 // of DATABASE_URL, gzipped into ~/plania-backups/plania-<YYYYMMDD>.sql.gz. Keeps the last KEEP daily
@@ -64,15 +65,12 @@ async function findPgDump(db: Q): Promise<string> {
 }
 
 // PLA-I2-12: the same choice from a known server major, for the machine check (src/machine-check/).
-export function pgDumpFor(major: number, env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string {
-  const bin = env.PLANIA_PG_BIN;
-  if (bin) return bin.endsWith("pg_dump") ? bin : path.join(bin, "pg_dump");
-  const candidates = [
-    ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`, `/usr/lib/postgresql/${major}/bin/pg_dump`] : []),
-    "/opt/homebrew/bin/pg_dump",
-    "/usr/local/bin/pg_dump",
-  ];
-  return candidates.find((c) => exists(c)) ?? "pg_dump";
+// PLA-I2-4: the lookup is shared with psql and the test copies (src/lib/pg-bin.ts): PLANIA_PG_BIN, the server's
+// major on macOS and Linux, PATH, then the usual folders.
+export function pgDumpFor(major: number, env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync, listDir?: (dir: string) => string[]): string {
+  const bin = env.PLANIA_PG_BIN?.trim();
+  if (bin && /pg_dump(.exe)?$/i.test(path.basename(bin))) return bin;
+  return pgToolFor("pg_dump", major, { env, exists, listDir });
 }
 
 export async function backupState(db: Q): Promise<BackupState> {

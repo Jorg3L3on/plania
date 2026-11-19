@@ -16,6 +16,7 @@ import { primaryPgPort } from "../jobs/machine/infer.js";
 import { pruebaInfo, pruebaRead, type PruebaRead } from "../captures/prueba.js";
 import { checkoutEnv, shellExec, type Exec } from "../captures/run.js";
 import type { CaptureSettings } from "../captures/settings.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { appDirs, baseAddress, LOOPBACK, readAppEnv, type BaseAddress, type MaquinasSettings } from "./env.js";
 import { findScripts, type Found } from "./detect.js";
 
@@ -141,7 +142,10 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   const others = projectIds.length ? await db.select({ slug: projects.slug }).from(projects).where(inArray(projects.id, projectIds)) : [];
   const local = LOOPBACK.has(host);
   const on = local ? await portBusy(port) : false;
-  const reason = !local
+  // PLA-I2-4: the lever is `brew services`; without brew it is not available here (a plain state).
+  const reason = !supported("base_lever")
+    ? NO_DISPONIBLE
+    : !local
     ? "La base no está en esta Mac"
     : planiaPorts().has(port)
       ? "Es el Postgres de Plania; no se apaga desde un piso"

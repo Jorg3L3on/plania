@@ -12,6 +12,7 @@ import { ApiError, api, type OrgProject } from "@/lib/api";
 import { bytes, filas, maqView, pedirFallo, setupLine, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
 import type { CapturesRead } from "@/lib/ventana";
 import { Btn, Label, Opt, ReadError } from "./parts";
+import { NO_DISPONIBLE } from "@/lib/sistema";
 
 const ERR = (e: unknown, what: string) => (e instanceof ApiError ? `${what} (${e.code}).` : `${what}. Si la Mac está dormida, intenta al despertar.`);
 const readTicks = (k: string): number[] => {
@@ -113,7 +114,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
       <div className="cor-maq-main">
         <div className="cor-pedidos-head" style={{ borderBottom: 0, paddingBottom: 0 }}>
           <h2 className="cor-h3" style={{ fontSize: 22 }}>
-            {v.state === "on" ? "La app está encendida" : v.state === "unconfigured" ? "La app no sabe cómo encenderse" : v.state === "no-code" ? "Todavía no hay app" : v.state === "starting" ? "La app está encendiendo" : v.state === "failed" ? "La app no arrancó" : v.state === "base-down" ? "La app no llega a su base" : "La app está apagada"}{" "}
+            {v.state === "on" ? "La app está encendida" : v.state === "unavailable" ? NO_DISPONIBLE : v.state === "unconfigured" ? "La app no sabe cómo encenderse" : v.state === "no-code" ? "Todavía no hay app" : v.state === "starting" ? "La app está encendiendo" : v.state === "failed" ? "La app no arrancó" : v.state === "base-down" ? "La app no llega a su base" : "La app está apagada"}{" "}
             <span className="cor-cap">COPIA DE PRUEBA · EN TU MAC</span>
           </h2>
           <span className="cor-segbox" role="group" aria-label="Tamaño">

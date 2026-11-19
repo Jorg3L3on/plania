@@ -1,7 +1,11 @@
 import { execFile } from "node:child_process";
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { base32Decode, base32Encode } from "./owner-totp.js";
 
 // PLA-I36-11: where the owner's authenticator secret lives. The database and .env never see it.
+// PLA-I2-4: one store per system (systemOwnerStore, at the end): the macOS keychain, else a 0600 file.
 // Keychain: a generic password, service `plania-owner`, written and read through the `security`
 // binary (execFile, no shell). The secret goes on stdin in interactive mode, never in argv,
 // so it does not show up in the process list. Tests use the memory store.
@@ -135,7 +139,79 @@ export async function ownerEnrolled(): Promise<boolean> {
   return enrolled;
 }
 
-let current: OwnerSecretStore = new KeychainOwnerSecretStore();
+// ---- PLA-I2-4: a file only the user can read, for Linux and for a Mac without the `security` binary.
+// One line, the secret in base32, in $XDG_CONFIG_HOME/plania/owner-secret (default ~/.config/plania/owner-secret;
+// PLANIA_OWNER_SECRET_FILE names another). The folder is made 0700 and the file 0600, written to a temporary file
+// in the same folder and renamed over the old one, so a crash never leaves half a secret. A file that the group or
+// others can read is not trusted: it reads as not enrolled, and enrolling again writes a fresh one at 0600.
+
+export function ownerSecretFilePath(env: NodeJS.ProcessEnv = process.env): string {
+  const named = env.PLANIA_OWNER_SECRET_FILE?.trim();
+  if (named) return named;
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  const base = xdg && path.isAbsolute(xdg) ? xdg : path.join(env.HOME || homedir(), ".config");
+  return path.join(base, "plania", "owner-secret");
+}
+
+// Mode bits mean nothing on native Windows (not a supported system; the check is skipped there).
+const modeChecked = (platform: NodeJS.Platform) => platform !== "win32";
+
+export class FileOwnerSecretStore implements OwnerSecretStore {
+  constructor(
+    readonly file: string = ownerSecretFilePath(),
+    private readonly platform: NodeJS.Platform = process.platform,
+  ) {}
+
+  async get(): Promise<Buffer | null> {
+    try {
+      if (modeChecked(this.platform) && (statSync(this.file).mode & 0o077) !== 0) return null;
+      const text = readFileSync(this.file, "utf8").trim();
+      if (!BASE32_ITEM.test(text)) return null;
+      return base32Decode(text);
+    } catch {
+      // Missing or unreadable: not enrolled.
+      return null;
+    }
+  }
+
+  async set(secret: Buffer): Promise<void> {
+    const dir = path.dirname(this.file);
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      rmSync(tmp, { force: true });
+      // 0600 from the first byte: the mode is given at creation, not after the secret is in.
+      const fd = openSync(tmp, "wx", 0o600);
+      try {
+        writeSync(fd, `${base32Encode(secret)}
+`);
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      if (modeChecked(this.platform)) chmodSync(tmp, 0o600); // a umask can only remove bits; this states the intent
+      renameSync(tmp, this.file);
+      const stored = await this.get();
+      if (!stored || !stored.equals(secret)) throw new Error("owner secret write failed");
+    } catch {
+      if (existsSync(tmp)) rmSync(tmp, { force: true });
+      // The error can carry the path and nothing else; still, never echo what was being written.
+      throw new Error("owner secret write failed");
+    } finally {
+      invalidateOwnerEnrolledCache();
+    }
+  }
+}
+
+// The store for this system: the keychain on macOS (when `security` is there), the file everywhere else.
+export function systemOwnerStore(o: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; exists?: (p: string) => boolean } = {}): OwnerSecretStore {
+  const platform = o.platform ?? process.platform;
+  const exists = o.exists ?? existsSync;
+  if (platform === "darwin" && exists("/usr/bin/security")) return new KeychainOwnerSecretStore();
+  return new FileOwnerSecretStore(ownerSecretFilePath(o.env ?? process.env), platform);
+}
+
+let current: OwnerSecretStore = systemOwnerStore();
 
 export function ownerStore(): OwnerSecretStore {
   return current;

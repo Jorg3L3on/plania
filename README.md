@@ -45,7 +45,8 @@ The other settings in `.env` are optional:
 | `MCP_READ_TOKEN` | A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Token for `/hooks/*` only; it cannot use `/mcp`. |
 | `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
-| `PLANIA_PG_BIN` | Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
+| `PLANIA_PG_BIN` | Directory of the `pg_dump` and `psql` Plania uses. Default: the one for the server's major version (Homebrew, `/usr/lib/postgresql/<N>/bin`, `/usr/pgsql-<N>/bin`), else the one on `PATH`. |
+| `PLANIA_OWNER_SECRET_FILE` | Where the owner's code lives off macOS's keychain (Linux, or a Mac without `security`). Default `~/.config/plania/owner-secret`, mode `0600`. |
 | `PLANIA_BACKUP_DIR` | Where the nightly dumps go. Default `~/plania-backups`. |
 
 ### A first project on a new install
@@ -357,7 +358,7 @@ To turn it on:
    If `.env` has no `PLANIA_RUNNER_TOKEN` yet (the agent runner uses it too), issue one with write scope there as well:
    Send to Plania wakes each project's product owner with it.
 3. Make sure `claude` is installed and logged in with your subscription: run `claude` once and log in. The brief uses
-   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`.
+   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`, else the `claude` on `PATH`, like the runner.
 4. Run the setup check. Every line should be ✓; each ✗ line says what to fix. It never prints a token or a path.
 
    ```bash

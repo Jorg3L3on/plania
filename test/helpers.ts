@@ -7,8 +7,8 @@ import { resetPool } from "../src/db/client.js";
 import { migrate } from "../src/db/migrate.js";
 
 // PLANIA_TEST_PGUSER: the Postgres role the tests connect as, when it is not the OS user (a Windows machine whose
-// only role is postgres).
-export const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || userInfo().username);
+// only role is postgres). PLA-I2-4: on Windows it defaults to postgres, so `pnpm test` needs no prefix there.
+export const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || (process.platform === "win32" ? "postgres" : userInfo().username));
 export const ADMIN_URL = `postgres://${PG_USER}@localhost:5432/postgres`;
 
 // One database per checkout: the suffix is a stable hash of this repo's absolute root,
@@ -34,6 +34,8 @@ export function useTestEnv(): void {
   process.env.PLANIA_JOBS = "0";
   // PLA-I60-2: admission's free-memory and disk floor reads this Mac; tests that check it pass deps.machine.
   process.env.PLANIA_MACHINE_CHECK = "0";
+  // PLA-I2-4: machine-bound parts (test copy, stills, base lever) count as available; i2-4 tests decide per case.
+  process.env.PLANIA_TEST_SYSTEM_SUPPORT = "all";
   // AUDIT-2: tests never read the repo's own kit (its skills and default kits would join every run). A test that
   // wants a kit points PLANIA_KIT_DIR at its own folder.
   process.env.PLANIA_KIT_DIR ??= path.join(REPO_ROOT, "test", "fixtures", "no-kit");

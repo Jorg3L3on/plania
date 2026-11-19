@@ -57,7 +57,7 @@ export async function enrolOwnerCode(db: Db, input: { password: string; code?: s
   try {
     await ownerStore().set(secret);
   } catch {
-    return { error: "KEYCHAIN_FAILED", status: 500, hint: "El llavero no guardó el secreto." };
+    return { error: "KEYCHAIN_FAILED", status: 500, hint: "No se pudo guardar el secreto del código." };
   }
   const b32 = base32Encode(secret);
   return { secret_base32: b32, otpauth_uri: otpauthUri(b32) };
