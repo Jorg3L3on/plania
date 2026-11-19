@@ -32,7 +32,7 @@ after(async () => {
 test("PLA-71 #1: the owner's note counts only when it is newer than the last delivery", async () => {
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), null, "never sent back");
   await ev("task.status", { from: "In progress", to: "In review" });
-  await ev("note", { text: "Cambios que pide Jorge: No se ve bien: abre una clienta para que se vea Seguimiento." });
+  await ev("note", { text: "Cambios que pide el dueño: No se ve bien: abre una clienta para que se vea Seguimiento." });
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), "No se ve bien: abre una clienta para que se vea Seguimiento.");
   await ev("note", { text: "Una nota cualquiera" });
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), "No se ve bien: abre una clienta para que se vea Seguimiento.", "other notes do not hide it");
@@ -43,7 +43,7 @@ test("PLA-71 #1: the owner's note counts only when it is newer than the last del
 test("PLA-71 #2: the prompt quotes his words and says to answer them, not just re-run the checks", () => {
   const base = { agent: "Taller", role: "taller", project: { slug: "micasa", title: "MiCasa" }, goal: null, task: { key: "PX-1", title: "Algo" }, workspace: null, sessionId: "run-1", reason: "ticket ready" };
   const p = runner.userPrompt({ ...base, changes: "abre una clienta" });
-  assert.match(p, /Jorge sent your last delivery of this ticket back\. His words: «abre una clienta»/);
-  assert.match(p, /re-running the checks alone does not answer him/);
+  assert.match(p, /The owner sent your last delivery of this ticket back\. Their words: «abre una clienta»/);
+  assert.match(p, /re-running the checks alone does not answer them/);
   assert.doesNotMatch(runner.userPrompt(base), /sent your last delivery/);
 });

@@ -4,35 +4,92 @@
 //   head     «PLA-I3-5» · «PASO 2 DE 5» · previous / next (inert at the ends) · Abrir · Cerrar
 //   state    the stage word, who holds it and since when («Construyendo» · «Taller · hace 12 min»)
 //   espera   the step's reason, or what its tone says when the server gives none
+// PLA-I2-10: the words are in LADO_WORDS, in both languages; the Spanish constants keep their names for their readers.
 import type { Etapa } from "./api";
 import type { Cosa, Cosas, Tramo, TramoTono } from "./cosas";
-import { ETAPA_WORD, holderWord, wordOf } from "./etapas";
+import { etapaWord, holderWord, wordOf } from "./etapas";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import { ago } from "./time";
 
-export const LADO_ESPERA = "Qué espera";
-export const LADO_ABRIR = "Abrir el paso";
-export const LADO_ABRIR_CAP = "Completo: hecho cuando, evidencia, PR e historia.";
-export const LADO_KEYS = "← → otro paso · Esc cerrar";
-export const LADO_PREV = "Paso anterior";
-export const LADO_NEXT = "Paso siguiente";
-export const LADO_CLOSE = "Cerrar el paso";
-export const LADO_FULL = "Abrir el paso completo";
-export const LADO_INICIATIVA = "Iniciativa";
-export const LADO_SUELTO = "Paso suelto, sin iniciativa";
-export const LADO_PRIORIDAD = "Prioridad";
+export const LADO_WORDS = defineWords({
+  es: {
+    espera: "Qué espera",
+    abrir: "Abrir el paso",
+    abrirCap: "Completo: hecho cuando, evidencia, PR e historia.",
+    keys: "← → otro paso · Esc cerrar",
+    prev: "Paso anterior",
+    next: "Paso siguiente",
+    close: "Cerrar el paso",
+    full: "Abrir el paso completo",
+    iniciativa: "Iniciativa",
+    suelto: "Paso suelto, sin iniciativa",
+    prioridad: "Prioridad",
+    /** When the server gives no reason: what the step's tone says it waits for. */
+    esperaOf: {
+      hecho: "Nada: ya está hecho.",
+      vivo: "Que quien lo tiene termine su turno.",
+      toca: "Tu decisión.",
+      fila: "Su turno: arranca solo cuando le toque.",
+      quieto: "Que algo lo destrabe; no se mueve solo.",
+    } as Record<TramoTono, string>,
+    prioridades: { P0: "P0 · urgente", P1: "P1 · alta", P2: "P2 · normal", P3: "P3 · baja" } as Record<string, string>,
+    sinPrioridad: "Sin prioridad",
+    pos: (i: number, n: number) => `Paso ${i} de ${n}`,
+    strip: "Los pasos de la iniciativa",
+    reading: "Leyendo el paso",
+    readFailed: "No se pudo leer el resumen del paso.",
+  },
+  en: {
+    espera: "What it waits for",
+    abrir: "Open the step",
+    abrirCap: "In full: done when, evidence, PR and history.",
+    keys: "← → another step · Esc close",
+    prev: "Previous step",
+    next: "Next step",
+    close: "Close the step",
+    full: "Open the full step",
+    iniciativa: "Initiative",
+    suelto: "Loose step, no initiative",
+    prioridad: "Priority",
+    esperaOf: {
+      hecho: "Nothing: it is done.",
+      vivo: "For whoever has it to finish their turn.",
+      toca: "Your decision.",
+      fila: "Its turn: it starts by itself when it comes.",
+      quieto: "Something to unblock it; it does not move by itself.",
+    },
+    prioridades: { P0: "P0 · urgent", P1: "P1 · high", P2: "P2 · normal", P3: "P3 · low" },
+    sinPrioridad: "No priority",
+    pos: (i: number, n: number) => `Step ${i} of ${n}`,
+    strip: "The initiative's steps",
+    reading: "Reading the step",
+    readFailed: "The step's summary could not be read.",
+  },
+});
+
+/** The panel's words in the screen's language (or the one given). */
+export const ladoWords = (language: Language = getLanguage()) => words(LADO_WORDS, language);
+
+export const LADO_ESPERA = LADO_WORDS.es.espera;
+export const LADO_ABRIR = LADO_WORDS.es.abrir;
+export const LADO_ABRIR_CAP = LADO_WORDS.es.abrirCap;
+export const LADO_KEYS = LADO_WORDS.es.keys;
+export const LADO_PREV = LADO_WORDS.es.prev;
+export const LADO_NEXT = LADO_WORDS.es.next;
+export const LADO_CLOSE = LADO_WORDS.es.close;
+export const LADO_FULL = LADO_WORDS.es.full;
+export const LADO_INICIATIVA = LADO_WORDS.es.iniciativa;
+export const LADO_SUELTO = LADO_WORDS.es.suelto;
+export const LADO_PRIORIDAD = LADO_WORDS.es.prioridad;
 
 /** When the server gives no reason: what the step's tone says it waits for. */
-export const ESPERA_OF: Record<TramoTono, string> = {
-  hecho: "Nada: ya está hecho.",
-  vivo: "Que quien lo tiene termine su turno.",
-  toca: "Tu decisión.",
-  fila: "Su turno: arranca solo cuando le toque.",
-  quieto: "Que algo lo destrabe; no se mueve solo.",
-};
+export const ESPERA_OF: Record<TramoTono, string> = LADO_WORDS.es.esperaOf;
 
-const PRIORIDAD: Record<string, string> = { P0: "P0 · urgente", P1: "P1 · alta", P2: "P2 · normal", P3: "P3 · baja" };
 /** «P1 · alta»; null while the step's read has not arrived. */
-export const prioridadWord = (p: string | null | undefined): string => (p ? (PRIORIDAD[p] ?? p) : "Sin prioridad");
+export const prioridadWord = (p: string | null | undefined, language: Language = getLanguage()): string => {
+  const w = words(LADO_WORDS, language);
+  return p ? (w.prioridades[p] ?? p) : w.sinPrioridad;
+};
 
 export type Lado = {
   key: string;
@@ -52,27 +109,28 @@ export type Lado = {
 
 /** The panel for step k among the row's steps; null when k is not one of them. etapa is the ticket's (for its reason
  *  and holder); without it the Tramo's own words are used. */
-export function ladoOf(k: string, tramos: readonly Tramo[], etapa: Etapa | null, nowMs = Date.now()): Lado | null {
+export function ladoOf(k: string, tramos: readonly Tramo[], etapa: Etapa | null, nowMs = Date.now(), language: Language = getLanguage()): Lado | null {
   const i = tramos.findIndex((t) => t.key === k);
   if (i < 0) return null;
+  const w = words(LADO_WORDS, language);
   const t = tramos[i]!;
   const n = tramos.length;
-  const word = etapa ? wordOf(etapa) : (t.word ?? ETAPA_WORD[t.etapa] ?? t.etapa);
-  const holder = holderWord(etapa?.holder ?? t.holder ?? null);
+  const word = etapa ? wordOf(etapa, language) : (t.word ?? etapaWord(t.etapa, language) ?? t.etapa);
+  const holder = holderWord(etapa?.holder ?? t.holder ?? null, language);
   const since = etapa?.since ?? t.since ?? null;
-  const when = since && t.tono !== "hecho" ? ago(since, nowMs) : null;
+  const when = since && t.tono !== "hecho" ? ago(since, nowMs, language) : null;
   return {
     key: t.key,
     i,
     n,
-    pos: `Paso ${i + 1} de ${n}`.toUpperCase(),
+    pos: w.pos(i + 1, n).toUpperCase(),
     prev: i > 0 ? tramos[i - 1]!.key : null,
     next: i < n - 1 ? tramos[i + 1]!.key : null,
     tono: t.tono,
     word,
     who: [holder, when].filter(Boolean).join(" · ") || null,
     title: t.title,
-    espera: etapa?.reason?.trim() || ESPERA_OF[t.tono],
+    espera: etapa?.reason?.trim() || w.esperaOf[t.tono],
   };
 }
 

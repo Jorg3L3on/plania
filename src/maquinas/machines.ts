@@ -4,6 +4,27 @@
 // that go with it: Usar estos comandos (settings.capture from the dev script) and the base lever (the brew
 // service of that db_server, never Plania's own Postgres). Session cookie only (src/api/maquinas.ts).
 import { hostname } from "node:os";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what the floor's Máquinas says about a project's database, in the install's language (Spanish unchanged).
+export const MACHINE_WORDS = defineWords({
+  es: {
+    noBase: "No encuentro una base de datos de este piso",
+    elsewhere: "La base no está en esta máquina",
+    planias: "Es el Postgres de Plania; no se apaga desde un piso",
+    noService: "No es un servicio de brew ni de systemd del usuario; Plania no la enciende ni la apaga",
+    noCode: "el proyecto todavía no tiene código",
+    badService: "nombre de servicio inválido",
+  },
+  en: {
+    noBase: "I cannot find a database for this floor",
+    elsewhere: "The database is not on this machine",
+    planias: "It is Plania's own Postgres; it is not turned off from a floor",
+    noService: "It is not a brew service or a user systemd unit; Plania does not turn it on or off",
+    noCode: "the project has no code yet",
+    badService: "invalid service name",
+  },
+});
 import { createConnection } from "node:net";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -16,6 +37,7 @@ import { primaryPgPort } from "../jobs/machine/infer.js";
 import { pruebaInfo, pruebaRead, type PruebaRead } from "../captures/prueba.js";
 import { checkoutEnv, shellExec, type Exec } from "../captures/run.js";
 import type { CaptureSettings } from "../captures/settings.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { appDirs, baseAddress, LOOPBACK, readAppEnv, type BaseAddress, type MaquinasSettings } from "./env.js";
 import { findScripts, type Found } from "./detect.js";
 
@@ -110,6 +132,8 @@ export type BaseRead = {
   databases: { name: string; size_bytes: number | null; app: boolean }[]; // app: the one the app's env names
   size_bytes: number | null;
   service: string | null; // the brew service that runs this server
+  // PLA-I2-19: who starts it: brew services (macOS, Linuxbrew) or a systemd user unit (Linux).
+  manager?: "brew" | "systemd" | null;
   shared_with: string[]; // other floors with a database on this server
   lever: { can: boolean; reason: string | null };
   env_file: string | null; // which file the address came from (name only)
@@ -126,7 +150,7 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   const portOf = (r: Fp) => Number(r.details.port ?? /:(\d+)$/.exec(r.locator)?.[1]);
   const mine = dbs.filter((r) => r.projectId === p.id || (address && String(r.details.name) === address.database && portOf(r) === address.port));
   const port = address?.port ?? (mine[0] ? portOf(mine[0]) : null);
-  const none: BaseRead = { state: "none", engine: null, version: null, host: null, port: null, databases: [], size_bytes: null, service: null, shared_with: [], lever: { can: false, reason: "No encuentro una base de datos de este piso" }, env_file: envFile };
+  const none: BaseRead = { state: "none", engine: null, version: null, host: null, port: null, databases: [], size_bytes: null, service: null, shared_with: [], lever: { can: false, reason: say(MACHINE_WORDS).noBase }, env_file: envFile };
   if (!port) return none;
   const host = address?.host ?? "127.0.0.1";
   const server = rows.find((r) => r.kind === "db_server" && r.locator === `postgres:${port}`);
@@ -136,21 +160,28 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   // The brew service whose data directory this server runs from (postgresql@17 → /opt/homebrew/var/postgresql@17).
   const dataDir = String(server?.details.data_dir ?? "");
   const services = rows.filter((r) => r.kind === "service" && r.locator.startsWith("brew:")).map((r) => r.locator.slice(5));
-  const service = (dataDir && services.find((s) => dataDir.split("/").includes(s))) || null;
+  const brewService = (dataDir && services.find((s) => dataDir.split("/").includes(s))) || null;
+  // PLA-I2-19: on Linux, the systemd user unit the machine job linked to this server (its ExecStart names the data dir).
+  const unit = typeof server?.details.systemd_unit === "string" ? server.details.systemd_unit : null;
+  const service = brewService ?? unit;
+  const manager = brewService ? "brew" : unit ? "systemd" : null;
   const projectIds = [...new Set(dbs.filter((r) => portOf(r) === port && r.projectId && r.projectId !== p.id).map((r) => r.projectId!))];
   const others = projectIds.length ? await db.select({ slug: projects.slug }).from(projects).where(inArray(projects.id, projectIds)) : [];
   const local = LOOPBACK.has(host);
   const on = local ? await portBusy(port) : false;
-  const reason = !local
-    ? "La base no está en esta Mac"
+  // PLA-I2-4: the lever is `brew services`; without brew it is not available here (a plain state).
+  const reason = !supported("base_lever")
+    ? NO_DISPONIBLE
+    : !local
+    ? say(MACHINE_WORDS).elsewhere
     : planiaPorts().has(port)
-      ? "Es el Postgres de Plania; no se apaga desde un piso"
+      ? say(MACHINE_WORDS).planias
       : !service
-        ? "No es un servicio de brew en esta Mac"
+        ? say(MACHINE_WORDS).noService
         : null;
   const version = String(onPort[0]?.details.version ?? server?.details.version ?? "") || null;
   const size = databases.reduce<number | null>((a, d) => (d.size_bytes === null ? a : (a ?? 0) + d.size_bytes), null);
-  return { state: on ? "on" : "off", engine: "postgres", version, host, port, databases, size_bytes: size, service, shared_with: others.map((o) => o.slug).sort(), lever: { can: !reason, reason }, env_file: envFile };
+  return { state: on ? "on" : "off", engine: "postgres", version, host, port, databases, size_bytes: size, service, manager, shared_with: others.map((o) => o.slug).sort(), lever: { can: !reason, reason }, env_file: envFile };
 }
 
 export type MaquinasRead = {
@@ -196,7 +227,7 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
 export async function configurar(db: Db, slug: string): Promise<MaquinasRead> {
   const p = await projectOf(db, slug);
   if (p.settings.capture) return maquinasRead(db, slug);
-  if (p.settings.local?.no_code) throw new MaquinaError("NOT_CONFIGURED", "el proyecto todavía no tiene código");
+  if (p.settings.local?.no_code) throw new MaquinaError("NOT_CONFIGURED", say(MACHINE_WORDS).noCode);
   const dirs = appDirs(p.slug, p.settings, menv());
   const found = findScripts(dirs.prueba ?? dirs.repo);
   if (!found.dev) throw new MaquinaError("NOT_CONFIGURED", `no encuentro ${found.missing.join(", ") || "un script dev"}`);
@@ -206,15 +237,18 @@ export async function configurar(db: Db, slug: string): Promise<MaquinasRead> {
 }
 
 // The base lever: brew services start|stop of the server's own service. Refused for a remote base, Plania's own
-// Postgres, and a server that is not a brew service on this Mac.
+// Postgres, and a server that is not a brew service on this machine.
 export async function baseLever(db: Db, slug: string, want: "encender" | "apagar"): Promise<BaseRead> {
   const p = await projectOf(db, slug);
   const { env, address } = appEnvOf(p);
   const b = await baseRead(db, p, address, env.file);
   if (b.state === "none" || !b.lever.can || !b.service || !b.port) throw new MaquinaError("BASE_LEVER_REFUSED", b.lever.reason ?? "no hay base");
-  if (!/^[a-z0-9@._+-]+$/i.test(b.service)) throw new MaquinaError("BASE_LEVER_REFUSED", "nombre de servicio inválido");
-  const r = await (deps.exec ?? shellExec)(`brew services ${want === "encender" ? "start" : "stop"} ${b.service}`, { cwd: "/", timeoutMs: 60_000, env: checkoutEnv() });
-  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", `brew no pudo ${want === "encender" ? "encenderla" : "apagarla"}`);
+  if (!/^[a-z0-9@._+-]+$/i.test(b.service)) throw new MaquinaError("BASE_LEVER_REFUSED", say(MACHINE_WORDS).badService);
+  // PLA-I2-19: a systemd user unit is started and stopped with systemctl --user.
+  const verb = want === "encender" ? "start" : "stop";
+  const command = b.manager === "systemd" ? `systemctl --user ${verb} ${b.service}` : `brew services ${verb} ${b.service}`;
+  const r = await (deps.exec ?? shellExec)(command, { cwd: "/", timeoutMs: 60_000, env: checkoutEnv() });
+  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", `${b.manager === "systemd" ? "systemd" : "brew"} no pudo ${want === "encender" ? "encenderla" : "apagarla"}`);
   // Wait a little for the port to follow.
   for (let i = 0; i < 20; i++) {
     if ((await portBusy(b.port)) === (want === "encender")) break;

@@ -1,7 +1,23 @@
 // PLA-I3-3: the row of the project's list (components/corriente/todo.tsx), tested without a browser: the token line
 // under an initiative's name, and the counts above the list that filter it.
+// PLA-I2-10: the words are in FILA_WORDS, in both languages; numbers follow the screen's locale (lib/locale.ts).
 import type { Tokens } from "./api";
-import { GRUPO_NAME, type Cosas, type Grupo } from "./cosas";
+import { GRUPO_NAME, grupoName, type Cosas, type Grupo } from "./cosas";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+import { LOCALE } from "./locale.js";
+
+export const FILA_WORDS = defineWords({
+  es: {
+    todo: "Todo",
+    title: (used: string, read: string, written: string, runs: string) => `Entrada y salida: ${used} · caché leída: ${read} · caché escrita: ${written} (${runs})`,
+    runs: (n: number, whole: string) => (n === 1 ? "1 corrida" : `${whole} corridas`),
+  },
+  en: {
+    todo: "All",
+    title: (used: string, read: string, written: string, runs: string) => `Input and output: ${used} · cache read: ${read} · cache written: ${written} (${runs})`,
+    runs: (n: number, whole: string) => (n === 1 ? "1 run" : `${whole} runs`),
+  },
+});
 
 // ---- tokens
 
@@ -9,7 +25,7 @@ import { GRUPO_NAME, type Cosas, type Grupo } from "./cosas";
 const trim = (x: number) => String(Number(x.toFixed(1)));
 
 /** One figure for what an initiative spent: «0 tokens», «950 tokens», «96 k tokens», «2.4 M tokens». Under ten
- *  thousand and under ten million it keeps one decimal; above, a whole number. */
+ *  thousand and under ten million it keeps one decimal; above, a whole number. The same in both languages. */
 export function tokensLabel(n: number): string {
   const v = Math.max(0, Math.round(n));
   if (v < 1000) return `${v} tokens`;
@@ -21,28 +37,29 @@ export function tokensLabel(n: number): string {
   return `${m < 10 ? trim(m) : Math.round(m)} M tokens`;
 }
 
-const whole = (n: number) => new Intl.NumberFormat("es-MX").format(Math.max(0, Math.round(n)));
+const whole = (n: number) => new Intl.NumberFormat(LOCALE).format(Math.max(0, Math.round(n)));
 
 /** The split, for the figure's title: the runner keeps input and output as one sum, the prompt cache apart. */
-export function tokensTitle(t: Tokens): string {
-  const parts = [`Entrada y salida: ${whole(t.used)}`, `caché leída: ${whole(t.cache_read)}`, `caché escrita: ${whole(t.cache_write)}`];
-  const runs = t.runs === 1 ? "1 corrida" : `${whole(t.runs)} corridas`;
-  return `${parts.join(" · ")} (${runs})`;
+export function tokensTitle(t: Tokens, language: Language = getLanguage()): string {
+  const w = words(FILA_WORDS, language);
+  return w.title(whole(t.used), whole(t.cache_read), whole(t.cache_write), w.runs(t.runs, whole(t.runs)));
 }
 
 // ---- the counts that filter the list
 
 export type Filtro = "todo" | Exclude<Grupo, "hecho">;
 export const FILTROS = ["todo", "toca", "mueve", "fila", "quieto"] as const satisfies readonly Filtro[];
-export const FILTRO_NAME: Record<Filtro, string> = { todo: "Todo", toca: GRUPO_NAME.toca, mueve: GRUPO_NAME.mueve, fila: GRUPO_NAME.fila, quieto: GRUPO_NAME.quieto };
+/** The Spanish names, kept for their readers; the screen reads filtroName(). */
+export const FILTRO_NAME: Record<Filtro, string> = { todo: FILA_WORDS.es.todo, toca: GRUPO_NAME.toca, mueve: GRUPO_NAME.mueve, fila: GRUPO_NAME.fila, quieto: GRUPO_NAME.quieto };
+export const filtroName = (f: Filtro, language: Language = getLanguage()): string => (f === "todo" ? words(FILA_WORDS, language).todo : grupoName(f, language));
 
 export type Cuenta = { id: Filtro; label: string; n: number };
 
 /** The row of counts: Todo (every open thing), then each group's. Hecho is a door, counted apart. */
-export function cuentasOf(c: Cosas): { cuentas: Cuenta[]; hecho: number } {
+export function cuentasOf(c: Cosas, language: Language = getLanguage()): { cuentas: Cuenta[]; hecho: number } {
   const n = (g: Exclude<Grupo, "hecho">) => c.grupos.find((x) => x.grupo === g)?.cosas.length ?? 0;
   return {
-    cuentas: FILTROS.map((id) => ({ id, label: FILTRO_NAME[id], n: id === "todo" ? c.abiertas : n(id) })),
+    cuentas: FILTROS.map((id) => ({ id, label: filtroName(id, language), n: id === "todo" ? c.abiertas : n(id) })),
     hecho: c.hecho.iniciativas.length + c.hecho.sueltos,
   };
 }

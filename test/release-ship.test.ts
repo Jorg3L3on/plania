@@ -243,10 +243,10 @@ describe("shipping", () => {
     const p = await project();
     const ev = (await listEvents(db, p.id, { types: ["release.merged"] })).events as Json[];
     assert.equal(ev.length, 1);
-    assert.equal(ev[0]!.actor.agent, "jorge");
+    assert.equal(ev[0]!.actor.agent, "owner");
     assert.equal(ev[0]!.payload.merge_sha, MERGE);
     assert.equal(ev[0]!.payload.from.head_sha, SANDBOX);
-    assert.match(ev[0]!.summary, /sandbox → main fusionado por jorge \(2 tickets, 7cccccc\)/);
+    assert.match(ev[0]!.summary, /sandbox → main fusionado por el dueño \(2 tickets, 7cccccc\)/);
     const plan = (await releasePlan(db, p))!;
     assert.deepEqual(plan.merged, { sha: MERGE, pr_url: `https://github.com/${REPO}/pull/699`, at: plan.merged!.at });
     assert.deepEqual(plan.ship, { ready: false, reason: "merged" });

@@ -63,11 +63,11 @@ describe("POST /api/projects/:slug/tasks", () => {
     assert.equal(t.key, "WRK-01");
     assert.equal(t.status, "Backlog");
     assert.equal(t.priority, "P2");
-    assert.equal(t.origin, "jorge");
+    assert.equal(t.origin, "owner");
     assert.equal(t.kind, "ticket");
     const { rows } = await raw.query("select type, actor from events where task_key = $1 order by id", ["WRK-01"]);
     assert.equal(rows[0].type, "task.created");
-    assert.equal(rows[0].actor.agent, "jorge");
+    assert.equal(rows[0].actor.agent, "owner");
   });
 
   test("summary, priority and an initiative; a bad body, a ticket as parent and no cookie are refused", async () => {
@@ -85,10 +85,10 @@ describe("POST /api/projects/:slug/tasks", () => {
     assert.equal((await req("POST", "/api/projects/workia/tasks", { title: "x" }, { cookie: null })).status, 401);
   });
 
-  test("agents cannot claim to be Jorge: create_task refuses origin jorge", async () => {
-    const r = await call("create_task", { ...P, actor: A, title: "Fake", ...T, origin: "jorge" });
+  test("agents cannot claim to be Owner: create_task refuses origin jorge", async () => {
+    const r = await call("create_task", { ...P, actor: A, title: "Fake", ...T, origin: "owner" });
     assert.ok(r.__error, "origin jorge is not in the agent schema");
-    const b = await call("batch", { ...P, actor: A, ops: [{ op: "create_task", title: "Fake", ...T, origin: "jorge" }] });
+    const b = await call("batch", { ...P, actor: A, ops: [{ op: "create_task", title: "Fake", ...T, origin: "owner" }] });
     assert.ok(b.__error, "nor in batch");
     const { rows } = await raw.query("select count(*)::int as n from tasks where title = 'Fake'");
     assert.equal(rows[0].n, 0);
@@ -138,7 +138,7 @@ describe("agents read requests first", () => {
     const res = await req("GET", "/api/projects/zigzag");
     const body = (await res.json()) as Json;
     assert.deepEqual(body.resume.requests.map((r: Json) => r.key), ["ZIG-02"]);
-    assert.equal(PROTOCOL_VERSION, "2.23");
-    assert.match(instructions(false), /requests \(in start, get_context, get_resume and get_next\) are what Jorge asked for on screen: read them first/);
+    assert.equal(PROTOCOL_VERSION, "2.24");
+    assert.match(instructions(false), /requests \(in start, get_context, get_resume and get_next\) are the owner's asks from the screen: read them first/);
   });
 });

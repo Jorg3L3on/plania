@@ -4,9 +4,10 @@ import { machineState, projects, pushSubscriptions } from "../db/schema.js";
 import { inbox, type InboxItem } from "../mcp/inbox.js";
 import { sendToAll, vapidConfig, webPushSender, type PushPayload, type Sender } from "../push.js";
 import type { Job } from "./index.js";
+import { defineWords, say } from "../words.js";
 
-// 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: a question,
-// a human_action created or parsed from a Jorge: line, a release that became ready)
+// 2.12 push: once a minute, what is new in the owner's inbox (decisiones and pasos: a question,
+// a human_action created or parsed from a the owner: line, a release that became ready)
 // goes to every subscribed phone as one notification, so a burst is one message. The inbox is the
 // source rather than the event feed because it already says what waits on him, whatever wrote it,
 // and drops what was answered in the same minute. What was seen lives in machine_state (key "push"):
@@ -22,6 +23,12 @@ const itemId = (i: InboxItem) => `${i.kind}:${i.id}`;
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+// PLA-I2-10: the notice in the install's language; the Spanish is unchanged.
+export const PUSH_WORDS = defineWords({
+  es: { asked: "Te preguntan", release: "Listo para lanzar", yours: "Te toca", decisions: (n: number) => count(n, "decisión", "decisiones"), steps: (n: number) => count(n, "paso", "pasos"), and: " y ", several: (parts: string) => `Te toca: ${parts}` },
+  en: { asked: "A question for you", release: "Ready to release", yours: "Your turn", decisions: (n: number) => count(n, "decision", "decisions"), steps: (n: number) => count(n, "step", "steps"), and: " and ", several: (parts: string) => `Your turn: ${parts}` },
+});
+
 // One notification for everything new this minute. A tap opens the Bandeja on Decisiones when one
 // of them is a decision, else on Pasos. One item says what it is; several say how many and the first.
 export function messageFor(items: InboxItem[], names: Map<string, string>): PushPayload {
@@ -31,12 +38,13 @@ export function messageFor(items: InboxItem[], names: Map<string, string>): Push
   const first = decisiones[0] ?? pasos[0]!;
   const where = names.get(first.project) ?? first.project;
   const line = `${where}${first.key ? ` · ${first.key}` : ""}: ${first.why || first.title || ""}`.trim();
+  const w = say(PUSH_WORDS);
   if (items.length === 1) {
-    const title = first.kind === "question" ? "Te preguntan" : first.kind === "release" ? "Listo para lanzar" : "Te toca";
+    const title = first.kind === "question" ? w.asked : first.kind === "release" ? w.release : w.yours;
     return { title, body: line, url: `/inbox?tab=${tab}`, tag: "plania-te-toca" };
   }
-  const parts = [decisiones.length ? count(decisiones.length, "decisión", "decisiones") : "", pasos.length ? count(pasos.length, "paso", "pasos") : ""].filter(Boolean);
-  return { title: `Te toca: ${parts.join(" y ")}`, body: line, url: `/inbox?tab=${tab}`, tag: "plania-te-toca" };
+  const parts = [decisiones.length ? w.decisions(decisiones.length) : "", pasos.length ? w.steps(pasos.length) : ""].filter(Boolean);
+  return { title: w.several(parts.join(w.and)), body: line, url: `/inbox?tab=${tab}`, tag: "plania-te-toca" };
 }
 
 async function readState(db: Db): Promise<PushState | null> {

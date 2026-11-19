@@ -36,7 +36,7 @@ after(async () => {
 // A «Hacerlo ya» request as Pedir leaves it: a Ready ops ticket, origin jorge (made here so no run starts).
 async function request(text: string): Promise<string> {
   const t = (await writes.createTask(db, { project: "micasa", title: text, scope: text, checks: ["El PO lo hizo o lo pasó a Taller"], status: "Ready", work_type: "ops" } as never, { actor: { agent: "test", session_id: "pla109" } })) as Json;
-  await raw.query(`update tasks set origin = 'jorge' where key = $1`, [t.key]);
+  await raw.query(`update tasks set origin = 'owner' where key = $1`, [t.key]);
   return t.key as string;
 }
 const po = (session: string) => ({ actor: { agent: "plania-runner", session_id: session } });

@@ -35,7 +35,7 @@ Taller builds the real thing from a ticket, from the start, with tests.
 6. **Measure; do not judge by eye.** Print the number. For a timing, run it three times and give all
    three.
 7. **Record the answer** in a doc on the idea or ticket (inside the Research doc's `What we learned`,
-   or a doc titled `Prototype: <la pregunta>`), in plain Spanish:
+   or a doc titled `Prototype: <la pregunta>`), in plain words in the owner's language:
    - the question;
    - the command you ran and the lines it printed;
    - the answer: sí, no, or depende de qué;

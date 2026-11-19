@@ -5,21 +5,21 @@ import { useEffect, useState } from "react";
 import { ApiError, api, type ThreadAction, type ThreadMessage, type ThreadPostResult } from "@/lib/api";
 import { THREAD_PAGE } from "@/lib/org";
 import type { MessageBusy, SendState } from "@/components/compania/org";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { COMPANIA_THREAD } from "@/lib/compania-words";
 
-const REFUSAL: Record<string, string> = {
-  PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo en Máquina.",
-  COMPANY_PAUSED: "La compañía está detenida.",
-  NO_PO: "Este proyecto no tiene PO.",
-  ALREADY_DONE: "Ya se hizo.",
-  MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
-  MERGE_CONFLICT: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
+// PLA-I2-10: the words are COMPANIA_THREAD's (lib/compania-words.ts). `who` stays the Spanish value callers pass.
+const refusal = (e: unknown, what: string) => {
+  const w = words(COMPANIA_THREAD);
+  return e instanceof ApiError ? (w.refusal[e.code] ?? w.refusedCode(what, e.code)) : w.asleep(what);
 };
-const refusal = (e: unknown, what: string) => (e instanceof ApiError ? (REFUSAL[e.code] ?? `${what} (${e.code}).`) : `${what}. Si la Mac está dormida, intenta al despertar.`);
 
-export function sentText(r: ThreadPostResult, who: "Asistente" | "el PO"): string {
-  const made = r.created ? ` · ${r.created.kind === "idea" ? "idea" : "ticket"} ${r.created.key}` : "";
-  const wake = r.wake === "queued" ? ` · ${who} despierta` : r.wake === "busy" ? ` · ${who} lo toma al terminar lo que corre` : r.wake === "off" ? ` · ${who} lo ve al despertar` : "";
-  return `Enviado${made}${wake}`;
+export function sentText(r: ThreadPostResult, who: "Asistente" | "el PO", language: Language = getLanguage()): string {
+  const w = words(COMPANIA_THREAD, language);
+  const name = who === "el PO" ? w.thePo : w.asistente;
+  const made = r.created ? ` · ${r.created.kind === "idea" ? w.idea : w.ticket} ${r.created.key}` : "";
+  const wake = r.wake === "queued" ? w.wakes(name) : r.wake === "busy" ? w.afterCurrent(name) : r.wake === "off" ? w.onWake(name) : "";
+  return w.sent(`${made}${wake}`);
 }
 
 export function useThread(id: string | null | undefined, opts: { who: "Asistente" | "el PO"; invalidate?: string[][] }) {
@@ -46,7 +46,7 @@ export function useThread(id: string | null | undefined, opts: { who: "Asistente
       setSend({ kind: "done", text: sentText(r, opts.who) });
       refresh();
     },
-    onError: (e) => setSend({ kind: "error", message: refusal(e, "No se pudo enviar") }),
+    onError: (e) => setSend({ kind: "error", message: refusal(e, words(COMPANIA_THREAD).couldNotSend) }),
   });
   const act = useMutation({
     mutationFn: (input: { message: ThreadMessage; action: ThreadAction; text?: string }) =>
@@ -56,7 +56,7 @@ export function useThread(id: string | null | undefined, opts: { who: "Asistente
       setActionError(null);
     },
     onSuccess: () => refresh(),
-    onError: (e, input) => setActionError({ id: input.message.id, message: refusal(e, "No se pudo") }),
+    onError: (e, input) => setActionError({ id: input.message.id, message: refusal(e, words(COMPANIA_THREAD).couldNot) }),
     onSettled: () => setBusy(null),
   });
 

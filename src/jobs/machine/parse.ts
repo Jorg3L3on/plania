@@ -5,6 +5,8 @@ export type Listener = { pid: number; command: string; ports: number[] };
 export type Proc = { pid: number; ppid: number; startedAt: Date | null; command: string };
 export type WorktreeEntry = { path: string; head: string | null; branch: string | null; detached: boolean; bare: boolean; locked: boolean; prunable: boolean };
 export type BrewService = { name: string; status: string; user: string | null; file: string | null };
+// PLA-I2-19: a systemd user unit (Linux), from `systemctl --user list-units` and its unit file.
+export type SystemdUnit = { name: string; load: string; active: string; sub: string; description: string };
 export type DockerContainer = { id: string; name: string; image: string; state: string; status: string; ports: string; createdAt: string };
 
 // `lsof -nP -iTCP -sTCP:LISTEN -F pcn`: records p<pid>, c<command>, then f<fd>/n<name> per socket.
@@ -32,6 +34,44 @@ export function parseListeners(out: string): Listener[] {
   return [...byPid.values()].filter((l) => l.ports.length > 0);
 }
 
+// PLA-I2-19: `ss -Htlnp` (Linux, when lsof is not installed): State Recv-Q Send-Q Local Peer Process, e.g.
+//   LISTEN 0 4096 127.0.0.1:5432 0.0.0.0:* users:(("postgres",pid=812,fd=6))
+// A socket owned by another user has no users:(...) part: it is not ours to show.
+export function parseSsListeners(out: string): Listener[] {
+  const byPid = new Map<number, Listener>();
+  for (const line of out.split("\n")) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5 || cols[0] !== "LISTEN") continue;
+    const local = cols[3]!;
+    const port = Number(local.slice(local.lastIndexOf(":") + 1));
+    if (!Number.isInteger(port) || port <= 0) continue;
+    for (const m of line.matchAll(/\("([^"]+)",pid=(\d+)/g)) {
+      const pid = Number(m[2]);
+      const cur = byPid.get(pid) ?? { pid, command: m[1]!, ports: [] };
+      if (!cur.ports.includes(port)) cur.ports.push(port);
+      byPid.set(pid, cur);
+    }
+  }
+  return [...byPid.values()];
+}
+
+// PLA-I2-19: `systemctl --user list-units --type=service --all --no-legend --plain --no-pager`:
+//   UNIT LOAD ACTIVE SUB DESCRIPTION, one per line; a failed unit may start with a ● marker.
+export function parseSystemdUnits(out: string): SystemdUnit[] {
+  const units: SystemdUnit[] = [];
+  for (const raw of out.split("\n")) {
+    const cols = raw.replace(/^[\s●*]+/, "").split(/\s+/);
+    if (cols.length < 4 || !cols[0]!.endsWith(".service")) continue;
+    units.push({ name: cols[0]!, load: cols[1]!, active: cols[2]!, sub: cols[3]!, description: cols.slice(4).join(" ") });
+  }
+  return units;
+}
+
+// PLA-I2-19: the ExecStart= of a unit file (the first one), to tell which program a user unit runs.
+export function unitExecStart(text: string): string | null {
+  return /^\s*ExecStart\s*=\s*[-@:+!]*(.+?)\s*$/m.exec(text)?.[1] ?? null;
+}
+
 // `lsof -a -d cwd -p <pids> -Fn`: p<pid>, fcwd, n<path>. A pid lsof could not read has no n line.
 export function parseCwds(out: string): Map<number, string> {
   const cwds = new Map<number, string>();
@@ -45,7 +85,8 @@ export function parseCwds(out: string): Map<number, string> {
 
 const PS_LINE = /^\s*(\d+)\s+(\d+)\s+([A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*?)\s*$/;
 
-// `ps -axo pid=,ppid=,lstart=,command=`. lstart is local time in a fixed 24-character shape.
+// `ps -axo pid=,ppid=,lstart=,command=` (macOS) or `ps -eo pid=,ppid=,lstart=,args=` (GNU procps, Linux): the same
+// columns. lstart is local time in a fixed 24-character shape.
 export function parsePs(out: string): Proc[] {
   const procs: Proc[] = [];
   for (const line of out.split("\n")) {
@@ -141,7 +182,7 @@ export function postgresDataDir(command: string): string | null {
   return /(?:^|\s)-D\s+(\S+)/.exec(command)?.[1] ?? null;
 }
 
-// Single-quotes a value for the teardown commands shown to Jorge. Nothing here is ever executed.
+// Single-quotes a value for the teardown commands shown to the owner. Nothing here is ever executed.
 export function shq(v: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`;
 }

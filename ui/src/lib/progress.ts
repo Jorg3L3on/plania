@@ -1,22 +1,56 @@
-// Display helpers for Mi progreso. Colours are a fixed palette (the API does not send them).
-// Days are calendar dates already bucketed in America/Mexico_City by the server.
+// Display helpers for Mi progreso. Colours come from a palette by slug (the API does not send them).
+// Days are calendar dates already bucketed in the install's zone by the server.
+// PLA-I2-10: the words are in PROGRESS_LIB_WORDS, in both languages; each function takes the language last.
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import type { ProgressRange } from "./types.js";
 
-export const PROJECT_COLOR: Record<string, string> = {
-  micasa: "#34d399",
-  workia: "#60a5fa",
-  filmia: "#f472b6",
-  zigzag: "#fbbf24",
-  plania: "#a78bfa",
-};
-
 const FALLBACK = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185", "#22d3ee"];
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] as const;
-const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"] as const;
+
+export const PROGRESS_LIB_WORDS = defineWords({
+  es: {
+    months: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"],
+    weekdays: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"],
+    cosas: (n: number): string => (n === 1 ? "cosa terminada" : "cosas terminadas"),
+    inProjects: (cosas: string, n: number) => `${cosas} en ${n === 1 ? "1 proyecto" : `${n} proyectos`}`,
+    vs: { day: "ayer", week: "semana pasada", year: "el año pasado" } as Record<ProgressRange, string>,
+    same: (vs: string) => `igual que ${vs}`,
+    rhythm: { day: "Ritmo del día", week: "Ritmo de la semana", year: "Ritmo del año" } as Record<ProgressRange, string>,
+    typeChip: {
+      bug: "Bugs",
+      code: "Features",
+      ops: "Ops",
+      research: "Investigación",
+      "decision-needed": "Decisiones",
+      debt: "Deuda",
+      idea: "Ideas",
+      initiative: "Iniciativas",
+      pr: "PRs",
+    } as Record<string, string>,
+  },
+  en: {
+    months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    weekdays: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    cosas: (n: number): string => (n === 1 ? "thing finished" : "things finished"),
+    inProjects: (cosas: string, n: number) => `${cosas} in ${n === 1 ? "1 project" : `${n} projects`}`,
+    vs: { day: "yesterday", week: "last week", year: "last year" },
+    same: (vs: string) => `same as ${vs}`,
+    rhythm: { day: "Rhythm of the day", week: "Rhythm of the week", year: "Rhythm of the year" },
+    typeChip: {
+      bug: "Bugs",
+      code: "Features",
+      ops: "Ops",
+      research: "Research",
+      "decision-needed": "Decisions",
+      debt: "Debt",
+      idea: "Ideas",
+      initiative: "Initiatives",
+      pr: "PRs",
+    },
+  },
+});
 
 export const projectColor = (slug: string): string => {
-  const known = PROJECT_COLOR[slug];
-  if (known) return known;
+  // PLA-I2-3: derived from the slug alone (a stable hash into the palette), so any project gets one.
   let n = 0;
   for (const ch of slug) n = (n + ch.charCodeAt(0)) % FALLBACK.length;
   return FALLBACK[n] ?? "#a1a1aa";
@@ -34,39 +68,42 @@ const parts = (day: string): { y: number; m: number; d: number; wd: number } => 
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 /** "sáb 31 oct" */
-export const formatDay = (day: string): string => {
+export const formatDay = (day: string, language: Language = getLanguage()): string => {
+  const w = words(PROGRESS_LIB_WORDS, language);
   const p = parts(day);
-  const name = WEEKDAYS[p.wd] ?? "";
-  return `${name.slice(0, 3)} ${p.d} ${MONTHS[p.m - 1] ?? ""}`;
+  const name = w.weekdays[p.wd] ?? "";
+  return `${name.slice(0, 3)} ${p.d} ${w.months[p.m - 1] ?? ""}`;
 };
 
 /** "Sábado 31 oct" */
-export const formatDayLong = (day: string): string => {
+export const formatDayLong = (day: string, language: Language = getLanguage()): string => {
+  const w = words(PROGRESS_LIB_WORDS, language);
   const p = parts(day);
-  return `${cap(WEEKDAYS[p.wd] ?? "")} ${p.d} ${MONTHS[p.m - 1] ?? ""}`;
+  return `${cap(w.weekdays[p.wd] ?? "")} ${p.d} ${w.months[p.m - 1] ?? ""}`;
 };
 
-export const monthName = (day: string): string => (MONTHS[parts(day).m - 1] ?? "").toUpperCase();
+export const monthName = (day: string, language: Language = getLanguage()): string => (words(PROGRESS_LIB_WORDS, language).months[parts(day).m - 1] ?? "").toUpperCase();
 
-export const cosasCaption = (finished: number, projects: number): string => {
-  const cosas = finished === 1 ? "cosa terminada" : "cosas terminadas";
+export const cosasCaption = (finished: number, projects: number, language: Language = getLanguage()): string => {
+  const w = words(PROGRESS_LIB_WORDS, language);
+  const cosas = w.cosas(finished);
   if (projects <= 0) return cosas;
-  const proy = projects === 1 ? "1 proyecto" : `${projects} proyectos`;
-  return `${cosas} en ${proy}`;
+  return w.inProjects(cosas, projects);
 };
 
-export const deltaText = (pct: number | null, range: ProgressRange): { up: boolean; text: string } | null => {
+export const deltaText = (pct: number | null, range: ProgressRange, language: Language = getLanguage()): { up: boolean; text: string } | null => {
   if (pct === null) return null;
-  const vs = range === "day" ? "ayer" : range === "week" ? "semana pasada" : "el año pasado";
-  if (pct === 0) return { up: true, text: `igual que ${vs}` };
+  const w = words(PROGRESS_LIB_WORDS, language);
+  const vs = w.vs[range === "day" || range === "week" ? range : "year"];
+  if (pct === 0) return { up: true, text: w.same(vs) };
   const up = pct > 0;
   return { up, text: `${up ? "▲" : "▼"} ${Math.abs(pct)}% vs. ${vs}` };
 };
 
 export const parseRange = (raw: string | null): ProgressRange => (raw === "day" || raw === "year" ? raw : "week");
 
-export const rhythmTitle = (range: ProgressRange): string =>
-  range === "day" ? "Ritmo del día" : range === "year" ? "Ritmo del año" : "Ritmo de la semana";
+export const rhythmTitle = (range: ProgressRange, language: Language = getLanguage()): string =>
+  words(PROGRESS_LIB_WORDS, language).rhythm[range === "day" || range === "year" ? range : "week"];
 
 export const isGif = (url: string): boolean => {
   try {
@@ -88,28 +125,20 @@ export const TYPE_MARK: Record<string, string> = {
   pr: "⎇",
 };
 
-const TYPE_CHIP: Record<string, string> = {
-  bug: "Bugs",
-  code: "Features",
-  ops: "Ops",
-  research: "Investigación",
-  "decision-needed": "Decisiones",
-  debt: "Deuda",
-  idea: "Ideas",
-  initiative: "Iniciativas",
-  pr: "PRs",
+export const typeChip = (type: string, language: Language = getLanguage()): string => {
+  const chips = words(PROGRESS_LIB_WORDS, language).typeChip;
+  return Object.hasOwn(chips, type) ? chips[type]! : type;
 };
 
-export const typeChip = (type: string): string => TYPE_CHIP[type] ?? type;
-
 /** Newest month first, `count` months back from a YYYY-MM-DD already in the project zone. */
-export const monthsBack = (today: string, count = 12): { key: string; label: string }[] => {
+export const monthsBack = (today: string, count = 12, language: Language = getLanguage()): { key: string; label: string }[] => {
+  const months = words(PROGRESS_LIB_WORDS, language).months;
   let year = Number(today.slice(0, 4));
   let month = Number(today.slice(5, 7));
   const out: { key: string; label: string }[] = [];
   for (let i = 0; i < count; i++) {
     const key = `${year}-${String(month).padStart(2, "0")}`;
-    out.push({ key, label: (MONTHS[month - 1] ?? "").toUpperCase() });
+    out.push({ key, label: (months[month - 1] ?? "").toUpperCase() });
     month -= 1;
     if (month === 0) {
       month = 12;

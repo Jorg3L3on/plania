@@ -11,6 +11,13 @@ import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx } from "./tx.js";
 import { claim, setTaskInTx } from "./writes.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the note Plania writes when a PO's ticket handed its work to Taller, in the install's language; the Spanish is unchanged.
+export const SURFACE_WORDS = defineWords({
+  es: { handedTo: (keys: string) => `Pasó a Taller: ${keys}. La entrega que revisas es la de ese ticket.` },
+  en: { handedTo: (keys: string) => `Went to Taller: ${keys}. The delivery you review is that ticket's.` },
+});
 
 // 2.13 (item 7): the two composite tools an agent needs most. start = claim + get_context, so a
 // session opens a ticket in one call; finish = add_result + set_task In review in one transaction, so
@@ -76,7 +83,7 @@ async function verifyCheck(
 
 // The muestra check, before the transaction (it reads git). A code delivery on a project Plania photographs
 // (settings.capture) that touches the screen needs a muestra, passed now or stored by an earlier finish. When
-// Plania cannot read the diff (no repo on this Mac, unknown branch) it does not refuse: the warning says so.
+// Plania cannot read the diff (no repo on this machine, unknown branch) it does not refuse: the warning says so.
 async function muestraCheck(
   db: Db,
   p: Awaited<ReturnType<typeof findProject>>,
@@ -143,12 +150,12 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       changed.push("no_pr");
       await emit("task.no_pr", { id: t.id, key: t.key }, { reason: noPr, to: "In review" });
     }
-    // PLA-109 (guided test PLA-86, F-27): a PO that turns one of Jorge's requests into a Taller ticket has nothing to
-    // show; the request went to Jorge as «Aceptar» with nothing behind it. When this session made a ticket for Taller
-    // and the request has no PR, the request closes Done and says where the work went; the delivery Jorge sees is
+    // PLA-109 (guided test PLA-86, F-27): a PO that turns one of the owner's requests into a Taller ticket has nothing to
+    // show; the request went to the owner as «Aceptar» with nothing behind it. When this session made a ticket for Taller
+    // and the request has no PR, the request closes Done and says where the work went; the delivery the owner sees is
     // Taller's.
     let handedTo: string[] = [];
-    if (t.origin === "jorge" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {
+    if (t.origin === "owner" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {
       const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
       if (owner && roleOf(owner) === "product-owner") {
         const made = await tx
@@ -162,7 +169,7 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
     }
     let final = moved;
     if (handedTo.length) {
-      final = await setTaskInTx(tx, emit, p, { project: p.slug, key: t.key, status: "Done", version: moved.version, note: `Pasó a Taller: ${handedTo.join(", ")}. La entrega que revisas es la de ese ticket.` }, ctx);
+      final = await setTaskInTx(tx, emit, p, { project: p.slug, key: t.key, status: "Done", version: moved.version, note: say(SURFACE_WORDS).handedTo(handedTo.join(", ")) }, ctx);
       changed.push("status");
     }
     let initiative: { key: string; version: number; next_action: string } | undefined;

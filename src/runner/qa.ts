@@ -23,6 +23,7 @@ import { createServer } from "node:net";
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { ownerLanguage } from "./owner-language.js";
 import type { Db } from "../db/client.js";
 import {
   agentRuns,
@@ -52,12 +53,110 @@ import { addResult, type AddResultInput } from "../mcp/evidence.js";
 import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, type Ctx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
+import { NO_DISPONIBLE, supported } from "../lib/system-support.js";
 import { enqueueWake, serviceAgent } from "./events.js";
 import { loadSettings } from "./limits.js";
 import { modelFor, type QaSettings } from "./qa-settings.js";
 import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
+import { startBranchOf } from "./start-branch.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: what QA writes for the owner and for Taller (holds, lane errors, the notes sent back, the results' lines),
+// in the install's language; the Spanish is unchanged.
+export const QA_WORDS = defineWords({
+  es: {
+    failedAgain: "QA encontró fallas otra vez: revísala tú.",
+    couldNotFinish: (why: string) => `QA no pudo terminar${why}: revísala tú.`,
+    axis: { spec: "Lo que se pidió", code: "El código" } as Record<"spec" | "code", string>,
+    verdict: (ok: boolean): string => (ok ? "pasa" : "falla"),
+    noFindings: "sin hallazgos",
+    failNoDetail: "falla sin detalle",
+    copyClosed: "La copia de prueba se cerró al arrancar",
+    copyLate: "La copia de prueba no arrancó a tiempo",
+    noQa: "El proyecto ya no tiene QA",
+    notInReview: (status: string) => `La entrega ya no está en revisión (${status})`,
+    companyPaused: "La compañía está en pausa",
+    projectPaused: "El proyecto está en pausa",
+    crashed: (why: string) => `Falló al correr: ${why}`,
+    noWorktree: (why: string) => `Sin copia de trabajo (${why})`,
+    noCommit: "No se pudo leer el commit de la entrega",
+    behindPr: (commit: string) => `La copia de trabajo no llega al commit del PR (${commit})`,
+    noReport: "QA terminó sin su informe",
+    reviewFailed: (why: string) => `La revisión falló (${why})`,
+    failCount: (fail: number, total: number) => `: ${fail} de ${total} fallan`,
+    timedOut: ": no terminó a tiempo",
+    exitCode: (code: number) => ` (código ${code})`,
+    verifyFailed: (name: string, counts: string, command: string, tail: string | null) =>
+      `- ${name} falló${counts}. \`${command}\`${tail !== null ? `\n  Últimas líneas:\n${tail}` : ""}`,
+    specFailed: (notes: string) => `- Revisión aparte · lo que se pidió (alcance, Done when, check list): ${notes}`,
+    codeFailed: (notes: string) => `- Revisión aparte · el código (errores, casos límite, manejo inseguro): ${notes}`,
+    reviewLine: (notes: string) => `- Revisión aparte: ${notes}`,
+    checkMissed: (n: number, item: string | null, note: string) => `- Check list ${n}${item !== null ? ` «${item}»` : ""}: no se cumple. ${note}`,
+    captureWarn: (error: string) => `- Capturas (aviso, no cuenta como falla): ${error}`,
+    of: (pass: number, total: number) => `${pass} de ${total}`,
+    captures: (ok: number, failed: number, error: string | null) => `QA · ${ok} capturas a 1440 y 390${failed ? `, ${failed} fallaron` : ""}${error ? ` (${error})` : ""}`,
+    reviewCite: (model: string, notes: string) => `QA · revisión aparte${model}: ${notes}`,
+    summary: (pass: boolean, attempt: number) => `QA ${pass ? "pasa" : "falla"} (intento ${attempt})`,
+    tests: (pass: number, total: number) => `pruebas ${pass} de ${total}`,
+    axes: (spec: boolean, code: boolean) => `lo pedido ${spec ? "pasa" : "falla"} · el código ${code ? "pasa" : "falla"}`,
+    reviewVerdict: (ok: boolean) => `revisión ${ok ? "pasa" : "falla"}`,
+    noReview: "sin revisión (fallaron las pruebas)",
+    walked: "recorrió la app",
+    checklist: (ok: number, total: number) => `check list ${ok} de ${total}`,
+    noChecklist: "sin check list",
+    capturesN: (n: number) => `${n} capturas`,
+    noCaptures: "sin capturas",
+    returned: (commit: string, attempt: number, notes: string) => `QA devolvió la entrega (${commit}), intento ${attempt}:\n${notes}`,
+    couldNotReturn: (why: string) => `No se pudo devolver a Taller (${why})`,
+  },
+  en: {
+    failedAgain: "QA found failures again: review it yourself.",
+    couldNotFinish: (why: string) => `QA could not finish${why}: review it yourself.`,
+    axis: { spec: "What was asked", code: "The code" } as Record<"spec" | "code", string>,
+    verdict: (ok: boolean) => (ok ? "passes" : "fails"),
+    noFindings: "no findings",
+    failNoDetail: "fails with no detail",
+    copyClosed: "The test copy closed while starting",
+    copyLate: "The test copy did not start in time",
+    noQa: "The project no longer has QA",
+    notInReview: (status: string) => `The delivery is no longer in review (${status})`,
+    companyPaused: "The company is paused",
+    projectPaused: "The project is paused",
+    crashed: (why: string) => `Failed while running: ${why}`,
+    noWorktree: (why: string) => `No working copy (${why})`,
+    noCommit: "Could not read the delivery's commit",
+    behindPr: (commit: string) => `The working copy does not reach the PR's commit (${commit})`,
+    noReport: "QA ended without its report",
+    reviewFailed: (why: string) => `The review failed (${why})`,
+    failCount: (fail: number, total: number) => `: ${fail} of ${total} fail`,
+    timedOut: ": did not finish in time",
+    exitCode: (code: number) => ` (code ${code})`,
+    verifyFailed: (name: string, counts: string, command: string, tail: string | null) =>
+      `- ${name} failed${counts}. \`${command}\`${tail !== null ? `\n  Last lines:\n${tail}` : ""}`,
+    specFailed: (notes: string) => `- Separate review · what was asked (scope, Done when, check list): ${notes}`,
+    codeFailed: (notes: string) => `- Separate review · the code (errors, edge cases, unsafe handling): ${notes}`,
+    reviewLine: (notes: string) => `- Separate review: ${notes}`,
+    checkMissed: (n: number, item: string | null, note: string) => `- Check list ${n}${item !== null ? ` "${item}"` : ""}: not met. ${note}`,
+    captureWarn: (error: string) => `- Stills (a warning, not a failure): ${error}`,
+    of: (pass: number, total: number) => `${pass} of ${total}`,
+    captures: (ok: number, failed: number, error: string | null) => `QA · ${ok} stills at 1440 and 390${failed ? `, ${failed} failed` : ""}${error ? ` (${error})` : ""}`,
+    reviewCite: (model: string, notes: string) => `QA · separate review${model}: ${notes}`,
+    summary: (pass: boolean, attempt: number) => `QA ${pass ? "passes" : "fails"} (attempt ${attempt})`,
+    tests: (pass: number, total: number) => `tests ${pass} of ${total}`,
+    axes: (spec: boolean, code: boolean) => `what was asked ${spec ? "passes" : "fails"} · the code ${code ? "passes" : "fails"}`,
+    reviewVerdict: (ok: boolean) => `review ${ok ? "passes" : "fails"}`,
+    noReview: "no review (the tests failed)",
+    walked: "walked through the app",
+    checklist: (ok: number, total: number) => `check list ${ok} of ${total}`,
+    noChecklist: "no check list",
+    capturesN: (n: number) => `${n} stills`,
+    noCaptures: "no stills",
+    returned: (commit: string, attempt: number, notes: string) => `QA sent the delivery back (${commit}), attempt ${attempt}:\n${notes}`,
+    couldNotReturn: (why: string) => `Could not send it back to Taller (${why})`,
+  },
+});
 
 export const QA_WORK = new Set(["code", "bug", "debt"]);
 export const QA_REASON = "qa lane";
@@ -162,8 +261,8 @@ export async function qaGate(db: Db, p: Project | null, t: Task | null, head: st
   // A newer commit than the one QA saw: a new pass is due.
   if (head && lane.commit && !sameCommit(head, lane.commit)) return { pending: true, hold: null };
   if (lane.status === "pass") return { pending: false, hold: null };
-  if (lane.status === "fail") return lane.returned ? { pending: true, hold: null } : { pending: false, hold: "QA encontró fallas otra vez: revísala tú." };
-  return { pending: false, hold: `QA no pudo terminar${lane.hold ? ` (${cut(lane.hold, 80)})` : ""}: revísala tú.` };
+  if (lane.status === "fail") return lane.returned ? { pending: true, hold: null } : { pending: false, hold: say(QA_WORDS).failedAgain };
+  return { pending: false, hold: say(QA_WORDS).couldNotFinish(lane.hold ? ` (${cut(lane.hold, 80)})` : "") };
 }
 
 // ---- Output parsing
@@ -240,8 +339,12 @@ const reportSchema = z
   .refine((r) => (r.spec && r.code) || r.review, "two axes, or the old single review");
 export type QaReport = { review: { verdict: "pass" | "fail"; notes: string; spec?: QaAxis; code?: QaAxis }; marks: QaMark[]; walked?: boolean };
 
-export const AXIS_WORDS = { spec: "Lo que se pidió", code: "El código" } as const;
-const axisLine = (axis: keyof typeof AXIS_WORDS, a: QaAxis) => `${AXIS_WORDS[axis]} (${a.verdict === "pass" ? "pasa" : "falla"}): ${a.notes || (a.verdict === "pass" ? "sin hallazgos" : "falla sin detalle")}`;
+// PLA-I2-10: the axes' names are QA_WORDS.axis, in the install's language (they were AXIS_WORDS, Spanish only).
+export const axisWords = (): Record<"spec" | "code", string> => say(QA_WORDS).axis;
+const axisLine = (axis: "spec" | "code", a: QaAxis) => {
+  const w = say(QA_WORDS);
+  return `${w.axis[axis]} (${w.verdict(a.verdict === "pass")}): ${a.notes || (a.verdict === "pass" ? w.noFindings : w.failNoDetail)}`;
+};
 
 // The JSON objects a final text may carry, the most deliberate first: the last ```qa-report block, the whole text
 // (a run with --json-schema answers with the bare object), then the text from its first { to its last }.
@@ -357,7 +460,7 @@ export const startApp: StartApp = async ({ cwd, command, url, port, timeoutMs })
   };
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
-    if (exited) return { ok: false, error: "La copia de prueba se cerró al arrancar", stop };
+    if (exited) return { ok: false, error: say(QA_WORDS).copyClosed, stop };
     try {
       const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
       if (r.status < 500) return { ok: true, error: null, stop };
@@ -366,7 +469,7 @@ export const startApp: StartApp = async ({ cwd, command, url, port, timeoutMs })
     }
     await new Promise((r) => setTimeout(r, 1_000));
   }
-  return { ok: false, error: "La copia de prueba no arrancó a tiempo", stop };
+  return { ok: false, error: say(QA_WORDS).copyLate, stop };
 };
 
 // ---- The sweep (each heartbeat tick)
@@ -394,14 +497,14 @@ export async function sweepQa(db: Db, now = new Date(), deps: QaDeps = {}): Prom
     const [t] = await db.select().from(tasks).where(eq(tasks.id, lane.taskId)).limit(1);
     const qa = p ? await qaAgentOf(db, p) : null;
     if (!p || !t || !qa) {
-      await endLane(db, lane, "error", "El proyecto ya no tiene QA");
+      await endLane(db, lane, "error", say(QA_WORDS).noQa);
       continue;
     }
     if (t.status !== "In review") {
-      await endLane(db, lane, "error", `La entrega ya no está en revisión (${t.status})`);
+      await endLane(db, lane, "error", say(QA_WORDS).notInReview(t.status));
       continue;
     }
-    const paused = settings.companyPaused ? "La compañía está en pausa" : p.runsPaused ? "El proyecto está en pausa" : null;
+    const paused = settings.companyPaused ? say(QA_WORDS).companyPaused : p.runsPaused ? say(QA_WORDS).projectPaused : null;
     if (lane.status === "queued") {
       if (paused || checking.size > 0) {
         if (paused && lane.hold !== paused) await db.update(qaLanes).set({ hold: paused }).where(eq(qaLanes.id, lane.id));
@@ -410,7 +513,7 @@ export async function sweepQa(db: Db, now = new Date(), deps: QaDeps = {}): Prom
       }
       await db.update(qaLanes).set({ status: "checking", hold: null, startedAt: now }).where(eq(qaLanes.id, lane.id));
       const job = runChecks(db, lane, p, t, deps)
-        .catch(async (e) => endLane(db, lane, "error", `Falló al correr: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`))
+        .catch(async (e) => endLane(db, lane, "error", say(QA_WORDS).crashed(e instanceof Error ? e.message.split("\n")[0]! : String(e))))
         .finally(() => checking.delete(lane.id));
       checking.set(lane.id, job);
       out.started += 1;
@@ -474,8 +577,9 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   const s: QaSettings | undefined = p.settings.qa;
   const repo = repoPathOf(p.slug, p.settings, env);
   const branch = lane.branch ?? t.branch ?? branchFor(t.key);
-  const made = await ensureWorktree({ repo, root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch }, git);
-  if (!made.ok) return endLane(db, lane, "error", `Sin copia de trabajo (${made.summary.replace(/^fail:\s*/, "")})`);
+  const start = startBranchOf(p.settings);
+  const made = await ensureWorktree({ repo, root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch, base: start }, git);
+  if (!made.ok) return endLane(db, lane, "error", say(QA_WORDS).noWorktree(made.summary.replace(/^fail:\s*/, "")));
   const cwd = made.path;
   const rev = async () => {
     const r = await git(["rev-parse", "HEAD"], cwd);
@@ -488,9 +592,9 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
     await git(["merge", "--ff-only", "FETCH_HEAD"], cwd);
     head = await rev();
   }
-  if (!head) return endLane(db, lane, "error", "No se pudo leer el commit de la entrega");
-  if (lane.commit && !sameCommit(head, lane.commit)) return endLane(db, lane, "error", `La copia de trabajo no llega al commit del PR (${short(lane.commit)})`);
-  const stat = await git(["diff", "--shortstat", `origin/${ALLOWED_BASE}...HEAD`], cwd);
+  if (!head) return endLane(db, lane, "error", say(QA_WORDS).noCommit);
+  if (lane.commit && !sameCommit(head, lane.commit)) return endLane(db, lane, "error", say(QA_WORDS).behindPr(short(lane.commit)));
+  const stat = await git(["diff", "--shortstat", `origin/${start}...HEAD`], cwd);
   const diffLines = stat.code === 0 ? [...stat.stdout.matchAll(/(\d+) (?:insertion|deletion)/g)].reduce((a, m) => a + Number(m[1]), 0) : null;
 
   const verify: QaVerifyItem[] = [];
@@ -513,7 +617,9 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
 
   let capture: QaCapture | null = null;
   const cs = p.settings.capture;
-  if (cs) {
+  // PLA-I2-4: no Chrome on this system: the captures are not available, said as a notice (never a failure).
+  if (cs && !supported("stills")) capture = { run_id: null, ok: 0, failed: 0, still_ids: [], error: NO_DISPONIBLE };
+  else if (cs) {
     const port = await (deps.freePort ?? freePort)();
     const base = `http://localhost:${port}`;
     let app: StartedApp | null = null;
@@ -571,7 +677,7 @@ async function driveReview(db: Db, lane: QaLane, p: Project, t: Task, qa: Agent,
   const report = run.status === "ok" ? parseReport(text, items) : null;
   if (!report) {
     const tries = lane.reviewTries + 1;
-    const why = run.status === "ok" ? "QA terminó sin su informe" : `La revisión falló (${cut(run.summary, 80)})`;
+    const why = run.status === "ok" ? say(QA_WORDS).noReport : say(QA_WORDS).reviewFailed(cut(run.summary, 80));
     if (tries < MAX_REVIEW_TRIES) {
       await db.update(qaLanes).set({ reviewTries: tries, runId: null, hold: why }).where(eq(qaLanes.id, lane.id));
       return "waiting";
@@ -588,22 +694,23 @@ async function driveReview(db: Db, lane: QaLane, p: Project, t: Task, qa: Agent,
 
 export function notesOf(lane: Pick<QaLane, "verify" | "capture" | "review" | "marks" | "commit">, items: PoCheck[]): string {
   const lines: string[] = [];
+  const w = say(QA_WORDS);
   for (const v of lane.verify.filter((x) => !x.ok)) {
-    const counts = v.fail ? `: ${v.fail} de ${(v.pass ?? 0) + v.fail} fallan` : v.exit_code === null ? ": no terminó a tiempo" : ` (código ${v.exit_code})`;
-    lines.push(`- ${v.name} falló${counts}. \`${v.command}\`${v.tail ? `\n  Últimas líneas:\n${v.tail.split("\n").map((l) => `    ${l}`).join("\n")}` : ""}`);
+    const counts = v.fail ? w.failCount(v.fail, (v.pass ?? 0) + v.fail) : v.exit_code === null ? w.timedOut : w.exitCode(v.exit_code);
+    lines.push(w.verifyFailed(v.name, counts, v.command, v.tail ? v.tail.split("\n").map((l) => `    ${l}`).join("\n") : null));
   }
   // AUDIT-6: a two-axis review names the axis that failed, so Taller knows whether it built the wrong thing or
   // built it wrong. A review from before has one verdict and one line.
   const { spec, code } = lane.review ?? {};
   if (spec && code) {
-    if (spec.verdict === "fail") lines.push(`- Revisión aparte · lo que se pidió (alcance, Done when, check list): ${spec.notes || "falla sin detalle"}`);
-    if (code.verdict === "fail") lines.push(`- Revisión aparte · el código (errores, casos límite, manejo inseguro): ${code.notes || "falla sin detalle"}`);
-  } else if (lane.review?.verdict === "fail") lines.push(`- Revisión aparte: ${lane.review.notes || "falla sin detalle"}`);
+    if (spec.verdict === "fail") lines.push(w.specFailed(spec.notes || w.failNoDetail));
+    if (code.verdict === "fail") lines.push(w.codeFailed(code.notes || w.failNoDetail));
+  } else if (lane.review?.verdict === "fail") lines.push(w.reviewLine(lane.review.notes || w.failNoDetail));
   for (const m of lane.marks.filter((x) => x.mark === "fail")) {
     const item = items.find((c) => c.n === m.n);
-    lines.push(`- Check list ${m.n}${item ? ` «${item.text}»` : ""}: no se cumple. ${m.note}`.trim());
+    lines.push(w.checkMissed(m.n, item ? item.text : null, m.note).trim());
   }
-  if (lane.capture?.error) lines.push(`- Capturas (aviso, no cuenta como falla): ${lane.capture.error}`);
+  if (lane.capture?.error) lines.push(w.captureWarn(lane.capture.error));
   return lines.join("\n");
 }
 
@@ -642,7 +749,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   // HEAD after the lane: QA never moves the delivery's branch.
   const env = deps.env ?? process.env;
   const git = deps.git ?? defaultGit;
-  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key) }, git);
+  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key), base: startBranchOf(p.settings) }, git);
   const after = made.ok ? (await git(["rev-parse", "HEAD"], made.path)).stdout.trim() || null : null;
 
   await db.update(qaLanes).set({ review, marks, notes, status, headAfter: after, endedAt: new Date(), hold: null }).where(eq(qaLanes.id, lane.id));
@@ -653,11 +760,12 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   const base = { project: p.slug, key: t.key, commit, branch: lane.branch ?? undefined };
   const add = (r: Omit<AddResultInput, "project" | "key">) => addResult(db, { ...base, ...r }, ctx).catch(() => undefined);
   const tests = testsOf(lane.verify);
+  const w = say(QA_WORDS);
   if (lane.verify.length) {
     await add({
       kind: "test",
       verdict: verifyOk ? "pass" : "fail",
-      cite: cut(`QA · ${lane.verify.map((v) => `${v.name} ${v.pass !== null || v.fail !== null ? `${v.pass ?? 0} de ${(v.pass ?? 0) + (v.fail ?? 0)}` : v.ok ? "ok" : "falla"}`).join(" · ")}`, 500),
+      cite: cut(`QA · ${lane.verify.map((v) => `${v.name} ${v.pass !== null || v.fail !== null ? w.of(v.pass ?? 0, (v.pass ?? 0) + (v.fail ?? 0)) : v.ok ? "ok" : w.verdict(false)}`).join(" · ")}`, 500),
       command: cut(lane.verify.map((v) => v.command).join(" && "), 500),
       exit_code: lane.verify.find((v) => !v.ok)?.exit_code ?? 0,
       counts: { pass: tests.pass, fail: tests.total - tests.pass },
@@ -668,27 +776,27 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
     await add({
       kind: "visual",
       verdict: lane.capture.failed > 0 || lane.capture.ok === 0 ? "warn" : "pass",
-      cite: cut(`QA · ${lane.capture.ok} capturas a 1440 y 390${lane.capture.failed ? `, ${lane.capture.failed} fallaron` : ""}${lane.capture.error ? ` (${lane.capture.error})` : ""}`, 500),
+      cite: cut(w.captures(lane.capture.ok, lane.capture.failed, lane.capture.error ?? null), 500),
       attachments: lane.capture.still_ids.slice(0, 24).map((id) => attachUrl(deps, p.slug, id)),
     });
   }
-  if (review) await add({ kind: "subagent", verdict: review.verdict, cite: cut(`QA · revisión aparte${review.model ? ` (${review.model})` : ""}: ${review.notes || (review.verdict === "pass" ? "pasa" : "falla")}`, 1000) });
+  if (review) await add({ kind: "subagent", verdict: review.verdict, cite: cut(w.reviewCite(review.model ? ` (${review.model})` : "", review.notes || w.verdict(review.verdict === "pass")), 1000) });
   const checkedOk = marks.filter((m) => m.mark === "pass").length;
   await add({
     kind: "verify",
     verdict: status,
     cite: cut(
       [
-        `QA ${pass ? "pasa" : "falla"} (intento ${lane.attempt})`,
-        `pruebas ${tests.pass} de ${tests.total}`,
+        w.summary(pass, lane.attempt),
+        w.tests(tests.pass, tests.total),
         review?.spec && review.code
-          ? `lo pedido ${review.spec.verdict === "pass" ? "pasa" : "falla"} · el código ${review.code.verdict === "pass" ? "pasa" : "falla"}`
+          ? w.axes(review.spec.verdict === "pass", review.code.verdict === "pass")
           : review
-            ? `revisión ${review.verdict === "pass" ? "pasa" : "falla"}`
-            : "sin revisión (fallaron las pruebas)",
-        ...(review?.walked ? ["recorrió la app"] : []),
-        items.length ? `check list ${checkedOk} de ${items.length}` : "sin check list",
-        lane.capture ? `${lane.capture.ok} capturas` : "sin capturas",
+            ? w.reviewVerdict(review.verdict === "pass")
+            : w.noReview,
+        ...(review?.walked ? [w.walked] : []),
+        items.length ? w.checklist(checkedOk, items.length) : w.noChecklist,
+        lane.capture ? w.capturesN(lane.capture.ok) : w.noCaptures,
       ].join(" · "),
       500,
     ),
@@ -718,12 +826,12 @@ async function returnToTaller(db: Db, lane: QaLane, p: Project, t0: Task): Promi
   const [t] = await db.select().from(tasks).where(eq(tasks.id, t0.id)).limit(1);
   if (!t || t.status !== "In review") return;
   const ctx: Ctx = { actor: { ...SYSTEM_ACTOR, machine: hostname() }, tool: "qa.return" };
-  const text = `QA devolvió la entrega (${short(lane.commit)}), intento ${lane.attempt}:\n${lane.notes ?? ""}`.slice(0, 4000);
+  const text = say(QA_WORDS).returned(short(lane.commit), lane.attempt, lane.notes ?? "").slice(0, 4000);
   try {
     await setTask(db, { project: p.slug, key: t.key, status: "Ready", version: t.version, note: text } as never, ctx);
   } catch (e) {
     const why = e instanceof ToolError ? e.code : e instanceof Error ? e.message : String(e);
-    await db.update(qaLanes).set({ hold: cut(`No se pudo devolver a Taller (${why})`, 300) }).where(eq(qaLanes.id, lane.id));
+    await db.update(qaLanes).set({ hold: cut(say(QA_WORDS).couldNotReturn(why), 300) }).where(eq(qaLanes.id, lane.id));
     return;
   }
   await db.update(qaLanes).set({ returned: true }).where(eq(qaLanes.id, lane.id));
@@ -873,7 +981,7 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<
     `You are the QA reviewer for project ${p.slug} (${p.title}), woken by the Plania runner on the delivery of ${t.key}: ${t.title}.`,
     `Delivery: commit ${short(lane.commit)} on branch ${lane.branch ?? "?"}${lane.prUrl ? `, PR ${lane.prUrl}` : ""}. Workspace: ${cwd} (read-only for you).`,
     "You have not seen how it was built, on purpose. Do not read the project thread, the ticket's notes or its log before your review: judge the change on its own.",
-    `Read the ticket's scope and Done when with get_task (project ${p.slug}, key ${t.key}, fields ["title", "scope", "checks"]). Then read the change: git diff origin/${ALLOWED_BASE}...HEAD and the files it touches.`,
+    `Read the ticket's scope and Done when with get_task (project ${p.slug}, key ${t.key}, fields ["title", "scope", "checks"]). Then read the change: git diff origin/${startBranchOf(p.settings)}...HEAD and the files it touches.`,
     `Already run by Plania on this commit: ${verify}${lane.verify.length ? ` (tests ${tests.pass} of ${tests.total})` : ""}. Captures: ${lane.capture ? `${lane.capture.ok} taken${lane.capture.error ? `, ${lane.capture.error}` : ""}` : "none configured"}.`,
     items.length
       ? `Check list del PO (mark every item pass or fail; run the tests or read the code to check it):\n${items.map((c) => `${c.n}. ${c.text}`).join("\n")}`
@@ -885,7 +993,7 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<
     ...(t.workType === "bug"
       ? ["This ticket fixes a bug: also confirm what must not change. Read the callers and the tests of what the diff touches, and say in the spec notes which behaviour around the fix you confirmed still works. A regression fails code."]
       : []),
-    "Fail only a real defect, never a preference. Write the notes in Spanish, exact: file:line, what is wrong, what would fix it. A verdict that passes gets one line on what you checked.",
+    `Fail only a real defect, never a preference. Write the notes in ${ownerLanguage()}, exact: file:line, what is wrong, what would fix it. A verdict that passes gets one line on what you checked.`,
     ...walkLines,
     ...missLines(misses),
     "End your run with exactly one block, the last thing you write:",

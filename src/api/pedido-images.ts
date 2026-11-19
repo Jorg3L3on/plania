@@ -1,4 +1,4 @@
-// PLA-I54-2: pictures on a request (src/pedidos/images.ts). Jorge's session cookie only, like the other company
+// PLA-I54-2: pictures on a request (src/pedidos/images.ts). The owner's session cookie only, like the other company
 // routes: a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
 //   POST   /api/company/projects/:slug/tasks/:key/images      one picture: the raw bytes (Content-Type image/*) or
 //          multipart with one file field. PNG, JPEG or WebP by its first bytes; 5 MB; 6 per request.
@@ -14,6 +14,21 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { ImageError, MAX_IMAGE_BYTES, addTaskImage, deleteTaskImage, imageErrors, listTaskImages, taskImageBytes } from "../pedidos/images.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the route's refusals in the install's language; the Spanish is unchanged.
+export const PEDIDO_IMAGE_WORDS = defineWords({
+  es: {
+    screenOnly: "Las imágenes de un pedido solo se tocan desde la pantalla.",
+    signIn: "Inicia sesión otra vez.",
+    oneAtATime: "Sube una imagen a la vez.",
+  },
+  en: {
+    screenOnly: "A request's pictures are only touched from the screen.",
+    signIn: "Sign in again.",
+    oneAtATime: "Upload one picture at a time.",
+  },
+});
 
 export const pedidoImageRoutes = new Hono();
 
@@ -24,9 +39,9 @@ pedidoImageRoutes.use(`${BASE}/*`, guard);
 
 async function guard(c: Context, next: () => Promise<void>) {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "FORBIDDEN", message: "Las imágenes de un pedido solo se tocan desde la pantalla." }, 403);
+    return c.json({ error: "FORBIDDEN", message: say(PEDIDO_IMAGE_WORDS).screenOnly }, 403);
   }
-  if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED", message: "Inicia sesión otra vez." }, 401);
+  if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED", message: say(PEDIDO_IMAGE_WORDS).signIn }, 401);
   await next();
 }
 
@@ -54,7 +69,7 @@ async function picture(c: Context): Promise<Buffer> {
       .flat()
       .filter((v): v is File => typeof v === "object" && v !== null && "arrayBuffer" in v);
     if (files.length === 0) throw imageErrors.empty();
-    if (files.length > 1) throw new ImageError("UNA_IMAGEN", 400, "Sube una imagen a la vez.");
+    if (files.length > 1) throw new ImageError("UNA_IMAGEN", 400, say(PEDIDO_IMAGE_WORDS).oneAtATime);
     return Buffer.from(await files[0]!.arrayBuffer());
   }
   return Buffer.from(await c.req.arrayBuffer());

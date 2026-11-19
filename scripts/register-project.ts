@@ -11,7 +11,7 @@ import { projects, type ProjectSettings } from "../src/db/schema.js";
 import type { Ctx } from "../src/mcp/tx.js";
 import { createProjectFromTemplate } from "../src/runner/new-project.js";
 
-const ACTOR = { agent: "jorge-cli", session_id: "register-project" };
+const ACTOR = { agent: "owner-cli", session_id: "register-project" };
 
 export type RegisterInput = { slug: string; title: string; prefix?: string; repo?: string; path?: string };
 

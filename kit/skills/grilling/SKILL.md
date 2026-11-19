@@ -43,12 +43,12 @@ him: if he does not answer, your recommendation stands and is recorded as an ass
    update the doc or the plan.
 
 Use `ask` instead of an assumption only when no sensible default exists and a wrong guess cannot be
-undone (money spent, data deleted, a message sent to real people). `ask` parks a ticket in Needs Jorge;
+undone (money spent, data deleted, a message sent to real people). `ask` parks a ticket in Needs owner;
 an idea never waits.
 
 ## Writing a closed question
 
-The owner reads these in Te toca, away from the code. Write them in plain Spanish.
+The owner reads these in Te toca, away from the code. Write them in plain words in the owner's language.
 
 - One sentence, one decision. Never "¿Qué prefieres?" and never two questions joined by "y".
 - Two to four options that exclude each other. Do not pad to four, and offer nothing you would not build.

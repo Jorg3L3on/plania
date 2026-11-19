@@ -192,7 +192,8 @@ test("I3-7 #4: Pedir is the mode as one chip, the input and a 44 px send with an
   // The menu holds the modes, the picture button and «Lo pedido» (drawn when the chip opens it).
   const src = readFileSync(new URL("../ui/src/components/corriente/pedir-bar.tsx", import.meta.url), "utf8");
   const chip = src.slice(src.indexOf("const ModoChip"), src.indexOf("/** The two links to the Pedir page"));
-  for (const s of ['role="menuitemradio"', "{PEDIR_PICTURE}", "{PEDIR_PAST}", "stopImmediatePropagation()"]) assert.ok(chip.includes(s), s);
+  // PLA-I2-10: the words come through pedirPicture() / pedirPast(), in the screen's language.
+  for (const s of ['role="menuitemradio"', "{pedirPicture()}", "{pedirPast()}", "stopImmediatePropagation()"]) assert.ok(chip.includes(s), s);
   // Paused: the one sentence and «Lo pedido», which a phone keeps (under it).
   const held = html(h(bar.PedirBar, { projects: [project({ paused: true })], fixed: project({ paused: true }), onAsk: async () => ({ ok: true }), pedirTo: (s: string) => `/p/${s}` }));
   assert.ok(held.includes(lib.pedirHeld("Filmia")) && !/<button|<input/.test(held));

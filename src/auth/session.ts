@@ -34,10 +34,10 @@ export function verifySession(value: string | undefined, now = Date.now()): bool
 }
 
 // PLA-30: the cookie is Secure only when the browser really is on HTTPS: HTTPS directly, or HTTPS that a
-// reverse proxy on this Mac terminated (tailscale serve sends X-Forwarded-Proto: https). Plain http on a
+// reverse proxy on this machine terminated (tailscale serve sends X-Forwarded-Proto: https). Plain http on a
 // loopback host (localhost, 127.0.0.1, [::1]) gets a non-Secure cookie: Chrome and Firefox accept Secure
 // cookies there, but Safari drops them, so the login looked like it worked and then silently did nothing.
-// The forwarded header is trusted because the server binds 127.0.0.1: only this Mac can reach it.
+// The forwarded header is trusted because the server binds 127.0.0.1: only this machine can reach it.
 export function isSecureRequest(req: Request): boolean {
   const forwarded = req.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase();
   if (forwarded) return forwarded === "https";

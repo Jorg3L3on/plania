@@ -14,6 +14,11 @@ import type { EtapaId, OrgMember, OrgNextStart, OrgProject, ProjectTicket } from
 import { columnOf, isDone, toneOf, type StageTone, type StationId } from "./etapas";
 import { byRole, roleName } from "./org";
 import { ago } from "./time";
+import { getLanguage, words, type Language } from "./i18n.js";
+import { AHORA_PISO_WORDS } from "./ahora-piso-words";
+// PLA-I2-10: the words are in AHORA_PISO_WORDS (lib/ahora-piso-words.ts), in both languages; the functions that
+// return words take the language last, the screen's by default.
+const W = (language: Language) => words(AHORA_PISO_WORDS, language);
 
 // One piece of work someone is on this minute.
 export type Obra = {
@@ -31,13 +36,12 @@ export type Obra = {
 };
 
 const STATION_OF_ROLE: Record<string, StationId> = { "product-owner": "por", po: "por", taller: "taller", qa: "qa" };
-const VERB: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", "product-owner": "prepara", po: "prepara", copy: "escribe" };
 
 const clip = (s: string, n = 80) => {
   const one = s.replace(/\s+/g, " ").trim();
   return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
 };
-const q = (s: string | null | undefined) => (s ? `«${clip(s)}»` : "lo siguiente");
+const q = (s: string | null | undefined, language: Language) => (s ? W(language).quote(clip(s)) : W(language).nextThing);
 const newest = (a: { since: string | null }, b: { since: string | null }) => Date.parse(b.since ?? "0") - Date.parse(a.since ?? "0");
 
 // Who on the team a holder is: the same agent, else the teammate of that role (a session's lease names its client,
@@ -71,7 +75,7 @@ export function obrasOf(p: Card, opts: { companyPaused?: boolean } = {}): Obra[]
 export const seatOf = (m: Pick<OrgMember, "agent">, obras: Obra[]): Obra | null => obras.find((o) => o.agent === m.agent) ?? null;
 
 // The seat stations' light: building and testing before fixing, as the board's own rule (etapas.ts litOf).
-const LIT_ORDER: StageTone[] = ["now", "review", "jorge"];
+const LIT_ORDER: StageTone[] = ["now", "review", "owner"];
 export function litOf(obras: Obra[]): Partial<Record<StationId, StageTone>> {
   const lit: Partial<Record<StationId, StageTone>> = {};
   for (const o of obras) {
@@ -83,17 +87,18 @@ export function litOf(obras: Obra[]): Partial<Record<StationId, StageTone>> {
 }
 
 // «Taller construye «título» · hace 12 min», «QA prueba «título»», «Taller arregla «título» (devuelto)».
-export function obraLine(o: Obra, now: number): string {
-  const who = roleName(o.role);
+export function obraLine(o: Obra, now: number, language: Language = getLanguage()): string {
+  const w = W(language);
+  const who = roleName(o.role, language);
   const what =
     o.etapa === "devuelto"
-      ? `${who} arregla ${q(o.title)} (devuelto)`
+      ? w.fixesBack(who, q(o.title, language))
       : o.etapa === "en_qa"
-        ? `${who} prueba ${q(o.title)}`
+        ? w.tests(who, q(o.title, language))
         : o.title
-          ? `${who} ${VERB[o.role] ?? "trabaja en"} ${q(o.title)}`
-          : `${who} está trabajando`;
-  return o.since ? `${what} · ${ago(o.since, now)}` : what;
+          ? w.does(who, w.verb[o.role] ?? w.verbOther, q(o.title, language))
+          : w.isWorking(who);
+  return o.since ? `${what} · ${ago(o.since, now, language)}` : what;
 }
 
 // ---- why nobody works
@@ -116,31 +121,31 @@ export type QuietFacts = {
 };
 export type Quiet = { kind: QuietKind; text: string };
 
-const more = (n: number) => (n > 0 ? ` y ${n === 1 ? "1 más" : `${n} más`}` : "");
+const more = (n: number, language: Language) => (n > 0 ? W(language).more(n) : "");
 const end = (s: string) => (/[.!?…]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 
 // What holds the runner back (the server's next_start.hold), said after «la próxima ronda».
-const HOLD_WORD: Record<string, string> = { usage: "; por ahora el uso lo detiene", slot: "; espera un lugar libre", rest: "; ahora descansa", no_goal: "; falta la meta del proyecto", unqueued: "; nadie lo ha despertado" };
-export function quietReason(f: QuietFacts): Quiet {
-  if (f.owner.length > 0) return { kind: "owner", text: `Te toca: ${q(f.owner[0])}${more(f.owner.length - 1)}.` };
-  if (f.move) return { kind: "owner", text: `Te toca: ${end(f.move.charAt(0).toLowerCase() + f.move.slice(1))}` };
+export function quietReason(f: QuietFacts, language: Language = getLanguage()): Quiet {
+  const w = W(language);
+  if (f.owner.length > 0) return { kind: "owner", text: w.yourTurn(`${q(f.owner[0], language)}${more(f.owner.length - 1, language)}.`) };
+  if (f.move) return { kind: "owner", text: w.yourTurn(end(f.move.charAt(0).toLowerCase() + f.move.slice(1))) };
   if (f.ready.length === 0 && f.blocked.length > 0) {
     const b = f.blocked[0]!;
-    return { kind: "blocked", text: `Todo está bloqueado: ${q(b.title)}${b.reason ? ` (${b.reason.replace(/[.\s]+$/, "")})` : ""}${more(f.blocked.length - 1)}.` };
+    return { kind: "blocked", text: w.allBlocked(`${q(b.title, language)}${b.reason ? ` (${b.reason.replace(/[.\s]+$/, "")})` : ""}${more(f.blocked.length - 1, language)}`) };
   }
   if (f.ready.length === 0) {
-    if (f.later === 0) return { kind: "nothing_ready", text: "Nada está listo para empezar. Pide algo con Pedir y el PO lo reparte." };
-    const head = f.later === 1 ? "Queda 1 para después" : `Quedan ${f.later} para después`;
+    if (f.later === 0) return { kind: "nothing_ready", text: w.nothingReadyAsk };
+    const head = f.later === 1 ? w.laterOne : w.laterMany(f.later);
     // PLA-47: name up to two of them and why each waits, so the owner sees what is next without opening the board.
-    const named = (f.laterOnes ?? []).slice(0, 2).map((t) => `${q(t.title)}${t.reason ? ` (${t.reason.replace(/[.\s]+$/, "").replace(/^./, (c) => c.toLowerCase())})` : ""}`);
-    const list = named.length ? `: ${named.join("; ")}${more(f.later - named.length)}` : "";
-    return { kind: "nothing_ready", text: `Nada está listo para empezar. ${head}${list}.` };
+    const named = (f.laterOnes ?? []).slice(0, 2).map((t) => `${q(t.title, language)}${t.reason ? ` (${t.reason.replace(/[.\s]+$/, "").replace(/^./, (c) => c.toLowerCase())})` : ""}`);
+    const list = named.length ? `: ${named.join("; ")}${more(f.later - named.length, language)}` : "";
+    return { kind: "nothing_ready", text: w.nothingReady(`${head}${list}`) };
   }
-  if (f.paused) return { kind: "paused", text: f.paused === "company" ? "La compañía está en pausa: nada arranca hasta que la reanudes." : "El proyecto está en pausa: nada arranca hasta que lo reanudes." };
-  const who = f.queued?.who ?? "El equipo";
+  if (f.paused) return { kind: "paused", text: f.paused === "company" ? w.companyPaused : w.projectPaused };
+  const who = f.queued?.who ?? w.theTeam;
   const rest = f.ready.length - 1;
-  const hold = HOLD_WORD[f.queued?.hold ?? ""] ?? "";
-  return { kind: "queued", text: `${q(f.ready[0])} está listo: ${who} lo toma en la próxima ronda${f.queued?.at ? `, a las ${f.queued.at}` : ""}${hold}.${rest > 0 ? ` ${rest === 1 ? "Hay 1 más en fila" : `Hay ${rest} más en fila`}.` : ""}` };
+  const hold = w.hold[f.queued?.hold ?? ""] ?? "";
+  return { kind: "queued", text: `${w.queued(q(f.ready[0], language), who, f.queued?.at ?? null, hold)}${rest > 0 ? w.moreInLine(rest) : ""}` };
 }
 
 const clockAt = (iso: string, timeZone?: string) =>
@@ -189,26 +194,28 @@ export type AhoraView = {
   returned: string | null;
   obras: Obra[];
 };
-export const QUIET_SAY = "Nadie trabaja en este piso ahora.";
+/** The quiet form's sentence in Spanish (kept for the tests); words(AHORA_PISO_WORDS).quietSay is the screen's. */
+export const QUIET_SAY = AHORA_PISO_WORDS.es.quietSay;
 
 type ViewCard = Pick<OrgProject, "team" | "ahora" | "tablero" | "next_move" | "paused" | "light">;
-export function ahoraView(p: ViewCard, now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): AhoraView {
+export function ahoraView(p: ViewCard, now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}, language: Language = getLanguage()): AhoraView {
+  const w = W(language);
   const obras = obrasOf(p, opts);
   const facts = quietFacts(p, now, opts);
   const back = (p.ahora ?? []).filter((a) => a.etapa === "devuelto" && !a.live && !obras.some((o) => o.key === a.key));
-  const returned = back.length ? `Devuelto: ${q(back[0]!.title)} espera que ${roleName(back[0]!.holder?.role ?? "taller")} lo tome${more(back.length - 1)}.` : null;
+  const returned = back.length ? w.returned(q(back[0]!.title, language), roleName(back[0]!.holder?.role ?? "taller", language), more(back.length - 1, language)) : null;
   if (obras.length === 0) {
-    const quiet = quietReason(facts);
+    const quiet = quietReason(facts, language);
     return { working: false, tone: "idle", lines: [], why: quiet.text, quiet, returned, obras };
   }
   const busy = new Set(obras.map((o) => o.agent));
   const idle = opts.companyPaused || p.paused ? [] : [...p.team].sort(byRole).filter((m) => !busy.has(m.agent) && m.state !== "paused");
-  const owner = facts.owner.length || facts.move ? quietReason(facts).text : null;
-  const why = [owner, idle.length ? `Sin trabajo ahora: ${idle.map((m) => roleName(m.role)).join(", ")}.` : null].filter(Boolean).join(" ");
+  const owner = facts.owner.length || facts.move ? quietReason(facts, language).text : null;
+  const why = [owner, idle.length ? w.idleNow(idle.map((m) => roleName(m.role, language)).join(", ")) : null].filter(Boolean).join(" ");
   return {
     working: true,
     tone: obras[0]!.tone,
-    lines: obras.map((o, i) => ({ key: o.key ?? `run-${o.agent}-${i}`, agent: o.agent, station: o.station, tone: o.tone, text: obraLine(o, now) })),
+    lines: obras.map((o, i) => ({ key: o.key ?? `run-${o.agent}-${i}`, agent: o.agent, station: o.station, tone: o.tone, text: obraLine(o, now, language) })),
     why,
     quiet: null,
     returned,

@@ -37,6 +37,7 @@ import { serviceAgent } from "../runner/events.js";
 import type { HeartbeatDeps } from "../jobs/heartbeat.js";
 import { roleOf } from "../runner/limits.js";
 import type { Target } from "./types.js";
+import { defineWords, ownerIn, say } from "../words.js";
 
 export type Level = "instant" | "confirm" | "wake";
 export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "close_idea", "later", "dismiss", "give_to_po", "start_now", "start_building"] as const;
@@ -83,7 +84,7 @@ async function deliveryMessage(db: Db, projectId: string, key: string): Promise<
   const rows = await db
     .select({ id: threadMessages.id, links: threadMessages.links })
     .from(threadMessages)
-    .where(and(eq(threadMessages.threadId, thread.id), isNull(threadMessages.actionState), sql`${threadMessages.authorAgent} <> 'jorge'`))
+    .where(and(eq(threadMessages.threadId, thread.id), isNull(threadMessages.actionState), sql`${threadMessages.authorAgent} <> 'owner'`))
     .orderBy(desc(threadMessages.at))
     .limit(200);
   return rows.find((m) => m.links.some((l) => (l.kind === "ticket" || l.kind === "idea") && l.ref === key))?.id ?? null;
@@ -183,20 +184,61 @@ export async function live(db: Db, t: Target): Promise<Live> {
   }
 }
 
+// PLA-I2-10: the handled lines and the notes the brief's actions write, in the brief's language; the Spanish is unchanged.
+export const BRIEF_ACTION_WORDS = defineWords({
+  es: {
+    answered: (a: string) => `Respondida: ${a}`,
+    stepDone: "Paso hecho",
+    nothingToPublish: "Ya no hay nada que publicar",
+    prMerged: (n: number) => `#${n} fusionado`,
+    prClosed: (n: number) => `#${n} cerrado`,
+    runsOn: "Las corridas están activas",
+    envUpdated: (commit: string) => `Registro actualizado (${commit})`,
+    findingGone: "La auditoría ya no lo encuentra",
+    postponed: (owner: string) => `${owner} lo aplazó desde el brief.`,
+    held: (owner: string) => `${owner} lo puso en espera desde el brief.`,
+    closedReason: (why: string) => `Descartada desde el brief: ${why}`,
+    closedLine: (key: string, why: string) => `${key} descartada: ${why}`,
+    ownerNote: (owner: string, note: string) => `Nota ${owner}: ${note}`,
+    fromBrief: "el brief de la mañana",
+    started: (owner: string) => `${owner} lo empezó desde el brief.`,
+    undone: (owner: string) => `${owner} deshizo el cambio desde el brief.`,
+  },
+  en: {
+    answered: (a: string) => `Answered: ${a}`,
+    stepDone: "Step done",
+    nothingToPublish: "Nothing left to publish",
+    prMerged: (n: number) => `#${n} merged`,
+    prClosed: (n: number) => `#${n} closed`,
+    runsOn: "Runs are on",
+    envUpdated: (commit: string) => `Record updated (${commit})`,
+    findingGone: "The audit no longer finds it",
+    postponed: (owner: string) => `${owner} postponed it from the brief.`,
+    held: (owner: string) => `${owner} put it on hold from the brief.`,
+    closedReason: (why: string) => `Discarded from the brief: ${why}`,
+    closedLine: (key: string, why: string) => `${key} discarded: ${why}`,
+    ownerNote: (owner: string, note: string) => `Note from ${owner}: ${note}`,
+    fromBrief: "the morning brief",
+    started: (owner: string) => `${owner} started it from the brief.`,
+    undone: (owner: string) => `${owner} undid the change from the brief.`,
+  },
+});
+const briefLang = (lang: string | undefined): Lang => (lang === "es" ? "es" : "en");
+
 /** When the target was handled anywhere (Bandeja, Compañía, GitHub): one line saying how. Else null. */
 export function handledLine(l: Live, opts: { itemStatus?: string; briefAt?: Date; lang?: string } = {}): string | null {
-  const es = opts.lang === "es";
+  const w = say(BRIEF_ACTION_WORDS, briefLang(opts.lang));
   switch (l.kind) {
     case "gone":
       return null;
     case "question":
-      return l.answered ? (es ? `Respondida: ${l.answer ?? ""}` : `Answered: ${l.answer ?? ""}`).trim() : null;
+      return l.answered ? w.answered(l.answer ?? "").trim() : null;
     case "step":
-      return l.satisfied ? (es ? "Paso hecho" : "Step done") : null;
+      return l.satisfied ? w.stepDone : null;
     case "release":
-      return l.pending || l.unknown ? null : es ? "Ya no hay nada que publicar" : "Nothing left to publish";
+      return l.pending || l.unknown ? null : w.nothingToPublish;
     case "pr":
-      return l.state === "merged" ? (es ? `#${l.number} fusionado` : `#${l.number} merged`) : l.state === "closed" ? (es ? `#${l.number} cerrado` : `#${l.number} closed`) : null;
+      return l.state === "merged" ? w.prMerged(l.number) : l.state === "closed" ? w.prClosed(l.number) : null;
     case "ticket":
       if (SHIPPED.has(l.status)) return `${l.key}: ${l.status}`;
       // A Ready row ("Start", "Put first") is handled once the ticket moved on.
@@ -206,11 +248,11 @@ export function handledLine(l: Live, opts: { itemStatus?: string; briefAt?: Date
     case "idea":
       return CLOSED.has(l.status) ? `${l.key}: ${l.status}` : null;
     case "runs":
-      return l.paused ? null : es ? "Las corridas están activas" : "Runs are on";
+      return l.paused ? null : w.runsOn;
     case "env":
-      return opts.briefAt && new Date(l.updated_at) > opts.briefAt ? (es ? `Registro actualizado (${l.commit ?? "?"})` : `Record updated (${l.commit ?? "?"})`) : null;
+      return opts.briefAt && new Date(l.updated_at) > opts.briefAt ? w.envUpdated(l.commit ?? "?") : null;
     case "finding":
-      return l.present ? null : es ? "La auditoría ya no lo encuentra" : "The audit no longer finds it";
+      return l.present ? null : w.findingGone;
   }
 }
 
@@ -221,33 +263,8 @@ export type ActionRefusal = { error: string; hint: string };
 export type Lang = "en" | "es";
 type Run = (db: Db, t: Target, l: Live, input: Record<string, unknown>, lang: Lang, row: RowCtx) => Promise<RunOutcome | ActionRefusal>;
 
-// The outcome line a row keeps, in the brief's language.
-const OUT = {
-  en: {
-    answered: (a: string) => `Answered: ${a}`,
-    step: (k: string) => `Step done on ${k}`,
-    added: (n: number, path: string, branch: string) => `Added ${n} line${n === 1 ? "" : "s"} to ${path} on ${branch}`,
-    had: (path: string) => `${path} already had those lines`,
-    published: (into: string, n: number) => `Published to ${into} with #${n}`,
-    merged: (n: number, base: string) => `#${n} merged into ${base}`,
-    status: (k: string, st: string) => `${k}: ${st}`,
-    changes: (k: string) => `Changes asked on ${k}`,
-    runsOn: "Runs turned on",
-    backlog: (k: string) => `${k} back to Backlog`,
-    first: (k: string) => `${k} goes first`,
-    hold: (k: string) => `${k} on hold`,
-    fixed: (c: string, k: string | null) => `Fixed: ${c}${k ? ` on ${k}` : ""}`,
-    later: (u: string | null) => (u ? `Later, until ${u}` : "Later"),
-    dismissed: (r: string | null) => (r ? `Not relevant: ${r}` : "Not relevant"),
-    undone: "Undone",
-    paused: "Runs paused again",
-    firstAgain: (k: string | null) => (k ? `${k} goes first again` : "No ticket goes first"),
-    back: (k: string, st: string) => `${k} back to ${st}`,
-    toPo: (po: string, k: string) => `Given to ${po}: ${k}`,
-    started: (who: string, k: string | null) => `${who} started${k ? ` on ${k}` : ""}`,
-    queued: (who: string, k: string | null) => `${who} queued${k ? ` for ${k}` : ""}`,
-    building: (keys: string[]) => `${keys.join(", ")} Ready for Taller`,
-  },
+// The outcome line a row keeps, in the brief's language (PLA-I2-10: a wording module; the Spanish is unchanged).
+const OUT = defineWords({
   es: {
     answered: (a: string) => `Respondida: ${a}`,
     step: (k: string) => `Paso hecho en ${k}`,
@@ -273,8 +290,33 @@ const OUT = {
     queued: (who: string, k: string | null) => `${who} en cola${k ? ` para ${k}` : ""}`,
     building: (keys: string[]) => `${keys.join(", ")} listos para Taller`,
   },
-} as const;
-export const outLines = (lang: string) => OUT[lang === "es" ? "es" : "en"];
+  en: {
+    answered: (a: string) => `Answered: ${a}`,
+    step: (k: string) => `Step done on ${k}`,
+    added: (n: number, path: string, branch: string) => `Added ${n} line${n === 1 ? "" : "s"} to ${path} on ${branch}`,
+    had: (path: string) => `${path} already had those lines`,
+    published: (into: string, n: number) => `Published to ${into} with #${n}`,
+    merged: (n: number, base: string) => `#${n} merged into ${base}`,
+    status: (k: string, st: string) => `${k}: ${st}`,
+    changes: (k: string) => `Changes asked on ${k}`,
+    runsOn: "Runs turned on",
+    backlog: (k: string) => `${k} back to Backlog`,
+    first: (k: string) => `${k} goes first`,
+    hold: (k: string) => `${k} on hold`,
+    fixed: (c: string, k: string | null) => `Fixed: ${c}${k ? ` on ${k}` : ""}`,
+    later: (u: string | null) => (u ? `Later, until ${u}` : "Later"),
+    dismissed: (r: string | null) => (r ? `Not relevant: ${r}` : "Not relevant"),
+    undone: "Undone",
+    paused: "Runs paused again",
+    firstAgain: (k: string | null) => (k ? `${k} goes first again` : "No ticket goes first"),
+    back: (k: string, st: string) => `${k} back to ${st}`,
+    toPo: (po: string, k: string) => `Given to ${po}: ${k}`,
+    started: (who: string, k: string | null) => `${who} started${k ? ` on ${k}` : ""}`,
+    queued: (who: string, k: string | null) => `${who} queued${k ? ` for ${k}` : ""}`,
+    building: (keys: string[]) => `${keys.join(", ")} Ready for Taller`,
+  },
+});
+export const outLines = (lang: string) => say(OUT, briefLang(lang));
 
 export type ActionDef = {
   id: ActionId;
@@ -315,7 +357,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const text = typeof input.option === "number" ? l.options[input.option - 1] : String(input.text ?? "");
         if (!text) return { error: "INVALID_OPTION", hint: "That option is not on the question." };
         await answer(db, { project: t.project, question_id: t.id!, answer: text }, ctxOf("answer"));
-        return { line: OUT[lang].answered(text), result: { answer: text } };
+        return { line: outLines(lang).answered(text), result: { answer: text } };
       }),
   },
   step_done: {
@@ -330,7 +372,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const p = (await projectBySlug(db, t.project))!;
         const note = typeof input.note === "string" && input.note ? input.note : undefined;
         const out = await writeTx(db, p, ctxOf("step"), (tx, emit) => resolveHumanAction(tx, emit, p.id, t.id!, WEB_ACTOR, note));
-        return { line: OUT[lang].step(out.key), result: out };
+        return { line: outLines(lang).step(out.key), result: out };
       }),
   },
   add_to_pr: {
@@ -347,7 +389,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       }
       const done = out as DecisionDone;
       const r = done.state.result as { path?: string; added?: number; branch?: string };
-      return { line: r.added ? OUT[lang].added(r.added, String(r.path), String(r.branch)) : OUT[lang].had(String(r.path)), result: done.state.result };
+      return { line: r.added ? outLines(lang).added(r.added, String(r.path), String(r.branch)) : outLines(lang).had(String(r.path)), result: done.state.result };
     },
   },
   publish: {
@@ -359,7 +401,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     run: (db, t, _l, _i, lang) =>
       guarded(async () => {
         const out = await shipRelease(db, t.project, ctxOf("publish"));
-        return { line: OUT[lang].published(out.into.branch, out.pr.number), result: { pr: out.pr, merge_sha: out.merge_sha, tickets: out.tickets } };
+        return { line: outLines(lang).published(out.into.branch, out.pr.number), result: { pr: out.pr, merge_sha: out.merge_sha, tickets: out.tickets } };
       }),
   },
   accept_pr: {
@@ -374,7 +416,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const out = await threadAction(db, await resolveThread(db, t.project), { message_id: l.message_id, action: "aceptar" });
         if ("error" in out) return { error: out.error, hint: out.hint };
         const r = out.action_state.result as { merged?: boolean; base?: string; status?: string; ticket?: string };
-        return { line: r.merged ? OUT[lang].merged(l.number, r.base ?? "sandbox") : OUT[lang].status(String(r.ticket ?? l.ticket?.key), r.status ?? "Done"), result: out.action_state.result };
+        return { line: r.merged ? outLines(lang).merged(l.number, r.base ?? "sandbox") : outLines(lang).status(String(r.ticket ?? l.ticket?.key), r.status ?? "Done"), result: out.action_state.result };
       }),
   },
   request_changes: {
@@ -388,7 +430,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         if (l.kind !== "pr" || !l.message_id) return { error: "STALE", hint: "no delivery" };
         const out = await threadAction(db, await resolveThread(db, t.project), { message_id: l.message_id, action: "cambios", text: String(input.text) });
         if ("error" in out) return { error: out.error, hint: out.hint };
-        return { line: OUT[lang].changes(String(l.ticket?.key)), result: out.action_state.result };
+        return { line: outLines(lang).changes(String(l.ticket?.key)), result: out.action_state.result };
       }),
   },
   resume_runs: {
@@ -401,7 +443,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     run: (db, t, _l, _i, lang) =>
       guarded(async () => {
         await setProjectPaused(db, t.project, false);
-        return { line: OUT[lang].runsOn, undo: { paused: true } };
+        return { line: outLines(lang).runsOn, undo: { paused: true } };
       }),
   },
   postpone: {
@@ -414,8 +456,8 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
-        await setTask(db, { project: t.project, key: row.key, status: "Backlog", version: row.version, note: "Jorge lo aplazó desde el brief." } as never, ctxOf("postpone"));
-        return { line: OUT[lang].backlog(row.key), undo: { status: "Ready" } };
+        await setTask(db, { project: t.project, key: row.key, status: "Backlog", version: row.version, note: say(BRIEF_ACTION_WORDS, lang).postponed(ownerIn(lang, undefined, { capital: true })) } as never, ctxOf("postpone"));
+        return { line: outLines(lang).backlog(row.key), undo: { status: "Ready" } };
       }),
   },
   put_first: {
@@ -429,7 +471,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       const before = p.settings.next_first ?? null;
       const out = await pickNext(db, t.project, t.key!);
       if ("error" in out) return { error: out.error, hint: out.hint };
-      return { line: OUT[lang].first(String(t.key)), undo: { next_first: before } };
+      return { line: outLines(lang).first(String(t.key)), undo: { next_first: before } };
     },
   },
   hold: {
@@ -442,8 +484,8 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
-        await setTask(db, { project: t.project, key: row.key, status: "On hold", version: row.version, note: "Jorge lo puso en espera desde el brief." } as never, ctxOf("hold"));
-        return { line: OUT[lang].hold(row.key), undo: { status: l.kind === "initiative" ? l.status : "Planning" } };
+        await setTask(db, { project: t.project, key: row.key, status: "On hold", version: row.version, note: say(BRIEF_ACTION_WORDS, lang).held(ownerIn(lang, undefined, { capital: true })) } as never, ctxOf("hold"));
+        return { line: outLines(lang).hold(row.key), undo: { status: l.kind === "initiative" ? l.status : "Planning" } };
       }),
   },
   fix_finding: {
@@ -457,7 +499,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         if (l.kind !== "finding" || !l.id) return { error: "STALE", hint: "the finding is gone" };
         const p = (await projectBySlug(db, t.project))!;
         await fixFinding(db, p, { code: l.code, key: l.key, id: l.id });
-        return { line: OUT[lang].fixed(l.code, l.key) };
+        return { line: outLines(lang).fixed(l.code, l.key) };
       }),
   },
   // PLA-I49-6: a Plania idea (its sketch or research came back) discarded from the brief: Won't do, with the reason.
@@ -472,8 +514,8 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
         const why = typeof input.reason === "string" ? input.reason : "not now";
-        await setTask(db, { project: t.project, key: row.key, status: "Won't do", version: row.version, reason: `Descartada desde el brief: ${why}` } as never, ctxOf("close_idea"));
-        return { line: lang === "es" ? `${row.key} descartada: ${why}` : `${row.key} discarded: ${why}` };
+        await setTask(db, { project: t.project, key: row.key, status: "Won't do", version: row.version, reason: say(BRIEF_ACTION_WORDS, lang).closedReason(why) } as never, ctxOf("close_idea"));
+        return { line: say(BRIEF_ACTION_WORDS, lang).closedLine(row.key, why) };
       }),
   },
   later: {
@@ -482,7 +524,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: () => true,
     input: z.object({ until: z.string().regex(DATE).optional() }).strict(),
-    run: async (_db, _t, _l, input, lang) => ({ line: OUT[lang].later(typeof input.until === "string" ? input.until : null), result: { until: input.until ?? null } }),
+    run: async (_db, _t, _l, input, lang) => ({ line: outLines(lang).later(typeof input.until === "string" ? input.until : null), result: { until: input.until ?? null } }),
   },
   dismiss: {
     id: "dismiss",
@@ -490,7 +532,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: () => true,
     input: z.object({ reason: z.string().trim().max(300).optional() }).strict(),
-    run: async (_db, _t, _l, input, lang) => ({ line: OUT[lang].dismissed(typeof input.reason === "string" ? input.reason : null), result: { reason: input.reason ?? null } }),
+    run: async (_db, _t, _l, input, lang) => ({ line: outLines(lang).dismissed(typeof input.reason === "string" ? input.reason : null), result: { reason: input.reason ?? null } }),
   },
   // ---- PLA-I49-5: actions that wake a bot. Each shows who wakes and about how long before it runs (wakeInfo).
   give_to_po: {
@@ -505,13 +547,13 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         if (!p) return { error: "PROJECT_NOT_FOUND", hint: "The row's project is gone." };
         const po = await projectPo(db, p);
         if (!po) return { error: "NO_PO", hint: `${p.title} has no product owner that runs in Claude Code.` };
-        const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? `Nota de Jorge: ${input.note}` : null].filter(Boolean).join("\n");
-        // A Ready ticket owned by the PO, origin jorge; the event hook queues the PO's wake in the same write. A
+        const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? say(BRIEF_ACTION_WORDS, lang).ownerNote(ownerIn(lang, "de"), input.note) : null].filter(Boolean).join("\n");
+        // A Ready ticket owned by the PO, origin owner; the event hook queues the PO's wake in the same write. A
         // busy PO is not lost: when its run ends, wakePoIfWaiting takes its oldest Ready ticket. A paused project
         // keeps the ticket and wakes the PO once when its runs are turned on (project.runs_resumed).
-        const made = await createPoTicket(db, p, po, text, "el brief de la mañana");
+        const made = await createPoTicket(db, p, po, text, say(BRIEF_ACTION_WORDS).fromBrief);
         await reasonOnQueued(db, po.id, made.key, `order from the morning brief: ${row.title}`);
-        return { line: OUT[lang].toPo(po.slug, made.key), result: { key: made.key, agent: po.slug, wake: made.wake, project: p.slug } };
+        return { line: outLines(lang).toPo(po.slug, made.key), result: { key: made.key, agent: po.slug, wake: made.wake, project: p.slug } };
       }),
   },
   start_now: {
@@ -527,8 +569,8 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         if (!who) return { error: "AGENT_NOT_FOUND", hint: "Nobody on this project's team takes this ticket." };
         const out = await startTeammateNow(db, t.project, who, { reason: `started from the morning brief: ${l.key}` }, wakeDeps.heartbeat);
         if ("error" in out) return { error: out.error, hint: out.hint };
-        if (out.reason === "started") return { line: OUT[lang].started(who, out.ticket), result: { agent: who, run_id: out.run_id, ticket: out.ticket, reason: out.reason } };
-        if (out.reason === "queued" || out.reason === "busy") return { line: OUT[lang].queued(who, out.ticket ?? l.key), result: { agent: who, run_id: out.run_id, ticket: out.ticket ?? l.key, reason: out.reason } };
+        if (out.reason === "started") return { line: outLines(lang).started(who, out.ticket), result: { agent: who, run_id: out.run_id, ticket: out.ticket, reason: out.reason } };
+        if (out.reason === "queued" || out.reason === "busy") return { line: outLines(lang).queued(who, out.ticket ?? l.key), result: { agent: who, run_id: out.run_id, ticket: out.ticket ?? l.key, reason: out.reason } };
         return { error: out.reason.toUpperCase(), hint: out.summary || out.reason };
       }),
   },
@@ -545,9 +587,9 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         // Only the first open phase, nothing else: moving it to Ready wakes Taller through the event hook.
         for (const key of l.next_phase.keys) {
           const row = (await taskByKey(db, p.id, key))!;
-          await setTask(db, { project: t.project, key, status: "Ready", version: row.version, note: "Jorge lo empezó desde el brief." } as never, ctxOf("start_building"));
+          await setTask(db, { project: t.project, key, status: "Ready", version: row.version, note: say(BRIEF_ACTION_WORDS, lang).started(ownerIn(lang, undefined, { capital: true })) } as never, ctxOf("start_building"));
         }
-        return { line: OUT[lang].building(l.next_phase.keys), result: { keys: l.next_phase.keys, phase: l.next_phase.phase } };
+        return { line: outLines(lang).building(l.next_phase.keys), result: { keys: l.next_phase.keys, phase: l.next_phase.phase } };
       }),
   },
 };
@@ -603,7 +645,7 @@ export function actionsFor(t: Target | null, l: Live | null): ActionId[] {
 
 /** Undo an instant action: put back what run() changed. Brief-state actions need nothing here. */
 export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: Record<string, unknown> | undefined, lang: Lang = "en"): Promise<RunOutcome | ActionRefusal> {
-  const o = OUT[lang];
+  const o = outLines(lang);
   if (ROW_ACTIONS.has(action)) return { line: o.undone };
   if (!t || !undo) return { error: "NOT_UNDOABLE", hint: "This action cannot be undone." };
   return guarded(async () => {
@@ -624,7 +666,7 @@ export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: 
     if (action === "postpone" || action === "hold") {
       const row = await taskByKey(db, p.id, t.key);
       if (!row) return { error: "TASK_NOT_FOUND", hint: "The ticket is gone." };
-      await setTask(db, { project: t.project, key: row.key, status: String(undo.status), version: row.version, note: "Jorge deshizo el cambio desde el brief." } as never, ctxOf(`undo_${action}`));
+      await setTask(db, { project: t.project, key: row.key, status: String(undo.status), version: row.version, note: say(BRIEF_ACTION_WORDS, lang).undone(ownerIn(lang, undefined, { capital: true })) } as never, ctxOf(`undo_${action}`));
       return { line: o.back(row.key, String(undo.status)) };
     }
     return { error: "NOT_UNDOABLE", hint: "This action cannot be undone." };

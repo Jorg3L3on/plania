@@ -6,11 +6,14 @@
 import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
+import { projectEnvNames } from "./run-env.js";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
+import { resolveClaudeBin } from "../lib/claude-bin.js";
+import { defaultRunLogDir, defaultRunTmpDir } from "../lib/run-dirs.js";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { makeDb, type Db } from "../db/client.js";
 import { bus } from "../events.js";
@@ -37,7 +40,8 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
+import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
@@ -98,10 +102,22 @@ import {
   type SpawnFn,
   type Supervised,
 } from "./process.js";
+import { DEFAULT_START_BRANCH, startBranchOf } from "./start-branch.js";
+import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
+import { personalize } from "../owner.js";
+import { languageLine } from "./owner-language.js";
+import { storedRunnerToken } from "../install-state.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the stop reason the owner reads when they stop a run, in the install's language; the Spanish is unchanged.
+export const RUNNER_WORDS = defineWords({
+  es: { stoppedFromCompany: "detenido desde Compañía" },
+  en: { stoppedFromCompany: "stopped from Company" },
+});
 
 export type ReadyWork = {
   project: string;
@@ -113,6 +129,8 @@ export type ReadyWork = {
 };
 
 export type RunnerDeps = {
+  // PLA-I2-9: the running server's own checkout, to tell a run of Plania itself (src/self/plania-self.ts). Tests set it.
+  serverRoot?: string;
   spawn?: SpawnFn;
   kill?: KillFn;
   git?: GitFn;
@@ -216,17 +234,15 @@ export function resetRunnerForTests(): void {
 }
 
 const home = (env: NodeJS.ProcessEnv) => env.HOME || homedir();
-const logDirOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.logDir ?? path.join(home(env), "Library", "Logs", "plania-runs");
-const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? path.join(tmpdir(), "plania-runs");
+// PLA-I2-4: the system's own places (src/lib/run-dirs.ts): ~/Library/Logs on macOS, the XDG dirs on Linux.
+const logDirOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.logDir ?? defaultRunLogDir(env);
+const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? defaultRunTmpDir(deps.env ?? process.env);
 const rootOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.worktreeRoot ?? worktreeRoot(env);
-const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
-
 // NEWPROJ-4: exported for the readiness list (./readiness.ts), which looks for the same binary without running it.
+// PLA-I2-4: the rule itself is shared with the brief and the machine check (src/lib/claude-bin.ts): the adapter's
+// variable, CLAUDE_CODE_BIN, ~/.local/bin/claude, then claude on PATH.
 export function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
-  const named = config?.command_env;
-  if (typeof named === "string" && ENV_NAME.test(named) && env[named]?.trim()) return env[named]!.trim();
-  if (env.CLAUDE_CODE_BIN?.trim()) return env.CLAUDE_CODE_BIN.trim();
-  return path.join(home(env), ".local", "bin", "claude");
+  return resolveClaudeBin(env, { commandEnv: config?.command_env });
 }
 
 const sysCtx = (tool: string): Ctx => ({ actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool });
@@ -318,7 +334,9 @@ async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, o
   if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
-    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null);
+    // PLA-I2-5: the project's start branch is the only base (settings.start_branch, never a protected one).
+    const start = startBranchOf(project.settings);
+    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null, start);
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
@@ -457,7 +475,7 @@ export async function canStart(db: Db, agent: Agent, projectId: string, taskKey:
 // Queued runs start here, from any process: one short transaction under ADMIT_LOCK decides which runs start
 // (status starting, their lock keys taken, worker and lease set); the processes spawn after it commits. Checks, in
 // order: the run's own verdict (switches, goal, base branch, the rest for cadence runs), the company ceiling minus
-// reserved slots, this worker's capacity and the Mac's free memory and disk, the start rate, the plan guard (a
+// reserved slots, this worker's capacity and the machine's free memory and disk, the start rate, the plan guard (a
 // stopped plan ends the run as before; a projection that would cross the guard holds it), the project's lane cap,
 // the agent's cap, the lock keys, and overlapping areas for code runs. A run that waits keeps a held_code the screen
 // reads. `only` admits one run (a wake or the owner's «Que empiece ya»); skipRest and pastGuard apply to it alone.
@@ -847,24 +865,30 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
 
 // ---- Start
 
-// PLA-71: the owner's «Cambios que pide Jorge» note (thread-actions changes) that is newer than the ticket's last move
-// to In review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+// PLA-71: the owner's request for changes (thread-actions changes) that is newer than the ticket's last move to In
+// review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+// PLA-I2-10: the request is the note's owner_changes field. LEGACY_CHANGES_LIKE / LEGACY_CHANGES_PREFIX read notes
+// written before that field existed (Spanish only); they are the one documented fallback (test/i2-10-server.test.ts).
+export const LEGACY_CHANGES_LIKE = "Cambios que pide %";
+export const LEGACY_CHANGES_PREFIX = /^Cambios que pide [^:\n]{1,80}:\s*/;
 export async function ownerChangesOf(db: Db, projectId: string, taskKey: string): Promise<string | null> {
-  const rows = await db.execute<{ text: string | null }>(sql`
-    select e.payload->>'text' as text from events e
+  const rows = await db.execute<{ text: string | null; changes: string | null }>(sql`
+    select e.payload->>'text' as text, e.payload->>'owner_changes' as changes from events e
     where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
-      and e.payload->>'text' like 'Cambios que pide Jorge:%'
+      and (e.payload ? 'owner_changes' or e.payload->>'text' like ${LEGACY_CHANGES_LIKE})
       and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
                             and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
     order by e.id desc limit 1`);
-  const text = rows.rows[0]?.text ?? null;
-  return text ? text.replace(/^Cambios que pide Jorge:\s*/, "").trim().slice(0, 1500) || null : null;
+  const row = rows.rows[0];
+  const text = row?.changes ?? (row?.text ? row.text.replace(LEGACY_CHANGES_PREFIX, "") : null);
+  return text ? text.trim().slice(0, 1500) || null : null;
 }
 
 export function userPrompt(input: {
   agent: string;
   role: string;
-  project: { slug: string; title: string };
+  // PLA-I2-5: startBranch is settings.start_branch through startBranchOf; absent reads as the default.
+  project: { slug: string; title: string; startBranch?: string };
   goal: { title: string; why: string } | null;
   task: { key: string; title: string } | null;
   workspace: { path: string; branch: string | null } | null;
@@ -872,7 +896,7 @@ export function userPrompt(input: {
   reason?: string | null;
   // PLA-I46-12: the skill packs this role carries, their one line and where the body was written.
   packs?: { name: string; when: string; file: string }[];
-  // PLA-I54-2: absolute paths of the pictures Jorge attached to the request (src/pedidos/images.ts).
+  // PLA-I54-2: absolute paths of the pictures the owner attached to the request (src/pedidos/images.ts).
   images?: string[];
   // AUDIT-3: the same packs delivered as a plugin outside the worktree (src/runner/kit.ts).
   kit?: KitWritten[];
@@ -884,6 +908,7 @@ export function userPrompt(input: {
   changes?: string | null;
 }): string {
   const company = input.role === "asistente";
+  const startBranch = input.project.startBranch ?? DEFAULT_START_BRANCH;
   const lines = [
     company
       ? `You are ${input.agent} (asistente), the company's chief of staff, woken by the Plania runner. Your runs are recorded in project ${input.project.slug}.`
@@ -893,20 +918,21 @@ export function userPrompt(input: {
   ];
   if (company) lines.splice(1, 2, input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the company thread (thread_read company) first.");
   if (input.reason) lines.push(`Why you woke: ${input.reason}.`);
-  // PLA-71: a delivery Jorge sent back. Without this line a fresh session saw only «ticket ready», took the work
+  // PLA-71: a delivery the owner sent back. Without this line a fresh session saw only «ticket ready», took the work
   // for unfinished, re-ran the checks and delivered the same thing again.
   if (input.changes)
     lines.push(
-      `Jorge sent your last delivery of this ticket back. His words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer him. If what he asks is in your muestra (the views Plania shows him), fix the muestra.`,
+      `The owner sent your last delivery of this ticket back. Their words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer them. If what they ask is in your muestra (the views Plania shows them), fix the muestra.`,
     );
-  // PLA-I32-3/5: the conversation is where Jorge reads you.
+  // PLA-I32-3/5: the conversation is where the owner reads you.
   lines.push(
     company
-      ? "Answer Jorge in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
+      ? "Answer the owner in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
       : `End the run with one line in your project's thread (thread_post, thread ${input.project.slug}): what you did, with a link to it, and what you need.`,
+    languageLine(),
   );
   if (input.workspace) {
-    lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
+    lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base ${startBranch}.`);
   }
   lines.push(...packLines(input.packs ?? []));
   lines.push(...kitLines(input.kit ?? []));
@@ -922,7 +948,7 @@ export function userPrompt(input: {
     );
   }
   if (input.images?.length) {
-    lines.push("Pictures Jorge attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
+    lines.push("Pictures the owner attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
   }
   // PLA-I49-6: an idea (PREFIX-IDEA<n>) is not a ticket and start refuses it. Research and Artist woken on an idea's
   // stage work on the idea itself: read it, write the stage doc on it, move its stage.
@@ -931,15 +957,15 @@ export function userPrompt(input: {
     idea
       ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, deliver your stage with deliver_stage (key ${input.task!.key}; it checks the content and writes the stage doc), then move its stage with set_task.`
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
-    "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
+    `Never main: commit on your branch, open PRs into ${startBranch} only, never merge. Stop when the ticket is In review or when only the owner can decide (ask).`,
   );
   // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
   if (idea && input.role === "artist") {
     lines.push(
-      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
+      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. The owner sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
     );
   }
-  return lines.join("\n");
+  return personalize(lines.join("\n")); // PLA-I2-14: "the owner" reads as the display name
 }
 
 // AUDIT-2: the role prompt and its version, "<doc version>:<first 12 of its sha256>". The Plania doc is the live copy;
@@ -1106,7 +1132,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     return { kind: "fail", summary, taskKey, recorded: true };
   };
 
-  const token = env.PLANIA_RUNNER_TOKEN?.trim();
+  // PLA-I2-2: .env first, else the token first start stored.
+  const token = storedRunnerToken(env);
   if (!token) return fail("fail: missing env PLANIA_RUNNER_TOKEN");
   const settings = await loadSettings(db);
   const root = rootOf(deps, env);
@@ -1123,7 +1150,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
-    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted }, carefulGit(deps.git ?? defaultGit)));
+    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
       if (made.summary === "fail: no repo" && role !== "taller") {
         cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
@@ -1151,7 +1178,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   } else if (consulta && existsSync(repoPathOf(project.slug, project.settings, env))) {
     // PLA-66: a fresh read-only copy at origin/sandbox; the owner's checkout only if that copy cannot be made.
     const repo = repoPathOf(project.slug, project.settings, env);
-    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug }, carefulGit(deps.git ?? defaultGit)));
+    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
     if (copy.ok) {
       cwd = copy.path;
       readCopy = { branch: copy.branch, commit: copy.commit };
@@ -1211,7 +1238,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const readOnly = !!consulta || role === "qa" || asks;
   // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
-  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
+  // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
+  const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
+  const laneRules = consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
+  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
@@ -1234,7 +1264,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
-    project: { slug: project.slug, title: project.title },
+    project: { slug: project.slug, title: project.title, startBranch: startBranchOf(project.settings) },
     goal,
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
@@ -1281,12 +1311,17 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const onStdout = liveFlusher(db, run.id, reader, deps.liveFlushMs ?? 5_000);
   // PLA-I60-3: the real runner starts the run through wrapper.mjs, detached, so it outlives a server restart. Tests
   // that inject spawn keep the piped child.
+  // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
+  // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
+  const runEnvValue = childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
+  const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
+  if (selfProblem) return fail(`fail: ${selfProblem}`);
   const supervised = {
     command,
     args,
     cwd,
-    // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }),
+    env: runEnvValue,
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
@@ -1386,13 +1421,18 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       tokens.cacheCreate += m.cacheCreate;
     }
     // A result with turns but no modelUsage spent tokens nobody can count: unknown, which blocks.
-    usageKnown = result.hasModelUsage || result.numTurns === 0;
+    // PLA-I2-12: a signed-out Claude spent nothing; its missing usage must not block the next run.
+    const signedOut = isSignedOut(result);
+    usageKnown = result.hasModelUsage || result.numTurns === 0 || signedOut;
     if (!usageKnown) tokens = reader.liveTokens;
     turns = result.numTurns;
     const sid = result.sessionId ? `, session ${result.sessionId.slice(0, 8)}` : "";
     if (stopped) {
       status = "stopped";
       summary = `stopped: ${stopped} (${result.subtype}, ${turns} turns${sid})`;
+    } else if (signedOut) {
+      status = "fail";
+      summary = `fail: signed out (${turns} turns${sid})`;
     } else if (result.isError || result.subtype !== "success") {
       status = "fail";
       summary = `fail: ${result.subtype} (${turns} turns${sid})`;
@@ -1432,7 +1472,7 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
 
   // PLA-I46-12: a skill pack never reaches the app repo. One in the branch diff (or staged) fails the run.
   const consultaRun = run.lane === "consulta";
-  const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
+  const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit, startBranchOf(project.settings)).catch(() => [] as string[]);
   if (leaked.length > 0) {
     status = "fail";
     summary = `fail: pack file in the diff (${leaked.slice(0, 3).join(", ")}${leaked.length > 3 ? ", …" : ""})`;
@@ -1522,7 +1562,7 @@ export function stopLive(filter: (run: { agentId: string; projectId: string; rol
 }
 
 // PLA-I36-9: stop one run (Detener on Compañía), not its project. false when it is not live in this process.
-export function stopRun(runId: string, reason = "detenido desde Compañía"): boolean {
+export function stopRun(runId: string, reason = say(RUNNER_WORDS).stoppedFromCompany): boolean {
   const run = live.get(runId);
   // PLA-I60-3: a run another process supervises is stopped by that process (stop_requested, actOnStopRequests).
   if (!run) {
@@ -1762,7 +1802,7 @@ export function defaultProbeUsage(env: NodeJS.ProcessEnv = process.env): () => P
   return () =>
     new Promise((resolve) => {
       const command = claudeCommand(null, env);
-      const cwd = path.join(tmpdir(), "plania-runs");
+      const cwd = defaultRunTmpDir(env);
       mkdirSync(cwd, { recursive: true });
       execFile(command, ["-p", "/usage", "--output-format", "json", "--strict-mcp-config"], { cwd, env: childEnv(env), timeout: 60_000 }, (err, stdout) => {
         if (err) return resolve(null);

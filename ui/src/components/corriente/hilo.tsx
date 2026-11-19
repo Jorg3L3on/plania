@@ -6,8 +6,8 @@
 // (idea stops, valve, end dot) stays decorative. Without onOpen (small threads, Hecho rows, the ghost row) all of it is.
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { PARADA_NAME, PARADAS, type Hilo as HiloT, type Tramo, type TramoTono } from "@/lib/cosas";
-import { firstOpen, rovingNext, tramoTip } from "@/lib/tramo";
+import { PARADAS, paradaName, paradaShort, type Hilo as HiloT, type Tramo, type TramoTono } from "@/lib/cosas";
+import { firstOpen, rovingNext, tramoTip, tramoWords } from "@/lib/tramo";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
@@ -156,7 +156,7 @@ const Pasos = ({ tramos, fin, label, onOpen, openKey }: { tramos: Tramo[]; fin: 
 
 /** PLA-I3-5: openKey is the step open in the panel beside the list (its button is pressed and ringed); undefined
  *  where steps do not open a panel (no aria-pressed at all). */
-export const Hilo = ({ h, small, onOpen, label = "Pasos", openKey }: { h: HiloT; small?: boolean; onOpen?: (key: string) => void; label?: string; openKey?: string | null }) => {
+export const Hilo = ({ h, small, onOpen, label = tramoWords().steps, openKey }: { h: HiloT; small?: boolean; onOpen?: (key: string) => void; label?: string; openKey?: string | null }) => {
   const valve = h.valvula;
   const fin = h.publicado;
   const segs = h.tramos.length ? h.tramos.map((t) => (fin ? "fin" : SEG[t.tono])) : valve === "atorada" || valve === "toca" || valve === "pasando" ? ["", "", ""] : [];
@@ -186,12 +186,11 @@ export const Hilo = ({ h, small, onOpen, label = "Pasos", openKey }: { h: HiloT;
   );
 };
 
-/** PLA-62: the short names. PLA-I3-3: the idea stops and Publicado are ~46 px wide at any width, so they always show
- *  these; construction has the room and spells «Construcción». */
-const SHORT: Partial<Record<(typeof PARADAS)[number], string>> = { entendido: "Entend.", investigacion: "Invest.", publicado: "Public." };
+// PLA-62: the short names. PLA-I3-3: the idea stops and Publicado are ~46 px wide at any width, so they always show
+// paradaShort() (lib/cosas.ts); construction has the room and spells its full name.
 /** PLA-109 (guided test PLA-86, F-41): in a narrow pane each stop is ~25 px and even the short names ran into each
  * other («BUZÓNENTEND.INVEST.»); there the header shows three letters, switched by the header's own width. */
-export const TINY = (p: (typeof PARADAS)[number]): string => PARADA_NAME[p].normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 3);
+export const TINY = (p: (typeof PARADAS)[number]): string => paradaName(p).normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 3);
 
 /** The list's header: the nine stops' names over the threads. */
 export const HiloHead = () => (
@@ -201,9 +200,9 @@ export const HiloHead = () => (
         p === "valvula" ? (
           <span key={p} />
         ) : (
-          <span key={p} title={PARADA_NAME[p]}>
-            <span className="l">{PARADA_NAME[p]}</span>
-            <span className="s">{SHORT[p] ?? PARADA_NAME[p]}</span>
+          <span key={p} title={paradaName(p)}>
+            <span className="l">{paradaName(p)}</span>
+            <span className="s">{paradaShort(p)}</span>
             <span className="t">{TINY(p)}</span>
           </span>
         ),

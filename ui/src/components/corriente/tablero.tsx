@@ -5,10 +5,13 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject, type ProjectTicket } from "@/lib/api";
 import { actAria, actBusyKey, actLabel, cardActs, type CardAct } from "@/lib/etapas";
-import { ETAPA_WORD, statusWord } from "@/lib/etapas";
+import { etapaWord, statusWord } from "@/lib/etapas";
 import type { LogEntry } from "@/lib/types";
 import type { CorrienteActs } from "./acts";
 import { Btn, Key, Label, ReadError, State } from "./parts";
+import { LOCALE } from "@/lib/locale";
+import { words } from "@/lib/i18n";
+import { TABLERO_WORDS } from "@/lib/tablero-words";
 
 export type BoardLinks = { paso: (key: string) => string; iniciativa: (key: string) => string; entrega: (d: Decision) => string; sueltos: string; doc: (id: string) => string };
 
@@ -18,20 +21,15 @@ export function useCerrar() {
   return useMutation({
     mutationFn: (v: { slug: string; key: string; version: number }) => api.patchTask(v.slug, v.key, { status: "Done", version: v.version }),
     onSuccess: (_r, v) => {
-      toast("Iniciativa cerrada: ya está en Completas.");
+      toast(words(TABLERO_WORDS).closed);
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["projects"] });
       void client.invalidateQueries({ queryKey: ["task", v.slug] });
     },
     onError: (e) => {
       const open = e instanceof ApiError && Array.isArray(e.detail?.open) ? (e.detail.open as string[]) : [];
-      toast.error(
-        e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN"
-          ? `Todavía no se puede cerrar: ${open.length === 1 ? "queda 1 paso abierto" : `quedan ${open.length} pasos abiertos`}${open.length ? ` (${open.join(", ")})` : ""}.`
-          : e instanceof ApiError && e.code === "STALE_VERSION"
-            ? "Cambió mientras la veías. Ya está al día: vuelve a intentarlo."
-            : "No se pudo cerrar la iniciativa.",
-      );
+      const w = words(TABLERO_WORDS);
+      toast.error(e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN" ? w.cantClose(open) : e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : w.closeFailed);
       void client.invalidateQueries({ queryKey: ["company"] });
     },
   });
@@ -47,29 +45,34 @@ export const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
 export const busyOf = (a: CardAct, acts: CorrienteActs) =>
   a.kind === "primero" ? acts.busy === `next-${a.key}` : a.kind === "quitar" ? acts.busy === `cancel-${a.key}` : a.kind === "detener" ? acts.busy === `stop-${a.runId}` : acts.decisions.busy?.id === a.decision.id;
 
-const RESULT_WORD = (v: string) => (v === "pass" ? ["Pasa", "ok"] : v === "fail" ? ["Falla", "bad"] : ["Aviso", undefined]) as [string, "ok" | "bad" | undefined];
+const RESULT_WORD = (v: string) => {
+  const w = words(TABLERO_WORDS);
+  return (v === "pass" ? [w.pass, "ok"] : v === "fail" ? [w.fail, "bad"] : [w.warning, undefined]) as [string, "ok" | "bad" | undefined];
+};
 function logLine(e: LogEntry): string {
+  const w = words(TABLERO_WORDS);
   const p = e.payload ?? {};
   const s = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : null);
   if (s("note")) return s("note")!;
   // PLA-112 (guided test PLA-86, F-4): the owner's words for the status («Quitar» read «Pasó a Won't do»).
-  if (s("to")) return `Pasó a ${statusWord(s("to")!)}`;
-  if (s("status")) return `Pasó a ${statusWord(s("status")!)}`;
+  if (s("to")) return w.movedTo(statusWord(s("to")!));
+  if (s("status")) return w.movedTo(statusWord(s("status")!));
   if (s("cite")) return s("cite")!;
   return e.type.replace(/^task\./, "").replace(/_/g, " ");
 }
-const dayOf = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(new Date(iso)).toUpperCase().replace(".", "");
+const dayOf = (iso: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" }).format(new Date(iso)).toUpperCase().replace(".", "");
 
 const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; k: string; onCerrar: (version: number) => void; busy: boolean; links: BoardLinks; here: string | null }) => {
   const init = p.tablero?.initiatives.find((i) => i.key === k);
   if (!init) return null;
   const left = init.total - (init.closed ?? init.done);
   const tickets = init.tickets.slice(0, 5);
+  const w = words(TABLERO_WORDS);
   return (
-    <aside className="cor-card cor-initcard" aria-label={`Iniciativa ${k}`} data-iniciativa={k}>
-      <Label>{`Iniciativa · ${k}`}</Label>
+    <aside className="cor-card cor-initcard" aria-label={w.initiativeAria(k)} data-iniciativa={k}>
+      <Label>{w.initiativeLabel(k)}</Label>
       <h2 className="cor-h3">{init.title}</h2>
-      <span className="cor-text">{`${init.total - init.done} abiertos · ${init.done} de ${init.total} hechos`}</span>
+      <span className="cor-text">{w.counts(init.total - init.done, init.done, init.total)}</span>
       <span className="cor-segbar" aria-hidden>
         {Array.from({ length: Math.min(init.total, 12) }, (_, i) => (
           <i key={i} className={i < Math.round((init.done / Math.max(1, init.total)) * Math.min(init.total, 12)) ? "on" : ""} />
@@ -83,15 +86,15 @@ const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; 
               <span className="cor-ellipsis" style={{ flex: 1 }}>
                 {t.title}
               </span>
-              <State>{ETAPA_WORD[t.etapa.etapa]}</State>
+              <State>{etapaWord(t.etapa.etapa)}</State>
             </Link>
           </li>
         ))}
       </ul>
-      {init.tickets.length > tickets.length && <span className="cor-cap">{`y ${init.tickets.length - tickets.length} más en el tablero`}</span>}
-      <p className="cor-text">{init.can_close ? "Todos sus pasos están hechos: ciérrala y pasa a Completas." : `Le ${left === 1 ? "falta 1 paso" : `faltan ${left} pasos`} por terminar. Cuando todos estén hechos, aquí la cierras y pasa a Completas.`}</p>
+      {init.tickets.length > tickets.length && <span className="cor-cap">{w.moreOnBoard(init.tickets.length - tickets.length)}</span>}
+      <p className="cor-text">{init.can_close ? w.canClose : w.left(left)}</p>
       <Btn kind="secondary" disabled={!init.can_close || busy || init.version === undefined} onClick={() => init.version !== undefined && onCerrar(init.version)} data-control="cerrar-iniciativa">
-        {busy ? "Cerrando…" : "Cerrar iniciativa"}
+        {busy ? w.closing : w.close}
       </Btn>
     </aside>
   );
@@ -103,6 +106,7 @@ const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; 
   // PLA-62: a step that only sits in Backlog can be passed to Lista here too (the list's Quieto lever).
   const lista = t.status === "Backlog" && t.etapa.etapa === "despues" && !(t.etapa.reason ?? "").startsWith("Espera a");
   if (!list.length && !lista) return null;
+  const w = words(TABLERO_WORDS);
   const go = (a: CardAct) =>
     a.kind === "primero" ? acts.pickNext(p.slug, a.key) : a.kind === "detener" ? acts.stopRun(a.runId) : a.kind === "quitar" ? acts.cancelOrder(p.slug, a.key) : acts.decisions.decide(a.decision, { action: a.action }, "paso-aceptar");
   const busy = (a: CardAct) => (a.kind === "aceptar" ? acts.decisions.busy?.id === a.decision.id : acts.busy === actBusyKey(a) || acts.busy === `stop-${a.kind === "detener" ? a.runId : ""}`);
@@ -114,17 +118,18 @@ const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; 
         </Btn>
       ))}
       {lista && (
-        <Btn kind="secondary" onClick={() => acts.aLista(p.slug, t.key)} disabled={acts.busy === `lista-${t.key}`} aria-label={`Pasar a Lista: ${t.title}`} data-control="paso-lista">
-          {acts.busy === `lista-${t.key}` ? "Pasando…" : "Pasar a Lista"}
+        <Btn kind="secondary" onClick={() => acts.aLista(p.slug, t.key)} disabled={acts.busy === `lista-${t.key}`} aria-label={w.toListaAria(t.title)} data-control="paso-lista">
+          {acts.busy === `lista-${t.key}` ? w.moving : w.toLista}
         </Btn>
       )}
     </div>
   );
 };
 
-export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions = [] }: { p: OrgProject; k: string; links: BoardLinks; back: string; backLabel?: string; acts?: CorrienteActs; decisions?: Decision[] }) => {
+export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back, acts, decisions = [] }: { p: OrgProject; k: string; links: BoardLinks; back: string; backLabel?: string; acts?: CorrienteActs; decisions?: Decision[] }) => {
   const q = useQuery({ queryKey: ["task", p.slug, k], queryFn: () => api.task(p.slug, k) });
   const cerrar = useCerrar();
+  const w = words(TABLERO_WORDS);
   const t = q.data;
   const all = [...(p.tablero?.initiatives.flatMap((i) => i.tickets) ?? []), ...(p.tablero?.loose ?? [])];
   const here = all.find((x) => x.key === k);
@@ -139,61 +144,61 @@ export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions
             </svg>
             {backLabel}
           </Link>
-          <span className="cor-label violet">{t?.kind === "initiative" ? "Iniciativa" : "Paso"} ·</span>
+          <span className="cor-label violet">{t?.kind === "initiative" ? w.initiative : w.step} ·</span>
           <Key>{k}</Key>
           <h2 className="cor-ellipsis">{t?.title ?? here?.title ?? ""}</h2>
-          {here && <span className="cor-state" style={{ marginLeft: "auto" }}>{ETAPA_WORD[here.etapa.etapa]}</span>}
+          {here && <span className="cor-state" style={{ marginLeft: "auto" }}>{etapaWord(here.etapa.etapa)}</span>}
         </div>
         {q.isError ? (
-          <ReadError what="el paso" onRetry={() => void q.refetch()} />
+          <ReadError what={w.readWhat} onRetry={() => void q.refetch()} />
         ) : !t ? (
-          <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo el paso" />
+          <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label={w.reading} />
         ) : (
           <>
-            <section aria-label="Hecho cuando">
-              <Label as="h3">Hecho cuando</Label>
+            <section aria-label={w.doneWhen}>
+              <Label as="h3">{w.doneWhen}</Label>
               <ul>
                 {t.checks.slice(0, 4).map((c) => (
                   <li key={c.n} className="cor-row">
-                    <State tone={c.done ? "ok" : c.waived ? undefined : undefined}>{c.done ? "Hecho" : c.waived ? "No aplica" : "Falta"}</State>
+                    <State tone={c.done ? "ok" : c.waived ? undefined : undefined}>{c.done ? w.done : c.waived ? w.waived : w.missing}</State>
                     <span className="cor-ellipsis" title={c.text}>
                       {c.text}
                     </span>
                   </li>
                 ))}
-                {t.checks.length === 0 && <li className="cor-row cor-muted">Sin condiciones escritas.</li>}
-                {t.checks.length > 4 && <li className="cor-cap">{`y ${t.checks.length - 4} más`}</li>}
+                {t.checks.length === 0 && <li className="cor-row cor-muted">{w.noChecks}</li>}
+                {t.checks.length > 4 && <li className="cor-cap">{w.more(t.checks.length - 4)}</li>}
               </ul>
             </section>
-            <section aria-label="Evidencia">
-              <Label as="h3">Evidencia · las tres últimas</Label>
+            <section aria-label={w.evidence}>
+              <Label as="h3">{w.evidenceLabel}</Label>
               <ul>
                 {[...t.results]
                   .sort((a, b) => b.at.localeCompare(a.at))
                   .slice(0, 3)
                   .map((r) => {
-                    const [w, tone] = RESULT_WORD(r.verdict);
+                    const [word, tone] = RESULT_WORD(r.verdict);
                     return (
                       <li key={r.id} className="cor-row">
-                        <State tone={tone}>{w}</State>
+                        <State tone={tone}>{word}</State>
                         <span className="cor-ellipsis" title={r.cite}>
                           {r.cite}
                         </span>
                       </li>
                     );
                   })}
-                {t.results.length === 0 && <li className="cor-row cor-muted">Todavía sin evidencia.</li>}
+                {t.results.length === 0 && <li className="cor-row cor-muted">{w.noEvidence}</li>}
               </ul>
             </section>
             <div className="cor-paso-two">
-              <section aria-label="PR y docs">
-                <Label as="h3">PR y docs</Label>
+              <section aria-label={w.prDocs}>
+                <Label as="h3">{w.prDocs}</Label>
                 <ul>
                   {t.pr?.url && (
                     <li>
                       <a className="cor-row" href={t.pr.url} target="_blank" rel="noreferrer">
                         <span style={{ flex: 1 }}>{t.pr.number ? `PR #${t.pr.number}` : "PR"}</span>
-                        <State>{t.status === "Merged" || t.status === "Released" || t.status === "Done" ? "Fusionado" : "Abierto"}</State>
+                        <State>{t.status === "Merged" || t.status === "Released" || t.status === "Done" ? w.merged : w.open}</State>
                       </a>
                     </li>
                   )}
@@ -207,11 +212,11 @@ export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions
                       </Link>
                     </li>
                   ))}
-                  {!t.pr?.url && t.docs.length === 0 && <li className="cor-row cor-muted">Sin PR ni docs.</li>}
+                  {!t.pr?.url && t.docs.length === 0 && <li className="cor-row cor-muted">{w.noPrDocs}</li>}
                 </ul>
               </section>
-              <section aria-label="Historia">
-                <Label as="h3">Historia · lo más reciente</Label>
+              <section aria-label={w.history}>
+                <Label as="h3">{w.historyLabel}</Label>
                 <ul>
                   {[...t.log]
                     .sort((a, b) => b.at.localeCompare(a.at))
@@ -224,7 +229,7 @@ export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions
                         </span>
                       </li>
                     ))}
-                  {t.log.length === 0 && <li className="cor-row cor-muted">Sin movimientos.</li>}
+                  {t.log.length === 0 && <li className="cor-row cor-muted">{w.noHistory}</li>}
                 </ul>
               </section>
             </div>

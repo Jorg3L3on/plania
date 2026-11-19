@@ -94,7 +94,9 @@ test("check 6: one line per check, ✓ or ✗, and no secret values", async () =
   assert.equal(dry.args[dry.args.indexOf("--json-schema") + 1], readSchemaText("brief"));
   assert.equal(dry.args[dry.args.indexOf("--max-turns") + 1], "2");
   assert.equal(dry.args[dry.args.indexOf("--tools") + 1], "Read,Grep,Glob,Bash");
-  for (const k of ["ANTHROPIC_API_KEY", "PLANIA_RUNNER_TOKEN", "GITHUB_TOKEN", "MCP_READ_TOKEN"]) assert.equal(dry.env[k], undefined, `${k} is not passed to claude`);
+  for (const k of ["PLANIA_RUNNER_TOKEN", "GITHUB_TOKEN", "MCP_READ_TOKEN"]) assert.equal(dry.env[k], undefined, `${k} is not passed to claude`);
+  // PLA-I2-13: the dry run checks the sign-in the runs will use, so Claude's own key passes unchanged.
+  assert.equal(dry.env.ANTHROPIC_API_KEY, "sk-ant-secret");
 });
 
 test("check 6: failures are ✗ lines with the fix, still without values", async () => {

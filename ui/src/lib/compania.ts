@@ -1,6 +1,66 @@
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+import { LOCALE } from "./locale.js";
 // PLA-I30 Compañía's model, kept for the plumbing (week tokens, plan, runs) that moved to Máquina in PLA-I33
 // and for the shared words and numbers. The organization's shapes (PLA-I33) are in api.ts and org.ts.
 // Pure and relative imports only, so test/compania.test.ts loads it with node:test. Tokens, never money.
+// PLA-I2-10: the words are in COMPANIA_LIB_WORDS, in both languages; each function takes the language last. The
+// constants that hold words (RUN_WORD, NAV, planUnknownLine) keep their Spanish for their readers; the screen reads
+// runWord(), navItems() and planUnknownText().
+
+export const COMPANIA_LIB_WORDS = defineWords({
+  es: {
+    // ago(): "hace 5 min"
+    noMove: "sin movimiento",
+    moment: "un momento",
+    minutes: (n: number) => `${n} min`,
+    hours: (n: number) => `${n} h`,
+    days: (n: number) => `${n} días`,
+    ago: (span: string) => `hace ${span}`,
+    // the banners
+    planHead: "El plan",
+    until: (clock: string) => `hasta ${clock}`,
+    untilDown: "hasta que baje",
+    planBanner: (head: string, until: string) =>
+      `${head} · la ventana de 5 h pasó el guardia · no arrancan corridas nuevas ${until} para que te quede plan a ti · las que corren terminan su paso`,
+    pausedSince: (clock: string) => `La compañía está detenida · desde ${clock}, por ti`,
+    paused: "La compañía está detenida, por ti",
+    // the En marcha header
+    cap: (n: number) => `Tope: ${n} a la vez`,
+    capWaiting: (cap: string, n: number) => `${cap} · ${n} en espera`,
+    idlePaused: "Nada corre: la compañía está detenida.",
+    idlePlan: (n: number) => `Nada arranca: ${n} en espera del guardia.`,
+    idleAllPaused: "Nada corre: todos los proyectos están en pausa.",
+    idle: "Nada corre.",
+    planUnknown: "No se pudo leer el uso del plan. Desconocido = alto: no arranca nada nuevo.",
+    run: { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida", running: "corriendo", queued: "en espera" } as Record<string, string>,
+    // The header's four links, by path.
+    nav: { "/ceo": "Compañía", "/inbox": "Bandeja", "/progreso": "Progreso", "/machine": "Máquina" } as Record<string, string>,
+  },
+  en: {
+    noMove: "no activity",
+    moment: "a moment",
+    minutes: (n: number) => `${n} min`,
+    hours: (n: number) => `${n} h`,
+    days: (n: number) => `${n} days`,
+    ago: (span: string) => `${span} ago`,
+    planHead: "The plan",
+    until: (clock: string) => `until ${clock}`,
+    untilDown: "until it goes down",
+    planBanner: (head: string, until: string) =>
+      `${head} · the 5 h window passed the guard · no new runs start ${until} so you keep some plan for yourself · the ones running finish their step`,
+    pausedSince: (clock: string) => `The company is stopped · since ${clock}, by you`,
+    paused: "The company is stopped, by you",
+    cap: (n: number) => `Limit: ${n} at a time`,
+    capWaiting: (cap: string, n: number) => `${cap} · ${n} waiting`,
+    idlePaused: "Nothing is running: the company is stopped.",
+    idlePlan: (n: number) => `Nothing starts: ${n} waiting on the guard.`,
+    idleAllPaused: "Nothing is running: every project is paused.",
+    idle: "Nothing is running.",
+    planUnknown: "The plan's usage could not be read. Unknown = high: nothing new starts.",
+    run: { ok: "ok", fail: "failed", skipped: "skipped", stopped: "stopped", running: "running", queued: "waiting" },
+    nav: { "/ceo": "Company", "/inbox": "Inbox", "/progreso": "Progress", "/machine": "Machine" },
+  },
+});
 
 // PLA-21: no weekly budgets. This week's tokens are shown, never checked.
 // PLA-I46-5: used is input + output; the parts come from a server that sends them.
@@ -115,7 +175,7 @@ const ROLE_SHORT: Record<string, string> = { asistente: "As", "product-owner": "
 export const roleInitials = (role: string) => ROLE_SHORT[role] ?? role.slice(0, 2);
 export const roleWord = (role: string) => (role === "product-owner" ? "PO" : (ROLE_LABEL[role as RunnerRole] ?? role));
 
-// 1.18M, 640k, 820. es-MX writes the decimal point as ".".
+// 1.18M, 640k, 820. The fallback locale writes the decimal point as ".".
 export function tokens(n: number): string {
   const v = Math.max(0, Math.round(n));
   if (v >= 1_000_000) return `${trim(v / 1_000_000)}M`;
@@ -130,7 +190,7 @@ export type Tone = "ok" | "warn" | "stop" | "idle";
 
 export function clock(iso: string | null, timeZone?: string): string {
   if (!iso) return "—";
-  return new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(new Date(iso));
+  return new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(new Date(iso));
 }
 
 // 0:42, 14:32, 1:02:45. Never wraps.
@@ -144,14 +204,21 @@ export function elapsed(fromIso: string | null, now: number): string {
   return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
 }
 
-export function ago(iso: string | null, now: number): string {
-  if (!iso) return "sin movimiento";
+/** How long ago, without the «hace»: "5 min", "3 h", "2 días"; "sin movimiento" when there is no time. */
+export function agoSpan(iso: string | null, now: number, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  if (!iso) return w.noMove;
   const min = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000));
-  if (min < 1) return "hace un momento";
-  if (min < 60) return `hace ${min} min`;
+  if (min < 1) return w.moment;
+  if (min < 60) return w.minutes(min);
   const h = Math.round(min / 60);
-  if (h < 48) return `hace ${h} h`;
-  return `hace ${Math.round(h / 24)} días`;
+  if (h < 48) return w.hours(h);
+  return w.days(Math.round(h / 24));
+}
+
+export function ago(iso: string | null, now: number, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  return iso ? w.ago(agoSpan(iso, now, language)) : w.noMove;
 }
 
 // ---- the banners (5e, 5g, 5h), shown in Máquina since PLA-I33-3
@@ -168,32 +235,40 @@ export function bannersOf(c: Plumbed): Banner[] {
 }
 
 // Copy for the banners, kept here so the tests pin the words and that there is no money in them.
-export function planBannerText(plan: CompanyPlan, timeZone?: string): string {
-  const head = plan.five_hour_pct == null ? "El plan" : `${pct(plan.five_hour_pct)}`;
-  const until = plan.resets_at ? `hasta ${clock(plan.resets_at, timeZone)}` : "hasta que baje";
-  return `${head} · la ventana de 5 h pasó el guardia · no arrancan corridas nuevas ${until} para que te quede plan a ti · las que corren terminan su paso`;
+export function planBannerText(plan: CompanyPlan, timeZone?: string, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  const head = plan.five_hour_pct == null ? w.planHead : `${pct(plan.five_hour_pct)}`;
+  const until = plan.resets_at ? w.until(clock(plan.resets_at, timeZone)) : w.untilDown;
+  return w.planBanner(head, until);
 }
 
-export function pausedBannerText(since: string | null, timeZone?: string): string {
-  return since ? `La compañía está detenida · desde ${clock(since, timeZone)}, por ti` : "La compañía está detenida, por ti";
+export function pausedBannerText(since: string | null, timeZone?: string, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  return since ? w.pausedSince(clock(since, timeZone)) : w.paused;
 }
 
 // What the En marcha header says, so an empty list never looks like a failure.
-export function capLine(c: Plumbed): string {
-  const cap = `Tope: ${c.settings.max_concurrent} a la vez`;
-  return c.runs.queued.length ? `${cap} · ${c.runs.queued.length} en espera` : cap;
+export function capLine(c: Plumbed, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  const cap = w.cap(c.settings.max_concurrent);
+  return c.runs.queued.length ? w.capWaiting(cap, c.runs.queued.length) : cap;
 }
 
-export function idleLine(c: Plumbed): string {
-  if (c.company.paused) return "Nada corre: la compañía está detenida.";
-  if (c.plan.state === "stopped") return `Nada arranca: ${c.runs.queued.length} en espera del guardia.`;
-  if (c.projects.length > 0 && c.projects.every((p) => p.paused)) return "Nada corre: todos los proyectos están en pausa.";
-  return "Nada corre.";
+export function idleLine(c: Plumbed, language: Language = getLanguage()): string {
+  const w = words(COMPANIA_LIB_WORDS, language);
+  if (c.company.paused) return w.idlePaused;
+  if (c.plan.state === "stopped") return w.idlePlan(c.runs.queued.length);
+  if (c.projects.length > 0 && c.projects.every((p) => p.paused)) return w.idleAllPaused;
+  return w.idle;
 }
 
-export const planUnknownLine = "No se pudo leer el uso del plan. Desconocido = alto: no arranca nada nuevo.";
+/** The Spanish line, kept for its readers; the screen reads planUnknownText(). */
+export const planUnknownLine = COMPANIA_LIB_WORDS.es.planUnknown;
+export const planUnknownText = (language: Language = getLanguage()): string => words(COMPANIA_LIB_WORDS, language).planUnknown;
 
-export const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida", running: "corriendo", queued: "en espera" };
+/** A run's outcome in Spanish, kept for its readers; the screen reads runWord(). */
+export const RUN_WORD: Record<string, string> = COMPANIA_LIB_WORDS.es.run;
+export const runWord = (status: string, language: Language = getLanguage()): string => words(COMPANIA_LIB_WORDS, language).run[status] ?? status;
 
 // The URL state (PLA-I33): ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog.
 // ?p=<slug> (the old project sheet) redirects to /p/<slug>; ?equipo (the old Equipo sheet) to Máquina.
@@ -256,10 +331,8 @@ export const LEGACY_REDIRECTS: Record<string, string> = {
   "/equipo": "/machine",
 };
 
-// The header: Inicio is the logo, then these four.
-export const NAV: { to: string; label: string }[] = [
-  { to: "/ceo", label: "Compañía" },
-  { to: "/inbox", label: "Bandeja" },
-  { to: "/progreso", label: "Progreso" },
-  { to: "/machine", label: "Máquina" },
-];
+// The header: Inicio is the logo, then these four. NAV keeps the Spanish labels; the header reads navItems().
+const NAV_PATHS = ["/ceo", "/inbox", "/progreso", "/machine"] as const;
+export const navItems = (language: Language = getLanguage()): { to: string; label: string }[] =>
+  NAV_PATHS.map((to) => ({ to, label: words(COMPANIA_LIB_WORDS, language).nav[to]! }));
+export const NAV: { to: string; label: string }[] = navItems("es");

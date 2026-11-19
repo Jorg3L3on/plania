@@ -404,16 +404,11 @@ export function BriefSettingsSheet({ open, onOpenChange, language }: { open: boo
                   </Field>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
+                  {/* PLA-I2-10: the brief follows the install's language; the one switch is in Plomería. */}
                   <Field label={t.language} htmlFor={`${ids}-lang`}>
-                    <Select value={draft.language} onValueChange={(v) => set("language", v as BriefLanguage)}>
-                      <SelectTrigger id={`${ids}-lang`} className="min-h-11 w-full sm:min-h-9" data-brief="language">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="en">{t.languages.en}</SelectItem>
-                        <SelectItem value="es">{t.languages.es}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <p id={`${ids}-lang`} className="text-sm" data-brief="language">
+                      {t.languages[draft.language]} · <span className="text-muted-foreground">{t.languageFollows}</span>
+                    </p>
                   </Field>
                   <Field label={t.ownerName} htmlFor={`${ids}-owner`}>
                     <Input id={`${ids}-owner`} value={draft.owner_name} placeholder={r?.owner_name} onChange={(e) => set("owner_name", e.target.value)} className="min-h-11 sm:min-h-9" autoComplete="off" />

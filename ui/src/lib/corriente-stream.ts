@@ -12,18 +12,69 @@ import type { Decision, OrgMember, OrgProject, ProjectTicket } from "./api";
 import type { StreamSummary, StreamTask } from "./types";
 import { pending } from "./v2";
 import { seatName } from "./corriente";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 export const COLUMNS = ["idea", "investigacion", "diseno", "plan", "lista", "construccion", "revision"] as const;
 export type Column = (typeof COLUMNS)[number];
-export const COLUMN_NAME: Record<Column, string> = {
-  idea: "Idea",
-  investigacion: "Investigación",
-  diseno: "Diseño",
-  plan: "Plan",
-  lista: "Lista",
-  construccion: "Construcción",
-  revision: "Revisión",
-};
+
+// PLA-I2-10: the stream's words in both languages. COLUMN_NAME keeps the Spanish for callers that read the constant.
+export const STREAM_WORDS = defineWords({
+  es: {
+    columns: {
+      idea: "Idea",
+      investigacion: "Investigación",
+      diseno: "Diseño",
+      plan: "Plan",
+      lista: "Lista",
+      construccion: "Construcción",
+      revision: "Revisión",
+    } as Record<Column, string>,
+    acceptRef: (ref: string) => `Aceptar ${ref}`,
+    accept: "Aceptar",
+    approvePlan: "Aprobar el plan",
+    choose: "Elegir",
+    answer: "Responder",
+    reviewFile: "Revisar el archivo",
+    doStep: "Hacer un paso",
+    publish: "Publicar",
+    companyStopped: "La compañía está detenida.",
+    nobodyWorks: "Nadie trabaja ahora.",
+    // Masculine (agente) and feminine (entrega, cosa) number words, 0 to 10.
+    num: ["Ningún", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    numF: ["Ninguna", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    agentsWorking: (num: string, n: number) => `${num} ${n === 1 ? "agente trabajando" : "agentes trabajando"}.`,
+    deliveriesWait: (num: string, n: number) => `${num} ${n === 1 ? "entrega te espera" : "entregas te esperan"}.`,
+    thingsWait: (num: string, n: number) => `${num} ${n === 1 ? "cosa te espera" : "cosas te esperan"}.`,
+  },
+  en: {
+    columns: {
+      idea: "Idea",
+      investigacion: "Research",
+      diseno: "Design",
+      plan: "Plan",
+      lista: "Ready",
+      construccion: "Building",
+      revision: "Review",
+    },
+    acceptRef: (ref: string) => `Accept ${ref}`,
+    accept: "Accept",
+    approvePlan: "Approve the plan",
+    choose: "Choose",
+    answer: "Answer",
+    reviewFile: "Review the file",
+    doStep: "Do a step",
+    publish: "Publish",
+    companyStopped: "The company is stopped.",
+    nobodyWorks: "Nobody is working now.",
+    num: ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    numF: ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    agentsWorking: (num: string, n: number) => `${num} ${n === 1 ? "agent working" : "agents working"}.`,
+    deliveriesWait: (num: string, n: number) => `${num} ${n === 1 ? "delivery waits for you" : "deliveries wait for you"}.`,
+    thingsWait: (num: string, n: number) => `${num} ${n === 1 ? "thing waits for you" : "things wait for you"}.`,
+  },
+});
+export const COLUMN_NAME: Record<Column, string> = STREAM_WORDS.es.columns;
+export const columnName = (col: Column, language: Language = getLanguage()): string => words(STREAM_WORDS, language).columns[col];
 
 const STAGE_COL: Record<string, Column> = { idea: "idea", research: "investigacion", design: "diseno", planning: "plan", ready: "lista" };
 const ETAPA_COL: Record<string, Column | null> = {
@@ -42,7 +93,7 @@ const ETAPA_COL: Record<string, Column | null> = {
   publicado: null,
   hecho: null,
 };
-const STATUS_COL: Record<string, Column | null> = { Ready: "lista", Blocked: "lista", "In progress": "construccion", "In review": "revision", "Needs Jorge": "revision" };
+const STATUS_COL: Record<string, Column | null> = { Ready: "lista", Blocked: "lista", "In progress": "construccion", "In review": "revision", "Needs owner": "revision" };
 const ROLE_COL: Record<string, Column> = { "product-owner": "plan", research: "investigacion", artist: "diseno", taller: "construccion", qa: "revision" };
 const GREY_ETAPAS = new Set(["en_espera", "bloqueado", "integrado", "en_qa"]);
 export const CLOSED = new Set(["Done", "Released", "Merged", "Won't do", "Cancelled"]);
@@ -73,26 +124,27 @@ function ticketsOf(p: OrgProject): ProjectTicket[] {
 }
 
 /** The verb on a te toca rhombus: what the owner does there. */
-export function youVerb(d: Decision): string {
+export function youVerb(d: Decision, language: Language = getLanguage()): string {
+  const w = words(STREAM_WORDS, language);
   switch (d.kind) {
     case "deliverable":
     case "pr":
-      return d.ref ? `Aceptar ${d.ref}` : "Aceptar";
+      return d.ref ? w.acceptRef(d.ref) : w.accept;
     case "plan":
-      return "Aprobar el plan";
+      return w.approvePlan;
     case "proposal":
-      return "Elegir";
+      return w.choose;
     case "question":
-      return "Responder";
+      return w.answer;
     case "step":
     case "action":
-      return d.file_step ? "Revisar el archivo" : "Hacer un paso";
+      return d.file_step ? w.reviewFile : w.doStep;
     case "release":
-      return "Publicar";
+      return w.publish;
   }
 }
 
-export function laneOf(p: OrgProject, summary: StreamSummary | undefined, decisions: Decision[], companyPaused = false): Lane {
+export function laneOf(p: OrgProject, summary: StreamSummary | undefined, decisions: Decision[], companyPaused = false, language: Language = getLanguage()): Lane {
   const cells = emptyCells();
   const where = new Map<string, Column>();
   // Ideas by stage.
@@ -142,10 +194,10 @@ export function laneOf(p: OrgProject, summary: StreamSummary | undefined, decisi
             : d.kind === "question"
               ? ((d.ref ? where.get(d.ref) : undefined) ?? "plan")
               : ((d.ref ? where.get(d.ref) : undefined) ?? "construccion");
-      return { decision: d, col, verb: youVerb(d) };
+      return { decision: d, col, verb: youVerb(d, language) };
     });
   // Te toca already speaks for a project that waits on the owner.
-  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" && !you.length ? p.light_reason : null;
+  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" && p.light !== "needs_owner" && !you.length ? p.light_reason : null;
   return {
     slug: p.slug,
     title: p.title,
@@ -175,30 +227,25 @@ const tickets = (s: StreamSummary) => s.tasks.filter((t) => t.kind === "ticket")
 export const doneOf = (s: StreamSummary): number => s.done ?? tickets(s).filter((t) => t.status === "Done" || t.status === "Released" || t.status === "Merged").length;
 const revisionOf = (s: StreamSummary): number => s.revision ?? tickets(s).filter((t) => t.status === "In review").length;
 
-const NUM = ["Ningún", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
-const NUMF = ["Ninguna", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
-const word = (n: number, fem: boolean) => (n <= 10 ? (fem ? NUMF : NUM)[n]! : String(n));
 
 /** The headline: what moves now, then (amber) what waits on the owner. */
-export function headlineOf(lanes: Lane[], decisions: Decision[], companyPaused: boolean): { now: string; you: string | null } {
+export function headlineOf(lanes: Lane[], decisions: Decision[], companyPaused: boolean, language: Language = getLanguage()): { now: string; you: string | null } {
+  const w = words(STREAM_WORDS, language);
+  const word = (n: number, fem: boolean) => (n <= 10 ? (fem ? w.numF : w.num)[n]! : String(n));
   const working = lanes.reduce((n, l) => n + l.agents.length, 0);
-  const now = companyPaused
-    ? "La compañía está detenida."
-    : working === 0
-      ? "Nadie trabaja ahora."
-      : `${word(working, false)} ${working === 1 ? "agente trabajando" : "agentes trabajando"}.`;
+  const now = companyPaused ? w.companyStopped : working === 0 ? w.nobodyWorks : w.agentsWorking(word(working, false), working);
   const waiting = decisions.filter(pending);
   if (!waiting.length) return { now, you: null };
   const deliveries = waiting.filter((d) => d.kind === "deliverable" || d.kind === "pr").length;
   const n = waiting.length;
-  if (deliveries === n) return { now, you: `${word(n, true)} ${n === 1 ? "entrega te espera" : "entregas te esperan"}.` };
-  return { now, you: `${word(n, true)} ${n === 1 ? "cosa te espera" : "cosas te esperan"}.` };
+  if (deliveries === n) return { now, you: w.deliveriesWait(word(n, true), n) };
+  return { now, you: w.thingsWait(word(n, true), n) };
 }
 
 /** Lanes stay put (by name) so the stream does not jump while it moves; paused projects go last. */
-export function lanesOf(projects: OrgProject[], summaries: StreamSummary[] | undefined, decisions: Decision[], companyPaused = false): Lane[] {
+export function lanesOf(projects: OrgProject[], summaries: StreamSummary[] | undefined, decisions: Decision[], companyPaused = false, language: Language = getLanguage()): Lane[] {
   const bySlug = new Map((summaries ?? []).map((s) => [s.slug, s]));
-  const lanes = projects.map((p) => laneOf(p, bySlug.get(p.slug), decisions, companyPaused));
+  const lanes = projects.map((p) => laneOf(p, bySlug.get(p.slug), decisions, companyPaused, language));
   return lanes.sort((a, b) => Number(a.paused) - Number(b.paused) || a.title.localeCompare(b.title, "es"));
 }
 

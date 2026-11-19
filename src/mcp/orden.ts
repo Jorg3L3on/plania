@@ -8,7 +8,7 @@ import { ToolError } from "./errors.js";
 import { iso, webCtx, type Q } from "./tx.js";
 
 // 2.11 (item 4): Orden, the audit on screen. The audit job keeps its last run per project
-// (audit_runs, every ten minutes); this file says which findings Jorge can clear with one click or a
+// (audit_runs, every ten minutes); this file says which findings the owner can clear with one click or a
 // copied command, runs those fixes as him through the existing tool functions, and picks the chores
 // get_next offers an agent when nothing is claimable.
 
@@ -33,11 +33,11 @@ export const AGENT_CHORES = new Set([
   "BLOCKED_BUT_SATISFIED",
   CLAIMABLE_BUT_WAITING,
   "INITIATIVE_SCOPE_HAS_STATUS",
-  "WAITING_ON_JORGE_FREE_TEXT",
+  "WAITING_ON_OWNER_FREE_TEXT",
   "STATE_NOTE_STALE",
 ]);
 
-export type OrdenFinding = Finding & { can_fix: CanFix; owner: "jorge" | "agents" };
+export type OrdenFinding = Finding & { can_fix: CanFix; owner: "owner" | "agents" };
 
 export function canFix(f: Finding): CanFix {
   const fix = ONE_CLICK[f.code] ?? "open";
@@ -53,7 +53,7 @@ export const ordenShape = (f: Finding): OrdenFinding => {
   const code = canonicalAuditCode(f.code);
   const normalized = code === f.code ? f : { ...f, code };
   const can_fix = canFix(normalized);
-  return { ...normalized, can_fix, owner: OWNER_REVIEW.has(normalized.code) || can_fix !== "open" ? "jorge" : "agents" };
+  return { ...normalized, can_fix, owner: OWNER_REVIEW.has(normalized.code) || can_fix !== "open" ? "owner" : "agents" };
 };
 
 /** GET /api/projects/:slug/audit: the latest stored run (one is made if the project has none yet). */
@@ -76,7 +76,7 @@ export async function auditCounts(db: Q): Promise<Map<string, number>> {
 export type FixInput = { code: string; key?: string | null; id: string };
 
 /**
- * POST /api/projects/:slug/audit/fix, as Jorge. The finding must still be there (a fresh audit),
+ * POST /api/projects/:slug/audit/fix, as the owner. The finding must still be there (a fresh audit),
  * then the matching tool runs: retire_decision, or set_env deployed with a screen source. Copy-only
  * findings have nothing to run: the screen shows the command. The audit is stored again afterwards.
  */
@@ -88,7 +88,7 @@ export async function fixFinding(db: Db, p: Project, input: FixInput) {
   if (fix === "retire_decision") {
     await retireDecision(db, { project: p.slug, decision_id: input.id, reason: `Retirada desde Orden: ${live.detail}` }, webCtx);
   } else {
-    await setEnv(db, { project: p.slug, env: input.id, deployed: { provider: "jorge", deployment_id: `orden:${new Date().toISOString().slice(0, 10)}` } }, webCtx);
+    await setEnv(db, { project: p.slug, env: input.id, deployed: { provider: "owner", deployment_id: `orden:${new Date().toISOString().slice(0, 10)}` } }, webCtx);
   }
   await runAudit(db, p);
   return projectAudit(db, p);

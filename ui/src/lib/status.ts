@@ -1,10 +1,10 @@
 import { statusStageTone } from "./etapas";
 
 // Status colours come from the --status-* tokens in index.css, so both themes share one map.
-// A tone is the meaning on screen: done, now, review, ready, blocked, jorge (waits on Jorge), pending (not started)
+// A tone is the meaning on screen: done, now, review, ready, blocked, owner (waits on the owner), pending (not started)
 // or idle (parked).
 
-export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "jorge" | "pending" | "idle";
+export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "owner" | "pending" | "idle";
 
 // PLA-I53-5: a ticket status takes its stage's tone from lib/etapas.ts (Merged and Released are done, not review);
 // only an initiative's own statuses are listed here.
@@ -26,7 +26,7 @@ const DOT: Record<Tone, string> = {
   review: "bg-status-review",
   ready: "bg-status-ready",
   blocked: "bg-status-blocked",
-  jorge: "bg-status-jorge",
+  owner: "bg-status-owner",
   pending: "bg-status-pending",
   idle: "bg-status-idle/60",
 };

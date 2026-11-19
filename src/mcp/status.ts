@@ -8,7 +8,7 @@ import { iso, type Q } from "./tx.js";
 
 // The status block (R-02): what the server can work out, never typed by anyone. Per environment
 // what runs there and whether it trails the integration branches; per open initiative the counts,
-// the next claimable ticket, what waits on Jorge and what is in review with its PR state; plus the
+// the next claimable ticket, what waits on the owner and what is in review with its PR state; plus the
 // project-wide queues. audit_findings arrives with the audit in 2.3.
 
 const CLOSED = ["Done", "Won't do"];
@@ -33,7 +33,7 @@ export async function statusBlock(db: Q, p: Project) {
 
   const waitingOn = (t: Task): string[] => {
     const why: string[] = [];
-    if (t.status === "Needs Jorge" || openQ.some((q) => q.taskId === t.id)) why.push("question");
+    if (t.status === "Needs owner" || openQ.some((q) => q.taskId === t.id)) why.push("question");
     if (humanActions.some((h) => h.taskId === t.id)) why.push("human_action");
     return why;
   };
@@ -52,7 +52,7 @@ export async function statusBlock(db: Q, p: Project) {
       head_sha: head?.headSha ?? null,
       counts,
       next_claimable: (await nextTask(db, p.id, i.key)).task?.key ?? null,
-      waiting_on_jorge: children.map((c) => ({ key: c.key, why: waitingOn(c) })).filter((w) => w.why.length),
+      waiting_on_owner: children.map((c) => ({ key: c.key, why: waitingOn(c) })).filter((w) => w.why.length),
       in_review: children
         .filter((c) => ["In review", "Merged", "Released"].includes(c.status))
         .map((c) => {
@@ -87,9 +87,9 @@ export async function statusBlock(db: Q, p: Project) {
     pending_approvals: 0,
     human_actions: humanActions.length,
     released_waiting_done: released.map((t) => t.key),
-    standalone_waiting_on_jorge: standaloneWaiting,
+    standalone_waiting_on_owner: standaloneWaiting,
     s1_s2_bugs: bugs.map((t) => ({ key: t.key, severity: t.severity, title: t.title, status: t.status })),
-    // 2.10: the release step (settings.release), or null. A merged ticket waits here until Jorge ships it.
+    // 2.10: the release step (settings.release), or null. A merged ticket waits here until the owner ships it.
     release: await releasePlan(db, p),
     audit: await lastAudit(db, p.id),
     audit_findings: (await lastAudit(db, p.id))?.count ?? null,

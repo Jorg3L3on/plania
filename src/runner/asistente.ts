@@ -3,7 +3,7 @@
 //   (src/brief/schedule.ts): brief_settings.enabled and run_at, once per local date with catch-up, waiting for a
 //   running build with no cutoff, and at fallback_at a facts-only brief from buildBrief(). No Asistente run writes
 //   the brief any more; "Brief de hoy" is the pipeline's 0-token asistente.brief projection.
-// - Every 2 hours: routine acceptance (a PO's ticket In review that Jorge asked for, ops or research, with
+// - Every 2 hours: routine acceptance (a PO's ticket In review that the owner asked for, ops or research, with
 //   every check done → Done, with a line in the project thread), the weekly proposal wake of an idle PO with
 //   a goal (2-3 ideas, at most once a week), and the findings below; when they change an Asistente run is
 //   queued to write them up, or the server posts them when it cannot run.
@@ -27,6 +27,58 @@ import { setTask } from "../mcp/writes.js";
 import { resetScheduleForTests, scheduledBrief } from "../brief/schedule.js";
 import { resumeWaiting } from "../brief/plan.js";
 import type { RunBriefDeps } from "../brief/pipeline.js";
+import { ownerEs, ownerName } from "../owner.js";
+import { screenLocale } from "../locale.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: Asistente's brief, findings, question and acceptance lines, in the install's language; the Spanish is
+// unchanged.
+export const ASISTENTE_WORDS = defineWords({
+  es: {
+    quiet: (name: string, days: number) => `${name} lleva ${days} días sin movimiento.`,
+    neverMoved: (name: string) => `${name} no tiene movimiento todavía.`,
+    stuck: (key: string, name: string, hours: number | null, more: number) =>
+      `${key} (${name}) está atascada: ${hours != null ? `${hours} h` : "mucho"} en curso sin movimiento${more > 0 ? ` (y ${more} más)` : ""}.`,
+    failedTwice: (agent: string, where: string, sig: string) => `${agent} falló dos veces igual en ${where}: ${sig}.`,
+    companyPaused: "La compañía está en pausa: no arranca ninguna corrida.",
+    allPaused: "Todos los proyectos están en pausa: no arranca ninguna corrida.",
+    project: ["proyecto", "proyectos"] as [string, string],
+    running: (count: string, names: string) => `Corren ${count}: ${names}.`,
+    run: ["corrida", "corridas"] as [string, string],
+    last24: (count: string, ok: number, fail: number, tokens: string) => `Últimas 24 h: ${count} (${ok} bien, ${fail} con fallo), ${tokens} tokens.`,
+    routine: ["entregable de rutina", "entregables de rutina"] as [string, string],
+    accepted: (count: string, keys: string) => `Acepté ${count}: ${keys}.`,
+    question: ["pregunta te espera", "preguntas te esperan"] as [string, string],
+    questions: (count: string) => `${count} en Solo tú.`,
+    plan: (pct: number, guard: number) => `Plan: la ventana de 5 h va al ${pct} % (guardia en ${guard} %).`,
+    howOn: (agent: string, key: string, summary: string) => `${agent} falló dos veces seguidas igual en ${key}: ${summary}. ¿Cómo sigo?`,
+    acceptedNote: () => `Aceptado por Asistente: lo pidió ${ownerEs()} y sus checks están hechos.`,
+    acceptedLine: (key: string, title: string) => `Acepté ${key}: ${title}. Lo pediste tú y sus checks están hechos.`,
+    serverCheck: "Revisión del servidor:",
+  },
+  en: {
+    quiet: (name: string, days: number) => `${name} has had no movement for ${days} days.`,
+    neverMoved: (name: string) => `${name} has no movement yet.`,
+    stuck: (key: string, name: string, hours: number | null, more: number) =>
+      `${key} (${name}) is stuck: ${hours != null ? `${hours} h` : "a long time"} in progress with no movement${more > 0 ? ` (and ${more} more)` : ""}.`,
+    failedTwice: (agent: string, where: string, sig: string) => `${agent} failed twice the same way on ${where}: ${sig}.`,
+    companyPaused: "The company is paused: no run starts.",
+    allPaused: "Every project is paused: no run starts.",
+    project: ["project", "projects"] as [string, string],
+    running: (count: string, names: string) => `${count} running: ${names}.`,
+    run: ["run", "runs"] as [string, string],
+    last24: (count: string, ok: number, fail: number, tokens: string) => `Last 24 h: ${count} (${ok} fine, ${fail} failed), ${tokens} tokens.`,
+    routine: ["routine deliverable", "routine deliverables"] as [string, string],
+    accepted: (count: string, keys: string) => `I accepted ${count}: ${keys}.`,
+    question: ["question waits for you", "questions wait for you"] as [string, string],
+    questions: (count: string) => `${count} in Only you.`,
+    plan: (pct: number, guard: number) => `Plan: the 5 h window is at ${pct} % (guard at ${guard} %).`,
+    howOn: (agent: string, key: string, summary: string) => `${agent} failed twice in a row the same way on ${key}: ${summary}. How do I go on?`,
+    acceptedNote: () => `Accepted by Asistente: ${ownerName("en")} asked for it and its checks are done.`,
+    acceptedLine: (key: string, title: string) => `I accepted ${key}: ${title}. You asked for it and its checks are done.`,
+    serverCheck: "Server check:",
+  },
+});
 
 export const CHECK_EVERY_HOURS = 2;
 export const QUIET_HOURS = 48;
@@ -53,7 +105,7 @@ export const checkSlot = (now: Date, tz = screenTz()): string => {
 
 // ---- Findings
 
-const n = (v: number) => v.toLocaleString("es-MX");
+const n = (v: number) => v.toLocaleString(screenLocale());
 const nameOf = (p: { slug: string; title: string }) => p.title || p.slug;
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -82,7 +134,7 @@ async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuc
     const [last] = await db.select({ at: events.createdAt }).from(events).where(eq(events.projectId, p.id)).orderBy(desc(events.id)).limit(1);
     const since = last ? now.getTime() - last.at.getTime() : Infinity;
     if (since > QUIET_HOURS * HOUR) {
-      quiet.push(last ? `${nameOf(p)} lleva ${Math.floor(since / (24 * HOUR))} días sin movimiento.` : `${nameOf(p)} no tiene movimiento todavía.`);
+      quiet.push(last ? say(ASISTENTE_WORDS).quiet(nameOf(p), Math.floor(since / (24 * HOUR))) : say(ASISTENTE_WORDS).neverMoved(nameOf(p)));
     }
     const rows = await db.execute<{ key: string; last_at: Date | null }>(sql`
       select t.key, (select max(e.created_at) from events e where e.task_id = t.id) as last_at
@@ -93,8 +145,7 @@ async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuc
     if (old.length > 0) {
       const first = old[0]!;
       const hours = first.last_at ? Math.floor((now.getTime() - new Date(first.last_at).getTime()) / HOUR) : null;
-      const more = old.length > 1 ? ` (y ${old.length - 1} más)` : "";
-      stuck.push(`${first.key} (${nameOf(p)}) está atascada: ${hours != null ? `${hours} h` : "mucho"} en curso sin movimiento${more}.`);
+      stuck.push(say(ASISTENTE_WORDS).stuck(first.key, nameOf(p), hours, old.length - 1));
     }
   }
   return { quiet, stuck };
@@ -134,7 +185,7 @@ async function repeatedFailures(db: Db, now: Date): Promise<{ line: string; ask:
     if (sig !== failureSignature(b.summary)) continue;
     const where = a.taskKey ? `${a.taskKey} (${a.projectTitle || a.project})` : a.projectTitle || a.project;
     out.push({
-      line: `${a.agent} falló dos veces igual en ${where}: ${sig}.`,
+      line: say(ASISTENTE_WORDS).failedTwice(a.agent, where, sig),
       ask: a.taskKey ? { runId: a.id, project: a.project, taskKey: a.taskKey, agent: a.agent, summary: sig } : null,
     });
   }
@@ -155,9 +206,10 @@ export async function buildBrief(db: Db, now: Date): Promise<string[]> {
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
   const lines: string[] = [];
   const on = all.filter((p) => !p.runsPaused);
-  if (settings.companyPaused) lines.push("La compañía está en pausa: no arranca ninguna corrida.");
-  else if (on.length === 0) lines.push("Todos los proyectos están en pausa: no arranca ninguna corrida.");
-  else lines.push(`Corren ${plural(on.length, "proyecto", "proyectos")}: ${on.map(nameOf).join(", ")}.`);
+  const w = say(ASISTENTE_WORDS);
+  if (settings.companyPaused) lines.push(w.companyPaused);
+  else if (on.length === 0) lines.push(w.allPaused);
+  else lines.push(w.running(plural(on.length, ...w.project), on.map(nameOf).join(", ")));
 
   const runs = await db.execute<{ total: number; ok: number; fail: number; tokens: string | null }>(sql`
     select count(*)::int as total,
@@ -168,7 +220,7 @@ export async function buildBrief(db: Db, now: Date): Promise<string[]> {
     where status in ('ok', 'fail', 'stopped') and ended_at >= ${new Date(now.getTime() - 24 * HOUR).toISOString()}::timestamptz`);
   const r = runs.rows[0];
   if (r && r.total > 0) {
-    lines.push(`Últimas 24 h: ${plural(r.total, "corrida", "corridas")} (${r.ok} bien, ${r.fail} con fallo), ${n(Number(r.tokens ?? 0))} tokens.`);
+    lines.push(w.last24(plural(r.total, ...w.run), r.ok, r.fail, n(Number(r.tokens ?? 0))));
   }
 
   lines.push(...findingLines(await findings(db, now)));
@@ -178,13 +230,13 @@ export async function buildBrief(db: Db, now: Date): Promise<string[]> {
     .from(events)
     .where(and(eq(events.type, "asistente.accepted"), gte(events.createdAt, new Date(now.getTime() - 24 * HOUR))))
     .orderBy(asc(events.id));
-  if (accepted.length > 0) lines.push(`Acepté ${plural(accepted.length, "entregable de rutina", "entregables de rutina")}: ${accepted.map((a) => a.key).join(", ")}.`);
+  if (accepted.length > 0) lines.push(w.accepted(plural(accepted.length, ...w.routine), accepted.map((a) => a.key).join(", ")));
 
   const [open] = await db.select({ n: sql<number>`count(*)::int` }).from(questions).where(isNull(questions.answeredAt));
-  if ((open?.n ?? 0) > 0) lines.push(`${plural(open!.n, "pregunta te espera", "preguntas te esperan")} en Solo tú.`);
+  if ((open?.n ?? 0) > 0) lines.push(w.questions(plural(open!.n, ...w.question)));
 
   const plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
-  if (plan.state !== "unknown" && plan.five_hour_pct != null) lines.push(`Plan: la ventana de 5 h va al ${plan.five_hour_pct} % (guardia en ${plan.guard_pct} %).`);
+  if (plan.state !== "unknown" && plan.five_hour_pct != null) lines.push(w.plan(plan.five_hour_pct, plan.guard_pct));
   return lines;
 }
 
@@ -223,7 +275,7 @@ async function askOnce(db: Db, f: RepeatedFailure): Promise<boolean> {
       {
         project: f.project,
         key: f.taskKey,
-        question: `${f.agent} falló dos veces seguidas igual en ${f.taskKey}: ${f.summary}. ¿Cómo sigo?`,
+        question: say(ASISTENTE_WORDS).howOn(f.agent, f.taskKey, f.summary),
         urgency: "soon",
       },
       { actor: { ...ASISTENTE_ACTOR, machine: hostname() }, requestId: `asistente:fail2:${f.runId}`, tool: "ask" },
@@ -275,13 +327,13 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
 
 const actorCtx = (tool: string) => ({ actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool });
 
-// A PO's ticket that Jorge asked for (origin jorge), ops or research, In review with every check done or
+// A PO's ticket that the owner asked for (origin owner), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
 export async function routineAccept(db: Db, now: Date): Promise<number> {
   const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`
     select t.id, t.key, t.title, t.version, p.slug as project, p.id as project_id, t.owner_agent as owner
     from tasks t join projects p on p.id = t.project_id
-    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'jorge' and t.work_type in ('ops', 'research') and t.owner_agent is not null
+    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'owner' and t.work_type in ('ops', 'research') and t.owner_agent is not null
       and not exists (select 1 from checks c where c.task_id = t.id and not c.done and c.waived_at is null)
     order by t.key`);
   let n = 0;
@@ -289,7 +341,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     const [owner] = await db.select().from(agents).where(eq(agents.id, r.owner)).limit(1);
     if (!owner || roleOf(owner) !== "product-owner") continue;
     try {
-      await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: "Aceptado por Asistente: lo pidió Jorge y sus checks están hechos." } as never, actorCtx("jobs.asistente.accept"));
+      await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: say(ASISTENTE_WORDS).acceptedNote() } as never, actorCtx("jobs.asistente.accept"));
     } catch {
       continue;
     }
@@ -303,7 +355,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     await postMessage(
       db,
       { thread, project: project! },
-      { author: { agent: "asistente", role: "asistente" }, body: `Acepté ${r.key}: ${r.title}. Lo pediste tú y sus checks están hechos.`, links: [{ kind: "ticket", ref: r.key, title: r.title.slice(0, 200) }] },
+      { author: { agent: "asistente", role: "asistente" }, body: say(ASISTENTE_WORDS).acceptedLine(r.key, r.title), links: [{ kind: "ticket", ref: r.key, title: r.title.slice(0, 200) }] },
       actorCtx("jobs.asistente.accept"),
     );
     await writeTx(db, project!, actorCtx("jobs.asistente.accept"), async (_tx, emit) => {
@@ -314,10 +366,10 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
   return n;
 }
 
-const OPEN_FOR_PO = ["Ready", "In progress", "Needs Jorge"];
+const OPEN_FOR_PO = ["Ready", "In progress", "Needs owner"];
 
-// A PO with a goal and nothing to do (no Ready, In progress or Needs Jorge ticket of its own, no run going)
-// is woken once a week at most to put 2-3 ideas in its project thread and ask Jorge which one.
+// A PO with a goal and nothing to do (no Ready, In progress or Needs owner ticket of its own, no run going)
+// is woken once a week at most to put 2-3 ideas in its project thread and ask the owner which one.
 export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): Promise<number> {
   if (!eventWakesEnabled(env)) return 0;
   let n = 0;
@@ -339,7 +391,7 @@ export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): 
       .limit(1);
     if (recent) continue;
     const queued = await writeTx(db, p, actorCtx("jobs.asistente.propose"), async (tx, emit) => {
-      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask Jorge to pick one", now, trigger: "cadence" });
+      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask the owner to pick one", now, trigger: "cadence" });
       if (out.kind !== "queued") return false;
       await emit("po.propose_queued", null, { agent: po.slug, run_id: out.runId });
       return true;
@@ -386,7 +438,7 @@ export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps
         const runId = await queueAsistente(db, home, `2-hour check: ${lines.length} finding(s) (stuck, quiet, repeated failures); post them in the right threads`, env, now);
         if (runId) out.check_run = 1;
         else {
-          const body = ["Revisión del servidor:", ...lines.map((l) => `- ${l}`)].join("\n").slice(0, 4000);
+          const body = [say(ASISTENTE_WORDS).serverCheck, ...lines.map((l) => `- ${l}`)].join("\n").slice(0, 4000);
           await postMessage(db, { thread: await companyThread(db), project: null }, { author: { agent: "asistente", role: "asistente" }, body }, actorCtx("jobs.asistente.check"));
         }
       }

@@ -2,6 +2,7 @@
 
 Plania's own words, as the README and the screen use them. One line each, with no implementation
 detail. Spanish words are the ones the owner reads on screen; English words are the ones in the tools.
+Which screen names keep their Spanish form in English is in [docs/screen-words.md](docs/screen-words.md).
 
 ## People and roles
 
@@ -50,7 +51,7 @@ detail. Spanish words are the ones the owner reads on screen; English words are 
 | Proposal | Options, or a plan, that a product owner puts to the owner as something he can answer with a tap. |
 | Question | Something an agent asks the owner about a ticket; the ticket waits until he answers. |
 | Human-only question | A question only the owner's own screen may answer. |
-| Needs Jorge | The state of a ticket that waits on the owner's answer. |
+| Needs owner | The state of a ticket that waits on the owner's answer. |
 | Te toca | Everything that cannot go on until the owner acts, across all projects, one card at a time. |
 | Bandeja | The inbox: the list of what waits on the owner. |
 | Thread | The conversation where a project's agents report and the owner answers. The company thread is the Asistente's. |
@@ -109,3 +110,15 @@ detail. Spanish words are the ones the owner reads on screen; English words are 
 | Headline | One line on where a project stands. |
 | Readiness | Whether a project can be picked up right now: ready, caution, blocked, or nothing to resume. |
 | Digest | What changed since a given moment, per project. |
+| Buzón | The first stop of La corriente: where a pedido lands before anyone shapes it. |
+| Plomería | The machine's plumbing on one page: whether the company runs, the plan's brake, what the models spent, the switches per project, the last runs, the language. |
+| Archivo | What a project wrote, drew and merged, together: its docs, each thing's docs, the designs. |
+| Tablero | The board of one project's work, by stage; also the building's switchboard of apps on Máquinas. |
+| Ficha | The card of one thing (pedido, idea, initiative, ticket) with everything about it, opened from any list. |
+| Máquinas | A project's services on the Mac: how its app starts, what is running, the test copies. |
+| Novedades | The page with the notes of the last Plania update. |
+| Calidad | The quality scoreboard: how runs ended, what QA returned, how long things took. |
+| Progreso | What was closed, by day, project and year. |
+| Aceptar | The owner's click that merges a delivery into the test copy. |
+| Pedir cambios | The owner's click that sends a delivery back to Taller with what to change. |
+| Delegada | The badge on an answer the Plania bot recorded for the owner, quoting the owner's message. |

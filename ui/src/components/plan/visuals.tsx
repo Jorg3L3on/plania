@@ -5,6 +5,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { fallbackAccent, projectBrandAccent } from "@/components/plania-mark";
 import type { LaneState, StationTone } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
 
 // Literal class names per tone so Tailwind generates every one of them.
 export const TONE_BG: Record<StationTone, string> = {
@@ -12,7 +14,7 @@ export const TONE_BG: Record<StationTone, string> = {
   now: "bg-status-now",
   review: "bg-status-review",
   blocked: "bg-status-blocked",
-  jorge: "bg-status-jorge",
+  owner: "bg-status-owner",
   ready: "bg-status-ready",
   pending: "bg-status-pending",
 };
@@ -22,7 +24,7 @@ export const TONE_TEXT: Record<StationTone, string> = {
   now: "text-ink-now",
   review: "text-ink-review",
   blocked: "text-ink-blocked",
-  jorge: "text-ink-jorge",
+  owner: "text-ink-owner",
   ready: "text-ink-ready",
   pending: "text-muted-foreground",
 };
@@ -32,7 +34,7 @@ const TONE_VAR: Record<StationTone, string> = {
   now: "var(--status-now)",
   review: "var(--status-review)",
   blocked: "var(--status-blocked)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   ready: "var(--status-ready)",
   pending: "var(--status-pending)",
 };
@@ -40,12 +42,14 @@ export const toneVar = (tone: StationTone) => TONE_VAR[tone];
 
 // PLA-I53-5: the words for a ticket's stage or status live in lib/etapas.ts (ETAPA_WORD), the app's one map.
 
+// PLA-I2-10: the words live in lib/plan-words.ts; the language is fixed for the page load.
+const laneWord = words(PLAN).laneState;
 export const LANE_STATE: Record<LaneState, { word: string; tone: StationTone }> = {
-  moving: { word: "en marcha", tone: "now" },
-  jorge: { word: "te espera", tone: "jorge" },
-  blocked: { word: "bloqueada", tone: "blocked" },
-  waiting: { word: "esperando", tone: "pending" },
-  paused: { word: "en pausa", tone: "pending" },
+  moving: { word: laneWord.moving, tone: "now" },
+  owner: { word: laneWord.owner, tone: "owner" },
+  blocked: { word: laneWord.blocked, tone: "blocked" },
+  waiting: { word: laneWord.waiting, tone: "pending" },
+  paused: { word: laneWord.paused, tone: "pending" },
 };
 
 /** Short label for a station: "F1" from "F1 · Migración…", else the first words of the title. */
@@ -124,7 +128,7 @@ const RING_C = 2 * Math.PI * RING_R;
 export function ProgressRing({ closed, total, size = 72 }: { closed: number; total: number; size?: number }) {
   const ratio = total === 0 ? 0 : closed / total;
   return (
-    <svg viewBox="0 0 72 72" width={size} height={size} className="shrink-0 -rotate-90" role="img" aria-label={`${closed} de ${total} tickets cerrados`}>
+    <svg viewBox="0 0 72 72" width={size} height={size} className="shrink-0 -rotate-90" role="img" aria-label={words(PLAN).ring(closed, total)}>
       <circle cx="36" cy="36" r={RING_R} fill="none" stroke="currentColor" strokeWidth="7" className="text-foreground/10" />
       {total > 0 && (
         <circle

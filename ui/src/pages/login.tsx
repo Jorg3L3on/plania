@@ -1,19 +1,25 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlaniaMark } from "@/components/plania-mark";
-import { api, isUnauthorized } from "@/lib/api";
+import { ApiError, api, isUnauthorized } from "@/lib/api";
+import { words } from "@/lib/i18n";
+import { LOGIN } from "@/lib/login-words";
+import { waitText } from "@/lib/primer-arranque";
 
 export function LoginPage() {
+  const w = words(LOGIN);
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
+  // PLA-I2-2: no owner yet means the first-start screen, not a password nobody has.
+  const firstStart = useQuery({ queryKey: ["first-start"], queryFn: () => api.firstStart(), retry: false });
 
   const login = useMutation({
     mutationFn: () => api.login(password),
@@ -22,6 +28,8 @@ export function LoginPage() {
       navigate(from, { replace: true });
     },
   });
+
+  if (firstStart.data?.open) return <Navigate to="/primer-arranque" replace />;
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -34,12 +42,12 @@ export function LoginPage() {
         <CardHeader>
           <PlaniaMark className="mb-2 size-10" />
           <CardTitle className="font-display text-xl font-extrabold tracking-tight">Plania</CardTitle>
-          <CardDescription>Entra para ver tus proyectos.</CardDescription>
+          <CardDescription>{w.lead}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password">{w.password}</Label>
               <Input
                 id="password"
                 type="password"
@@ -51,12 +59,16 @@ export function LoginPage() {
               />
               {login.isError && (
                 <p className="text-sm text-destructive">
-                  {isUnauthorized(login.error) ? "Contraseña incorrecta." : "No se pudo entrar. Intenta de nuevo."}
+                  {isUnauthorized(login.error)
+                    ? w.wrong
+                    : login.error instanceof ApiError && login.error.status === 429
+                      ? waitText(login.error.detail.retry_after)
+                      : w.failed}
                 </p>
               )}
             </div>
             <Button type="submit" disabled={!password || login.isPending}>
-              {login.isPending ? "Entrando…" : "Entrar"}
+              {login.isPending ? w.submitting : w.submit}
             </Button>
           </form>
         </CardContent>

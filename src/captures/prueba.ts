@@ -1,11 +1,12 @@
-// PLA-I46-8: Encenderla. The floor's Ventana can start a project's test copy on this Mac, and only when Jorge
+// PLA-I46-8: Encenderla. The floor's Ventana can start a project's test copy on this machine, and only when the owner
 // clicks. The test copy is Plania's own worktree of origin/sandbox (<worktrees>/<slug>/_prueba, detached, outside
-// every repo), never main and never Jorge's checkout. It runs settings.capture.start_command on the first free port
+// every repo), never main and never the owner's checkout. It runs settings.capture.start_command on the first free port
 // from settings.capture.port up (skipping ports another copy, a registered server or anything listening already
 // holds), with the shell basics only (checkoutEnv: none of Plania's secrets). Once it answers, fresh stills are
 // taken and the Ventana says «En vivo». The process is a registered footprint (port:N, teardown kill -TERM -<pgid>)
-// and stops when Jorge turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
+// and stops when the owner turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
+import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import { exitAfterDrain } from "../ops/shutdown.js";
 import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -24,8 +25,96 @@ import { defaultGit, isInside, repoPathOf, worktreeRoot, type GitFn } from "../r
 import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSummary, type Exec } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
 import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
+import { pgSearchPath } from "../lib/pg-bin.js";
+import { supported } from "../lib/system-support.js";
+import { isSelfProject, serverRoot } from "../self/plania-self.js";
+import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
+import { processCommand } from "../lib/proc-command.js";
+import { defineWords, say } from "../words.js";
 
-export const BRANCH = "sandbox";
+// PLA-I2-10: why a copy did not start, its footprints' purposes and its refusals, in the install's language; the
+// Spanish is unchanged.
+export const PRUEBA_WORDS = defineWords({
+  es: {
+    noStart: (why: string) => `No se pudo encender: ${why}`,
+    noRepo: (title: string, repo: string) => `No encuentro el repo de ${title} en ${repo}`,
+    testCopy: "La copia de prueba",
+    deliveryCopy: "La copia de la entrega",
+    insideRepo: "La copia de prueba quedaría dentro del repo",
+    noFetch: (ref: string) => `No se pudo traer ${ref} de origin`,
+    noRead: (what: string) => `No se pudo leer ${what}`,
+    dirty: (what: string) => `${what} tiene cambios sin guardar; no la toco`,
+    noCheckout: (what: string, ref: string) => `No se pudo poner ${what} en ${ref}`,
+    noCreate: (what: string) => `No se pudo crear ${what}`,
+    worktreeTest: (title: string, branch: string) => `Copia de prueba de ${title} (${branch}), para Encenderla`,
+    worktreeDelivery: (title: string) => `Copia de la entrega de ${title}, para El Probador`,
+    notOn: (what: string, ref: string) => `${what} no está en ${ref}`,
+    noInstall: (cmd: string) => `No se pudieron instalar las dependencias (${cmd})`,
+    noPort: (from: number, to: number) => `No hay un puerto libre entre ${from} y ${to}`,
+    noSpawn: (why: string) => `No se pudo arrancar: ${why}`,
+    noProcess: "No se pudo arrancar el proceso",
+    signal: (signal: string) => `señal ${signal}`,
+    code: (code: number | null) => `código ${code}`,
+    closedAtStart: (what: string, why: string) => `${what} se cerró al arrancar (${why})`,
+    wentOff: (what: string, why: string) => `${what} se apagó (${why})`,
+    serverTest: (title: string, branch: string) => `Copia de prueba de ${title} (${branch}), encendida desde el piso`,
+    serverDelivery: (key: string, title: string, ref: string) => `Copia de la entrega ${key} de ${title} (${ref}), para El Probador`,
+    noAnswer: (what: string, s: number) => `${what} no respondió en ${s} s`,
+    noStill: (why: string) => `No se pudo tomar la captura: ${why}`,
+    startedBy: "Plania, desde el piso",
+    notMine: "la app no la encendió Plania; no la puedo reiniciar",
+    noVar: (name: string) => `La copia de la entrega no encuentra ${name} en el archivo de entorno de la app`,
+    notLocal: (name: string) => `${name} no es una base local de Postgres; la entrega no se prueba sobre ella`,
+    noCopyDb: (name: string) => `No se pudo copiar la base de la app para la entrega (${name})`,
+    migrateFailed: (cmd: string) => `Las migraciones de la entrega fallaron (${cmd})`,
+    dbTest: (slug: string) => `Base de la copia de prueba de ${slug} (copia de la de la app, con las migraciones de sandbox)`,
+    dbDelivery: (slug: string) => `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`,
+    copyOff: "la copia no está encendida",
+    noOwnDb: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app",
+    otherDatos: "la copia ya tiene los datos de otra muestra",
+  },
+  en: {
+    noStart: (why: string) => `Could not turn it on: ${why}`,
+    noRepo: (title: string, repo: string) => `I can't find ${title}'s repo at ${repo}`,
+    testCopy: "The test copy",
+    deliveryCopy: "The delivery's copy",
+    insideRepo: "The test copy would sit inside the repo",
+    noFetch: (ref: string) => `Could not fetch ${ref} from origin`,
+    noRead: (what: string) => `Could not read ${what}`,
+    dirty: (what: string) => `${what} has unsaved changes; I leave it alone`,
+    noCheckout: (what: string, ref: string) => `Could not put ${what} on ${ref}`,
+    noCreate: (what: string) => `Could not create ${what}`,
+    worktreeTest: (title: string, branch: string) => `Test copy of ${title} (${branch}), to turn it on`,
+    worktreeDelivery: (title: string) => `Delivery copy of ${title}, for El Probador`,
+    notOn: (what: string, ref: string) => `${what} is not on ${ref}`,
+    noInstall: (cmd: string) => `Could not install the dependencies (${cmd})`,
+    noPort: (from: number, to: number) => `No free port between ${from} and ${to}`,
+    noSpawn: (why: string) => `Could not start: ${why}`,
+    noProcess: "Could not start the process",
+    signal: (signal: string) => `signal ${signal}`,
+    code: (code: number | null) => `code ${code}`,
+    closedAtStart: (what: string, why: string) => `${what} closed while starting (${why})`,
+    wentOff: (what: string, why: string) => `${what} went off (${why})`,
+    serverTest: (title: string, branch: string) => `Test copy of ${title} (${branch}), turned on from the floor`,
+    serverDelivery: (key: string, title: string, ref: string) => `Delivery copy ${key} of ${title} (${ref}), for El Probador`,
+    noAnswer: (what: string, s: number) => `${what} did not answer in ${s} s`,
+    noStill: (why: string) => `Could not take the still: ${why}`,
+    startedBy: "Plania, from the floor",
+    notMine: "Plania did not turn this app on; I can't restart it",
+    noVar: (name: string) => `The delivery's copy can't find ${name} in the app's env file`,
+    notLocal: (name: string) => `${name} is not a local Postgres database; the delivery is not tested on it`,
+    noCopyDb: (name: string) => `Could not copy the app's database for the delivery (${name})`,
+    migrateFailed: (cmd: string) => `The delivery's migrations failed (${cmd})`,
+    dbTest: (slug: string) => `Database of ${slug}'s test copy (a copy of the app's, with the test branch's migrations)`,
+    dbDelivery: (slug: string) => `Database of ${slug}'s delivery copy (a copy of the app's, with the branch's migrations), for El Probador`,
+    copyOff: "the copy is not on",
+    noOwnDb: "the copy has no database of its own (settings.capture.database); the data never goes to the app's database",
+    otherDatos: "the copy already holds another preview's data",
+  },
+});
+
+// PLA-I2-5: the default; a project's test copy sits on its own working branch, startBranchOf(p.settings).
+export const BRANCH = DEFAULT_START_BRANCH;
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
 const READY_MS = 180_000; // a first Next.js compile can take a while
 const POLL_MS = 1_000;
@@ -38,7 +127,8 @@ export const TAIL_LINES = 200;
 const DETAIL_LINES = 12;
 
 export type Phase = "starting" | "capturing" | "live" | "failed";
-export type PruebaPhase = Phase | "off" | "running"; // running: something else serves settings.capture.port
+// running: something else serves settings.capture.port. PLA-I2-4: unavailable: this system cannot run a test copy.
+export type PruebaPhase = Phase | "off" | "running" | "unavailable";
 export type PruebaRead = {
   phase: PruebaPhase;
   managed: boolean; // Plania started it (Apagar works)
@@ -47,6 +137,8 @@ export type PruebaRead = {
   started_at: string | null;
   error: string | null;
   detail: string | null; // the last lines the start printed, for Ver detalle
+  // PLA-I2-4: set when this system cannot take stills (no Chrome); the Ventana says so instead of an error.
+  stills?: "unavailable";
 };
 
 export type ChildLike = {
@@ -76,6 +168,9 @@ export type PruebaDeps = {
   now?: () => number;
   sweep?: boolean; // false: no minute timer (tests call sweepIdle)
   signals?: boolean; // false: no exit/signal hooks (tests)
+  // PLA-I2-9: the running server's checkout (to tell a copy of Plania itself) and how its copy's database is built.
+  serverRoot?: string;
+  selfDb?: SelfDbBuild;
 };
 
 // PLA-I52-2: two lanes per project. «sandbox» is Encenderla's copy (the before, and what the Ventana shows);
@@ -183,8 +278,12 @@ const defaultPortBusy = async (port: number) => (await knock("127.0.0.1", port))
 const urlOf = (port: number) => `http://localhost:${port}`;
 const short = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!.slice(0, 300);
 
+// PLA-I2-4: the read of a part this system cannot run (src/lib/system-support.ts).
+const UNAVAILABLE: PruebaRead = { phase: "unavailable", managed: false, port: null, url: null, started_at: null, error: null, detail: null };
+const withStills = (r: PruebaRead): PruebaRead => (supported("stills") ? r : { ...r, stills: "unavailable" });
+
 function read(c: Copy): PruebaRead {
-  return {
+  return withStills({
     phase: c.phase,
     managed: c.managed,
     port: c.port,
@@ -192,7 +291,7 @@ function read(c: Copy): PruebaRead {
     started_at: new Date(c.startedAt).toISOString(),
     error: c.error,
     detail: c.tail.length ? c.tail.slice(-DETAIL_LINES).join("\n") : null,
-  };
+  });
 }
 
 async function settingsOf(db: Db, slug: string): Promise<{ p: typeof projects.$inferSelect; s: CaptureSettings }> {
@@ -210,7 +309,8 @@ export async function pruebaRead(slug: string, settings: CaptureSettings | undef
     c.seenAt = now();
     return read(c);
   }
-  const off: PruebaRead = { phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null };
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
+  const off: PruebaRead = withStills({ phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null });
   if (!settings) return off;
   const up = await (deps.up ?? defaultUp)(urlOf(settings.port) + (settings.ready_path ?? "/"));
   return up ? { ...off, phase: "running", port: settings.port, url: urlOf(settings.port) } : off;
@@ -227,14 +327,16 @@ export function pruebaOf(slug: string): PruebaRead | null {
 // the Ventana reads its phase (starting → capturing → live, or failed).
 export async function encender(db: Db, slug: string, opts: { stills?: boolean } = {}): Promise<PruebaRead> {
   const { p, s } = await settingsOf(db, slug);
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
-  const c = newCopy(slug, "sandbox", BRANCH, null, "starting", true);
-  c.stills = opts.stills !== false;
+  const c = newCopy(slug, "sandbox", startBranchOf(p.settings), null, "starting", true);
+  // PLA-I2-4: with no Chrome here the copy still starts and goes En vivo; the Ventana says the stills are unavailable.
+  c.stills = opts.stills !== false && supported("stills");
   copies.set(c.id, c);
   hook();
-  void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
+  void start(db, c, p, s).catch((e) => fail(db, c, say(PRUEBA_WORDS).noStart(short(e))));
   return read(c);
 }
 
@@ -258,28 +360,29 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   const lap = (what: string) => c.laps.push(`${what} ${Math.round((now() - t0) / 1000)}s`);
   const repo = repoPathOf(p.slug, p.settings, env());
   c.repo = repo;
-  if (!existsSync(repo)) return fail(db, c, `No encuentro el repo de ${p.title} en ${repo}`);
+  const w = say(PRUEBA_WORDS);
+  if (!existsSync(repo)) return fail(db, c, w.noRepo(p.title, repo));
   const wt = path.join(worktreeRoot(env()), p.slug, c.lane === "sandbox" ? "_prueba" : "_entrega");
   const ref = c.ref;
-  const what = c.lane === "sandbox" ? "La copia de prueba" : "La copia de la entrega";
-  if (isInside(wt, repo)) return fail(db, c, "La copia de prueba quedaría dentro del repo");
+  const what = c.lane === "sandbox" ? w.testCopy : w.deliveryCopy;
+  if (isInside(wt, repo)) return fail(db, c, w.insideRepo);
   c.worktree = wt;
 
   // The test copy is origin/sandbox (or the delivery's origin/<branch>), detached. Never main, never a checkout
-  // Jorge works in.
-  if ((await g(["fetch", "origin", ref], repo)).code !== 0) return fail(db, c, `No se pudo traer ${ref} de origin`);
+  // The owner works in.
+  if ((await g(["fetch", "origin", ref], repo)).code !== 0) return fail(db, c, w.noFetch(ref));
   if (existsSync(wt)) {
     const dirty = await g(["status", "--porcelain", "--untracked-files=no"], wt);
-    if (dirty.code !== 0) return fail(db, c, `No se pudo leer ${what.toLowerCase()}`);
-    if (dirty.stdout.trim()) return fail(db, c, `${what} tiene cambios sin guardar; no la toco`);
-    if ((await g(["checkout", "--detach", `origin/${ref}`], wt)).code !== 0) return fail(db, c, `No se pudo poner ${what.toLowerCase()} en ${ref}`);
+    if (dirty.code !== 0) return fail(db, c, w.noRead(what.toLowerCase()));
+    if (dirty.stdout.trim()) return fail(db, c, w.dirty(what));
+    if ((await g(["checkout", "--detach", `origin/${ref}`], wt)).code !== 0) return fail(db, c, w.noCheckout(what.toLowerCase(), ref));
   } else {
     mkdirSync(path.dirname(wt), { recursive: true });
-    if ((await g(["worktree", "add", "--detach", wt, `origin/${ref}`], repo)).code !== 0) return fail(db, c, `No se pudo crear ${what.toLowerCase()}`);
+    if ((await g(["worktree", "add", "--detach", wt, `origin/${ref}`], repo)).code !== 0) return fail(db, c, w.noCreate(what.toLowerCase()));
     if (deps.footprints !== false) {
       await registerFootprint(
         db,
-        { project: p.slug, kind: "worktree", locator: wt, purpose: c.lane === "sandbox" ? `Copia de prueba de ${p.title} (${BRANCH}), para Encenderla` : `Copia de la entrega de ${p.title}, para El Probador`, teardown: `git -C ${repo} worktree remove --force ${wt}` },
+        { project: p.slug, kind: "worktree", locator: wt, purpose: c.lane === "sandbox" ? w.worktreeTest(p.title, BRANCH) : w.worktreeDelivery(p.title), teardown: `git -C ${repo} worktree remove --force ${wt}` },
         ctx(),
       ).catch(() => undefined);
     }
@@ -288,7 +391,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   c.commit = head || null;
   const want = (await g(["rev-parse", `origin/${ref}`], repo)).stdout.trim();
   const detached = (await g(["rev-parse", "--abbrev-ref", "HEAD"], wt)).stdout.trim();
-  if (!head || head !== want || detached !== "HEAD") return fail(db, c, `${what} no está en ${ref}`);
+  if (!head || head !== want || detached !== "HEAD") return fail(db, c, w.notOn(what, ref));
   if (copies.get(c.id) !== c || c.stopping) return;
 
   lap("git");
@@ -305,7 +408,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
       const r = await (deps.exec ?? shellExec)(install.command, { cwd: wt, timeoutMs: 600_000, env: checkoutEnv() });
       if (r.code !== 0) {
         c.tail = tailOf(r.stderr || r.stdout);
-        return fail(db, c, `No se pudieron instalar las dependencias (${install.command})`);
+        return fail(db, c, w.noInstall(install.command));
       }
       mkdirSync(path.dirname(mark), { recursive: true });
       writeFileSync(mark, hash);
@@ -318,7 +421,15 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // the branch. Without it the delivery's pages crashed on the new columns and El Probador photographed the error.
   // PLA-77: the sandbox copy too (<db>_prueba, migrated to sandbox): once a delivery with a migration was merged,
   // the app's own database lagged behind sandbox and «Antes» crashed («Sin antes» on MIA-I9-2).
-  if (s.database) {
+  // PLA-I2-9: a copy of Plania itself never uses the live database, not even to copy it: a new one, built by the
+  // migrate module from the copy's own files, then its env file is rewritten once the port is known.
+  const self = isSelfProject(repo, deps.serverRoot ?? serverRoot());
+  if (self) {
+    const made = await selfCopyDatabase(env().DATABASE_URL, c.lane === "sandbox" ? "_prueba" : "_entrega", wt, deps.selfDb ?? defaultSelfDbBuild);
+    if (!made.ok) return fail(db, c, made.error);
+    c.dbEnv = made.env;
+    if (copies.get(c.id) !== c || c.stopping) return;
+  } else if (s.database) {
     const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database, c.lane === "sandbox" ? "_prueba" : "_entrega");
     if (!made.ok) return fail(db, c, made.error);
     if (copies.get(c.id) !== c || c.stopping) return;
@@ -334,17 +445,22 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   });
   portLock = picking.catch(() => null);
   const port = await picking;
-  if (!port) return fail(db, c, `No hay un puerto libre entre ${s.port} y ${s.port + PORT_SPAN - 1}`);
+  if (!port) return fail(db, c, w.noPort(s.port, s.port + PORT_SPAN - 1));
   if (copies.get(c.id) !== c || c.stopping) return;
+  if (self) {
+    const ready = selfCopyEnvFile(wt, envFile, c.dbEnv ?? {}, port, env());
+    if (!ready.ok) return fail(db, c, ready.error);
+    c.dbEnv = ready.env;
+  }
   const command = s.start_command.replaceAll("{port}", String(port));
   c.command = command;
   let child: ChildLike;
   try {
     child = (deps.spawn ?? defaultSpawn)(command, { cwd: wt, env: checkoutEnv({ PORT: String(port), ...(c.dbEnv ?? {}) }) });
   } catch (e) {
-    return fail(db, c, `No se pudo arrancar: ${short(e)}`);
+    return fail(db, c, w.noSpawn(short(e)));
   }
-  if (!child.pid) return fail(db, c, "No se pudo arrancar el proceso");
+  if (!child.pid) return fail(db, c, w.noProcess);
   c.pid = child.pid;
   const keep = (d: unknown) => {
     c.tail = tailOf([...c.tail, ...String(d).split("\n")].join("\n"));
@@ -354,10 +470,10 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   let exited: string | null = null;
   child.once("error", (e) => (exited = short(e)));
   child.once("exit", (code, signal) => {
-    exited = signal ? `señal ${signal}` : `código ${code}`;
+    exited = signal ? w.signal(signal) : w.code(code);
     c.pid = null;
     if (copies.get(c.id) !== c || c.stopping) return;
-    void fail(db, c, c.phase === "starting" ? `${what} se cerró al arrancar (${exited})` : `${what} se apagó (${exited})`);
+    void fail(db, c, c.phase === "starting" ? w.closedAtStart(what, exited) : w.wentOff(what, exited));
   });
   if (deps.footprints !== false) {
     c.registering = registerFootprint(
@@ -366,7 +482,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
         project: p.slug,
         kind: "server",
         locator: `port:${port}`,
-        purpose: c.lane === "sandbox" ? `Copia de prueba de ${p.title} (${BRANCH}), encendida desde el piso` : `Copia de la entrega ${c.taskKey ?? ""} de ${p.title} (${ref}), para El Probador`,
+        purpose: c.lane === "sandbox" ? w.serverTest(p.title, BRANCH) : w.serverDelivery(c.taskKey ?? "", p.title, ref),
         teardown: `kill -TERM -${child.pid}`,
         details: { pid: child.pid, pgid: child.pid, server_pid: process.pid, worktree: wt, command, commit: head, branch: ref, lane: c.lane, ...(c.taskKey ? { task_key: c.taskKey } : {}) },
       },
@@ -387,7 +503,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   for (;;) {
     if (copies.get(c.id) !== c || c.stopping || exited) return;
     if (await (deps.up ?? defaultUp)(ready)) break;
-    if (now() > until) return fail(db, c, `${what} no respondió en ${Math.round((deps.readyMs ?? READY_MS) / 1000)} s`);
+    if (now() > until) return fail(db, c, w.noAnswer(what, Math.round((deps.readyMs ?? READY_MS) / 1000)));
     await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
   }
 
@@ -402,9 +518,9 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // Fresh stills, then En vivo.
   c.phase = "capturing";
   try {
-    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor, env: c.dbEnv ?? {} });
+    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: c.ref, actor: ctx().actor, env: c.dbEnv ?? {} });
   } catch (e) {
-    c.error = `No se pudo tomar la captura: ${short(e)}`;
+    c.error = say(PRUEBA_WORDS).noStill(short(e));
   }
   if (copies.get(c.id) === c && !c.stopping && c.phase === "capturing") c.phase = "live";
 }
@@ -478,7 +594,7 @@ export async function pickPort(db: Db, base: number): Promise<number | null> {
 export function pruebaInfo(slug: string): { command: string | null; commit: string | null; branch: string; worktree: string | null; started_by: string | null } | null {
   const c = copies.get(slug);
   if (!c) return null;
-  return { command: c.command, commit: c.commit, branch: BRANCH, worktree: c.worktree, started_by: c.managed ? "Plania, desde el piso" : null };
+  return { command: c.command, commit: c.commit, branch: c.ref, worktree: c.worktree, started_by: c.managed ? say(PRUEBA_WORDS).startedBy : null };
 }
 
 // The kept output (at most TAIL_LINES), with every value of Plania's own environment and every secret-looking
@@ -493,9 +609,10 @@ export function pruebaLog(slug: string, secrets: string[] = []): string[] {
 // Reiniciar: Apagar, then Encenderla, with the same port rule (the first free port from settings.capture.port up).
 export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
   const { s } = await settingsOf(db, slug);
+  if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const c = copies.get(slug);
   const outside = !c && (await pruebaRead(slug, s)).phase === "running";
-  if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: "la app no la encendió Plania; no la puedo reiniciar" });
+  if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: say(PRUEBA_WORDS).notMine });
   await apagar(db, slug);
   return encender(db, slug);
 }
@@ -506,18 +623,20 @@ export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
 export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
   const { p, s } = await settingsOf(db, slug);
   const had = copies.get(slug);
+  // PLA-I2-4: nothing to take on a system without Chrome; the read says so.
+  if (!supported("stills")) return had ? read(had) : pruebaRead(slug, s);
   if (had && had.phase !== "live") return read(had);
   if (had) {
     had.phase = "capturing";
     had.error = null;
-    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor, env: had.dbEnv ?? {} })
-      .catch((e) => (had.error = `No se pudo tomar la captura: ${short(e)}`))
+    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: had.ref, actor: ctx().actor, env: had.dbEnv ?? {} })
+      .catch((e) => (had.error = say(PRUEBA_WORDS).noStill(short(e))))
       .finally(() => {
         if (copies.get(slug) === had && had.phase === "capturing") had.phase = "live";
       });
     return read(had);
   }
-  const c = newCopy(slug, "sandbox", BRANCH, null, "capturing", false, s.port);
+  const c = newCopy(slug, "sandbox", startBranchOf(p.settings), null, "capturing", false, s.port);
   copies.set(c.id, c);
   void (deps.capture ?? runCapture)(db, { project: slug, checkout: repoPathOf(p.slug, p.settings, env()), base_url: urlOf(s.port), actor: ctx().actor })
     .catch(() => undefined)
@@ -560,7 +679,8 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
   if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
     throw new ToolError("INVALID_FILTER", { field: "branch", hint: "a plain branch name" });
   }
-  if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
+  if (branch === "main" || branch === BRANCH || branch === startBranchOf(p.settings)) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
+  if (!supported("test_copy")) return { ...withStills(UNAVAILABLE), key: delivery.key, branch, commit: null, worktree: null };
   const id = idOf(slug, "entrega");
   const had = copies.get(id);
   if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed" && (await atHead(had, branch, delivery.head))) {
@@ -571,7 +691,7 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
   const c = newCopy(slug, "entrega", branch, delivery.key, "starting", true);
   copies.set(id, c);
   hook();
-  void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
+  void start(db, c, p, s).catch((e) => fail(db, c, say(PRUEBA_WORDS).noStart(short(e))));
   return readEntrega(c);
 }
 
@@ -607,7 +727,7 @@ async function stopProcess(db: Db, c: Copy): Promise<void> {
   }
 }
 
-// Turns the copy off (Jorge's Apagar, the idle sweep, Reintentar after a failure). The worktree stays for next time.
+// Turns the copy off (the owner's Apagar, the idle sweep, Reintentar after a failure). The worktree stays for next time.
 export async function apagar(db: Db, slug: string): Promise<PruebaRead> {
   return stopId(db, idOf(slug, "sandbox"));
 }
@@ -694,10 +814,8 @@ export async function reapOrphans(db: Db, cmdOf: (pid: number) => Promise<string
   return n;
 }
 
-const psCommand = (pid: number) =>
-  new Promise<string | null>((resolve) => {
-    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => resolve(err ? null : stdout.trim() || null));
-  });
+// PLA-I2-19: /proc on Linux, portable ps elsewhere.
+const psCommand = (pid: number) => processCommand(pid);
 
 // ---- PLA-75: the delivery copy's own database
 
@@ -729,7 +847,8 @@ export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entr
   return { url: u.toString(), name: `${name}${suffix}` };
 }
 
-export const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+// PLA-I2-4: psql and pg_dump are found on macOS and Linux alike (src/lib/pg-bin.ts), PATH included.
+export const pgPathOf = (): string => pgSearchPath(checkoutEnv().PATH);
 
 async function entregaDatabase(
   db: Db,
@@ -740,31 +859,32 @@ async function entregaDatabase(
   cfg: { env_var: string; migrate_command: string },
   suffix: "_entrega" | "_prueba" = "_entrega",
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const w = say(PRUEBA_WORDS);
   const file = envFile ? path.join(wt, envFile) : null;
   const base = file && existsSync(file) ? envValue(readFileSync(file, "utf8"), cfg.env_var) : null;
-  if (!base) return { ok: false, error: `La copia de la entrega no encuentra ${cfg.env_var} en el archivo de entorno de la app` };
+  if (!base) return { ok: false, error: w.noVar(cfg.env_var) };
   const target = entregaUrl(base, suffix);
-  if (!target) return { ok: false, error: `${cfg.env_var} no es una base local de Postgres; la entrega no se prueba sobre ella` };
+  if (!target) return { ok: false, error: w.notLocal(cfg.env_var) };
   const exec = deps.exec ?? shellExec;
-  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const pgPath = pgPathOf();
   // The URLs go in the environment, never in the command line.
   const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
   const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
   if (copied.code !== 0) {
     c.tail = tailOf(copied.stderr || copied.stdout);
-    return { ok: false, error: `No se pudo copiar la base de la app para la entrega (${target.name})` };
+    return { ok: false, error: w.noCopyDb(target.name) };
   }
   const migrated = await exec(cfg.migrate_command, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ [cfg.env_var]: target.url }) });
   if (migrated.code !== 0) {
     c.tail = tailOf(migrated.stderr || migrated.stdout);
-    return { ok: false, error: `Las migraciones de la entrega fallaron (${cfg.migrate_command})` };
+    return { ok: false, error: w.migrateFailed(cfg.migrate_command) };
   }
   c.dbEnv = { [cfg.env_var]: target.url };
   if (deps.footprints !== false) {
     const u = new URL(target.url);
     await registerFootprint(
       db,
-      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: suffix === "_prueba" ? `Base de la copia de prueba de ${slug} (copia de la de la app, con las migraciones de sandbox)` : `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`, teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: suffix === "_prueba" ? w.dbTest(slug) : w.dbDelivery(slug), teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
       ctx(),
     ).catch(() => undefined);
   }
@@ -806,15 +926,15 @@ export function copyDatabase(env: Record<string, string> | null): { url: string;
  * without settings.capture.database is refused. Loading the same datos twice is a no-op. */
 export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: { bestEffort?: boolean; earlier?: boolean } = {}): Promise<{ ok: true; skipped?: true; partial?: string } | { ok: false; error: string }> {
   const c = copies.get(idOf(slug, lane));
-  if (!c || c.phase !== "live") return { ok: false, error: "la copia no está encendida" };
+  if (!c || c.phase !== "live") return { ok: false, error: say(PRUEBA_WORDS).copyOff };
   const target = copyDatabase(c.dbEnv);
-  if (!target) return { ok: false, error: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app" };
+  if (!target) return { ok: false, error: say(PRUEBA_WORDS).noOwnDb };
   const hash = hashDatos(sql)!;
   // PLA-97 (guided test PLA-86, F-20): an earlier accepted step's rows, after this delivery's own. Statement by
   // statement, so rows the delivery already made are skipped; they never take the copy's own datos slot.
   if (opts.earlier) {
     if (c.earlier.has(hash) || c.datos === hash) return { ok: true, skipped: true };
-    const pgPath0 = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+    const pgPath0 = pgPathOf();
     await (deps.exec ?? shellExec)(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
       cwd: c.worktree ?? process.cwd(),
       stdin: sql,
@@ -825,9 +945,9 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
     return { ok: true };
   }
   if (c.datos === hash) return { ok: true, skipped: true };
-  if (c.datos) return { ok: false, error: "la copia ya tiene los datos de otra muestra" };
+  if (c.datos) return { ok: false, error: say(PRUEBA_WORDS).otherDatos };
   const exec = deps.exec ?? shellExec;
-  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const pgPath = pgPathOf();
   const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
     cwd: c.worktree ?? process.cwd(),
     stdin: sql,
@@ -835,7 +955,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
     env: checkoutEnv({ PATH: pgPath, PLANIA_COPY_URL: target.url }),
   });
   if (r.code !== 0) {
-    const line = (r.stderr || r.stdout).split("\n").map((l) => l.trim()).find((l) => /ERROR/.test(l)) ?? (r.stderr || r.stdout).trim().split("\n")[0] ?? `código ${r.code}`;
+    const line = (r.stderr || r.stdout).split("\n").map((l) => l.trim()).find((l) => /ERROR/.test(l)) ?? (r.stderr || r.stdout).trim().split("\n")[0] ?? say(PRUEBA_WORDS).code(r.code);
     const error = line.replace(/^psql:[^:]*:\d+:\s*/, "").slice(0, 200);
     if (!opts.bestEffort) return { ok: false, error };
     // PLA-110 (guided test PLA-86, F-42): the «antes» copy runs the code before the change, so rows for the branch's

@@ -11,6 +11,35 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects, tasks, type Task } from "../db/schema.js";
 import { releaseGh } from "../mcp/release-ship.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the refusals and the commit message in the install's language; the Spanish is unchanged.
+export const FILE_STEP_WORDS = defineWords({
+  es: {
+    notAFile: "Esa ruta no es un archivo dentro del repositorio.",
+    secret: (path: string) => `${path} guarda secretos reales: Plania no lo escribe en el repositorio. Solo archivos de ejemplo como .env.example.`,
+    noPr: "Este paso no tiene un PR abierto donde agregarlo.",
+    ghPr: (out: string) => `GitHub no respondió al leer el PR: ${out}`,
+    prClosed: (n: string, state: string) => `El PR #${n} está ${state}: ya no se le agrega nada.`,
+    branch: (b: string) => `La rama del PR es ${b}: desde aquí no se escribe ahí.`,
+    notFileInRepo: (path: string) => `${path} no es un archivo en el repositorio.`,
+    ghRead: (path: string, out: string) => `GitHub no respondió al leer ${path}: ${out}`,
+    commit: (key: string, n: number, path: string) => `${key}: agrega ${n} ${n === 1 ? "línea" : "líneas"} a ${path} (desde Plania)`,
+    ghPut: (out: string) => `GitHub no aceptó el cambio: ${out}`,
+  },
+  en: {
+    notAFile: "That path is not a file inside the repository.",
+    secret: (path: string) => `${path} holds real secrets: Plania does not write it into the repository. Only example files such as .env.example.`,
+    noPr: "This step has no open PR to add it to.",
+    ghPr: (out: string) => `GitHub did not answer when reading the PR: ${out}`,
+    prClosed: (n: string, state: string) => `PR #${n} is ${state}: nothing more is added to it.`,
+    branch: (b: string) => `The PR's branch is ${b}: nothing is written there from here.`,
+    notFileInRepo: (path: string) => `${path} is not a file in the repository.`,
+    ghRead: (path: string, out: string) => `GitHub did not answer when reading ${path}: ${out}`,
+    commit: (key: string, n: number, path: string) => `${key}: adds ${n} ${n === 1 ? "line" : "lines"} to ${path} (from Plania)`,
+    ghPut: (out: string) => `GitHub did not accept the change: ${out}`,
+  },
+});
 
 export type FileStep = { path: string; lines: string; pr_url: string | null; source: "agent" | "text" };
 export type FileApplied = { path: string; branch: string; added: number; commit: string | null; pr_url: string };
@@ -84,21 +113,22 @@ const refuse = (error: string, hint: string): FileRefusal => ({ error, hint });
 
 /** Commit the missing lines to the PR's head branch. Writes nothing to Plania's database: the caller resolves the step. */
 export async function applyFileStep(db: Db, t: Task, input: { path: string; lines: string; pr_url: string | null }): Promise<FileApplied | FileRefusal> {
+  const w = say(FILE_STEP_WORDS);
   const path = cleanPath(input.path);
-  if (!path) return refuse("FILE_PATH", "Esa ruta no es un archivo dentro del repositorio.");
-  if (secretPath(path)) return refuse("FILE_SECRET", `${path} guarda secretos reales: Plania no lo escribe en el repositorio. Solo archivos de ejemplo como .env.example.`);
+  if (!path) return refuse("FILE_PATH", w.notAFile);
+  if (secretPath(path)) return refuse("FILE_SECRET", w.secret(path));
   const url = input.pr_url ?? t.prUrl;
   const m = url ? PR.exec(url) : null;
-  if (!m) return refuse("FILE_NO_PR", "Este paso no tiene un PR abierto donde agregarlo.");
+  if (!m) return refuse("FILE_NO_PR", w.noPr);
   const [, repo, number] = m;
 
   const view = await gh(["pr", "view", number!, "--repo", repo!, "--json", "headRefName,baseRefName,state,url"]);
-  if (!view.ok) return refuse("FILE_GITHUB", `GitHub no respondió al leer el PR: ${view.out.slice(0, 200)}`);
+  if (!view.ok) return refuse("FILE_GITHUB", w.ghPr(view.out.slice(0, 200)));
   const pr = JSON.parse(view.out) as { headRefName: string; baseRefName: string; state: string; url: string };
-  if (pr.state !== "OPEN") return refuse("FILE_PR_CLOSED", `El PR #${number} está ${pr.state.toLowerCase()}: ya no se le agrega nada.`);
+  if (pr.state !== "OPEN") return refuse("FILE_PR_CLOSED", w.prClosed(number!, pr.state.toLowerCase()));
   const [p] = await db.select().from(projects).where(eq(projects.id, t.projectId)).limit(1);
   const into = p?.settings.release?.into ?? "main";
-  if (pr.headRefName === "main" || pr.headRefName === into) return refuse("FILE_BRANCH", `La rama del PR es ${pr.headRefName}: desde aquí no se escribe ahí.`);
+  if (pr.headRefName === "main" || pr.headRefName === into) return refuse("FILE_BRANCH", w.branch(pr.headRefName));
 
   const at = `repos/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
   const read = await gh(["api", `${at}?ref=${encodeURIComponent(pr.headRefName)}`]);
@@ -106,20 +136,20 @@ export async function applyFileStep(db: Db, t: Task, input: { path: string; line
   let sha: string | null = null;
   if (read.ok) {
     const f = JSON.parse(read.out) as { content?: string; sha?: string; type?: string };
-    if (f.type && f.type !== "file") return refuse("FILE_PATH", `${path} no es un archivo en el repositorio.`);
+    if (f.type && f.type !== "file") return refuse("FILE_PATH", w.notFileInRepo(path));
     current = Buffer.from(f.content ?? "", "base64").toString("utf8");
     sha = f.sha ?? null;
   } else if (!/\b404\b|Not Found/i.test(read.out)) {
-    return refuse("FILE_GITHUB", `GitHub no respondió al leer ${path}: ${read.out.slice(0, 200)}`);
+    return refuse("FILE_GITHUB", w.ghRead(path, read.out.slice(0, 200)));
   }
 
   const lines = missingLines(current, input.lines);
   if (lines.length === 0) return { path, branch: pr.headRefName, added: 0, commit: null, pr_url: pr.url };
   const content = Buffer.from(appended(current, lines), "utf8").toString("base64");
   const n = lines.filter((l) => l !== "").length;
-  const message = `${t.key}: agrega ${n} ${n === 1 ? "línea" : "líneas"} a ${path} (desde Plania)`;
+  const message = w.commit(t.key, n, path);
   const put = await gh(["api", "-X", "PUT", at, "-f", `message=${message}`, "-f", `content=${content}`, "-f", `branch=${pr.headRefName}`, ...(sha ? ["-f", `sha=${sha}`] : [])]);
-  if (!put.ok) return refuse("FILE_GITHUB", `GitHub no aceptó el cambio: ${put.out.slice(0, 200)}`);
+  if (!put.ok) return refuse("FILE_GITHUB", w.ghPut(put.out.slice(0, 200)));
   const commit = (JSON.parse(put.out) as { commit?: { sha?: string } }).commit?.sha ?? null;
   return { path, branch: pr.headRefName, added: n, commit, pr_url: pr.url };
 }

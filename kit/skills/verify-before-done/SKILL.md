@@ -59,7 +59,7 @@ do not repair unrelated breakage inside this ticket: `create_task` for it.
 | `CHECKS_OPEN` | Done when items still open, listed by `n` | Prove them (`check_ns`), or `waive_check` with a reason |
 | `EVIDENCE_STALE` | Your pass names a commit that is no longer the branch head | Run the checks again at the head |
 | `VERIFY_FAILED` | Plania ran the verify list in your worktree and one failed | Read the failing lines, fix, commit, run all again |
-| `MUESTRA_REQUIRED` | The diff touches the screen and no `muestra` came with it | Pass `muestra {frase, vistas, pasos}`, in plain Spanish |
+| `MUESTRA_REQUIRED` | The diff touches the screen and no `muestra` came with it | Pass `muestra {frase, vistas, pasos}`, in plain words in the owner's language |
 | `TASK_MISSING_PR_URL` | A code ticket with no pull request | Open it (see `pr`), or `no_pr_reason` |
 
 Never answer a refusal by weakening the check, waiving an item that was simply not done, or reporting

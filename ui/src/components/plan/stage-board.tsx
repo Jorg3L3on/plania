@@ -13,7 +13,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { ProjectTicket, Tablero } from "@/lib/api";
 import { ZonaTags } from "@/components/plan/zona-tags";
-import { boardOf, ciTone, ciWord, closedPct, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
+import { boardOf, ciTone, ciWord, closedPct, openStationsOf, stationLine, stationsOf, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
 
 // The stage colours, from the app's status tokens. «pending» text uses the idle grey so it can be read on the card.
 export const TONE_VAR: Record<StageTone, string> = {
@@ -22,7 +24,7 @@ export const TONE_VAR: Record<StageTone, string> = {
   blocked: "var(--status-blocked)",
   now: "var(--status-now)",
   review: "var(--status-review)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   done: "var(--status-done)",
 };
 // More than this many cards in one cell fold behind «+ n más» (a native disclosure, no state).
@@ -140,12 +142,13 @@ const Card = ({ t, now, selected, onTicket, tagsFor, actsFor }: { t: ProjectTick
 const Cell = ({ items, lit, last }: { items: ReactNode[]; lit: StageTone | undefined; last?: boolean }) => {
   const shown = items.length > CELL_MAX ? items.slice(0, CELL_MAX - 1) : items;
   const rest = items.length > CELL_MAX ? items.slice(CELL_MAX - 1) : [];
+  const w = words(PLAN);
   return (
     <div className="sb-cell sb-r" data-empty={items.length === 0 ? "" : undefined} data-last={last ? "" : undefined} data-lit={lit} style={{ "--lc": lit ? TONE_VAR[lit] : "transparent" } as CSSProperties}>
       {shown}
       {rest.length > 0 && (
         <details className="sb-more">
-          <summary data-control="tablero-mas">+ {rest.length} más</summary>
+          <summary data-control="tablero-mas">{w.plusMore(rest.length)}</summary>
           <div className="sb-more-list">{rest}</div>
         </details>
       )}
@@ -177,7 +180,8 @@ const TrackLabel = ({ tr, onTrack }: { tr: Track; onTrack?: StageBoardProps["onT
   );
 };
 
-export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, station, corner, below, tagsFor, actsFor, extra, folded, onFolded, label = "Tablero de etapas", className, empty }: StageBoardProps) => {
+export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, station, corner, below, tagsFor, actsFor, extra, folded, onFolded, label, className, empty }: StageBoardProps) => {
+  const w = words(PLAN);
   const b = boardOf(tablero, { sueltos: !!extra && Object.values(extra).some((x) => x && x.length > 0) });
   const chip = (f: { key: string; title: string }) =>
     onFolded ? (
@@ -192,19 +196,19 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
       </span>
     );
   return (
-    <section className={className ? `${className} sb` : "sb"} aria-label={label} data-tracks={b.tracks.length}>
+    <section className={className ? `${className} sb` : "sb"} aria-label={label ?? w.board} data-tracks={b.tracks.length}>
       <div className="sb-scroll">
         <div className="sb-grid">
-          <div className="sb-cell sb-corner">{corner ?? <span className="sb-eyebrow">Iniciativa</span>}</div>
-          {STATIONS.map((s) => (
+          <div className="sb-cell sb-corner">{corner ?? <span className="sb-eyebrow">{w.initiative}</span>}</div>
+          {stationsOf().map((s) => (
             <StationCell key={s.id} s={s} tone={b.lit[s.id]} head={station?.(s) ?? null} />
           ))}
           {below && <div className="sb-below">{below}</div>}
-          {b.tracks.length === 0 && <div className="sb-empty">{empty ?? <p>No hay iniciativas abiertas ni trabajo suelto en este proyecto.</p>}</div>}
+          {b.tracks.length === 0 && <div className="sb-empty">{empty ?? <p>{w.boardEmpty}</p>}</div>}
           {b.tracks.map((tr) => (
             <div key={tr.key ?? "sueltos"} className="sb-row" data-row={tr.key ?? "sueltos"}>
               <TrackLabel tr={tr} onTrack={onTrack} />
-              {OPEN_STATIONS.map((s) => {
+              {openStationsOf().map((s) => {
                 const id = s.id as Exclude<StationId, "hecho">;
                 const cards = tr.cells[id].map((t) => <Card key={t.key} t={t} now={now} selected={selected === t.key} onTicket={onTicket} tagsFor={tagsFor} actsFor={actsFor} />);
                 const items = !tr.key && extra?.[id] ? [...extra[id]!, ...cards] : cards;
@@ -212,9 +216,9 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
               })}
               <div className="sb-cell sb-r" data-last="" data-empty={tr.hecho.count ? undefined : ""}>
                 {tr.hecho.count > 0 && (
-                  <button type="button" className="sb-stack" onClick={(e) => onDone?.(tr.key, e.currentTarget)} data-control="tablero-hecho" aria-label={`${tr.hecho.count} ${tr.hecho.count === 1 ? "hecho" : "hechos"} en ${tr.title}: ver la lista`}>
+                  <button type="button" className="sb-stack" onClick={(e) => onDone?.(tr.key, e.currentTarget)} data-control="tablero-hecho" aria-label={w.doneAria(tr.hecho.count, tr.title)}>
                     <b>
-                      ✓ {tr.hecho.count} {tr.hecho.count === 1 ? "hecho" : "hechos"}
+                      ✓ {w.doneN(tr.hecho.count)}
                     </b>
                     {tr.hecho.last && <span>{tr.hecho.last}</span>}
                   </button>
@@ -225,12 +229,12 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
           {folded && folded.length > 0 && (
             <div className="sb-folded" data-folded={folded.length}>
               <span>
-                {folded.length} {folded.length === 1 ? "iniciativa completa" : "iniciativas completas"}
+                {w.folded(folded.length)}
               </span>
               {folded.slice(0, FOLDED_MAX).map(chip)}
               {folded.length > FOLDED_MAX && (
                 <details className="sb-more sb-folded-more">
-                  <summary data-control="tablero-completas-mas">+ {folded.length - FOLDED_MAX} más</summary>
+                  <summary data-control="tablero-completas-mas">{w.plusMore(folded.length - FOLDED_MAX)}</summary>
                   <div className="sb-more-list">{folded.slice(FOLDED_MAX).map(chip)}</div>
                 </details>
               )}

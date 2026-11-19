@@ -6,7 +6,7 @@ export const MAQUINA_ERRORS = {
   BASE_REGISTERED: 403, // Plania's own base, or one an environment (env_states) has registered
   BASE_UNREACHABLE: 503, // the base does not answer (off)
   BASE_READ_FAILED: 500,
-  BASE_LEVER_REFUSED: 403, // not a brew service on this Mac, or Plania's own Postgres
+  BASE_LEVER_REFUSED: 403, // not a brew service on this machine, or Plania's own Postgres
   TABLE_NOT_FOUND: 404,
   ROW_COUNT_CHANGED: 409, // Vaciar y sembrar with a count that no longer matches
   NOT_CONFIGURED: 400, // the floor lacks the settings or the commands this needs

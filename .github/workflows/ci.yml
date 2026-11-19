@@ -1,45 +1,74 @@
 name: CI
 
+# PLA-I2-15: every supported system on every change. macOS and Linux (Windows is supported only inside WSL, which
+# is Linux, so there is no Windows job). Pull requests, and pushes to main so main itself is known to install.
 on:
   pull_request:
+  push:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request replaces its run; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   check:
-    name: Types and tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    services:
-      postgres:
-        # The tests connect to localhost:5432 with no password, as PLANIA_TEST_PGUSER, and create and drop their
-        # own plania_test_<hash> database (test/helpers.ts). 14 is the major version the server runs on.
-        image: postgres:14
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
+    name: Build and tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     env:
+      # The tests connect to localhost:5432 with no password as this role and create and drop their own
+      # plania_test_* databases (test/helpers.ts, test/clean-install-harness.ts). Never a database named plania.
       PLANIA_TEST_PGUSER: postgres
-      # No background jobs, no network calls from the app under test.
-      PLANIA_JOBS: "0"
+      # macOS: the Homebrew Postgres major. 14 is the oldest Plania supports; a new buyer installs a current one.
+      PG_MAJOR: "16"
 
     steps:
       - name: Check out
         uses: actions/checkout@v4
+
+      # Service containers run on Linux runners only, so Postgres is installed and started by the job on both
+      # systems, the way a buyer installs it: the system's package on Linux, Homebrew on macOS.
+      - name: Postgres (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # The distribution's own Postgres (the runner image may already have it).
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql
+          sudo systemctl start postgresql.service
+          for i in $(seq 1 30); do pg_isready -h localhost -p 5432 && break; sleep 1; done
+          hba=$(sudo -u postgres psql -tAc "show hba_file")
+          # Trust TCP connections from this machine only, ahead of the packaged password rules.
+          sudo sed -i '1i host all all ::1/128 trust' "$hba"
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' "$hba"
+          sudo -u postgres psql -tAc "select pg_reload_conf()"
+
+      - name: Postgres (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install "postgresql@${PG_MAJOR}"
+          bin="$(brew --prefix "postgresql@${PG_MAJOR}")/bin"
+          echo "$bin" >> "$GITHUB_PATH"
+          brew services start "postgresql@${PG_MAJOR}"
+          for i in $(seq 1 30); do "$bin/pg_isready" -h localhost -p 5432 && break; sleep 1; done
+          # Homebrew's cluster belongs to the runner's user and trusts local connections; the tests use postgres.
+          if [ "$("$bin/psql" -h localhost -d postgres -tAc "select 1 from pg_roles where rolname = 'postgres'")" != "1" ]; then
+            "$bin/psql" -h localhost -d postgres -c "create role postgres with login superuser"
+          fi
+
+      - name: Postgres answers
+        run: |
+          pg_isready -h localhost -p 5432
+          psql -h localhost -U postgres -d postgres -tAc "select version()"
 
       - name: Set up pnpm
         # Reads the version from "packageManager" in package.json.
@@ -54,11 +83,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Type-check the server
-        run: pnpm exec tsc --noEmit
-
-      - name: Type-check the screen
-        run: pnpm exec tsc -p ui
+      # Both type-checks, then the screen into dist/ui, as a release does.
+      - name: Build
+        run: pnpm build
 
       - name: Git identity for tests that commit
         run: |
@@ -66,5 +93,22 @@ jobs:
           git config --global user.email "ci@plania.invalid"
           git config --global init.defaultBranch main
 
+      # The suite as `pnpm test` runs it, with a second, TAP copy of the results for the skip list below.
+      # The clean-install test (test/clean-install.test.ts) is part of it.
       - name: Test
-        run: pnpm test
+        run: >-
+          node --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=300000
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=test-results.tap
+          "test/*.test.ts"
+
+      # Every skipped test with its reason (test/platform.ts says why a test cannot run on this system).
+      - name: Skipped tests
+        if: always()
+        run: |
+          echo "Skipped on ${{ matrix.os }}:"
+          if [ -f test-results.tap ]; then
+            grep -E "# SKIP" test-results.tap | sed -E 's/^[[:space:]]*(not )?ok [0-9]+ - //' || echo "none"
+          else
+            echo "no test results (the suite did not run)"
+          fi

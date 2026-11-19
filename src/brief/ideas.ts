@@ -19,13 +19,50 @@ import { queueWake, serviceAgent } from "../runner/events.js";
 import { homeSlug } from "../runner/threads.js";
 import { PlanError, sendToPlania } from "./plan.js";
 import { CROSS, type Idea } from "./types.js";
+import { defineWords, ownerIn, say } from "../words.js";
+import type { Language } from "../language.js";
 
 export const IDEA_ACTIONS = ["keep", "discard", "research", "sketch", "plan"] as const;
 export type IdeaAction = (typeof IDEA_ACTIONS)[number];
 export const DISCARD_REASONS = ["not_now", "not_for_product", "exists", "too_big", "costs_money", "other"] as const;
 export const DISCARD_DAYS = 60;
-const REASON_EN: Record<string, string> = { not_now: "not now", not_for_product: "not for this product", exists: "already exists", too_big: "too big", costs_money: "costs money", other: "other" };
-const REASON_ES: Record<string, string> = { not_now: "ahora no", not_for_product: "no es para este producto", exists: "ya existe", too_big: "muy grande", costs_money: "cuesta dinero", other: "otra razón" };
+
+// PLA-I2-10: what an idea's fate writes and says, in the brief's language; the Spanish is unchanged.
+export const IDEA_WORDS = defineWords({
+  es: {
+    reasons: { not_now: "ahora no", not_for_product: "no es para este producto", exists: "ya existe", too_big: "muy grande", costs_money: "cuesta dinero", other: "otra razón" } as Record<string, string>,
+    whoFor: (source: string) => `Los usuarios de ${source}.`,
+    keptFrom: "Guardada desde el brief de la mañana.",
+    kept: (key: string) => `Guardada en Plania: ${key}`,
+    discardReason: (reason: string, note: string) => `Descartada desde el brief: ${reason}${note ? ` (${note})` : ""}`,
+    discarded: (words: string) => `Descartada: ${words}`,
+    toResearch: (key: string) => `A Research: ${key}`,
+    noArtist: "Este proyecto no tiene Artist.",
+    sketchAsk: (owner: string, key: string, title: string) => `Pedido ${owner} desde el brief de la mañana: un boceto de la idea ${key} ("${title}").`,
+    sketchWhat: (key: string) =>
+      `Una pantalla y sus estados principales (vacío, error, cargando), en un canvas o artifact. Pon el enlace en un doc titulado \`Sketch\` en la idea ${key}. El boceto no mueve la etapa de la idea: el Diseño completo sigue después de Research.`,
+    sketchCheck: (key: string) => `El doc Sketch en ${key} tiene el enlace al boceto`,
+    toArtist: (key: string) => `A Artist: ${key}`,
+    toPo: "Al PO para que la planee",
+  },
+  en: {
+    reasons: { not_now: "not now", not_for_product: "not for this product", exists: "already exists", too_big: "too big", costs_money: "costs money", other: "other" } as Record<string, string>,
+    whoFor: (source: string) => `The people who use ${source}.`,
+    keptFrom: "Kept from the morning brief.",
+    kept: (key: string) => `Kept in Plania: ${key}`,
+    discardReason: (reason: string, note: string) => `Discarded from the brief: ${reason}${note ? ` (${note})` : ""}`,
+    discarded: (words: string) => `Discarded: ${words}`,
+    toResearch: (key: string) => `To Research: ${key}`,
+    noArtist: "This project has no Artist.",
+    sketchAsk: (owner: string, key: string, title: string) => `Asked by ${owner} from the morning brief: a sketch of the idea ${key} ("${title}").`,
+    sketchWhat: (key: string) =>
+      `One screen and its main states (empty, error, loading), in a canvas or artifact. Put the link in a doc titled \`Sketch\` on the idea ${key}. The sketch does not move the idea's stage: the full Design stage still follows Research.`,
+    sketchCheck: (key: string) => `The Sketch doc on ${key} has the link to the sketch`,
+    toArtist: (key: string) => `To Artist: ${key}`,
+    toPo: "To the PO to plan it",
+  },
+});
+const ideaLang = (lang: string): Language => (lang === "es" ? "es" : "en");
 /** How many briefs an idea nobody acted on is shown in before it is dropped. */
 export const IDEA_SEEN_MAX = 3;
 
@@ -48,7 +85,7 @@ export function ideaProject(idea: Pick<Idea, "app">, env: NodeJS.ProcessEnv = pr
 }
 
 export function ideaDoc(idea: Pick<Idea, "title" | "why" | "source" | "flags">, lang: string): string {
-  const es = lang === "es";
+  const w = say(IDEA_WORDS, ideaLang(lang));
   return [
     `# Idea: ${idea.title}`,
     "",
@@ -56,13 +93,13 @@ export function ideaDoc(idea: Pick<Idea, "title" | "why" | "source" | "flags">, 
     idea.why,
     "",
     `## Who it is for`,
-    es ? `Los usuarios de ${idea.source}.` : `The people who use ${idea.source}.`,
+    w.whoFor(idea.source),
     "",
     `## Why now`,
     idea.why,
     ...(idea.flags?.length ? ["", `Flags: ${idea.flags.join(", ")}`] : []),
     "",
-    es ? "Guardada desde el brief de la mañana." : "Kept from the morning brief.",
+    w.keptFrom,
   ].join("\n");
 }
 
@@ -97,21 +134,21 @@ async function keep(db: Db, idea: Idea, lang: string, env: NodeJS.ProcessEnv): P
 export type IdeaOutcome = { line: string; result: Record<string, unknown> } | { error: string; hint: string };
 
 export async function runIdea(db: Db, brief: MorningBrief, idea: Idea, action: IdeaAction, input: Record<string, unknown>, lang: string, env: NodeJS.ProcessEnv = process.env): Promise<IdeaOutcome> {
-  const es = lang === "es";
+  const w = say(IDEA_WORDS, ideaLang(lang));
   try {
     if (action === "keep") {
       const k = await keep(db, idea, lang, env);
-      return { line: es ? `Guardada en Plania: ${k.key}` : `Kept in Plania: ${k.key}`, result: { ...k, title: idea.title, app: idea.app } };
+      return { line: w.kept(k.key), result: { ...k, title: idea.title, app: idea.app } };
     }
     if (action === "discard") {
       const have = await ideaRecord(db, idea, env);
       const reason = String(input.reason);
       if (have && have.status === "Open") {
         const [t] = await db.select().from(tasks).where(and(eq(tasks.key, have.key))).limit(1);
-        await setTask(db, { project: have.project, key: have.key, status: "Won't do", version: t!.version, reason: `Descartada desde el brief: ${reason}${input.note ? ` (${input.note})` : ""}` } as never, ctx("discard"));
+        await setTask(db, { project: have.project, key: have.key, status: "Won't do", version: t!.version, reason: w.discardReason(reason, input.note ? String(input.note) : "") } as never, ctx("discard"));
       }
-      const words = (es ? REASON_ES : REASON_EN)[reason] ?? reason;
-      return { line: es ? `Descartada: ${words}` : `Discarded: ${words}`, result: { title: idea.title, app: idea.app, reason, note: input.note ?? null, key: have?.key ?? null } };
+      const words = w.reasons[reason] ?? reason;
+      return { line: w.discarded(words), result: { title: idea.title, app: idea.app, reason, note: input.note ?? null, key: have?.key ?? null } };
     }
     if (action === "research") {
       const k = await keep(db, idea, lang, env);
@@ -120,31 +157,31 @@ export async function runIdea(db: Db, brief: MorningBrief, idea: Idea, action: I
         // The stage move wakes the project's Research (src/runner/events.ts); a paused project's waits.
         await setTask(db, { project: k.project, key: k.key, stage: "research", version: t!.version } as never, ctx("research"));
       }
-      return { line: es ? `A Research: ${k.key}` : `To Research: ${k.key}`, result: { ...k, stage: "research", title: idea.title, app: idea.app } };
+      return { line: w.toResearch(k.key), result: { ...k, stage: "research", title: idea.title, app: idea.app } };
     }
     if (action === "sketch") {
       const k = await keep(db, idea, lang, env);
       const [p] = await db.select().from(projects).where(eq(projects.slug, k.project)).limit(1);
       const artist = p ? await serviceAgent(db, "artist", p) : null;
-      if (!artist) return { error: "NO_ARTIST", hint: es ? "Este proyecto no tiene Artist." : "This project has no Artist." };
+      if (!artist) return { error: "NO_ARTIST", hint: w.noArtist };
       const ticket = (await createTask(
         db,
         {
           project: k.project,
           title: `Sketch: ${idea.title}`.slice(0, 200),
           status: "Ready",
-          origin: "jorge",
+          origin: "owner",
           work_type: "research",
           priority: "P2",
           owner_agent: artist.slug,
           scope: [
-            `Pedido de Jorge desde el brief de la mañana: un boceto de la idea ${k.key} ("${idea.title}").`,
+            w.sketchAsk(ownerIn(ideaLang(lang), "de"), k.key, idea.title),
             "",
             idea.why,
             "",
-            `Una pantalla y sus estados principales (vacío, error, cargando), en un canvas o artifact. Pon el enlace en un doc titulado \`Sketch\` en la idea ${k.key}. El boceto no mueve la etapa de la idea: el Diseño completo sigue después de Research.`,
+            w.sketchWhat(k.key),
           ].join("\n"),
-          checks: [`El doc Sketch en ${k.key} tiene el enlace al boceto`],
+          checks: [w.sketchCheck(k.key)],
         } as never,
         ctx("sketch"),
       )) as { key: string };
@@ -152,11 +189,11 @@ export async function runIdea(db: Db, brief: MorningBrief, idea: Idea, action: I
       // An Artist-owned Ready ticket wakes nobody by itself: queue its wake (held while the project is paused;
       // turning runs on wakes it then, once).
       const wake = await queueWake(db, p!, t!, { agent: artist, taskKey: ticket.key, reason: `sketch from the morning brief: ${idea.title}` }, "brief.sketch");
-      return { line: es ? `A Artist: ${ticket.key}` : `To Artist: ${ticket.key}`, result: { ...k, ticket: ticket.key, agent: artist.slug, wake: wake.kind === "queued" ? "queued" : wake.reason, title: idea.title, app: idea.app } };
+      return { line: w.toArtist(ticket.key), result: { ...k, ticket: ticket.key, agent: artist.slug, wake: wake.kind === "queued" ? "queued" : wake.reason, title: idea.title, app: idea.app } };
     }
     // plan: Send to Plania, as V1.
     const sent = await sendToPlania(db, { briefId: brief.id, codes: [idea.code] }, { env });
-    return { line: es ? "Al PO para que la planee" : "To the PO to plan it", result: { request_id: sent.request_id, title: idea.title, app: idea.app, code: idea.code } };
+    return { line: w.toPo, result: { request_id: sent.request_id, title: idea.title, app: idea.app, code: idea.code } };
   } catch (e) {
     if (e instanceof ToolError) return { error: e.code, hint: String((e.detail as { hint?: string } | undefined)?.hint ?? e.code) };
     if (e instanceof PlanError) return { error: e.code, hint: e.code };

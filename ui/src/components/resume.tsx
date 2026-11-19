@@ -6,8 +6,10 @@ import { localTime } from "@/lib/time";
 import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { Claim, Decision, NextTicket, Question, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { RESUME } from "@/lib/resume-words";
 
-// The generated resume, the questions agents asked Jorge, and the decision log.
+// The generated resume, the questions agents asked the owner, and the decision log.
 
 function Row({ label, items }: { label: string; items: ReactNode[] }) {
   const shown = items.filter(Boolean);
@@ -44,6 +46,7 @@ function NextItem({ next, onOpen }: { next: NonNullable<NextTicket>; onOpen: (ke
 export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: string) => void }) {
   const projectWide = resume.standalone.claims.length > 0 || resume.must_keep.length > 0;
   const empty = !resume.initiatives.length && !projectWide;
+  const w = words(RESUME);
   return (
     <div className="grid gap-3">
       {resume.initiatives.map((i) => (
@@ -57,12 +60,12 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
             {i.state?.line && <p className="text-sm">{i.state.line}</p>}
             {i.state_note && <p className="-mt-2 text-xs text-muted-foreground italic">{i.state_note}</p>}
             <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-              <Row label="En curso" items={[i.in_progress.note, ...i.in_progress.claims.map((c) => <ClaimItem key={c.key} claim={c} onOpen={onOpen} />)]} />
+              <Row label={w.inProgress} items={[i.in_progress.note, ...i.in_progress.claims.map((c) => <ClaimItem key={c.key} claim={c} onOpen={onOpen} />)]} />
               <Row
-                label="Siguiente"
+                label={w.next}
                 items={[i.next_action.note, i.next_action.next_claimable && <NextItem key="next" next={i.next_action.next_claimable} onOpen={onOpen} />]}
               />
-              {i.must_keep.length > 0 && <Row label="Fijo" items={i.must_keep.map((d) => d.text)} />}
+              {i.must_keep.length > 0 && <Row label={w.pinnedRow} items={i.must_keep.map((d) => d.text)} />}
             </div>
           </CardContent>
         </Card>
@@ -70,17 +73,17 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
       {projectWide && (
         <Card>
           <CardContent className="grid gap-4">
-            <span className="font-semibold">Todo el proyecto</span>
+            <span className="font-semibold">{w.wholeProject}</span>
             <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
               {resume.standalone.claims.length > 0 && (
-                <Row label="En curso" items={resume.standalone.claims.map((c) => <ClaimItem key={c.key} claim={c} onOpen={onOpen} />)} />
+                <Row label={w.inProgress} items={resume.standalone.claims.map((c) => <ClaimItem key={c.key} claim={c} onOpen={onOpen} />)} />
               )}
-              {resume.must_keep.length > 0 && <Row label="Fijo" items={resume.must_keep.map((d) => d.text)} />}
+              {resume.must_keep.length > 0 && <Row label={w.pinnedRow} items={resume.must_keep.map((d) => d.text)} />}
             </div>
           </CardContent>
         </Card>
       )}
-      {empty && <p className="text-sm text-muted-foreground">Sin contexto para retomar.</p>}
+      {empty && <p className="text-sm text-muted-foreground">{w.noContext}</p>}
     </div>
   );
 }
@@ -91,6 +94,7 @@ export function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; o
   const [decision, setDecision] = useState("");
   const pending = flow.send.isPending;
   const decided = decision.trim() || undefined;
+  const w = words(RESUME);
 
   const handleChoose = (option: string) => {
     flow.send.mutate({ answer: option, decision: decided });
@@ -116,15 +120,15 @@ export function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; o
         )}
         <form onSubmit={handleSubmitFree} className="grid gap-2">
           <div className="flex gap-2">
-            <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
-            <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+            <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder={w.otherAnswer} aria-label={w.otherAnswer} />
+            <Button type="submit" size="sm" disabled={!free.trim() || pending}>{w.answer}</Button>
           </div>
         </form>
         <Input
           value={decision}
           onChange={(e) => setDecision(e.target.value)}
-          placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
-          aria-label="Decisión"
+          placeholder={w.decisionPlaceholder}
+          aria-label={w.decision}
           className="text-base md:text-xs"
         />
       </CardContent>
@@ -133,10 +137,11 @@ export function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; o
 }
 
 export function QuestionsPanel({ slug, questions, onOpen }: { slug: string; questions: Question[]; onOpen: (key: string) => void }) {
+  const w = words(RESUME);
   if (!questions.length) return null;
   return (
     <section className="grid gap-3">
-      <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">Preguntas para ti</h2>
+      <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">{w.questionsForYou}</h2>
       {questions.map((q) => <QuestionCard key={q.id} slug={slug} q={q} onOpen={onOpen} />)}
     </section>
   );
@@ -144,17 +149,18 @@ export function QuestionsPanel({ slug, questions, onOpen }: { slug: string; ques
 
 // Newest first; a decision that a later one reversed is struck through.
 export function DecisionList({ decisions, onOpen }: { decisions: Decision[]; onOpen: (key: string) => void }) {
+  const w = words(RESUME);
   if (!decisions.length) return null;
   return (
     <section className="grid gap-3">
-      <h2 className="text-sm font-medium text-muted-foreground">Decisiones</h2>
+      <h2 className="text-sm font-medium text-muted-foreground">{w.decisions}</h2>
       <Card className="gap-0 divide-y py-0">
         {decisions.map((d) => (
           <div key={d.id} className="grid gap-1 px-4 py-3">
             <p className={cn("whitespace-pre-wrap", (d.superseded_by || d.retired) && "text-muted-foreground line-through")}>{d.text}</p>
             <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-              {d.pinned && !d.superseded_by && !d.retired && <span className="text-amber-600 dark:text-amber-400">fija</span>}
-              {d.retired && <span title={d.retired.reason ?? undefined}>retirada</span>}
+              {d.pinned && !d.superseded_by && !d.retired && <span className="text-amber-600 dark:text-amber-400">{w.pinned}</span>}
+              {d.retired && <span title={d.retired.reason ?? undefined}>{w.retired}</span>}
               {d.task_key && (
                 <button type="button" className="font-mono underline-offset-4 hover:underline" onClick={() => onOpen(d.task_key!)}>{d.task_key}</button>
               )}

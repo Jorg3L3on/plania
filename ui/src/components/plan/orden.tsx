@@ -1,5 +1,5 @@
 // 2.11 Orden: the audit on screen, at the bottom of the project page. Collapsed with its count;
-// "Lo tuyo" holds what Jorge clears with one click or a copied command, "De los agentes" the rest
+// "Lo tuyo" holds what the owner clears with one click or a copied command, "De los agentes" the rest
 // (an agent picks those up from get_next when nothing is claimable).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRightIcon } from "lucide-react";
@@ -10,18 +10,22 @@ import { TicketButton } from "@/components/plan/ticket-button";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import type { OrdenFinding } from "@/lib/types";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
 
-const BUTTON: Record<string, string> = { retire_decision: "Retirar la decisión", mark_deployed: "Marcar desplegado" };
+// PLA-I2-10: the one-click fixes' button words, by can_fix.
+const BUTTON: Record<string, "retireDecision" | "markDeployed"> = { retire_decision: "retireDecision", mark_deployed: "markDeployed" };
 
 function Row({ slug, f, onOpen }: { slug: string; f: OrdenFinding; onOpen: (key: string) => void }) {
   const queryClient = useQueryClient();
+  const w = words(PLAN);
   const fix = useMutation({
     mutationFn: () => api.fixAudit(slug, { code: f.code, key: f.key, id: f.id! }),
     onSuccess: (orden) => {
       queryClient.setQueryData(["project", slug, "audit"], orden);
-      toast("Hecho");
+      toast(w.done);
     },
-    onError: (e) => toast.error(e instanceof ApiError && e.code === "FINDING_NOT_FOUND" ? "Ya no está; se actualiza la lista." : "No se pudo; recarga y vuelve a intentarlo."),
+    onError: (e) => toast.error(e instanceof ApiError && e.code === "FINDING_NOT_FOUND" ? w.findingGone : w.fixFailed),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["project", slug] }),
   });
   return (
@@ -42,7 +46,7 @@ function Row({ slug, f, onOpen }: { slug: string; f: OrdenFinding; onOpen: (key:
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" size="sm" variant="outline" disabled={fix.isPending} onClick={() => fix.mutate()}>
-            {BUTTON[f.can_fix]}
+            {BUTTON[f.can_fix] ? w[BUTTON[f.can_fix]!] : undefined}
           </Button>
           <span className="text-xs text-muted-foreground">{f.fix_hint}</span>
         </div>
@@ -68,18 +72,19 @@ function Group({ title, items, slug, onOpen }: { title: string; items: OrdenFind
 export function OrdenSection({ slug, onOpen }: { slug: string; onOpen: (key: string) => void }) {
   const audit = useQuery({ queryKey: ["project", slug, "audit"], queryFn: () => api.audit(slug) });
   const findings = audit.data?.findings ?? [];
+  const w = words(PLAN);
   if (!audit.data) return null;
   return (
     <details className="group/orden grid gap-3">
       <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
         <ChevronRightIcon aria-hidden className="size-4 text-muted-foreground transition-transform group-open/orden:rotate-90" />
-        <SectionTitle hint={findings.length ? "lo que los datos dicen que está mal" : "todo en orden"}>
-          Orden <span className="tabular-nums">{findings.length}</span>
+        <SectionTitle hint={findings.length ? w.ordenBad : w.ordenOk}>
+          {w.orden} <span className="tabular-nums">{findings.length}</span>
         </SectionTitle>
       </summary>
       <div className="mt-3 grid gap-4">
-        <Group title="Lo tuyo" items={findings.filter((f) => f.owner === "jorge")} slug={slug} onOpen={onOpen} />
-        <Group title="De los agentes" items={findings.filter((f) => f.owner === "agents")} slug={slug} onOpen={onOpen} />
+        <Group title={w.yours} items={findings.filter((f) => f.owner === "owner")} slug={slug} onOpen={onOpen} />
+        <Group title={w.agents} items={findings.filter((f) => f.owner === "agents")} slug={slug} onOpen={onOpen} />
       </div>
     </details>
   );

@@ -22,9 +22,9 @@ export const registerConsultaTools = (
     "answer_consulta",
     {
       description: [
-        "Answer a question Jorge asked about a project with Pedir's Preguntar mode. Only the PO the question woke may answer (CONSULTA_FORBIDDEN otherwise); one call, the last of your run.",
+        "Answer a question the owner asked about a project with Pedir's Preguntar mode. Only the PO the question woke may answer (CONSULTA_FORBIDDEN otherwise); one call, the last of your run.",
         "short: the answer in two sentences at most, in the language of the question. why: up to six reasons. sources: every file you relied on {path relative to the repo root, line}, missing true for one you looked for that does not exist.",
-        "branch and commit: what you read. sure: seen (you saw it in the code) or guess. fix: the change as request text Jorge could send, only when there is something to fix.",
+        "branch and commit: what you read. sure: seen (you saw it in the code) or guess. fix: the change as request text the owner could send, only when there is something to fix.",
       ].join(" "),
       inputSchema: {
         actor,

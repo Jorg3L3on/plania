@@ -81,8 +81,8 @@ test("save refuses unknown keys, bad times, bad letters and bad time zones", asy
 test("resolve: settings first, then PLANIA_TZ / PLANIA_CEO_NAME, then the defaults", () => {
   const base = S.DEFAULT_SETTINGS;
   const r = S.resolveBriefSettings(base, {});
-  assert.equal(r.timezone, "America/Mexico_City");
-  assert.equal(r.timezone_label, "Mexico City", "no nickname unless the owner sets one");
+  assert.equal(r.timezone, "UTC");
+  assert.equal(r.timezone_label, "UTC", "no built-in zone: UTC until first start sets one (PLA-I2-3)");
   assert.equal(r.owner_name, "the owner");
   assert.equal(S.resolveBriefSettings({ ...base, timezone_label: "CDMX" }, {}).timezone_label, "CDMX", "a label set on screen wins");
   const env = S.resolveBriefSettings(base, { PLANIA_TZ: "America/Bogota", PLANIA_CEO_NAME: "Jorge" });
@@ -91,7 +91,7 @@ test("resolve: settings first, then PLANIA_TZ / PLANIA_CEO_NAME, then the defaul
   assert.equal(env.owner_name, "Jorge");
   const own = S.resolveBriefSettings({ ...base, timezone: "America/Los_Angeles", timezone_label: "Pacific", owner_name: "Ana" }, { PLANIA_TZ: "UTC" });
   assert.deepEqual([own.timezone, own.timezone_label, own.owner_name], ["America/Los_Angeles", "Pacific", "Ana"]);
-  assert.equal(S.resolveBriefSettings(base, { PLANIA_TZ: "Not/AZone" }).timezone, "America/Mexico_City");
+  assert.equal(S.resolveBriefSettings(base, { PLANIA_TZ: "Not/AZone" }).timezone, "UTC");
 });
 
 test("projects: order, letters (MIC/MIA collision), include, color slots", () => {

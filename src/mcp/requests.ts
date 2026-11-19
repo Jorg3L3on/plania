@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { tasks } from "../db/schema.js";
 import { iso, type Q } from "./tx.js";
 
-// 2.12 Pedir: what Jorge asked for from the screen (origin "jorge"). get_resume, get_context and
+// 2.12 Pedir: what the owner asked for from the screen (origin "owner"). get_resume, get_context and
 // get_next list the open ones, newest first, above the backlog; get_next offers one before any
 // other ticket of the same priority. Open means not closed and not yet merged.
 const SETTLED = ["Done", "Won't do", "Merged", "Released"];
@@ -19,7 +19,7 @@ export async function openRequests(db: Q, projectId: string, limit = REQUESTS_LI
       and(
         eq(tasks.projectId, projectId),
         eq(tasks.kind, "ticket"),
-        eq(tasks.origin, "jorge"),
+        eq(tasks.origin, "owner"),
         sql`${tasks.status} not in (${sql.join(SETTLED.map((s) => sql`${s}`), sql`, `)})`,
       ),
     )

@@ -3,7 +3,7 @@
 // PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
 // (src/api/company-org.ts); POST /api/company/projects/:slug/team {template} adds a team member; the runner's
 // plumbing (switches, guard, runs, log) is read from GET /api/machine. The writes below stay.
-// PLA-I29: the runner's screen routes. Jorge's session cookie only, like the delegation switch:
+// PLA-I29: the runner's screen routes. The owner's session cookie only, like the delegation switch:
 // a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
 //   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
@@ -46,7 +46,9 @@ import { deleteProject } from "../runner/delete-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
-import { CONTEXT_DOC_IDS, putContextDoc, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
+import { repoSetupRoutes } from "./repo-setup.js";
+import { CONTEXT_DOC_IDS, putContextDoc, setAdvanced, setCapture, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
+import { AVANZADO_FIELDS } from "./settings-avanzado.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
@@ -66,12 +68,19 @@ import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
+export const COMPANY_ROUTE_WORDS = defineWords({
+  es: { noFrame: "No encontré ese marco." },
+  en: { noFrame: "I could not find that frame." },
+});
 
 export const companyRoutes = new Hono();
 
 companyRoutes.use("*", async (c, next) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "FORBIDDEN", hint: "the runner's settings and kill switches are Jorge's screen only" }, 403);
+    return c.json({ error: "FORBIDDEN", hint: "the runner's settings and kill switches are the owner's screen only" }, 403);
   }
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   await next();
@@ -160,6 +169,9 @@ const ReleaseBody = z
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
 
+// PLA-I2-5: preparing the code and the working branch (src/api/repo-setup.ts), behind the same guard.
+companyRoutes.route("/", repoSetupRoutes);
+
 companyRoutes.put("/projects/:slug/settings/code", async (c) => {
   const input = await body(c, CodeBody);
   if (input instanceof Response) return input;
@@ -191,6 +203,52 @@ companyRoutes.put("/projects/:slug/settings/verify", async (c) => {
   if (input instanceof Response) return input;
   try {
     return c.json(await withDb((db) => setVerifyList(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I2-6: how the app starts, and one «Avanzado» field. A refusal (a secret, a value that is not a variable's name)
+// writes nothing.
+const CaptureBody = z
+  .object({
+    version: Version,
+    capture: z
+      .object({
+        start_command: z.string().max(300),
+        port: z.number().int(),
+        install_command: z.string().max(300).nullable(),
+        ready_path: z.string().max(300).nullable(),
+        pages: z.array(z.object({ path: z.string().max(300), label: z.string().max(60) }).strict()).max(12),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+const AdvancedBody = z.object({ version: Version, field: z.enum(AVANZADO_FIELDS), value: z.unknown() }).strict();
+const refusalOr = <T extends object>(c: Context, out: T) => {
+  if ("error" in out && "status" in out) {
+    const { status, ...rest } = out as { status: 400 | 404 | 409 };
+    return c.json(rest, status);
+  }
+  return c.json(out);
+};
+
+companyRoutes.put("/projects/:slug/settings/capture", async (c) => {
+  const input = await body(c, CaptureBody);
+  if (input instanceof Response) return input;
+  try {
+    return refusalOr(c, await withDb((db) => setCapture(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.put("/projects/:slug/settings/advanced", async (c) => {
+  const input = await body(c, AdvancedBody);
+  if (input instanceof Response) return input;
+  try {
+    return refusalOr(c, await withDb((db) => setAdvanced(db, c.req.param("slug"), { version: input.version, field: input.field, value: input.value ?? null })));
   } catch (e) {
     return fail(c, e);
   }
@@ -313,7 +371,7 @@ const MotoresBody = z
       .optional(),
     // PLA-I60-5: the project's «Agentes a la vez», «Por agente», «Preguntas a la vez».
     floor: z.object({ max_concurrent: z.number().int().min(0).max(500).optional(), max_per_agent: z.number().int().min(1).max(50).optional(), consulta_slots: z.number().int().min(0).max(20).optional() }).strict().optional(),
-    // PLA-I60-5: «Tope de la Mac» (the company ceiling) rides with the company default motor.
+    // PLA-I60-5: «Tope de la máquina» (the company ceiling) rides with the company default motor.
     company: MotorBody.extend({ max_concurrent: z.number().int().min(0).max(500).optional() }).strict().optional(),
   })
   .strict();
@@ -569,7 +627,7 @@ companyRoutes.post("/projects/:slug/ideas/:key/respuesta", async (c) => {
 companyRoutes.post("/projects/:slug/ideas/:key/despertar", async (c) => send(c, await withDb((db) => ideaDespertar(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.get("/projects/:slug/ideas/:key/frames/:id", async (c) => {
   const r = await withDb((db) => frameBytes(db, c.req.param("slug"), c.req.param("key"), c.req.param("id")));
-  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: "No encontré ese marco." }, 404);
+  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: say(COMPANY_ROUTE_WORDS).noFrame }, 404);
   return c.body(new Uint8Array(r.bytes), 200, { "Content-Type": r.mime, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
 });
 // PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).
@@ -621,7 +679,7 @@ export const setNewProjectRepoCheck = (d: RepoCheckDeps | null): void => {
 companyRoutes.post("/projects", async (c) => {
   const input = await body(c, NewProjectBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck }));
+  const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck, releaseFromScreen: true }));
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);

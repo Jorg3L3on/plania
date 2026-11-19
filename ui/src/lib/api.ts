@@ -5,7 +5,15 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { Listo } from "@/lib/listo";
+import type { Preparacion } from "@/lib/preparar-codigo";
+import type { MachineCheckReading } from "@/lib/falta";
+import type { ReleaseReading } from "@/lib/version";
+import type { FirstStartState } from "@/lib/primer-arranque";
+import type { Language } from "@/lib/i18n";
+import type { GuiaRead } from "@/lib/primera-entrega";
+import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
+import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
@@ -47,7 +55,7 @@ export const api = {
   // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
   patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string; reason?: string; version: number }) =>
     request<TaskDetail>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
-  // 2.12 Pedir: a Backlog ticket as Jorge (origin jorge); the reply is the new task.
+  // 2.12 Pedir: a Backlog ticket as the owner (origin owner); the reply is the new task.
   createTask: (slug: string, input: { title: string; summary?: string; priority?: string; parent_key?: string }) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks`, input),
   release: (slug: string, key: string) =>
@@ -62,12 +70,12 @@ export const api = {
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),
   waiveCheck: (slug: string, key: string, n: number, reason: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
-  // 2.11 Orden: the last audit run, and the one-click fixes (run as Jorge); the reply is the new run.
+  // 2.11 Orden: the last audit run, and the one-click fixes (run as the owner); the reply is the new run.
   audit: (slug: string) => request<Orden>("GET", `/projects/${encodeURIComponent(slug)}/audit`),
   fixAudit: (slug: string, finding: { code: string; key: string | null; id: string }) =>
     request<Orden>("POST", `/projects/${encodeURIComponent(slug)}/audit/fix`, finding),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
-  // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
+  // 2.13: the owner ships the release step (merge mode): a PR from → into, merged with a merge commit.
   // PLA-I36-11: publishing carries the owner's code.
   shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, {}),
   resolveBlocker: (slug: string, id: string, note?: string) =>
@@ -78,6 +86,24 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  // PLA-I2-12: what this machine lacks to run Plania; fresh checks again instead of the ten-minute reading.
+  machineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/machine-check${fresh ? "?fresh=1" : ""}`),
+  // PLA-I2-17: which release this is and its notes (CHANGELOG.md).
+  releaseInfo: () => request<ReleaseReading>("GET", "/release"),
+  // PLA-I2-2: first start, before any session: whether it is open, the form, and the machine check it links.
+  // PLA-I2-16: the guide to a first delivery, and its example project.
+  guia: () => request<GuiaRead>("GET", "/guia"),
+  guiaEjemplo: () => request<{ slug: string }>("POST", "/guia/ejemplo"),
+  firstStart: () => request<FirstStartState>("GET", "/first-start"),
+  // PLA-I2-10: the install's language; GET needs no session.
+  language: () => request<{ language: Language; chosen: boolean; languages: Language[] }>("GET", "/language"),
+  setLanguage: (language: Language) => request<{ language: Language }>("PUT", "/language", { language }),
+  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string; language?: Language }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
+  // PLA-I2-7: the page of limits, built from the real rules.
+  limits: () => request<LimitsPage>("GET", "/limits"),
+  // PLA-I2-9: migrations agents wrote in deliveries of Plania itself, not applied yet.
+  selfMigrations: (slug: string) => request<import("./migraciones-propias").AgentMigrations>("GET", `/projects/${encodeURIComponent(slug)}/migraciones-propias`),
   // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
@@ -173,11 +199,18 @@ export const api = {
   ajustes: (slug: string) => request<Ajustes>("GET", `/company/projects/${encodeURIComponent(slug)}/settings`),
   ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),
+  // PLA-I2-5: Plania prepares the code (folder, git, GitHub, the working branch), and makes the working branch alone.
+  prepararCodigo: (slug: string, input: { version: number; repo_path?: string; github: { name?: string; private?: boolean } | null }) =>
+    request<{ setup: Preparacion; saved: boolean; settings: Ajustes }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/preparar`, input),
+  crearRama: (slug: string) => request<{ state: "done" | "already" | "failed"; code: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/rama`, {}),
   ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge" } | null }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
   ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
+  // PLA-I2-6: how the app starts, and one «Avanzado» field.
+  ajustesArranque: (slug: string, input: { version: number; capture: ArranqueRead | null }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/capture`, input),
+  ajustesAvanzado: (slug: string, input: { version: number; field: string; value: unknown }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/advanced`, input),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
@@ -204,7 +237,7 @@ export const api = {
   // NEWPROJ-7: Borrar proyecto, with the owner's code. Refusals: OWNER_CODE_UNSET 409, OWNER_CODE_REQUIRED / OWNER_CODE_INVALID 403.
   deleteProject: (slug: string, code: string) =>
     request<{ deleted: string; stopped: number; worktrees: number; agents: string[] }>("DELETE", `/company/projects/${encodeURIComponent(slug)}`, { code }),
-  setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean; max_turns?: number; timeout_minutes?: number; cooldown_minutes?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   // PLA-I40-2: Que empiece ya for one teammate.
   startTeammate: (slug: string, agent: string, pastGuard = false) =>
@@ -381,7 +414,7 @@ export type OrgPedido = {
   unseen?: number;
   unseen_stop?: PedidoStop | null;
 };
-export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
+export type OrgLight = "ok" | "needs_owner" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
@@ -403,7 +436,7 @@ export type OrgOrder = {
   plan?: { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string } | null;
   run?: OrgRun | null;
 };
-export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused";
+export type OrgMemberState = "running" | "idle" | "waiting_owner" | "paused";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
   agent: string;
@@ -431,7 +464,7 @@ export type MotorView = { model: string | null; effort: string | null; own_model
 // A part null clears it (the seat inherits again); the whole patch null clears both.
 export type MotorPatch = { model?: string | null; effort?: string | null };
 // PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the
-// company's «Tope de la Mac».
+// company's «Tope de la máquina».
 export type MotoresSave = {
   project: string;
   seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null; max_parallel?: number | null }[];
@@ -589,7 +622,7 @@ export type ParSide = { still: ParShot; error: string | null; missing: boolean }
 export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
 export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null };
 export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes" | "error"; desktop: ParWidth; phone: ParWidth };
-export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
+export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running" | "unavailable"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
 export type VivoRead = { url: string | null; local_url: string | null; tailnet: boolean; signed_in: boolean; user: string | null; error: string | null; hint: string | null };
 export type ProbadorQA = { id: string; text: string; at: string; answer: { text: string; at: string; by: string } | null };
 export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null; preguntas?: ProbadorQA[] };
@@ -643,6 +676,8 @@ export type OrgCompany = {
   brief?: { lines: string[]; generated_at: string; link: string } | null;
   // PLA-I59-2: the company's default motor (null parts: the CLI's own default). Optional for older servers.
   motor_default?: { model: string | null; effort: string | null };
+  // PLA-I2-13: which sign-in Claude is using, one sentence from the server.
+  claude_sign_in?: string;
 };
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.

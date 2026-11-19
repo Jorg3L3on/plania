@@ -1,0 +1,3 @@
+# PLA-I2-10: screen files that still hold inline Spanish sentences (scripts/inline-words.ts finds them).
+# Move a file's words into a wording module (ui/src/lib/, defineWords), then delete its line here.
+# test/i2-10-language.test.ts fails on a file with a sentence that is not listed, and on a listed file that has none.

@@ -2,20 +2,21 @@ import type { Db } from "../db/client.js";
 import { runInGroup } from "../jobs/gh-process.js";
 import { githubReleaseTokenFilePath, githubTokenFilePath, readTokenFile } from "../jobs/gh-token.js";
 import { commandPath } from "../jobs/machine/run.js";
+import { ghLoginOn } from "../install-state.js";
 import { ToolError, findProject } from "./queries.js";
 import { releasePlan, type ReleasePlan } from "./release-plan.js";
 import { writeTx, type Ctx } from "./tx.js";
 
-// 2.13 (item 2, phase two): Jorge ships the release from the screen. In settings.release.mode "merge"
+// 2.13 (item 2, phase two): the owner ships the release from the screen. In settings.release.mode "merge"
 // the server opens (or reuses) a PR from → into titled "Release: <keys>", merges it with
 // `gh pr merge --merge` (a merge commit: history kept, and the pinned decisions hold because the click
-// is Jorge's), and writes release.merged with the merge sha. The GitHub poller then sees into contain
+// is the owner's), and writes release.merged with the merge sha. The GitHub poller then sees into contain
 // from (release.shipped) and the deploy poller moves the tickets to Released. Agents never get here:
 // the route is the screen's alone and shipRelease refuses anything but a human ctx.
 
 // gh through runInGroup (no shell, its own process group, the group killed on timeout). GH_TOKEN
 // comes from ~/.config/plania/github-release-token, or ~/.config/plania/github-token when that
-// file has no token, and GH_PROMPT_DISABLED=1. With no token and PLANIA_GH_FALLBACK off, the call
+// file has no token, and GH_PROMPT_DISABLED=1. With no token and gh's login off (ghLoginOn), the call
 // throws before any process. Tests replace releaseGh.run so no real gh ever runs against a repo.
 export type GhRun = (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
@@ -45,11 +46,16 @@ function ghChildEnv(token: string | null, base: NodeJS.ProcessEnv): NodeJS.Proce
   return env;
 }
 
-export async function runReleaseGh(args: string[], opts?: { timeoutMs?: number }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  const env = process.env;
+// PLA-I2-5: with no token file, gh's own login (ghLoginOn: an install made by first start, or PLANIA_GH_FALLBACK=1)
+// does the merge: gh runs with no GH_TOKEN. env and group are test seams (a fake gh, a fake home).
+export async function runReleaseGh(
+  args: string[],
+  opts?: { timeoutMs?: number; env?: NodeJS.ProcessEnv; group?: typeof runInGroup },
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const env = opts?.env ?? process.env;
   const token = releaseToken(env);
-  if (!token && env.PLANIA_GH_FALLBACK !== "1") throw new ToolError("RELEASE_MERGE_FAILED", { step: "token", output: MISSING_RELEASE_TOKEN });
-  const result = await runInGroup("gh", args, {
+  if (!token && !ghLoginOn(env)) throw new ToolError("RELEASE_MERGE_FAILED", { step: "token", output: MISSING_RELEASE_TOKEN });
+  const result = await (opts?.group ?? runInGroup)("gh", args, {
     timeoutMs: opts?.timeoutMs ?? RELEASE_GH_TIMEOUT_MS,
     env: ghChildEnv(token, env),
     maxBuffer: RELEASE_GH_MAX_BUFFER,
@@ -74,7 +80,7 @@ export const releaseTitle = (plan: ReleasePlan) => `Release: ${plan.tickets.map(
 
 export function releaseBody(plan: ReleasePlan): string {
   const lines = [
-    `${plan.from.branch} → ${plan.into.branch}, for ${plan.env}. Shipped from Plania by Jorge.`,
+    `${plan.from.branch} → ${plan.into.branch}, for ${plan.env}. Shipped from Plania by the owner.`,
     "",
     ...plan.tickets.map((t) => `- ${t.key} ${t.title}${t.pr_url ? ` (${t.pr_url})` : ""}`),
   ];
@@ -94,7 +100,7 @@ export function migrateMode(p: { settings: { capture?: { database?: unknown } } 
 export const shipDeps: { migrar?: (db: Db, p: Awaited<ReturnType<typeof findProject>>, into: string, migrations: string[]) => Promise<unknown> } = {};
 
 export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
-  if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only Jorge ships a release, from the screen" });
+  if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only the owner ships a release, from the screen" });
   const p = await findProject(db, slug);
   const plan = await releasePlan(db, p);
   if (!plan) throw new ToolError("RELEASE_NOT_READY", { reason: "no_release", hint: "the project has no settings.release" });
@@ -117,7 +123,7 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
     pr = { number, url };
   }
 
-  // --match-head-commit: merge exactly the head the plan showed Jorge, never one that moved since.
+  // --match-head-commit: merge exactly the head the plan showed the owner, never one that moved since.
   await gh("merge", ["pr", "merge", String(pr.number), "--repo", repo, "--merge", ...(plan.from.head_sha ? ["--match-head-commit", plan.from.head_sha] : [])]);
   const view = JSON.parse(await gh("view", ["pr", "view", String(pr.number), "--repo", repo, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
   const mergeSha = view.mergeCommit?.oid;

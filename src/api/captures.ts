@@ -4,7 +4,7 @@
 //   GET /api/projects/:slug/captures/:id.png       one still's PNG
 // PLA-I46-7/8: the read also says whether the test copy is on (prueba), and three clicks act on it, only from the
 // screen (src/captures/prueba.ts):
-//   POST /api/projects/:slug/captures/encender     Encenderla: start the test copy (sandbox) on this Mac
+//   POST /api/projects/:slug/captures/encender     Encenderla: start the test copy (sandbox) on this machine
 //   POST /api/projects/:slug/captures/tomar        Reintentar: take the stills again
 //   POST /api/projects/:slug/captures/apagar       turn Plania's test copy off
 // PLA-I52-2: the delivery's own copy (its PR branch, next to sandbox's), for El Probador:

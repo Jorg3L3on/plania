@@ -31,6 +31,10 @@ import { initiativeWord } from "@/lib/etapas";
 import type { Etapa } from "@/lib/api";
 import { StageWord } from "@/components/plan/stage-word";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
+
+type PlanWords = (typeof PLAN)["es"];
 
 // 2.11: the note beside the generated headline, for what the data cannot say. Anyone writes it
 // (set_project or here); the server marks it stale when an env, an initiative or a Done moved after it.
@@ -38,13 +42,14 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.text);
+  const w = words(PLAN);
   const save = useMutation({
     mutationFn: () => api.patchProject(slug, text.trim(), version),
     onSuccess: () => {
       setEditing(false);
-      toast("Nota guardada");
+      toast(w.noteSaved);
     },
-    onError: () => toast.error("No se pudo guardar la nota; recarga y vuelve a intentarlo."),
+    onError: () => toast.error(w.noteFailed),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["project", slug] }),
   });
   function submit(e: FormEvent) {
@@ -55,25 +60,25 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
   if (editing) {
     return (
       <form onSubmit={submit} className="grid max-w-2xl gap-2">
-        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Nota" />
+        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label={w.note} />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{text.length}/280</span>
-          <Button type="submit" size="sm" disabled={save.isPending}>Guardar</Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => { setText(note.text); setEditing(false); }}>Cancelar</Button>
+          <Button type="submit" size="sm" disabled={save.isPending}>{w.save}</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => { setText(note.text); setEditing(false); }}>{w.cancel}</Button>
         </div>
       </form>
     );
   }
   return (
     <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-      {note.text ? <span>{plainWords(note.text)}</span> : <span className="italic">Sin nota.</span>}
+      {note.text ? <span>{plainWords(note.text)}</span> : <span className="italic">{w.noNote}</span>}
       {note.text && note.stale && (
-        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
-          desactualizada
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title={w.staleTip}>
+          {w.stale}
         </span>
       )}
-      <button type="button" onClick={() => { setText(note.text); setEditing(true); }} className="inline-flex min-h-6 items-center gap-1 underline-offset-4 hover:text-foreground hover:underline" aria-label="Editar la nota">
-        <PencilIcon className="size-3" aria-hidden /> editar
+      <button type="button" onClick={() => { setText(note.text); setEditing(true); }} className="inline-flex min-h-6 items-center gap-1 underline-offset-4 hover:text-foreground hover:underline" aria-label={w.editNote}>
+        <PencilIcon className="size-3" aria-hidden /> {w.edit}
       </button>
     </p>
   );
@@ -108,13 +113,13 @@ function shortTitle(title: string) {
 }
 
 /** "1 en curso · 4 por revisar" for a lane. */
-function laneHow(lane: Lane) {
+function laneHow(lane: Lane, w: PlanWords) {
   const inCourse = lane.now.filter((t) => t.status === "In progress").length;
   const blocked = lane.now.filter((t) => t.status === "Blocked").length;
   return [
-    inCourse > 0 && `${inCourse} en curso`,
-    lane.review.length > 0 && `${lane.review.length} por revisar`,
-    blocked > 0 && `${blocked} ${blocked === 1 ? "bloqueada" : "bloqueadas"}`,
+    inCourse > 0 && w.inCourseN(inCourse),
+    lane.review.length > 0 && w.toReviewN(lane.review.length),
+    blocked > 0 && w.blockedN(blocked),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -152,23 +157,24 @@ function SummaryRow({ label, tone, items, empty, onOpen }: { label: string; tone
   );
 }
 
-/** What a person wants at a glance: what is moving, what comes next, and whether anything waits on Jorge. */
-function ProjectSummary({ lanes, needsJorge, onOpen }: { lanes: Lane[]; needsJorge: number; onOpen?: Open }) {
-  const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : "Tickets sueltos", how });
-  const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l)));
+/** What a person wants at a glance: what is moving, what comes next, and whether anything waits on the owner. */
+function ProjectSummary({ lanes, needsOwner, onOpen }: { lanes: Lane[]; needsOwner: number; onOpen?: Open }) {
+  const w = words(PLAN);
+  const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : w.looseTickets, how });
+  const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l, w)));
   // Initiatives nobody has started, and loose tickets that are ready even while another one moves
   // (an initiative en marcha keeps its own next phase to itself).
   const next = lanes
     .filter((l) => (!l.initiative ? l.next.length > 0 : (l.state === "waiting" || l.state === "blocked") && l.next.length + l.now.length > 0))
-    .map((l) => item(l, !l.initiative ? `${l.next.length} ${l.next.length === 1 ? "listo" : "listos"}` : l.state === "blocked" ? "bloqueada" : ""));
+    .map((l) => item(l, !l.initiative ? w.readyN(l.next.length) : l.state === "blocked" ? w.blockedOne : ""));
   const shownNext = next.slice(0, 3);
-  if (next.length > 3) shownNext.push({ key: null, name: `y ${next.length - 3} más`, how: "" });
-  const jorge: SummaryItem[] = needsJorge > 0 ? [{ key: null, name: needsJorge === 1 ? "1 pregunta" : `${needsJorge} preguntas`, how: "abajo" }] : [];
+  if (next.length > 3) shownNext.push({ key: null, name: w.more(next.length - 3), how: "" });
+  const mine: SummaryItem[] = needsOwner > 0 ? [{ key: null, name: w.questionsN(needsOwner), how: w.below }] : [];
   return (
     <dl className="mt-2 grid max-w-3xl gap-1.5">
-      <SummaryRow label="En marcha" tone="now" items={moving} empty="Nada ahora mismo" onOpen={onOpen} />
-      <SummaryRow label="Siguiente" tone="ready" items={shownNext} empty="Nada en cola" onOpen={onOpen} />
-      <SummaryRow label="Te espera" tone="jorge" items={jorge} empty="Nada; lo demás avanza solo" />
+      <SummaryRow label={w.moving} tone="now" items={moving} empty={w.nothingNow} onOpen={onOpen} />
+      <SummaryRow label={w.next} tone="ready" items={shownNext} empty={w.nothingQueued} onOpen={onOpen} />
+      <SummaryRow label={w.waitsOnYou} tone="owner" items={mine} empty={w.nothingWaits} />
     </dl>
   );
 }
@@ -188,18 +194,19 @@ export function ProjectHeader({
   title: string;
   lanes: Lane[];
   progress: { closed: number; total: number };
-  counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
+  counts: { inProgress: number; inReview: number; ready: number; needsOwner: number; blocked: number };
   headline?: Headline;
   version?: number;
   release?: ReleasePlan | null;
   onOpen?: Open;
 }) {
+  const w = words(PLAN);
   const legend = [
-    { n: counts.inProgress, label: "en curso", tone: "now" as const },
-    { n: counts.inReview, label: "en revisión", tone: "review" as const },
-    { n: counts.needsJorge, label: counts.needsJorge === 1 ? "te espera" : "te esperan", tone: "jorge" as const },
-    { n: counts.ready, label: counts.ready === 1 ? "listo para empezar" : "listos para empezar", tone: "ready" as const },
-    { n: counts.blocked, label: counts.blocked === 1 ? "bloqueado" : "bloqueados", tone: "blocked" as const },
+    { n: counts.inProgress, label: w.legendInProgress, tone: "now" as const },
+    { n: counts.inReview, label: w.legendInReview, tone: "review" as const },
+    { n: counts.needsOwner, label: w.legendOwner(counts.needsOwner), tone: "owner" as const },
+    { n: counts.ready, label: w.legendReady(counts.ready), tone: "ready" as const },
+    { n: counts.blocked, label: w.legendBlocked(counts.blocked), tone: "blocked" as const },
   ].filter((l) => l.n > 0);
   return (
     <header className="flex animate-rise flex-wrap items-center justify-between gap-x-8 gap-y-3">
@@ -207,19 +214,19 @@ export function ProjectHeader({
         <h1 className="flex items-center gap-3 font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">
           {slug && <ProjectMark slug={slug} className="size-8 sm:size-9" />}
           {title}
-          {/* 2.10: merged tickets waiting for Jorge's sandbox → main; opens the step in the Bandeja. */}
+          {/* 2.10: merged tickets waiting for the owner's sandbox → main; opens the step in the Bandeja. */}
           {slug && (releasePending(release) || releaseUnknown(release)) && (
             <Link
               to={`/inbox?tab=pasos#${slug}`}
               title={`${release.from.branch} → ${release.into.branch}`}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-jorge transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-owner transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              Para lanzar <span className="tabular-nums">{release.tickets.length}</span>
-              {release.ahead === null && <span className="font-normal text-muted-foreground">· sin datos de GitHub</span>}
+              {w.toRelease} <span className="tabular-nums">{release.tickets.length}</span>
+              {release.ahead === null && <span className="font-normal text-muted-foreground">{w.noGithub}</span>}
             </Link>
           )}
         </h1>
-        <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
+        <ProjectSummary lanes={lanes} needsOwner={counts.needsOwner} onOpen={onOpen} />
         {slug && headline && version !== undefined && <HeadlineBlock slug={slug} headline={headline} version={version} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-[20px] border bg-card/60 px-5 py-3">
@@ -231,7 +238,7 @@ export function ProjectHeader({
                 {progress.closed}
                 <span className="text-lg font-medium text-muted-foreground">/{progress.total}</span>
               </span>
-              <span className="mt-1 text-xs text-muted-foreground">tickets cerrados</span>
+              <span className="mt-1 text-xs text-muted-foreground">{w.ticketsClosed}</span>
             </div>
           </div>
         )}
@@ -275,6 +282,7 @@ function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?:
   const inReview = lane.review.length - shipped;
   const advanced = landed + inReview;
   const ready = lane.total > 0 && lane.closed === lane.total;
+  const w = words(PLAN);
   return (
     <div className="flex items-center gap-2.5">
       <div className={cn("flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
@@ -284,13 +292,13 @@ function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?:
       </div>
       <span
         className="whitespace-nowrap text-muted-foreground tabular-nums"
-        title={`${lane.closed} cerrados, ${shipped} entregados sin cerrar, ${inReview} en revisión, ${lane.total} en total`}
+        title={w.progressTip(lane.closed, shipped, inReview, lane.total)}
       >
-        {advanced} de {lane.total}
-        {ready && lane.initiative && <span className="text-ink-done"> · lista para cerrar</span>}
-        {merged > 0 && <span> · {merged} por lanzar</span>}
-        {released > 0 && <span> · {released} por cerrar</span>}
-        {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
+        {w.advancedOf(advanced, lane.total)}
+        {ready && lane.initiative && <span className="text-ink-done">{w.readyToClose}</span>}
+        {merged > 0 && <span>{w.toReleaseN(merged)}</span>}
+        {released > 0 && <span>{w.toCloseN(released)}</span>}
+        {inReview > 0 && <span className="text-ink-review">{w.inReviewN(inReview)}</span>}
       </span>
     </div>
   );
@@ -330,6 +338,7 @@ function InitiativeName({ lane, onOpen, lines }: { lane: Lane; onOpen: Open; lin
 /** All initiatives at a glance: status, progress and the station where each one stands.
  *  A table from sm up; on a phone, one stacked row per initiative instead of a sideways scroll. */
 export function InitiativeTable({ lanes, onOpen, lines }: { lanes: Lane[]; onOpen: Open; lines?: InitiativeLines }) {
+  const w = words(PLAN);
   return (
     <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
       <ul className="divide-y text-[13px] sm:hidden">
@@ -341,7 +350,7 @@ export function InitiativeTable({ lanes, onOpen, lines }: { lanes: Lane[]; onOpe
             </div>
             <InitiativeProgress lane={lane} barClassName="w-auto flex-1" />
             <div className="flex min-w-0 gap-2">
-              <span className="text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">Aquí</span>
+              <span className="text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">{w.here}</span>
               <InitiativeHere lane={lane} onOpen={onOpen} clamp="line-clamp-2" />
             </div>
           </li>
@@ -351,10 +360,10 @@ export function InitiativeTable({ lanes, onOpen, lines }: { lanes: Lane[]; onOpe
         <table className="w-full min-w-[560px] border-collapse text-left text-[13px]">
           <thead>
             <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
-              <th className="px-5 py-3 font-bold">Iniciativa</th>
-              <th className="px-3 py-3 font-bold">Estado</th>
-              <th className="px-3 py-3 font-bold">Avance</th>
-              <th className="px-5 py-3 font-bold">Aquí</th>
+              <th className="px-5 py-3 font-bold">{w.initiative}</th>
+              <th className="px-3 py-3 font-bold">{w.status}</th>
+              <th className="px-3 py-3 font-bold">{w.progress}</th>
+              <th className="px-5 py-3 font-bold">{w.here}</th>
             </tr>
           </thead>
           <tbody>
@@ -389,6 +398,7 @@ const oneLiner = (idea: IdeaRow) => idea.summary.trim() || idea.title;
  * them, with what they became. Not persisted. A table from sm up; stacked rows on a phone. */
 export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: string) => void }) {
   const [showFinished, setShowFinished] = useState(false);
+  const w = words(PLAN);
   const byKey = (a: IdeaRow, b: IdeaRow) => a.key.localeCompare(b.key, undefined, { numeric: true });
   const open = ideas.filter((i) => !ideaFinished(i)).sort(byKey);
   const finished = ideas.filter((i) => ideaFinished(i)).sort(byKey);
@@ -400,13 +410,13 @@ export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: 
       onClick={() => setShowFinished((v) => !v)}
       className="inline-flex min-h-8 w-fit items-center text-xs font-semibold text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      {showFinished ? "Ocultar terminadas" : `Mostrar terminadas (${finished.length})`}
+      {showFinished ? w.hideFinished : w.showFinished(finished.length)}
     </button>
   );
   if (rows.length === 0) {
     return (
       <div className="grid gap-2">
-        <p className="text-sm text-muted-foreground">{ideas.length === 0 ? "Ninguna todavía." : "Ninguna abierta."}</p>
+        <p className="text-sm text-muted-foreground">{ideas.length === 0 ? w.noneYet : w.noneOpen}</p>
         {toggle}
       </div>
     );
@@ -433,7 +443,7 @@ export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: 
                   </TicketButton>
                   {idea.stage && <StageChip stage={idea.stage} />}
                 </div>
-                <p className="text-muted-foreground">{ideaClosed(idea.status) ? (idea.promoted_to ? `Pasó a ${idea.promoted_to}` : "Sin destino") : c.waits}</p>
+                <p className="text-muted-foreground">{ideaClosed(idea.status) ? (idea.promoted_to ? w.promotedTo(idea.promoted_to) : w.noDestination) : c.waits}</p>
               </li>
             );
           })}
@@ -442,10 +452,10 @@ export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: 
           <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
-                <th className="px-5 py-3 font-bold">Idea</th>
-                <th className="px-3 py-3 font-bold">Etapa</th>
-                <th className="px-3 py-3 font-bold">Espera</th>
-                <th className="px-5 py-3 font-bold">Pasó a</th>
+                <th className="px-5 py-3 font-bold">{w.idea}</th>
+                <th className="px-3 py-3 font-bold">{w.stage}</th>
+                <th className="px-3 py-3 font-bold">{w.waits}</th>
+                <th className="px-5 py-3 font-bold">{w.becameColumn}</th>
               </tr>
             </thead>
             <tbody>
@@ -477,12 +487,13 @@ export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: 
 /** Branch → base edges from initiatives, drawn as a small git graph. */
 export function BranchGraph({ edges }: { edges: BranchEdge[] }) {
   const bases = [...new Set(edges.map((e) => e.base))];
+  const w = words(PLAN);
   return (
     // grid-cols-1 (minmax(0,1fr)) all the way down, or the truncated branch names set the width on phones.
     <section className="lift grid animate-rise grid-cols-1 gap-4 rounded-[20px] border bg-card px-5 py-5" style={rise(4)}>
       <Kicker className="text-muted-foreground">
         <GitBranchIcon className="size-3.5" aria-hidden />
-        Rama y prod
+        {w.branchAndProd}
       </Kicker>
       {bases.length > 0 && (
         <ul className="grid grid-cols-1 gap-3">
@@ -508,7 +519,7 @@ export function BranchGraph({ edges }: { edges: BranchEdge[] }) {
           ))}
         </ul>
       )}
-      {bases.length === 0 && <p className="text-[13px] text-muted-foreground">Sin ramas registradas.</p>}
+      {bases.length === 0 && <p className="text-[13px] text-muted-foreground">{w.noBranches}</p>}
     </section>
   );
 }
@@ -523,7 +534,7 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
         className,
       )}
     >
-      Ver la ficha completa
+      {words(PLAN).seeFicha}
       <ArrowRightIcon className="size-3.5" aria-hidden />
     </button>
   );
@@ -531,6 +542,7 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
 
 /** Pinned decisions that still stand. */
 export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: () => void }) {
+  const w = words(PLAN);
   return (
     <section
       className="lift grid animate-rise grid-cols-1 gap-3 rounded-[20px] border border-status-review/30 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-review)_10%,var(--card)),var(--card)_70%)] px-5 pt-5 pb-2"
@@ -538,10 +550,10 @@ export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: (
     >
       <Kicker className="text-ink-review">
         <PinIcon className="size-3.5" aria-hidden />
-        Decisiones fijas
+        {w.fixedDecisions}
       </Kicker>
       {items.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">Ninguna todavía.</p>
+        <p className="text-[13px] text-muted-foreground">{w.noneYet}</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 text-[13px] leading-snug">
           {items.slice(0, 4).map((s) => (
@@ -551,7 +563,7 @@ export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: (
               <span className="min-w-0 [overflow-wrap:anywhere]">{s}</span>
             </li>
           ))}
-          {items.length > 4 && <li className="pl-5 text-muted-foreground">y {items.length - 4} más</li>}
+          {items.length > 4 && <li className="pl-5 text-muted-foreground">{w.more(items.length - 4)}</li>}
         </ul>
       )}
       <FichaLink onClick={onFicha} />
@@ -583,7 +595,7 @@ export function FichaSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
         <SheetHeader className="pr-12">
-          <SheetDescription>Ficha del proyecto</SheetDescription>
+          <SheetDescription>{words(PLAN).fichaOf}</SheetDescription>
           <SheetTitle className="font-display text-2xl">{title}</SheetTitle>
         </SheetHeader>
         <div className="grid gap-8 px-4 pb-8">

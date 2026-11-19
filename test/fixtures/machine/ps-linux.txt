@@ -1,0 +1,4 @@
+      1       0 Thu Nov 19 08:00:01 2026 /sbin/init
+   2101    1890 Thu Nov 19 08:02:10 2026 /usr/lib/postgresql/16/bin/postgres -D /home/ana/.local/share/pg16
+   2210    2190 Thu Nov 19 09:15:42 2026 node /home/ana/dev/zigzag/node_modules/.bin/next dev -p 3069
+   2300    2210 Thu Nov  5 09:16:00 2026 /home/ana/.cache/ms-playwright/chromium-1140/chrome-linux/chrome --headless=new --remote-debugging-port=0

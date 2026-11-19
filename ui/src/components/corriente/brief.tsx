@@ -20,6 +20,8 @@ import { BriefCard, EmptyHand, stampOf, type CardKeys } from "./brief-card";
 import { BriefDelta, BriefPhone, useStage } from "./brief-delta";
 import { Btn } from "./parts";
 import { corLabels } from "@/lib/brief-i18n";
+import { words } from "@/lib/i18n";
+import { BRIEF_PAGE_WORDS } from "@/lib/brief-words";
 
 export type BriefEmptyKind = "loading" | "empty" | "off" | "failed";
 
@@ -78,6 +80,7 @@ export type ToolsProps = {
 
 export function BriefTools(p: ToolsProps) {
   const c = BRIEF_LABELS[p.language].c;
+  const w = words(BRIEF_PAGE_WORDS, p.language);
   const [menu, setMenu] = useState<"gen" | "dias" | null>(p.initialMenu ?? null);
   const days = p.history.filter((h) => h.local_date !== p.todayDate).slice(0, 14);
   const passes: [string, [string, string], BriefPass[] | undefined][] = [
@@ -89,7 +92,7 @@ export function BriefTools(p: ToolsProps) {
     <div className="cor-bf-tools" data-brief="tools">
       {p.date && (
         <Btn kind="secondary" small onClick={() => p.onDate(null)} data-brief="back-today">
-          Volver a hoy
+          {w.backToday}
         </Btn>
       )}
       <MenuButton label={p.genLabel} open={menu === "gen"} onOpen={(o) => setMenu(o ? "gen" : null)} disabled={!p.canGenerate || !!p.date} primary={p.genPrimary} data="generate">
@@ -111,17 +114,17 @@ export function BriefTools(p: ToolsProps) {
           </button>
         ))}
       </MenuButton>
-      <MenuButton label="Días anteriores" open={menu === "dias"} onOpen={(o) => setMenu(o ? "dias" : null)} data="days">
-        <p className="cor-bf-menu-h">Días anteriores · solo lectura</p>
+      <MenuButton label={w.days} open={menu === "dias"} onOpen={(o) => setMenu(o ? "dias" : null)} data="days">
+        <p className="cor-bf-menu-h">{w.daysMenu}</p>
         {p.date && (
           <button type="button" role="menuitem" className="cor-bf-mi" onClick={() => (setMenu(null), p.onDate(null))} data-dia="hoy">
-            <b>Hoy</b>
-            <small>volver al de hoy</small>
+            <b>{w.today}</b>
+            <small>{w.backToTodays}</small>
           </button>
         )}
-        {days.length === 0 && <p className="cor-bf-menu-none">Todavía no hay días anteriores.</p>}
+        {days.length === 0 && <p className="cor-bf-menu-none">{w.noDays}</p>}
         {days.map((h) => {
-          const l = dayLine(h);
+          const l = dayLine(h, p.language);
           return (
             <button key={h.local_date} type="button" role="menuitem" className="cor-bf-mi" aria-current={p.date === h.local_date || undefined} onClick={() => (setMenu(null), p.onDate(h.local_date))} data-dia={h.local_date}>
               <b>{l.day}</b>
@@ -131,7 +134,7 @@ export function BriefTools(p: ToolsProps) {
         })}
       </MenuButton>
       <Btn kind="quiet" small onClick={p.onSettings} data-brief="settings">
-        Ajustes
+        {w.settings}
       </Btn>
     </div>
   );
@@ -159,6 +162,7 @@ export type BriefViewProps = {
 };
 
 export function BriefView(p: BriefViewProps) {
+  const w = words(BRIEF_PAGE_WORDS);
   return (
     <div className={`cor-bf${p.phone ? " phone" : ""}`} data-brief-state={p.state} aria-busy={p.state === "loading" || undefined}>
       <div className="cor-bf-main">
@@ -180,8 +184,8 @@ export function BriefView(p: BriefViewProps) {
         {p.phone && p.delta}
       </div>
       <footer className="cor-bf-foot">
-        <span className="cor-bf-foot-l">{p.footLeft ?? (p.state === "brief" ? "J K mover · ← → proyecto · Enter primera acción · L después · X no aplica · Z deshacer" : null)}</span>
-        {!p.footLeft || p.footRight ? <span className="cor-bf-foot-r">{p.footRight ?? (p.state === "brief" ? "pendientes e ideas completos · usa tu plan, $0" : "corre cada día a la hora de Ajustes · usa tu plan, $0")}</span> : null}
+        <span className="cor-bf-foot-l">{p.footLeft ?? (p.state === "brief" ? w.keys : null)}</span>
+        {!p.footLeft || p.footRight ? <span className="cor-bf-foot-r">{p.footRight ?? (p.state === "brief" ? w.footBrief : w.footEmpty)}</span> : null}
       </footer>
     </div>
   );
@@ -193,6 +197,7 @@ export type NoticeProps = { language: BriefLanguage; lastRun: BriefLastRun | nul
 
 export function BriefNotice(p: NoticeProps) {
   const c = corLabels(p.language).c;
+  const w = words(BRIEF_PAGE_WORDS, p.language);
   const [fix, setFix] = useState(!!p.initialFix);
   if (p.lastRun) {
     const steps = p.lastRun.kind === "auth" ? c.fixAuth : c.fixOther;
@@ -207,7 +212,7 @@ export function BriefNotice(p: NoticeProps) {
             {fix ? c.hide : c.howToFix}
           </Btn>
           <Btn kind="link" small disabled={!p.canRetry} onClick={p.onRetryRun} data-brief="retry-run">
-            Reintentar
+            {w.retry}
           </Btn>
         </span>
         {fix && (
@@ -224,10 +229,10 @@ export function BriefNotice(p: NoticeProps) {
     return (
       <div className="cor-bf-notice bad" role="status" data-brief="refresh-failed">
         <span className="cor-bf-notice-t">
-          <b>No se pudo actualizar.</b> Sigues viendo lo último que llegó.
+          <b>{w.refreshFailed}</b> {w.stillShowing}
         </span>
         <Btn kind="link" small onClick={p.onRefresh} data-brief="refresh">
-          Reintentar
+          {w.retry}
         </Btn>
       </div>
     );
@@ -296,6 +301,7 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const tz = data?.timezone ?? timeZone;
   const live = latest.data?.run ?? null;
   const generating = !date && (!!live || run.isPending);
+  const w = words(BRIEF_PAGE_WORDS, language);
 
   const setDate = (d: string | null) => {
     const q = new URLSearchParams(location.search);
@@ -307,7 +313,7 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     run.mutate(passes, {
       onError: (e) => {
         if (e instanceof ApiError && e.code === "BRIEF_RUNNING") return;
-        toast.error(e instanceof ApiError ? `No se pudo generar (${e.code}).` : "No se pudo generar. Si la Mac está dormida, intenta al despertar.");
+        toast.error(e instanceof ApiError ? w.genFailedCode(e.code) : w.genFailed);
       },
     });
 
@@ -319,14 +325,14 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     else state = "loading";
   }
 
-  const genLabel = live?.waiting_for_build ? "Esperando la construcción" : generating ? (live ? `Generando… ${runMinutes(live.started_at, now)} min` : "Generando…") : "Generar ahora";
+  const genLabel = live?.waiting_for_build ? w.waitingBuild : generating ? (live ? w.generatingMin(runMinutes(live.started_at, now)) : w.generating) : w.generate;
   const kick = date
-    ? kickOf({ kind: "past", localDate: date })
+    ? kickOf({ kind: "past", localDate: date }, language)
     : generating
-      ? kickOf({ kind: "generating", minutes: live ? runMinutes(live.started_at, now) : 1, waitingBuild: live?.waiting_for_build, generatedAt: data?.generatedAt ?? null, timeZone: tz })
+      ? kickOf({ kind: "generating", minutes: live ? runMinutes(live.started_at, now) : 1, waitingBuild: live?.waiting_for_build, generatedAt: data?.generatedAt ?? null, timeZone: tz }, language)
       : data
-        ? kickOf({ kind: "today", generatedAt: data.generatedAt, timeZone: tz })
-        : kickOf({ kind: "none", now, timeZone });
+        ? kickOf({ kind: "today", generatedAt: data.generatedAt, timeZone: tz }, language)
+        : kickOf({ kind: "none", now, timeZone }, language);
 
   // The rows' live state (and Send to Plania's progress for today's ideas), as the old page read them.
   const briefId = stored?.id ?? null;
@@ -347,9 +353,9 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const [stageRef, size] = useStage();
   // The phone wraps its rows, so its labels follow the full stage's rule (not the phone's width).
   const phone = useNarrow();
-  const w = phone ? 1440 : size.w;
+  const sw = phone ? 1440 : size.w;
   const h = phone ? 650 : size.h;
-  const delta = useMemo(() => deltaOf({ list, w, h, states: live_?.items, settled: settledOrder(live_) }), [list, w, h, live_]);
+  const delta = useMemo(() => deltaOf({ list, w: sw, h, states: live_?.items, settled: settledOrder(live_), language }), [list, sw, h, live_, language]);
   const [picked, setPicked] = useState<string | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   const [last, setLast] = useState<string | null>(null);
@@ -366,11 +372,11 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     for (const st of list)
       for (const cd of [...st.items, ...st.ideas]) {
         if (cd.open) continue;
-        const s = stampOf(cd, live_, local[cd.id], t);
+        const s = stampOf(cd, live_, local[cd.id], t, language);
         if (s?.undo && s.actionId) out.push({ id: cd.id, actionId: s.actionId, word: s.word, title: cd.kind === "item" ? (cd.item.ref || cd.item.title) : cd.idea.title, at: s.at ?? "" });
       }
     return out.sort((a, b) => (a.id === last ? -1 : b.id === last ? 1 : b.at.localeCompare(a.at)));
-  }, [list, live_, local, last, t]);
+  }, [list, live_, local, last, t, language]);
   const onHandled = (cd: CityCard, l: Local) => {
     setLocal((x) => ({ ...x, [cd.id]: l }));
     setLast(cd.id);
@@ -426,13 +432,13 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     return () => window.removeEventListener("keydown", h);
   }, []);
 
-  const headline: Headline = data ? headlineOf({ total: delta.counts.total, open: delta.counts.total - delta.counts.done, blocked: delta.counts.blocked, needs: delta.counts.needs }, runAt) : noBriefHeadline(state === "brief" ? "loading" : state, runAt);
+  const headline: Headline = data ? headlineOf({ total: delta.counts.total, open: delta.counts.total - delta.counts.done, blocked: delta.counts.blocked, needs: delta.counts.needs }, runAt, language) : noBriefHeadline(state === "brief" ? "loading" : state, runAt, language);
   const walk = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river].map((l) => l.id), [delta]);
   const streamOf = (l: Light | null): Station | undefined => (l ? list.find((st) => st.items.some((x) => x.id === l.id) || st.ideas.some((x) => x.id === l.id)) : undefined);
   const allClear = delta.counts.total > 0 && delta.counts.done === delta.counts.total;
   const card = data ? (
     allClear && !picked ? (
-      <EmptyHand state="brief" line={t.c.clearLine(delta.counts.done, runAt)} />
+      <EmptyHand state="brief" language={language} line={t.c.clearLine(delta.counts.done, runAt)} />
     ) : (
     <BriefCard
       light={light}
@@ -475,7 +481,7 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
     <span className="cor-bf-undo" data-brief="last">
       {lastUndo.word}: {lastUndo.title}
       <Btn kind="link" small onClick={() => void onUndo(lastUndo.actionId, lastUndo.id)} data-undo-last={lastUndo.id}>
-        Deshacer
+        {w.undo}
       </Btn>
     </span>
   ) : undefined;

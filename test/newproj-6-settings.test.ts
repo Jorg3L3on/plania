@@ -61,7 +61,7 @@ before(async () => {
   raw = await resetTestDb();
   ({ close: closeDb } = makeDb() as { db: Db; close: () => Promise<void> });
   setNewProjectRepoCheck(fakeGit());
-  setReadinessDeps({ repoCheck: fakeGit(), env: { ...process.env, PLANIA_RUNNER_TOKEN: "x" }, exists: () => true });
+  setReadinessDeps({ repoCheck: fakeGit(), env: { ...process.env, PLANIA_RUNNER_TOKEN: "x" }, exists: () => true, githubAccess: async () => "ok" });
   const res = await app.request("/api/company/projects", { method: "POST", headers: jorge(), body: JSON.stringify({ name: "Recetario", goal: "Recetas en un minuto.", no_code: true }) });
   assert.equal(res.status, 201, await res.clone().text());
 });
@@ -149,7 +149,9 @@ test("NEWPROJ-6: only GitHub drops the folder, keeps the token's variable name, 
   assert.equal(db.settings.local, undefined);
   assert.deepEqual(db.settings.github, { repo: "o/recetario-2", token_env: "RECETARIO_GH_TOKEN" });
   s = (await res.json()) as SettingsRead;
-  assert.equal(JSON.stringify(s).includes("token_env"), false, "the read never carries a token field");
+  // PLA-I2-6: the token's variable NAME is an «Avanzado» field now (never a value); the code section carries none.
+  assert.equal(JSON.stringify(s.code).includes("token"), false, "the code section never carries a token field");
+  assert.equal(s.avanzado.find((f) => f.field === "github_token_env")?.value, "RECETARIO_GH_TOKEN");
   assert.equal((await put("/code", { version: s.version, no_code: true })).status, 200);
   db = await stored();
   assert.deepEqual(db.settings.local, { no_code: true });
@@ -283,7 +285,7 @@ test("NEWPROJ-6: the view's refusals are plain Spanish, never the code", () => {
     assert.equal(line.includes(code), false, code);
     assert.equal(/sandbox|PLA-|NEWPROJ/i.test(line), false, `${code}: ${line}`);
   }
-  assert.match(aj.ajustesError("REPO_NOT_GIT", { path: "/Users/o/r" }), /\/Users\/o\/r no es un repositorio de git/);
+  assert.match(aj.ajustesError("REPO_NOT_GIT", { path: "/Users/o/r" }), /\/Users\/o\/r tiene archivos pero no es un repositorio/);
   assert.match(aj.ajustesError("STALE_VERSION", {}), /cambió/);
   assert.match(aj.ajustesError(null), /No se guardó/);
 });

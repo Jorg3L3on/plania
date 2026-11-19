@@ -2,8 +2,11 @@
 // sentence per piece of work (newest first), and a second line: who is idle, or, when nobody works, «Nadie trabaja en
 // este piso ahora.» with the true reason. Hook-free; the floor and the project page pass the same view.
 import type { CSSProperties } from "react";
-import { QUIET_SAY, type AhoraView } from "@/lib/ahora-piso";
+import type { AhoraView } from "@/lib/ahora-piso";
+import { AHORA_PISO_WORDS } from "@/lib/ahora-piso-words";
 import type { StageTone } from "@/lib/etapas";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
 
 const TONE_VAR: Record<StageTone | "idle", string> = {
   idle: "var(--status-idle)",
@@ -12,7 +15,7 @@ const TONE_VAR: Record<StageTone | "idle", string> = {
   blocked: "var(--status-blocked)",
   now: "var(--status-now)",
   review: "var(--status-review)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   done: "var(--status-done)",
 };
 // More than this many at once fold into «y n más».
@@ -21,8 +24,9 @@ const SHOWN = 3;
 export const AhoraLine = ({ view, className }: { view: AhoraView; className?: string }) => {
   const shown = view.lines.slice(0, SHOWN);
   const rest = view.lines.length - shown.length;
+  const w = words(PLAN);
   return (
-    <div className={className ? `ahl ${className}` : "ahl"} data-ahora={view.working ? "work" : "quiet"} data-reason={view.quiet?.kind} style={{ "--ac": TONE_VAR[view.tone] } as CSSProperties} role="status" aria-label="Ahora">
+    <div className={className ? `ahl ${className}` : "ahl"} data-ahora={view.working ? "work" : "quiet"} data-reason={view.quiet?.kind} style={{ "--ac": TONE_VAR[view.tone] } as CSSProperties} role="status" aria-label={w.now}>
       <span className="ahl-dot" data-pulse={view.working ? "" : undefined} aria-hidden />
       <div className="ahl-text">
         {view.working ? (
@@ -32,11 +36,11 @@ export const AhoraLine = ({ view, className }: { view: AhoraView; className?: st
                 {l.text}
               </li>
             ))}
-            {rest > 0 && <li className="ahl-more">y {rest === 1 ? "1 más" : `${rest} más`}</li>}
+            {rest > 0 && <li className="ahl-more">{w.andMore(rest)}</li>}
           </ul>
         ) : (
           <p className="ahl-say" data-ahora-quiet>
-            {QUIET_SAY}
+            {words(AHORA_PISO_WORDS).quietSay}
           </p>
         )}
         {view.why && (

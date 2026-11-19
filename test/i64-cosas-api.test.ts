@@ -27,10 +27,10 @@ before(async () => {
   await task("TLU-I1", "initiative", "Active");
   await task("TLU-I2", "initiative", "Done");
   // Promoted ideas are newer, yet listed after the ones still in the tube.
-  await task("TLU-IDEA1", "idea", "Open", { stage: "ready", promoted: "TLU-I1", origin: "jorge", at: "2026-11-10T10:00:00Z" });
+  await task("TLU-IDEA1", "idea", "Open", { stage: "ready", promoted: "TLU-I1", origin: "owner", at: "2026-11-10T10:00:00Z" });
   await task("TLU-IDEA2", "idea", "Done", { stage: "ready", promoted: "TLU-I2", at: "2026-11-09T10:00:00Z" });
   const q = await task("TLU-IDEA3", "idea", "Open", { stage: "design", at: "2026-11-01T10:00:00Z" });
-  await task("TLU-IDEA4", "idea", "Open", { stage: "ready", origin: "jorge", at: "2026-11-02T10:00:00Z" });
+  await task("TLU-IDEA4", "idea", "Open", { stage: "ready", origin: "owner", at: "2026-11-02T10:00:00Z" });
   await raw.query(`insert into questions (project_id, task_id, question, asked_by) values ($1, $2, '¿Azul o verde?', '{"agent":"po","session_id":"s"}'::jsonb)`, [pid, q]);
 });
 after(async () => {
@@ -46,7 +46,7 @@ test("I64-1: the ficha carries promoted_to, origin, the tube's state and the pro
   assert.equal(by["TLU-IDEA1"].promoted_to, "TLU-I1");
   assert.equal(by["TLU-IDEA1"].state, null, "a promoted idea has no tube state");
   assert.deepEqual([by["TLU-IDEA3"].stop, by["TLU-IDEA3"].state, by["TLU-IDEA3"].question?.text], ["diseno", "espera", "¿Azul o verde?"]);
-  assert.deepEqual([by["TLU-IDEA4"].origin, by["TLU-IDEA4"].stop, by["TLU-IDEA4"].guardada], ["jorge", "lista", false]);
+  assert.deepEqual([by["TLU-IDEA4"].origin, by["TLU-IDEA4"].stop, by["TLU-IDEA4"].guardada], ["owner", "lista", false]);
   assert.equal(by["TLU-IDEA4"].ordered_at, null, "no «Constrúyelo» yet");
   assert.deepEqual(f.promoted, [
     { idea: "TLU-IDEA1", initiative: "TLU-I1" },
@@ -85,7 +85,7 @@ test("I64-3 #2 el pulso: steps landed per day for 14 days match a control count"
 test("PLA-62 #4: the ficha carries the time of the newest «Constrúyelo»", async () => {
   const id = (await raw.query(`select id from tasks where key = 'TLU-IDEA4'`)).rows[0].id;
   for (const at of ["2026-11-17T08:53:00Z", "2026-11-17T10:00:00Z"])
-    await raw.query(`insert into events (project_id, task_id, type, actor, payload, created_at) values ($1, $2, 'pedido.construir', '{"agent":"jorge","session_id":"web"}'::jsonb, '{}'::jsonb, $3)`, [pid, id, at]);
+    await raw.query(`insert into events (project_id, task_id, type, actor, payload, created_at) values ($1, $2, 'pedido.construir', '{"agent":"owner","session_id":"web"}'::jsonb, '{}'::jsonb, $3)`, [pid, id, at]);
   const f = (await (await app.request("/api/company/projects/tienda/ficha", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } })).json()) as any;
   const i4 = f.ideas.find((i: any) => i.key === "TLU-IDEA4");
   assert.equal(i4.ordered_at, "2026-11-17T10:00:00.000Z");

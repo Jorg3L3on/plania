@@ -5,6 +5,7 @@
 // (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
 // 1-7 (the retired tabs) do nothing.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MigracionesPropias } from "@/components/corriente/migraciones-propias";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -48,6 +49,8 @@ import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, pasoAt, verParam, t
 import { doneOf, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
+import { words } from "@/lib/i18n";
+import { CORRIENTE_PAGE } from "@/lib/corriente-page-words";
 
 const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
@@ -79,6 +82,7 @@ const keepIt =
   <T,>(data: T): T => (keepRead(key, data), data);
 
 export const CorrientePage = () => {
+  const w = words(CORRIENTE_PAGE);
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -104,7 +108,7 @@ export const CorrientePage = () => {
   const resume = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, false),
     onMutate: (slug) => setResuming(slug),
-    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo reanudar (${e.code}).` : SLEEPY),
+    onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
     onSettled: () => {
       setResuming(null);
       refresh();
@@ -112,7 +116,7 @@ export const CorrientePage = () => {
   });
   const resumeCompany = useMutation({
     mutationFn: () => api.setCompanyPaused(false),
-    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo reanudar (${e.code}).` : SLEEPY),
+    onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
     onSettled: refresh,
   });
   const ask = async (slug: string, input: AskInput) => {
@@ -232,7 +236,7 @@ export const CorrientePage = () => {
   const projectBody = (p: OrgProject) => {
     const summary = summaries.data?.find((s) => s.slug === p.slug);
     const totals = summary ? { open: p.work.open, done: doneOf(summary) } : null;
-    if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
+    if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? w.thisOne : w.theTab(at.tab)} to={legacyHref(at)} />;
     // PLA-I64: opened from the list, a thing's view comes back to the list.
     const todoHref = linkTo({ slug: p.slug, tab: "todo" });
     if (at.ver?.kind === "entrega") {
@@ -244,9 +248,9 @@ export const CorrientePage = () => {
       if (!d)
         return (
           <div className="cor-empty">
-            <p className="cor-text">Esta entrega ya no espera tu decisión.</p>
+            <p className="cor-text">{w.noLongerWaits}</p>
             <Btn kind="secondary" onClick={() => go({ slug: p.slug })}>
-              Volver a la lista
+              {w.backToList}
             </Btn>
           </div>
         );
@@ -274,7 +278,7 @@ export const CorrientePage = () => {
       ahora: ahoraLinks(p.slug),
     };
     if (at.ver?.kind === "idea" || at.ver?.kind === "iniciativa") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug })} extra={carried(at.ver.key)} />;
-    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
+    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={w.all(p.title)} acts={acts} decisions={decisions} />;
     if (at.tab === "todo" && !at.ver) {
       const todoLinks: TodoLinks = {
         open: (c) =>
@@ -349,13 +353,13 @@ export const CorrientePage = () => {
           plan={
             !p.paused && !paused && !(p.route && p.route.legs.length > 0) ? (
               <Btn kind="secondary" onClick={() => acts.plan(p.slug, PLAN_ASK)} disabled={acts.busy === `${p.slug}:plan`} data-control="planear">
-                {acts.busy === `${p.slug}:plan` ? "Pidiendo…" : "Arma el plan"}
+                {acts.busy === `${p.slug}:plan` ? w.asking : w.makePlan}
               </Btn>
             ) : undefined
           }
           top={(cosas) => {
             const line = nowLine(p, decisions, now, { companyPaused: paused, timeZone });
-            const reason = p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" ? p.light_reason : null;
+            const reason = p.light_reason && p.light !== "ok" && p.light !== "needs_owner" ? p.light_reason : null;
             // When nothing waits on him: the building's nudge (start a teammate, past the guard too) or the light's.
             const nudge =
               line.state !== "you" && line.action ? (
@@ -401,7 +405,7 @@ export const CorrientePage = () => {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9.5 3.5 5 8l4.5 4.5" />
           </svg>
-          Archivo
+          {w.archive}
         </Link>
       );
       const arch = { slug: p.slug, tab: "archivo" as const };
@@ -448,6 +452,7 @@ export const CorrientePage = () => {
         <Motores
           p={p}
           def={company?.motor_default}
+          signIn={company?.claude_sign_in}
           planTo="/machine"
           onSave={async (save) => {
             const out = await api.saveMotores(save);
@@ -458,31 +463,35 @@ export const CorrientePage = () => {
       );
     if (at.tab === "maquinas")
       return (
-        <Maquinas
+        <>
+          {/* PLA-I2-9: only for Plania itself, only when an agent's migration waits. */}
+          <MigracionesPropias slug={p.slug} />
+          <Maquinas
           p={p}
           focus={at.ver?.kind === "maq" ? at.ver.what : at.ver?.kind === "tabla" ? `tabla:${at.ver.name}` : null}
           onFocus={(what) => navigate(linkTo({ slug: p.slug, tab: "maquinas", ver: what ? (what.startsWith("tabla:") ? { kind: "tabla", name: what.slice(6) } : { kind: "maq", what }) : null }), { replace: true })}
           onPedir={(text) => navigate(hrefOf({ view: "pedir", extra: { p: p.slug, texto: text } }))}
-        />
+          />
+        </>
       );
     // NEWPROJ-6: the project's settings.
     // PLA-I3-2: Borrar opens from here (the same ?hoja=borrar sheet), no longer from the bar.
     if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} />;
-    return <NotYet what="Esto" to={legacyHref(at)} />;
+    return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 
   const body = () => {
     if (at.view === "piezas") return <Piezas />;
     if (at.view === "brief") return <BriefPlace now={now} timeZone={timeZone} />;
-    if (comp.isError && !company) return <ReadError what="la compañía" onRetry={() => void comp.refetch()} />;
-    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} role="status" aria-busy="true" aria-label="Cargando la compañía" />;
+    if (comp.isError && !company) return <ReadError what={w.theCompany} onRetry={() => void comp.refetch()} />;
+    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} role="status" aria-busy="true" aria-label={w.loadingCompany} />;
     if (at.slug) {
       if (!project)
         return (
           <div className="cor-empty">
-            <p className="cor-text">No hay un proyecto «{at.slug}» en la compañía.</p>
+            <p className="cor-text">{w.noProject(at.slug)}</p>
             <Btn kind="secondary" onClick={() => go({ view: "corriente" })}>
-              Volver a la corriente
+              {w.backToStream}
             </Btn>
           </div>
         );
@@ -526,7 +535,7 @@ export const CorrientePage = () => {
         <Asistente
           threadId={company.asistente.thread_id}
           unread={company.asistente.unread ?? 0}
-          waiting={company.asistente.state === "waiting_jorge"}
+          waiting={company.asistente.state === "waiting_owner"}
           timeZone={timeZone}
           invalidate={[["company"]]}
           pedirTo={pedirTo(null)}
@@ -537,7 +546,7 @@ export const CorrientePage = () => {
           }}
         />
       );
-    return <NotYet what="Esto" to={legacyHref(at)} />;
+    return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 
   // PLA-I3-2: the project view's one bar (the strip and the project's bar, merged).
@@ -566,9 +575,9 @@ export const CorrientePage = () => {
       )}
       {paused && (
         <div className="cor-notice amber" role="status" data-banner="paused">
-          <span>La compañía está detenida: nada arranca.</span>
+          <span>{w.companyStopped}</span>
           <Btn kind="amber" small disabled={resumeCompany.isPending} onClick={() => resumeCompany.mutate()} data-control="reanudar-compania">
-            {resumeCompany.isPending ? "Reanudando…" : "Reanudar la compañía"}
+            {resumeCompany.isPending ? w.resuming : w.resumeCompany}
           </Btn>
         </div>
       )}

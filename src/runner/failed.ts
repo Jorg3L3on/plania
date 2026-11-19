@@ -2,11 +2,11 @@
 // lease ran out and nothing continued it. Each heartbeat tick this frees those tickets:
 //   first failure in a row    the ticket goes back to Ready and the same agent is queued on it once more
 //                             (the run resumes its session in the same worktree, so it keeps what it did)
-//   second failure in a row   the ticket goes to Blocked with a line for Jorge (a step in his inbox); when he
+//   second failure in a row   the ticket goes to Blocked with a line for the owner (a step in his inbox); when he
 //                             marks it done the ticket returns to Ready and the event hook wakes the role
 // "In a row" counts this agent's finished runs on the ticket, newest first, up to the first that did not
-// fail. Odd: retry. Even: ask. So each time Jorge lets it go on, the agent gets two attempts again.
-// A stopped run is not a failure (Jorge or a switch stopped it). A run that ended ok without closing its
+// fail. Odd: retry. Even: ask. So each time the owner lets it go on, the agent gets two attempts again.
+// A stopped run is not a failure (the owner or a switch stopped it). A run that ended ok without closing its
 // ticket is left to the lease: the reaper wakes the role when it runs out (src/runner/events.ts).
 // The retry waits while the agent is busy or a switch is off: the ticket is freed only once its wake is queued.
 //
@@ -17,7 +17,7 @@
 //   requeueHeld        a Ready ticket whose newest run was stopped or dropped by a limit (budget, switch,
 //                      plan guard, a server restart that dropped the queue) is queued again for the same
 //                      agent once the runner's own checks say it would start. Once: the queued run is then
-//                      the newest. Jorge's Detener is not a limit; Seguir is his.
+//                      the newest. The owner's Detener is not a limit; Seguir is his.
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -29,6 +29,8 @@ import { setTask } from "../mcp/writes.js";
 import { queueWake } from "./events.js";
 import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
+import { OWNER_LINE_PREFIX } from "../owner.js";
+import { defineWords, say } from "../words.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
 // Released (SYSTEM_MOVES in src/mcp/lifecycle.ts), and Ready → Blocked is an ordinary ticket move.
@@ -40,7 +42,7 @@ export const failureWords = (summary: string): string =>
     .replace(/^fail:\s*/i, "")
     .replace(/,?\s*session [0-9a-z-]+/gi, "")
     .replace(/\(\s*\)/g, "")
-    .trim() || "sin detalle";
+    .trim() || say(FAILED_WORDS).noDetail;
 
 type Held = { task_id: string; key: string; project_id: string; run_id: string; agent_id: string; summary: string } & Record<string, unknown>;
 
@@ -84,7 +86,7 @@ async function retry(db: Db, p: Project, agent: Agent, row: Held): Promise<boole
     if (out.kind !== "queued") return false;
     const u = await free(tx, emit, row, "run failed");
     if (!u) throw new Error(`PLA-16: ${row.key} changed hands inside the retry`);
-    await emit("note", u, { text: `La corrida de ${agent.name} terminó con error (${failureWords(row.summary)}). Plania liberó el ticket y lo reintenta una vez, en la misma sesión.` });
+    await emit("note", u, { text: say(FAILED_WORDS).retry(agent.name, failureWords(row.summary)) });
     return true;
   });
 }
@@ -100,7 +102,7 @@ async function hold(db: Db, p: Project, agent: Agent, row: Held): Promise<boolea
         key: row.key,
         status: "Blocked",
         version: freed.version,
-        note: `Jorge: ${agent.name} falló dos veces seguidas en este paso (${failureWords(row.summary)}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
+        note: `${OWNER_LINE_PREFIX} ${say(FAILED_WORDS).twice(agent.name, failureWords(row.summary))}`,
       } as never,
       ctx(),
     );
@@ -139,7 +141,7 @@ export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: 
 
 // ---- PLA-18: runs a limit stopped, and work a limit held
 
-// The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by Jorge).
+// The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by the owner).
 // "budget" is only read from runs made before PLA-21 removed the budgets: those requeue on the next tick.
 export type Limit = "budget" | "switch" | "plan" | "restart";
 export function limitOf(status: string, summary: string, stopReason: string | null): Limit | null {
@@ -151,10 +153,25 @@ export function limitOf(status: string, summary: string, stopReason: string | nu
   return null;
 }
 
-const STOPPED_WORDS: Record<string, [string, string]> = {
-  budget: ["se acabó el presupuesto semanal", "se retoma enseguida: ya no hay límite semanal"],
-  switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"],
-};
+// PLA-I2-10: the notes in the install's language; the Spanish is unchanged.
+export const FAILED_WORDS = defineWords({
+  es: {
+    noDetail: "sin detalle",
+    retry: (agent: string, why: string) => `La corrida de ${agent} terminó con error (${why}). Plania liberó el ticket y lo reintenta una vez, en la misma sesión.`,
+    twice: (agent: string, why: string) => `${agent} falló dos veces seguidas en este paso (${why}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
+    stopped: { budget: ["se acabó el presupuesto semanal", "se retoma enseguida: ya no hay límite semanal"], switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"] } as Record<string, [string, string]>,
+    resumable: "queda listo para retomarse",
+    stoppedNote: (agent: string, why: string, then: string) => `La corrida de ${agent} se detuvo: ${why}. Plania liberó el ticket; ${then}.`,
+  },
+  en: {
+    noDetail: "no detail",
+    retry: (agent: string, why: string) => `${agent}'s run ended with an error (${why}). Plania freed the ticket and retries it once, in the same session.`,
+    twice: (agent: string, why: string) => `${agent} failed twice in a row on this step (${why}). Check what stops it; when you mark this done, it picks it up again.`,
+    stopped: { budget: ["the weekly budget ran out", "it picks up again right away: there is no weekly limit any more"], switch: ["the project or the company was paused", "it picks up again on resume"] } as Record<string, [string, string]>,
+    resumable: "it is ready to pick up again",
+    stoppedNote: (agent: string, why: string, then: string) => `${agent}'s run stopped: ${why}. Plania freed the ticket; ${then}.`,
+  },
+});
 const REQUEUE_REASON: Record<Limit, string> = { budget: "budget open again", switch: "runs resumed", plan: "plan has room again", restart: "server restarted" };
 
 type Stopped = Held & { stop_reason: string | null };
@@ -172,12 +189,13 @@ export async function sweepStoppedRuns(db: Db): Promise<{ freed: number }> {
     const [agent] = await db.select().from(agents).where(eq(agents.id, row.agent_id)).limit(1);
     if (!p || !agent) continue;
     const limit = limitOf("stopped", row.summary, row.stop_reason);
-    const [why, then] = (limit && STOPPED_WORDS[limit]) ?? [row.stop_reason?.trim() || "sin detalle", "queda listo para retomarse"];
+    const w = say(FAILED_WORDS);
+    const [why, then] = (limit && w.stopped[limit]) ?? [row.stop_reason?.trim() || w.noDetail, w.resumable];
     freed += Number(
       await writeTx(db, p, ctx(), async (tx, emit) => {
         const u = await free(tx, emit, row, "run stopped");
         if (!u) return false;
-        await emit("note", u, { text: `La corrida de ${agent.name} se detuvo: ${why}. Plania liberó el ticket; ${then}.` });
+        await emit("note", u, { text: w.stoppedNote(agent.name, why, then) });
         return true;
       }),
     );

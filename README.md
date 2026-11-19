@@ -1,10 +1,10 @@
 # Plania
 
-Source of the plan for Jorge and his agents. A generated resume per project on screen, the rest over MCP.
+Source of the plan for the owner and his agents. A generated resume per project on screen, the rest over MCP.
 The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
 sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
-- App: Hono on Node, one long-lived process on this Mac (`scripts/dev.ts`, the launchd service).
+- App: Hono on Node, one long-lived process on this machine (`scripts/dev.ts`, the launchd service).
 - DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
@@ -13,37 +13,64 @@ sessions at once: leased claims, versioned writes, an event log with who did wha
 
 ## Setup
 
+Needs Node 22 or newer and Postgres 14 or newer, installed and running. Supported on macOS and Linux; on Windows,
+inside WSL.
+
 ```bash
 corepack enable pnpm
 pnpm install
-cp .env.example .env
+pnpm plania:install
 ```
 
-Fill `.env`:
+`pnpm plania:install` does the rest, the same from bash or PowerShell, and is safe to run again:
+
+1. Checks the machine. Anything to fix stops the install before anything is created.
+2. Creates the database `plania` on `localhost:5432`. `--database <name>` picks another name, `--url
+   postgres://user@host:port/<name>` another server or role. A database that already exists is used only when this
+   command made it (it carries the migration record) or when its name is given on the command line; one with tables
+   and no record is refused.
+3. Writes `.env` from `.env.example`: `DATABASE_URL`, and a generated `SESSION_SECRET` and `MCP_BEARER_TOKEN`
+   (clients use the token as `PLANIA_MCP_TOKEN`). A value already set is kept.
+4. Applies every migration and records each one (see Database).
+5. Builds the screen into `dist/ui` when it is not there. `--skip-screen` leaves it as it is.
+6. While Plania has no owner, prints a one-time code for the first-start screen (only its hash is stored). Running
+   the install again prints a new one and the old one stops working.
+
+Then `pnpm start`, and open `http://localhost:3737` in a browser on the same machine. The first-start screen asks
+for the code, your name, a password (12 characters or more) and your time zone (taken from the browser), and links
+the machine check so you see what is missing before finishing. In one write it makes the home project, the `ceo` and
+`asistente` rows, the runner and brief tokens, and stores the password hash, the tokens and the zone in the database
+(`install_state`, migration 0063). No `pnpm hash-password`, `seed-org`, `/tokens`, `.env` edit or restart. The company
+starts paused, with wakes on while `PLANIA_JOBS` is unset: nothing runs until you press resume. The screen answers
+only on loopback (not through `tailscale serve`) and closes for good once an owner exists. Values set in `.env`
+(`PLANIA_PASSWORD_HASH`, `PLANIA_RUNNER_TOKEN`, `PLANIA_BRIEF_TOKEN`, `PLANIA_TZ`, `PLANIA_JOBS`) still win, so an
+install configured by hand is unchanged and never sees the first-start screen. Ten wrong passwords in a minute and the
+login waits before the next try. At start the server checks that the database is reachable and has no unapplied migration; when
+either fails it says so in one sentence and exits.
+
+The other settings in `.env` are optional:
 
 | Var | Value |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (the local `plania` database) |
-| `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
-| `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
-| `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
-| `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
-| `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
-| `PLANIA_TZ` | Optional. Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
-| `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
-| `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
+| `PLANIA_PASSWORD_HASH` | The screen's password, as the output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. Wins over the one made at first start; when set, first start never opens. |
+| `MCP_READ_TOKEN` | A second token for planning sessions: read tools only. |
+| `PLANIA_CI_TOKEN` | Token for `/hooks/*` only; it cannot use `/mcp`. |
+| `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default: the zone chosen at first start, else `UTC`. |
+| `PLANIA_PG_BIN` | Directory of the `pg_dump` and `psql` Plania uses. Default: the one for the server's major version (Homebrew, `/usr/lib/postgresql/<N>/bin`, `/usr/pgsql-<N>/bin`), else the one on `PATH`. |
+| `PLANIA_OWNER_SECRET_FILE` | Where the owner's code lives off macOS's keychain (Linux, or a Mac without `security`). Default `~/.config/plania/owner-secret`, mode `0600`. |
+| `PLANIA_BACKUP_DIR` | Where the nightly dumps go. Default `~/plania-backups`. |
 
 ### A first project on a new install
 
 No SQL by hand and no `plania` project needed:
 
-1. Create an empty database, apply the migrations (see Database) and fill `.env` as above.
+1. Run `pnpm plania:install` (above).
 2. Check the role prompts. The four seats a project starts with (product owner, Research, Artist, Taller) each
    need one. They come with the repo in `kit/roles/<role>.md` (`product-owner.md`, `research.md`, `artist.md`,
    `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
    A project-level doc `Prompt: <Role>` in the project named by `PLANIA_PROMPTS_PROJECT` (default `plania`)
    replaces the file for that role when it exists; neither the project nor the doc has to exist.
-3. Start the server (`pnpm dev`, or the service) and sign in on the screen.
+3. Start the server (`pnpm dev`, or the service) and finish first start (above), or sign in on the screen.
 4. Press «+ Nuevo proyecto», give it a name and a one-sentence goal. The project is created paused, with its team;
    resume it to wake its product owner. If a seat has no prompt, the sheet names it and nothing is created: add
    its file to `kit/roles/` (or its doc) and try again.
@@ -53,11 +80,24 @@ without one fails its first run with `no prompt doc`.
 
 ## Database
 
-Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
+Migrations are generated here (`pnpm db:generate`) and applied with `pnpm db:migrate`. It applies, in file-name
+order, every file not yet recorded in `plania_migrations` (name, checksum, applied at), each in its own transaction
+together with its record. It stops at the first failure and names the file; the database stays as it was before that
+file. A recorded file whose content changed is reported, never re-applied. The record is what makes this safe: most
+files before 0027 fail when run twice.
+
+`pnpm db:migrate` works on the database in `.env` only when it already carries the record. Any other database is
+named on the command line: `pnpm db:migrate --database <name>` bootstraps the record on an empty one.
+
+A database that already has the migrations and no record (one set up before the record existed) is marked once,
+without running anything, up to the last file applied to it:
 
 ```bash
-for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
+pnpm db:migrate --database <name> --baseline 0061_run_kit.sql
 ```
+
+That is the only way in for a database with tables and no record. Afterwards `pnpm db:migrate` applies only newer
+files.
 
 Then add your own projects. Each one comes with its team (product owner, Research, Artist, Taller), starts
 paused with plan approval on, and gets a key prefix from its slug unless `--prefix` names one:
@@ -67,15 +107,10 @@ pnpm project:add <slug> --title "<Title>" [--prefix <PFX>] [--repo owner/name] [
 pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
-`--path` is the repo on this Mac (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
+`--path` is the repo on this machine (default `PLANIA_PROJECTS_ROOT/<slug>`, else the folder chosen at first start, else `~/plania/projects/<slug>`).
 `--repo` is its GitHub `owner/name`. Both are safe to rerun.
 
-`pnpm seed` is the original owner's setup: it loads their day-one projects `micasa`, `workia`, `filmia`, `zigzag`.
-Skip it on a new install. It is safe to rerun:
-
-- Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
-- Each project's handoff "must keep" line is added once as a pinned decision.
-- Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
+Projects come from first start, the screen or `pnpm project:add`; nothing is preloaded.
 
 ### Upgrading to 2.3 (audit, context, handoff)
 
@@ -88,7 +123,7 @@ Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `
 `branches`, `resources`, `quota_usage`, `pull_requests`, `poll_state`, `project_metrics`, the structured result
 columns, env `flags`/`migrations`/`deploy_source`, and the bug and debt fields. Then, per project, set what the
 pollers need (`set_project settings`): `github: {repo}`, `vercel: {project_id, team_id?}`, `release_target`,
-`branch_pattern` (filmia: `^jl/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
+`branch_pattern` (e.g. `^feat/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
 set; otherwise the poller reads `~/.config/plania/github-token` (one line, mode `0600`, see GitHub token file). Put `VERCEL_TOKEN`
 in `.env`. The settings only name the variables.
 
@@ -101,8 +136,8 @@ project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standal
 stays as an alias and each rename is a `task.rekeyed` event:
 
 ```bash
-pnpm rekey --project filmia            # dry run: prints the plan
-pnpm rekey --project filmia --apply    # writes it, in one transaction
+pnpm rekey --project tienda            # dry run: prints the plan
+pnpm rekey --project tienda --apply    # writes it, in one transaction
 ```
 
 ### Upgrading to 2.9 (backups, v1 cleanup)
@@ -122,8 +157,8 @@ names and the old one only the old, so apply the migration right before the rest
 
 ### Upgrading to 2.12 (intent and the day)
 
-Migration `0025` adds `push_subscriptions`; nothing else changes shape (Jorge's requests reuse `tasks.origin` with the
-new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
+Migration `0025` adds `push_subscriptions`; nothing else changes shape (the owner's requests reuse `tasks.origin` with the
+new value `owner`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
 so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
 stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
 
@@ -166,7 +201,7 @@ Until `0030` runs, an open old row stays out of the inbox and can only be closed
 
 Migration `0032_drop_gates_approvals` copies old approval rows and lettered questions into events, then drops the approval table, the letter column and its check. Take a dump first. The protocol moves to 2.18.
 
-`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
+`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_owner` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
 
 1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0032-$(date +%Y%m%d).sql.gz`.
 2. Apply `drizzle/migrations/0032_drop_gates_approvals.sql` (`psql "$DATABASE_URL" -f …`). It copies those rows into `approval.archived` and `question.archived`, then drops them. A second run copies nothing and drops nothing.
@@ -178,6 +213,12 @@ Migration `0061_run_kit` adds `agent_runs.prompt_version`, `skills`, `skills_use
 
 Then, once, on the server: `pnpm kit:export` writes the live role prompts into `kit/roles/` (commit them), and `pnpm kit:status` should read `same` for every role. What changes for runs is in [The agents' kit](#the-agents-kit). Two things are on from the first run and can be turned off: a seat with no packs carries its role's default skills (`PLANIA_DEFAULT_KITS=0`), and a session that failed, was sent back by QA or grew long starts fresh instead of resuming (`PLANIA_RETRY_FRESH=0`). `finish` runs a project's checks only when it has a `settings.qa.verify` list.
 
+### Upgrading to the migration record
+
+From this version the server refuses to start on a database without the migration record. Once, before restarting,
+mark the live database up to the last file applied to it (today `0061_run_kit.sql`):
+`pnpm db:migrate --database plania --baseline 0061_run_kit.sql`. Later upgrades are `pnpm db:migrate`.
+
 ### GitHub token file
 
 No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
@@ -188,6 +229,32 @@ The GitHub poller used to run `gh auth token`, which reads the login keychain th
 
 Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and sets `GH_TOKEN` from `~/.config/plania/github-release-token`, else `~/.config/plania/github-token`, plus `GH_PROMPT_DISABLED=1`. With no token and the fallback off it returns `RELEASE_MERGE_FAILED` (`step` `token`, `falta token: …`) and starts no process. A 403 from GitHub adds a hint that the token needs write access to contents and pull requests.
 
+### What a run receives
+
+No migration. Every process Plania starts for work (an agent run, a Preguntar run, the Morning brief, a QA command,
+a test copy, the capture browser) gets its environment from one allow-list, `src/runner/run-env.ts`:
+
+- system basics: `PATH`, `HOME`, user, shell, locale (`LANG`, `LC_*`), `TZ`, the temp dir, `XDG_*`, and the Windows
+  names for the same where WSL passes them;
+- what git, gh and Node need: `SSH_AUTH_SOCK`, `GH_CONFIG_DIR`, the proxy variables (`HTTPS_PROXY`, `NO_PROXY`, …)
+  and the CA variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, …);
+- Claude Code's own variables, untouched: `ANTHROPIC_*`, `CLAUDE_*` (including `CLAUDE_CODE_USE_BEDROCK`,
+  `_VERTEX`, `_FOUNDRY`), and the provider's credentials (`AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`) only while
+  that provider is switched on. App commands (QA, test copies) get none of these;
+- the run's own values: its token (`PLANIA_RUNNER_TOKEN`, or `PLANIA_BRIEF_TOKEN` for the brief), `PORT`, a test
+  copy's own database URL;
+- the names a project lists in `settings.runner.env` (for example `["STRIPE_TEST_KEY"]`), agent runs only.
+
+Never Plania's own: `DATABASE_URL`, `MCP_BEARER_TOKEN`, `MCP_READ_TOKEN`, `SESSION_SECRET`, `GITHUB_TOKEN`,
+`VERCEL_TOKEN`, the VAPID keys, or anything named `PLANIA_*`, even when a project names it. A test copy still
+reads its app's own env file: nothing that file sets is pre-set by Plania.
+
+Claude signs in the way you set it up (your plan's login, an API key, or a cloud provider); Plania does not choose
+and never reads Claude's credential files or keychain entry (`test/run-env.test.ts` scans `src/` for that).
+Motores says in one sentence which sign-in is in use. Before this change a run got the server's whole environment
+minus `ANTHROPIC_*`, which forced the plan's login; to keep that, set `PLANIA_STRIP_ANTHROPIC_ENV=1` (off by
+default).
+
 ## Human-only questions
 
 `ask` with `human_only: true` makes a question only the owner's screen can answer. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. On the screen every open question has its option buttons and a free answer. The Bandeja also has the kill switch «El bot puede responder por ti» (default on) and every delegated answer with the «Delegada» badge, the quote and the time.
@@ -196,17 +263,17 @@ Questions asked before 2.17 that carried a letter (A, B or C) are history in `qu
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the machine he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_owner.message_id` (8 to 200 characters) and `delegated_by_owner.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `owner` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
 
-Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_jorge` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
+Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_owner` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
 
 The answer or decision is stored as the owner's (the screen actor). `delegated_answers` keeps the message id, the quote, the delegating actor and the time. The audit lists each one as `DELEGATED_ANSWER` (warn) for review.
 
 Limits: 10 delegated answers and agent Won't do or reopen moves per hour, and one answer per question (`DELEGATION_LIMIT`). The kill switch defaults on. Off, the tool and those agent moves return `DELEGATION_OFF`. The switch is `POST /api/delegation` with the session cookie. No cookie is 401. A Bearer is 403, with or without the cookie. MCP, `/hooks` and `/bot/v1` cannot toggle it, and the bot cannot raise its own limit.
 
-Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the Mac share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
+Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the machine share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
 
-What proves a human on this Mac answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
+What proves a human on this machine answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
 
 ## Dev
 
@@ -244,42 +311,168 @@ pnpm scan:diff --json <repo-path> --base main --head HEAD
 It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
 
-## Running locally as a service
+## Packaging a release
 
-Plania runs on this Mac.
-
-- Database: local Postgres 14 (Homebrew service), database `plania`.
-- Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
-  It starts at login, restarts on crash, and logs to `~/Library/Logs/plania/server.log`.
-  It runs nvm's Node by absolute path, so update the plist after switching Node versions.
-- Clients, all pointing at `http://localhost:3737/mcp` with the Bearer from `.env`:
-  Claude Code (user scope), Cursor (`~/.cursor/mcp.json`), Codex (`~/.codex/config.toml`).
+Plania reaches a buyer as a numbered package, already built (PLA-I2-17). The buyer never gets the repository and
+never builds anything.
 
 ```bash
-pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server   # deploy code changes locally
-launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
-tail -f ~/Library/Logs/plania/server.log
+pnpm release:pack                 # type-checks, builds the screen, writes release/plania-<version>.tar.gz and .sha256
+pnpm release:pack --skip-build    # pack the dist/ui already built
+pnpm notices                      # regenerate THIRD_PARTY_NOTICES after a dependency changes (--check to compare)
 ```
 
-Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `launchctl kickstart` is enough after a code deploy; the plist stays as it is. A group-readable token file still works and logs one line, with no token in it.
+Before a release: bump `version` in `package.json` and add a `## <version>` entry to `CHANGELOG.md`, in plain Spanish
+for the owner and the buyer (the screen shows it on Novedades, and the version in Plomería). The checkout must be
+committed (`--allow-dirty` packs anyway, and the manifest then names no commit). `release/` is ignored by git.
+
+What a package holds: the built screen (`dist/ui`), the server's TypeScript sources (`src/`, and `ui/src/lib/` whose
+words and pure logic the server imports) run through `tsx`, which is a production dependency for that reason;
+`drizzle/migrations/`, `kit/`, `prompts/`, `config/`, `docs/templates/`; the scripts a buyer runs (start, install,
+migrate, service, restart, update, restore, machine check, help report, uninstall, password and VAPID tools,
+project registration, kit, brief, and `seed-org.ts`, which the first start imports); `package.json`
+with only those scripts, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `.env.example`, `README.md`,
+`CHANGELOG.md`, `LICENSE`, a fresh `THIRD_PARTY_NOTICES`, `VERSION` and `release.json`. Never: tests, `spike/`,
+`replay/`, the screen's other sources, build configs, `.env`, `node_modules`.
+
+Dependencies are not in the archive: `@node-rs/argon2` and `esbuild` ship per-platform binaries, so one archive
+serves macOS and Linux and the buyer installs production dependencies from the lockfile it carries.
+
+On the buyer's machine (Node 22+, pnpm through corepack, Postgres 14+ already installed):
+
+```bash
+tar -xzf plania-0.1.0.tar.gz && cd plania-0.1.0
+pnpm install --prod --frozen-lockfile
+pnpm plania:install --service
+```
+
+A package serves its `dist/ui` as shipped: the start-up rebuild (PLA-I46-1) only happens in a git checkout, and a
+`release.json` at the root turns it off even when the folder sits inside another git repository.
+
+### The manifest (`release.json`)
+
+The update command (PLA-I2-8) reads this file; its format is a contract. `VERSION` holds the same version, alone.
+
+| Field | Meaning |
+|---|---|
+| `format` | `1`. Bumped when a field changes meaning. |
+| `name` | `"plania"`. |
+| `version` | `package.json`'s version, `MAJOR.MINOR.PATCH`. The archive is `plania-<version>.tar.gz`, with `plania-<version>.tar.gz.sha256` beside it (`<hex>  <file name>`). |
+| `commit` | The full commit packed, or `null` when packed with uncommitted changes. |
+| `built_at` | ISO time the package was made. |
+| `node` | The `engines.node` range it needs. |
+| `migrations` | The last migration file it carries, e.g. `0062_owner_neutral.sql`, so an update can tell whether it brings new ones. |
+| `kit` | `{ "<path under kit/>": "<sha256>" }` of every kit file as shipped (line endings normalised). The update tells the buyer's edits from the release's with it; a manifest without it makes the update keep every kit file that differs. |
+
+`GET /health/ui` (no auth) returns `{ version: { version, commit, built_at, packaged }, ui, head }`; in a checkout
+`version` comes from `package.json` and the HEAD commit, with `packaged: false`. `GET /api/release` (session) adds
+`notes`, the CHANGELOG.
+
+### Licence and product copy
+
+`LICENSE` is a placeholder until the owner writes the text; `pnpm release:pack` warns while it is. Plania's copy may
+say in plain text that Plania runs Claude Code. Plania's own name and logo never use Claude's or Anthropic's names or
+marks, per Anthropic's published conditions for products built on Claude Code.
+
+## Running locally as a service
+
+`pnpm service:install` (or `pnpm plania:install --service`) leaves Plania running as a service of the user who runs
+it, from the folder it is run in, on port 3737: it starts at login, restarts when it crashes, and runs the Node that
+ran the command, with that shell's `PATH` (so it finds `claude`, `git` and `gh`). Run it again after moving the folder
+or switching Node versions. `pnpm service:uninstall` stops it and removes the service; data and logs stay.
+
+| | macOS | Linux (and WSL with systemd) |
+|---|---|---|
+| Service | launchd agent `com.plania.server`, `~/Library/LaunchAgents/com.plania.server.plist` | systemd user unit `~/.config/systemd/user/plania.service` |
+| Logs | `~/Library/Logs/plania/server.log` | `~/.local/state/plania/server.log`, and the user journal (`journalctl --user -u plania -f`) |
+| Starts | at login | at login; `--at-boot` also runs `loginctl enable-linger` so it starts at boot |
+| Restart by hand | `launchctl kickstart -k gui/$(id -u)/com.plania.server` | `systemctl --user restart plania.service` |
+| Stop | `launchctl bootout gui/$(id -u)/com.plania.server` | `systemctl --user stop plania.service` |
+
+WSL without systemd: the command changes nothing and says how to turn systemd on (`[boot]` `systemd=true` in
+`/etc/wsl.conf`, then `wsl --shutdown`); until then start Plania by hand with `pnpm start`. Windows outside WSL is not
+supported.
+
+`pnpm server:restart` restarts the service on either system, and refuses while a run, a QA check or a test copy's pass
+is in flight (`--check` lists them, `--force` restarts anyway). In a checkout the restart is the deploy: the server
+rebuilds `dist/ui` at start when its stamp is not HEAD.
+
+PLA-I2-9: the live server changes only when you restart it. After a restart, `pnpm server:restart` waits up to two
+minutes for `/health/ui` to report the commit (or version) the folder holds. If it never does, it checks out the last
+commit that started well (detached) and restarts again, and says so; your checkout is then on that commit with no
+branch. The service records a good start in `~/.config/plania/last-good.json` (`PLANIA_LAST_GOOD_FILE`) once it has
+been up for 30 seconds; dev servers and test copies (`PLANIA_JOBS=0`) never do. A release package cannot go back by
+itself: the restart names the last version that started.
+
+When a project's repo is this server's own checkout (Plania working on Plania, `src/self/plania-self.ts`): its test
+copies get a new database of their own (`<live>_prueba`, `<live>_entrega`, built from the copy's migrations), a
+rewritten env file with `PLANIA_JOBS=0`, and never the live port; its runs carry extra deny rules (no live database,
+no migrations, no restart) and do not start when their folder points at the live database. Migrations agents wrote in
+its deliveries are listed on its Máquinas page, for you to apply with `pnpm db:migrate`.
+
+On the owner's Mac: local Postgres 14 (Homebrew service), database `plania`; the MCP clients point at
+`http://localhost:3737/mcp` with the Bearer from `.env`: Claude Code (user scope), Cursor (`~/.cursor/mcp.json`),
+Codex (`~/.codex/config.toml`).
+
+Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `pnpm server:restart` is enough after a code deploy; the plist or unit stays as it is. A group-readable token file still works and logs one line, with no token in it.
 
 Owner: create a read-only fine-grained token for the plania repo and save it with `umask 077; mkdir -p ~/.config/plania; pbpaste > ~/.config/plania/github-token` (non-blocking).
 
 Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
 `~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
-page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
-
-```bash
-createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
-```
+page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To bring one back,
+see "Restoring a backup".
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
 
+## Updating
+
+A new version arrives as a package file (`plania-<version>.tar.gz`, with its `.sha256` beside it). Plania never
+fetches it: download it, then from the installed folder:
+
+```bash
+pnpm update:plania ~/Downloads/plania-0.2.0.tar.gz
+```
+
+Each step says one sentence (PLA-I2-8, `src/update/index.ts`):
+
+1. Refuses while a run, a QA check or a test copy's pass is in flight, as `pnpm server:restart` does.
+2. Opens the package beside the install, checks its `.sha256` when present and its `release.json`, and refuses a
+   version that is not newer.
+3. Installs its production dependencies there (`pnpm install --prod --frozen-lockfile`). Nothing is built.
+4. Backs up the database into the backup folder as `plania-pre-update-<from>-to-<to>-<time>.sql.gz`, which the
+   nightly pruning never removes.
+5. Stops the service. Without one, stop Plania yourself and pass `--no-service`.
+6. Swaps the program files: the install folder becomes `<folder>.previous-<from>` (only the latest is kept) and the
+   new release takes its place. `.env` comes across. Kit files you edited are never overwritten: yours go into the new
+   files, and when the release changed the same file its version is put in `kit.new/` for you to compare.
+7. Checks that a backup from today exists, then applies the new migrations in one transaction.
+8. Role prompts nobody edited in Plania take the release's text (`kit:sync` without `--force`); ones you edited in
+   Plania stay and are reported.
+9. Starts the service and points at the release notes, `http://localhost:3737/novedades`. That page also lists what
+   the update kept of your kit and what to do; Plomería shows a hint while something waits.
+
+A failure before step 5 changes nothing. A failure at step 6 or 7 puts the previous folder back, starts it, and names
+the backup and the restore command. The migration is all or nothing, so the database is as it was and the old
+version passes its start-up check. To go back by hand after a successful update: stop the service, swap the folder
+with `<folder>.previous-<from>`, restore the pre-update backup, start the service.
+
+## Restoring a backup
+
+```bash
+pnpm restore:plania ~/plania-backups/plania-20261016.sql.gz --database plania_restore
+pnpm restore:plania <file> --database plania --overwrite --confirm plania
+```
+
+It creates the named database when it does not exist and loads the dump with `psql` (`ON_ERROR_STOP`; the `psql` of
+the server's major version, `PLANIA_PG_BIN` first). A database that already holds tables is replaced only when asked
+twice, `--overwrite` and its name again in `--confirm`; it is then dropped and made again. Stop Plania before
+replacing the database it uses. `--url` names another server.
+
 ## Morning brief
 
-A daily brief of every project, made by a headless `claude -p` on this Mac with the owner's own Claude subscription
+A daily brief of every project, made by a headless `claude -p` on this machine with the owner's own Claude subscription
 (no API key, nothing paid) and shown in Compañía (`/ceo?v=brief`). It runs once a day at `run_at` (default 07:00, local time) and on
 "Generate now". Passes A (brief) and B (ideas) are read-only: they read Plania with a read token and each repo with
 `git`, and write nothing.
@@ -297,7 +490,7 @@ To turn it on:
    If `.env` has no `PLANIA_RUNNER_TOKEN` yet (the agent runner uses it too), issue one with write scope there as well:
    Send to Plania wakes each project's product owner with it.
 3. Make sure `claude` is installed and logged in with your subscription: run `claude` once and log in. The brief uses
-   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`.
+   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`, else the `claude` on `PATH`, like the runner.
 4. Run the setup check. Every line should be ✓; each ✗ line says what to fix. It never prints a token or a path.
 
    ```bash
@@ -322,7 +515,7 @@ included project's product owner and the home project (both for Send to Plania);
 "Setup check" at the bottom of the brief's settings sheet (Ajustes) (`GET /api/brief/doctor`).
 
 First-run defaults (change them in the brief's Ajustes): on, 07:00, time zone `PLANIA_TZ` (else
-`America/Mexico_City`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
+the zone chosen at first start, else `UTC`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
 project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
 A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
 `settings.github.repo`. Send to Plania needs a product-owner agent per project (`po-<slug>`, made by
@@ -405,20 +598,20 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 <!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness. |
-| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (the owner's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness. |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command the owner runs, its mode (command, or merge: the owner ships it from the screen) and merged once they did (null without settings.release). |
 | `list_tasks` | Initiatives, tickets and ideas without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
 | `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
-| `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
-| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
+| `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (in the owner's language). |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_owner, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
-| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
-| `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
-| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
+| `get_digest` | One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with summaries in the owner's language and highlights (done, to_review, blocked, needs_owner, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on the owner (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
+| `get_inbox` | Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the machine). |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_OWNER_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the machine (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
@@ -439,9 +632,9 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
-| `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
-| `answer` | Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him). |
-| `answer_delegated` | Record one answer the owner gave actor agent plania-bot in his own chat. |
+| `ask` | Ask the owner a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
+| `answer` | Record the owner's answer to a question that is not human_only (they answer those on the screen; otherwise they may tell you in chat and you record it here, quoting them). |
+| `answer_delegated` | Record one answer the owner gave actor agent plania-bot in their own chat. |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
 | `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
@@ -463,16 +656,16 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `report_tokens` | Record the tokens one agent reports for a task run. |
 | `create_company_project` | Create a project from the company template: paused, plan approval on, its team (product owner, research, artist, taller) and a Playbook doc. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
-| `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
-| `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
-| `propose` | Post a proposal as data in your project's thread; Jorge decides it in Te toca. |
+| `thread_post` | Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them. |
+| `answer_consulta` | Answer a question the owner asked about a project with Pedir's Preguntar mode. |
+| `propose` | Post a proposal as data in your project's thread; the owner decides it in Te toca. |
 | `deliver_stage` | Deliver an idea's stage as data. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
 
 - **Keys.** The server assigns them (omit `key`): `PREFIX-I<n>` for an initiative, `PREFIX-IDEA<n>` for an idea
-  (`WRK-IDEA3`), `PREFIX-<nn>` for a standalone ticket,
+  (`TND-IDEA3`), `PREFIX-<nn>` for a standalone ticket,
   `<initiative>-<n>` for a phase (`phase` stays a field). One counter per scope, bumped under the project lock, so
   concurrent creates never collide and a number is never reissued. An explicit key is accepted for imports: when it fits
   its scope's pattern it must be at or above the counter (`KEY_BELOW_COUNTER`); otherwise it only warns. Moving a ticket
@@ -488,7 +681,7 @@ Rules every write follows:
   default. Another live initiative setting the same branch is `BRANCH_IN_USE` unless it passes `share_branch` with a
   `share_reason`; a ticket on a branch its initiative does not own or share is refused too. Names must match the
   project's `settings.branch_pattern` (`BRANCH_NAME_INVALID`). The GitHub poller fills heads, merges and deletions.
-- **Blockers.** Besides tickets and env conditions, `blocked_by` takes `{human_action: {text}}` (Jorge's inbox),
+- **Blockers.** Besides tickets and env conditions, `blocked_by` takes `{human_action: {text}}` (the owner's inbox),
   `{env_flag: {env, flag, equals}}`, `{time_after: ISO}` and `{metric_gte: {name, value}}`. `get_next` never offers a
   ticket with an unsatisfied blocker (and only Ready ones when `settings.claim_from` is `ready`); when every blocker of
   a Blocked ticket holds, the server moves it to Ready (`blocker.satisfied`).
@@ -512,7 +705,7 @@ Rules every write follows:
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
   without a deploy time, drift, Blocked tickets whose blockers hold, scopes that say to wait without a typed blocker, expired
   claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
-- **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command Jorge runs) or `merge`:
+- **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command the owner runs) or `merge`:
   the row shows "Lanzar", and `POST /api/projects/:slug/release/ship` (the screen's cookie only; any Bearer is `403`)
   opens or reuses a PR `from → into` titled "Release: <keys>", merges it with `gh pr merge --merge --match-head-commit`
   and writes `release.merged`; the pollers do the rest. It is refused (`RELEASE_NOT_READY`) while a before-step or a
@@ -523,12 +716,12 @@ Rules every write follows:
   `regression`; `debt` carries `cost_note`. S1 and S2 bugs show in the status block.
 - **Actor.** `actor: {agent?, session_id, machine?, model?}` lands in the event log; `session_id` owns leases.
   An agent token fills `agent` and `machine` and refuses values that disagree (`ACTOR_MISMATCH`); with a static token
-  `agent` is required (`ACTOR_REQUIRED`). `jorge` is reserved for the screen. Every event records `token_id`.
+  `agent` is required (`ACTOR_REQUIRED`). `owner` is reserved for the screen. Every event records `token_id`.
 - **Tokens.** Issued on screen at `/tokens`, shown once, stored hashed: name, agent, machine and scopes `read`
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
-- **Won't do and reopening.** Jorge's. On screen, `set_task` with a `reason`. An agent sends `reason` and
-  `delegated_by_jorge` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
+- **Won't do and reopening.** The owner's. On screen, `set_task` with a `reason`. An agent sends `reason` and
+  `delegated_by_owner` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
   (`task.delegated_move`) and an agent's quote is listed under delegated in the inbox. `waive_check` is the reason
   alone. `lease_resource` does not wait. `approval_id` is ignored for one release. Old rows stay as history.
   `WONT_DO_WITHOUT_EVIDENCE` flags a Won't do that has neither a screen actor, nor a quote, nor an archived granted row.
@@ -537,7 +730,7 @@ Rules every write follows:
 - **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
   `no_pr_reason` (logged as `task.no_pr`, and the audit stops flagging it). The pollers and the screen are exempt.
 - **Checks.** Entering In review, Merged, Released or Done needs every check done or waived (`CHECKS_OPEN` lists the
-  numbers and each open check's text), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
+  numbers and each open check's text), the owner included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
 - **Headline.** One line (≤ 280 chars) on where the project stands, written with `set_project` or on screen and
   versioned; the server marks it `stale` when an env changes, an initiative moves or a ticket reaches Done after it.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
@@ -549,11 +742,11 @@ Rules every write follows:
   may add notes and results but not change the task (`NOT_OWNER`). An expired lease is free; the next write in
   the project releases it (`claim.expired`, In progress → Ready).
 - **States.** Tickets: Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released; Blocked (with a note)
-  from any open state; Needs Jorge through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
+  from any open state; Needs owner through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
   Done is the agents' once the work is finished: code, bug and debt tickets from Merged or Released; ops and research
   from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open
   status once its tickets are closed. Elsewhere it is `INVALID_TRANSITION` with `allowed_from`. Won't do and reopening
-  are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_jorge`.
+  are the owner's: on screen with a reason, or by an agent with a reason and `delegated_by_owner`.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
@@ -576,7 +769,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
-| `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_jorge.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
+| `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_owner.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
@@ -605,11 +798,20 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
+| `REPO_FOLDER_NOT_EMPTY` | 400 | prepare the code: the folder has files and is not this project's git repository; Plania never initialises or overwrites it |
+| `REPO_GIT_FAILED` | 400 | prepare the code: a git step failed (detail: step) |
+| `REPO_GITHUB_FAILED` | 400 | GitHub: gh failed (detail: step) |
+| `REPO_GITHUB_NO_GH` | 400 | GitHub: gh is not installed on this machine |
+| `REPO_GITHUB_NO_WRITE` | 400 | GitHub: this gh login cannot write to the repository |
+| `REPO_GITHUB_NOT_FOUND` | 400 | GitHub: no repository with that owner/name for this gh login |
+| `REPO_GITHUB_SIGNED_OUT` | 400 | GitHub: gh is not signed in on this machine |
+| `REPO_NO_IDENTITY` | 400 | prepare the code: git has no name and email on this machine and the GitHub login could not give one |
 | `REPO_NO_ORIGIN` | 400 | new project: the folder's git repository has no remote named origin |
-| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
+| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (the project's start_branch, default sandbox; detail: branch) |
 | `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
 | `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
-| `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
+| `REPO_PUSH_FAILED` | 400 | prepare the code: pushing to origin was refused (access or network) |
+| `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
@@ -619,7 +821,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
@@ -662,7 +864,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
-| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
+| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
@@ -706,7 +908,7 @@ Runner switches (environment):
 
 | Var | Value |
 |---|---|
-| `PLANIA_RUN_ISOLATION` | `project`: a run loads no user-level settings, skills or CLAUDE.md of the account the server runs as. `bare`: no auto-discovery at all. Unset: the CLI's defaults. Try it on one project before leaving it on. |
+| `PLANIA_RUN_ISOLATION` | `project`: a run loads no user-level settings, skills or CLAUDE.md of the account the server runs as. `bare`: no auto-discovery at all. Unset (or `off`): the CLI's defaults. The install command writes `project` into a new `.env`; an existing `.env` is left as it is. It limits what a run loads, not what it can read: the screen page `/machine/limites` says what the rules do and do not stop. |
 | `PLANIA_KIT_MODE` | `worktree` keeps the older delivery of packs into `.plania-packs/` in the working folder. |
 | `PLANIA_DEFAULT_KITS` | `0`: seats without packs carry none. |
 | `PLANIA_RETRY_FRESH` | `1` (default) fresh session after a failure, a QA return or a long session; `0` always resume; `ab` alternates, so the scoreboard can compare both. |
@@ -731,12 +933,41 @@ Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <
 ## Export
 
 `GET /api/export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
-env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
+env, reservations, every event). The owner's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
+`GET /api/export-all` gives every project in one file (`plania-export-all`, one `plania-export` entry per project),
+with the same access.
+
+## Getting help
+
+The help report is a text file the owner makes and chooses to send; Plania never sends it. Two ways to make it:
+
+- Plomería (`/machine`), «Bajar informe para pedir ayuda» (`GET /api/help-report`, behind the session).
+- `pnpm help:report` in Plania's folder, for when the screen does not start. It writes `plania-ayuda-<date>.txt`
+  (`--out <file>`, or `--out -` to print). It works with the database down: the file then says so and carries the rest.
+
+It holds Plania's version and commit, the system and Node, the machine check, whether the database answered, readiness
+per project, the last 10 failed runs with their one-line reason, the names of the environment variables that are set,
+and the last 40 lines of the server log (`PLANIA_LOG_FILE`, else `~/Library/Logs/plania/server.log` on macOS and
+`~/.local/state/plania/server.log` on Linux). It is built from those fields only (`src/help-report/`), and every
+free-text line goes through a redactor that hides every environment and `.env` value, every text in the projects'
+settings, and what the diff scanner recognises (tokens, keys, URLs with passwords, hashes, emails). It never holds an
+environment value, a token, a password hash, repo content, a prompt, a ticket's scope or thread text. Making it calls no
+network: `gh auth status`, the short `claude -p` and `git ls-remote` are skipped and shown as not checked.
+
+## Leaving
+
+1. Plomería, «Llevarte tus datos»: every project in one JSON file.
+2. `pnpm uninstall:plania` stops and removes the service (the launchd agent `com.plania.server` on macOS, the systemd
+   user unit `plania.service` on Linux) and stops Plania's server and runs started from this folder. The database and
+   every folder stay.
+3. `pnpm uninstall:plania --delete-data` also drops the database and removes `~/.config/plania`, the captures folder
+   and the log folder, only after you type the database's name. The backups folder (`~/plania-backups`) is never
+   removed. Then delete Plania's own folder.
 
 ## Clients
 
 `PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
-On this Mac all three clients are already set up.
+On this machine all three clients are already set up.
 
 Claude Code, available in every project:
 
@@ -758,7 +989,7 @@ url = "http://localhost:3737/mcp"
 bearer_token_env_var = "PLANIA_MCP_TOKEN"
 ```
 
-The local configs on this Mac hold the token literally, because apps launched from the Dock do not see shell variables.
+The local configs on this machine hold the token literally, because apps launched from the Dock do not see shell variables.
 
 ### In a product repo
 
@@ -768,20 +999,22 @@ The plan and the rules live in Plania: the server's `instructions` carry the pro
 
 ## Screen
 
+The screen speaks the install's language, Spanish or English, chosen at first start and changed in Plomería; the morning brief follows it. Where words live and how to add one: [docs/screen-words.md](docs/screen-words.md).
+
 `http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
 system themes. Times arrive as UTC and show in the browser's local time.
 
 - **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
   same five columns: Hecho (Done), En revisión (In review, Merged, Released: one PR per initiative, so phases wait
-  on its branch), En curso (In progress, Needs Jorge, and Blocked by anything but tickets), Siguiente (Ready, then
+  on its branch), En curso (In progress, Needs owner, and Blocked by anything but tickets), Siguiente (Ready, then
   Blocked tickets that only wait on other tickets, shown as "espera F1 · F3"; or else the top Backlog ticket) and
   Después (the rest of the Backlog). A column empty in every lane narrows to a strip. Only lanes with work in motion
   pulse. Task rows carry `waits_on` (unsettled ticket blockers) and `held` (any other open blocker) for this. The
   rules live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
-  for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
-  show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
-- `/inbox` lists everything waiting on Jorge: open questions, human actions, a release and footprint.
+  for the owner. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
+  show their generated line. A "Te toca a ti" strip lists Needs owner tickets across projects.
+- `/inbox` lists everything waiting on the owner: open questions, human actions, a release and footprint.
   The header shows the count. `/tokens` issues and revokes agent tokens.
 - `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
@@ -791,7 +1024,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
   struck through. A link downloads the project as JSON.
 - `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
   closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
-- Status and priority change from menus on each row, as Jorge: any move is allowed, Done included, and leases do
+- Status and priority change from menus on each row, as the owner: any move is allowed, Done included, and leases do
   not stop him. Each change carries the version on screen; if an agent changed the task meanwhile, nothing is
   overwritten and a toast says so. Blocked asks for its note. Every change offers Undo for 8 seconds.
 - A ticket with a live lease shows who holds it and until when; Liberar frees it.
@@ -800,13 +1033,55 @@ system themes. Times arrive as UTC and show in the browser's local time.
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
 - **Ajustes** (NEWPROJ-6): a project's settings, a door beside Archivo, Equipo and Máquinas in Compañía
   (`/ceo?proyecto=<slug>&t=ajustes`), also linked from the readiness list and from `/p/<slug>`. It sets where the code
-  is (a folder on this Mac, checked with git before it is saved; a GitHub repo; or no code yet), the release step
+  is (a folder on this machine, checked with git before it is saved; a GitHub repo; or no code yet), the release step
   (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
-  concurrent change is refused, not overwritten. Token fields are not on screen. Still MCP-only (`set_project`):
-  `vercel`, `resources`, `quotas`, `branch_pattern`, `claim_from`, `release_target`, `release_on`, `auto_done`,
-  `capture` beyond Máquinas' minimal one, `maquinas`, and the runner's areas.
+  concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
+  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A project with code made
+  on the screen starts with a release step that ships from the screen (mode `merge`); `pnpm project:add` and
+  `create_company_project` add none. No field takes a secret: a token is named by
+  its variable (`github.token_env`, `vercel.token_env`), and a value shaped like a token is refused (`SECRET_VALUE`).
+  Each missing item on the readiness list links to its section. Plomería's «Cada corrida» sets the company's
+  `max_turns`, `timeout_minutes` and `cooldown_minutes`.
+
+#### Project settings
+
+One list, `src/mcp/settings-registry.ts`, holds every key of `projects.settings`: its default, whether it is basic or
+advanced, its control on screen and its plain sentence. `set_project` accepts exactly those keys, and the screen writes
+no other (`test/settings-registry.test.ts`). A few are owner-only: an agent setting them would weaken a control the owner
+keeps, so `set_project` from an agent refuses them and only the owner's screen writes them. These tables are generated
+from the list (`pnpm exec tsx scripts/settings-table.ts`):
+
+<!-- settings-advanced:start -->
+Only the owner's screen sets these; `set_project` from an agent refuses them (INVALID_FILTER):
+
+| Setting | Why an agent may not |
+|---|---|
+| `preview_url` | an agent could point the owner's preview link anywhere |
+| `plan_approval` | off, a PO's plan makes tickets without the owner's «Sí, empiecen» |
+| `auto_accept` | on, deliveries enter the test copy without the owner |
+| `auto_accept_invisible` | on, deliveries enter the test copy without the owner |
+| `runner` | it raises how many runs go at once and which server variables runs get |
+| `next_first` | it overrides the step the owner picked to go first |
+
+Advanced settings, which can be left alone:
+
+| Setting | Default | Why it can be left alone |
+|---|---|---|
+| `start_branch` | sandbox | The default works once the repository has that branch; «Crear la rama de trabajo» makes it. |
+| `release_target` | prod | Only matters with more than one deploy target; prod fits a project with one. |
+| `release_on` | env with Vercel or a recorded commit, else branch | Plania picks it from what the project has; set it only when the guess is wrong. |
+| `auto_done` | on | On is what a new owner wants; off keeps every closing by hand. |
+| `branch_pattern` | none: any branch name | The runner already names its branches; a pattern only binds outside clients. |
+| `claim_from` | backlog | The PO decides what is Ready; the default suits a team the PO leads. |
+| `resources` | none: leases with the server's limits | Leases work without it; it only caps how long one may be held. |
+| `quotas` | none | Only for a project that calls an outside service with a daily cap. |
+| `vercel` | none: deploys are not read | Only for a project deployed on Vercel. |
+| `maquinas` | found in the repo: the env file, the migrate and seed scripts, the migrations folder | Plania finds them in package.json and the repo; set them only when it cannot. |
+| `identity` | by slug, alphabetically | Alphabetical order works until there are enough projects to care. |
+| `team` | idle after 120 minutes | Two hours suits runs of any length the runner starts. |
+<!-- settings-advanced:end -->
 - **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.
@@ -829,7 +1104,7 @@ and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with 
 - **Install:** iOS Safari → Compartir → Agregar a inicio. Android Chrome → menu → Instalar app.
 - **Reaching it from the phone** (2.12): the server listens on 127.0.0.1 only and `tailscale serve --bg --https=443
   http://127.0.0.1:3737` puts it on the tailnet with a real certificate. The session cookie is `Secure` when the request
-  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this Mac can
+  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this machine can
   reach the port), or comes to a loopback host. A home-screen app on iOS keeps its own cookies, so you sign in once
   inside it. Steps in [docs/phone-access.md](docs/phone-access.md).
 - **Push** (2.12): "Avisarme cuando me toque" in the "⋯" menu subscribes the device (`ui/src/lib/push.ts`); `ui/sw.js`
@@ -850,16 +1125,16 @@ the UI refetches what changed.
 | `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on`, `held` and `created_at` on each task) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape; each result with `stale_for_head` and `ticked_checks` (the sheet's evidence timeline) |
 | `PATCH /api/projects/:slug` | `{ headline, version }`: the note beside the generated headline |
-| `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`jorge` or `agents`) |
-| `POST /api/projects/:slug/audit/fix` | `{ code, key?, id }`: the one-click fixes as Jorge (retire the decision, mark the env deployed); answers with the new run |
-| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
+| `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`owner` or `agents`) |
+| `POST /api/projects/:slug/audit/fix` | `{ code, key?, id }`: the one-click fixes as the owner (retire the decision, mark the env deployed); answers with the new run |
+| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as the owner through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
-| `GET /api/machine` | What runs and is stored on this Mac for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
-| `GET /api/inbox?project=` | Everything waiting on Jorge: questions, human actions, a release, footprint |
+| `GET /api/machine` | What runs and is stored on this machine for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
+| `GET /api/inbox?project=` | Everything waiting on the owner: questions, human actions, a release, footprint |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
 | `POST /api/projects/:slug/release/ship` | 2.13 Lanzar (merge mode): PR `from → into`, `gh pr merge --merge`, `release.merged`. Any `Authorization: Bearer` is refused with 403 |
-| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
+| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as the owner with `origin: "owner"` |
 | `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
 | `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |
 | `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }`. Cookie only. Any `Authorization: Bearer`, or an actor in the body or a header, is refused. The stored actor is the screen actor |
@@ -872,7 +1147,7 @@ the UI refetches what changed.
 - `create_task` cannot create a Blocked ticket (it takes no note): `BLOCKED_REQUIRES_NOTE`.
 - `set_task` with `parent_key: null` turns a ticket into a standalone spec. Moving a ticket keeps its origin.
 - Leaving Blocked clears `blocked_note`. Leaving Done clears `resolved_at`; re-marking Done keeps the first one.
-- Any move out of In progress releases the lease, except to Needs Jorge. An answered question returns the ticket
+- Any move out of In progress releases the lease, except to Needs owner. An answered question returns the ticket
   to its previous status; In progress whose lease ran out meanwhile returns to Ready.
 - An expired lease stays on the row until the next write in that project; reads already treat it as free.
 - Evidence counts from the current claim: rework after In review needs new results.
@@ -883,15 +1158,15 @@ the UI refetches what changed.
 ## Deviations from the handoff
 
 - The handoff says "SDK MCP v2". No 2.x of `@modelcontextprotocol/sdk` is published.
-  Plania uses the latest 1.x with `@hono/mcp`, approved by Jorge on 2026-10-06.
+  Plania uses the latest 1.x with `@hono/mcp`, approved by the owner on 2026-10-06.
 - Contract errors listed as HTTP codes are returned inside the MCP tool result,
   because JSON-RPC calls share one HTTP 200 response. Only a missing Bearer is a real HTTP 401.
-- **v2 (approved by Jorge on 2026-10-06)** replaces the handoff's single-operator rules: the 12-tool ceiling,
+- **v2 (approved by the owner on 2026-10-06)** replaces the handoff's single-operator rules: the 12-tool ceiling,
   claims as notes with last write winning, the hand-written resume card, one markdown body per task, text-only
   criteria, and ADRs only in the product repo. `update_resume`, `create_initiative` and `set_initiative` are gone
   (`create_task` and `set_task` cover initiatives; the resume is generated).
 
-- **UI v2, decided by Jorge on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
+- **UI v2, decided by the owner on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
   and it changes status and priority inline. That adds a cookie-only JSON API under `/api` and a server-sent event
   stream, which the handoff did not have. Counts are still not on screen.
 
@@ -905,6 +1180,6 @@ the UI refetches what changed.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
   before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint and the nightly backup.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
-- Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
+- Not built from one project's early requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
   results), runbooks with approval steps (R-23), rule proposals (R-26), and shared rules across projects (R-27).
   The v1 data cleanup (R-32) shipped in 2.9.

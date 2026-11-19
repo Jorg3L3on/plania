@@ -9,15 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { GOAL_STATUSES, GOAL_STATUS_LABEL, type Goal, type GoalStatus, type GoalWrite } from "@/components/goals/model";
 import { ApiError, api } from "@/lib/api";
+import { words } from "@/lib/i18n";
+import { GOALS_WORDS } from "@/lib/goals-words";
 
 type ProjectOption = { slug: string; title: string };
 
 const goalError = (error: unknown) => {
-  if (!(error instanceof ApiError)) return "No se pudo guardar la meta.";
-  if (error.code === "INVALID_GOAL") return "Revisa el título, el estado o la fecha (AAAA-MM-DD).";
-  if (error.code === "GOAL_NOT_FOUND") return "Esa meta no está.";
-  if (error.code === "PROJECT_NOT_FOUND") return "Ese proyecto no existe.";
-  return "No se pudo guardar la meta.";
+  const w = words(GOALS_WORDS);
+  if (!(error instanceof ApiError)) return w.saveFailed;
+  if (error.code === "INVALID_GOAL") return w.invalid;
+  if (error.code === "GOAL_NOT_FOUND") return w.notFound;
+  if (error.code === "PROJECT_NOT_FOUND") return w.projectNotFound;
+  return w.saveFailed;
 };
 
 export function GoalDialog({
@@ -38,6 +41,7 @@ export function GoalDialog({
   parents: Goal[];
   onOpenChange: (open: boolean) => void;
 }) {
+  const w = words(GOALS_WORDS);
   const queryClient = useQueryClient();
   const editing = goal !== null;
   const [title, setTitle] = useState("");
@@ -60,7 +64,7 @@ export function GoalDialog({
   const save = useMutation({
     mutationFn: (body: GoalWrite) => (goal ? api.patchGoal(goal.id, body) : api.createGoal(body)),
     onSuccess: () => {
-      toast(editing ? "Meta actualizada" : "Meta creada");
+      toast(editing ? w.updated : w.created);
       onSaved?.();
       onOpenChange(false);
     },
@@ -93,21 +97,21 @@ export function GoalDialog({
       <DialogContent>
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar meta" : "Nueva meta"}</DialogTitle>
-            <DialogDescription>La fecha solo se guarda. El avance sale de los tickets hechos.</DialogDescription>
+            <DialogTitle>{editing ? w.editTitle : w.newGoal}</DialogTitle>
+            <DialogDescription>{w.dateNote}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor="goal-title">Título</Label>
-            <Input id="goal-title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus required aria-label="Título" />
+            <Label htmlFor="goal-title">{w.title}</Label>
+            <Input id="goal-title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus required aria-label={w.title} />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="goal-why">Por qué</Label>
-            <Textarea id="goal-why" value={why} onChange={(event) => setWhy(event.target.value)} aria-label="Por qué" />
+            <Label htmlFor="goal-why">{w.why}</Label>
+            <Textarea id="goal-why" value={why} onChange={(event) => setWhy(event.target.value)} aria-label={w.why} />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="goal-status">Estado</Label>
+            <Label htmlFor="goal-status">{w.statusLabel}</Label>
             <Select value={status} onValueChange={(value) => setStatus(value as GoalStatus)}>
-              <SelectTrigger id="goal-status" className="w-full" aria-label="Estado">
+              <SelectTrigger id="goal-status" className="w-full" aria-label={w.statusLabel}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -118,18 +122,18 @@ export function GoalDialog({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="goal-target">Objetivo</Label>
-            <Input id="goal-target" type="date" value={targetOn} onChange={(event) => setTargetOn(event.target.value)} aria-label="Fecha objetivo" />
+            <Label htmlFor="goal-target">{w.targetLabel}</Label>
+            <Input id="goal-target" type="date" value={targetOn} onChange={(event) => setTargetOn(event.target.value)} aria-label={w.targetDate} />
           </div>
           {!editing && !fixedProject && (
             <div className="grid gap-2">
-              <Label htmlFor="goal-project">Proyecto</Label>
+              <Label htmlFor="goal-project">{w.project}</Label>
               <Select value={projectChoice} onValueChange={setProjectChoice}>
-                <SelectTrigger id="goal-project" className="w-full" aria-label="Proyecto">
+                <SelectTrigger id="goal-project" className="w-full" aria-label={w.project}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="company">Empresa</SelectItem>
+                  <SelectItem value="company">{w.company}</SelectItem>
                   {projects.map((project) => (
                     <SelectItem key={project.slug} value={project.slug}>{project.title}</SelectItem>
                   ))}
@@ -139,13 +143,13 @@ export function GoalDialog({
           )}
           {!editing && projectSlug && (
             <div className="grid gap-2">
-              <Label htmlFor="goal-parent">Meta de la empresa</Label>
+              <Label htmlFor="goal-parent">{w.companyGoal}</Label>
               <Select value={parentChoice} onValueChange={setParentChoice}>
-                <SelectTrigger id="goal-parent" className="w-full" aria-label="Meta de la empresa">
+                <SelectTrigger id="goal-parent" className="w-full" aria-label={w.companyGoal}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin meta de empresa</SelectItem>
+                  <SelectItem value="none">{w.noCompanyGoal}</SelectItem>
                   {parents.map((parent) => (
                     <SelectItem key={parent.id} value={parent.id}>{parent.title}</SelectItem>
                   ))}
@@ -154,8 +158,8 @@ export function GoalDialog({
             </div>
           )}
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={!title.trim() || save.isPending}>{editing ? "Guardar" : "Crear"}</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>{w.cancel}</Button>
+            <Button type="submit" disabled={!title.trim() || save.isPending}>{editing ? w.save : w.create}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

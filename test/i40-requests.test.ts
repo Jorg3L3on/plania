@@ -178,7 +178,7 @@ test("I40-6: latest carries a publish with its count and a delivery by title, ne
   const t = (await writes.createTask(db, { project: "micasa", title: "Listado de casas", scope: "s", checks: ["c"], status: "Ready" } as never, { actor: { agent: "po-micasa", session_id: "s" } })) as Json;
   const pid = await id("projects", "micasa");
   const ev = (type: string, payload: Json, key: string | null, ago: number) =>
-    raw.query(`insert into events (project_id, task_id, task_key, type, actor, payload, created_at) select $1, (select id from tasks where key = $3), $3, $2, '{"agent":"jorge","session_id":"web"}', $4::jsonb, now() - $5 * interval '1 minute'`, [pid, type, key, JSON.stringify(payload), ago]);
+    raw.query(`insert into events (project_id, task_id, task_key, type, actor, payload, created_at) select $1, (select id from tasks where key = $3), $3, $2, '{"agent":"owner","session_id":"web"}', $4::jsonb, now() - $5 * interval '1 minute'`, [pid, type, key, JSON.stringify(payload), ago]);
   await raw.query(`delete from events where project_id = $1 and type in ('release.merged', 'task.status')`, [pid]);
   await ev("task.status", { to: "In review", from: "In progress" }, t.key, 30);
   await ev("task.status", { to: "Merged", from: "In review" }, t.key, 20);

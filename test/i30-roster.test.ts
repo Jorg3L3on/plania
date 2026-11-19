@@ -28,7 +28,7 @@ test("no seed row uses the Cursor adapter and every bot runs claude_code with no
   }
 });
 
-// The roster as it is on the Mac before the deploy (fake values, same shape).
+// The roster as it is on the machine before the deploy (fake values, same shape).
 const OLD_ROSTER: [slug: string, name: string, role: string, title: string, kind: string, parent: string | null, adapter: string, caps: string][] = [
   ["ceo", "CEO", "human", "CEO", "human", null, "none", "{}"],
   ["asistente", "Asistente", "chief-of-staff", "Chief of Staff", "bot", "ceo", "http", "{staff}"],

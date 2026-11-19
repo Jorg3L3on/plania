@@ -10,7 +10,7 @@ import { findProject, findTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Declarations (PLA-I1-4): an agent says what it started that outlives its command, with the command
-// that removes it. The `machine` job (src/jobs/machine) sees the same things on the Mac; a declaration
+// that removes it. The `machine` job (src/jobs/machine) sees the same things on the machine; a declaration
 // for something it already sees merges into that row (source `both`), otherwise it is its own row
 // (source `declared`) until the job sees it. Plania never runs a teardown: it only shows it.
 
@@ -97,7 +97,7 @@ function kindOf(kind: string): FootprintKind {
 // ---- helpers
 
 // The machine string as the job stored it (os.hostname()), when the caller spells it differently
-// ("MacBook-Air-de-Jorge" for "MacBook-Air-de-Jorge.local"): one machine must be one set of rows.
+// ("laptop-de-ana" for "laptop-de-ana.local"): one machine must be one set of rows.
 async function canonicalMachine(tx: Q, name: string): Promise<string> {
   const known = await tx.selectDistinct({ machine: footprints.machine }).from(footprints);
   return known.find((k) => sameMachine(k.machine, name))?.machine ?? name;
@@ -260,7 +260,7 @@ export async function releaseRow(tx: Q, emit: Emit, row: Row, reason: string): P
   return saved!;
 }
 
-// machine: only for Jorge's screen (its actor machine is "screen"); agents release on their own machine.
+// machine: only for the owner's screen (its actor machine is "screen"); agents release on their own machine.
 export type ReleaseInput = { project: string; locator: string; kind?: string; machine?: string };
 
 export async function releaseFootprint(db: Db, input: ReleaseInput, ctx: Ctx) {
@@ -297,7 +297,7 @@ export async function releaseFootprint(db: Db, input: ReleaseInput, ctx: Ctx) {
     const holderSession = row.holder?.session_id;
     const mine = holderSession ? holderSession === ctx.actor.session_id : !row.projectId || row.projectId === p.id;
     if (!ctx.human && !mine) throw new ToolError("FOOTPRINT_HELD", { locator: row.locator, kind: row.kind, holder: row.holder, purpose: row.purpose });
-    const saved = await releaseRow(tx, emit, row, ctx.human ? "released by Jorge" : "released by its holder");
+    const saved = await releaseRow(tx, emit, row, ctx.human ? "released by the owner" : "released by its holder");
     const ref = await taskRef(tx, saved.taskId);
     return { locator: saved.locator, kind: saved.kind, released: true, footprint: replyShape(saved, ref?.key ?? null) };
   });

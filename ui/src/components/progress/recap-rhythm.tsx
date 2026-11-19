@@ -1,5 +1,7 @@
 import { ProjectChip, recapGlass, recapKicker } from "@/components/progress/recap-bits";
 import { projectColor, rhythmTitle } from "@/lib/progress";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressProjectCount, ProgressSummary } from "@/lib/types";
 
 type Bar = { key: string; label: string; total: number; by_project: ProgressProjectCount[] };
@@ -30,6 +32,7 @@ const barsOf = (data: ProgressSummary): Bar[] => {
 };
 
 export const RecapRhythm = ({ data }: { data: ProgressSummary }) => {
+  const w = words(PROGRESS_WORDS);
   const bars = barsOf(data);
   const peak = bars.reduce<Bar | undefined>((best, bar) => (!best || bar.total > best.total ? bar : best), undefined);
   const max = Math.max(peak?.total ?? 0, 1);
@@ -41,7 +44,7 @@ export const RecapRhythm = ({ data }: { data: ProgressSummary }) => {
     <section className={`${recapGlass} px-4 py-4`} aria-label={rhythmTitle(data.range)}>
       <div className="mb-3 flex items-center justify-between">
         <p className={recapKicker}>{rhythmTitle(data.range)}</p>
-        <span className="text-[12px] font-bold text-[#ff8a5c]">por proyecto</span>
+        <span className="text-[12px] font-bold text-[#ff8a5c]">{w.byProject}</span>
       </div>
       <div className="relative flex h-36 items-end gap-1.5 pt-6">
         {peak && peak.total > 0 && (
@@ -49,7 +52,7 @@ export const RecapRhythm = ({ data }: { data: ProgressSummary }) => {
             className="absolute top-0 z-10 -translate-x-1/2 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-black whitespace-nowrap text-black"
             style={{ left: `${((bars.indexOf(peak) + 0.5) / bars.length) * 100}%` }}
           >
-            {peak.total === 1 ? "1 cosa" : `${peak.total} cosas`}
+            {w.things(peak.total)}
           </span>
         )}
         {bars.map((bar) => {

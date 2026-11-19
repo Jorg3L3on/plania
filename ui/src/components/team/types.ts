@@ -1,3 +1,6 @@
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { TEAM_WORDS } from "@/lib/team-words";
+
 export type OwnedTask = { project: string; key: string; title: string; status: string };
 
 export type WorkingOn = { project: string; key: string; title: string };
@@ -19,11 +22,9 @@ export type TeamMember = {
 
 export type TeamRoster = { agents: TeamMember[] };
 
-export const STATUS_WORD: Record<string, string> = {
-  alive: "activo",
-  idle: "en espera",
-  stuck: "atascado",
-};
+/** The Spanish words, kept for their readers; the screen reads agentStatusWord(). */
+export const STATUS_WORD: Record<string, string> = TEAM_WORDS.es.status;
+export const agentStatusWord = (status: string, language: Language = getLanguage()): string => words(TEAM_WORDS, language).status[status] ?? status;
 
 export const STATUS_DOT: Record<string, string> = {
   alive: "bg-status-done",
@@ -45,11 +46,6 @@ const PREFERRED = [
   "artist",
   "research",
   "coach",
-  "housi",
-  "workia",
-  "filmia",
-  "zigzag",
-  "owner-plania",
   "cursor",
   "claude-code",
 ];

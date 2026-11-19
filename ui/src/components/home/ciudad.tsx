@@ -1,7 +1,7 @@
 // La ciudad: Inicio's night skyline. Each open initiative is a tower in its project's district;
 // its windows are its tickets, lit from the ground up as they close. A crane means agents are on
 // it, a red beacon that it is shipping, scaffolding that it is still being planned, and a
-// searchlight that it waits on Jorge. Tapping a tower opens the initiative on its project page.
+// searchlight that it waits on the owner. Tapping a tower opens the initiative on its project page.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
@@ -10,6 +10,8 @@ import { towerLabel, type District, type Tower, type WindowTone } from "@/lib/ci
 import type { Headline } from "@/lib/home";
 import type { InboxItem } from "@/lib/types";
 import { Titular } from "./parts";
+import { words } from "@/lib/i18n";
+import { HOME_CITY } from "@/lib/home-pieces-words";
 
 
 // Fixed so the sky doesn't reshuffle on every render: [left %, top %, delay s].
@@ -76,12 +78,12 @@ function TowerView({ t, projectTitle, index }: { t: Tower; projectTitle: string;
       {t.agents.length > 0 && (
         <span className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-status-now/15 px-2 py-0.5 text-[10.5px] font-semibold whitespace-nowrap text-ink-now">
           <span className="city-dot" aria-hidden />
-          {t.agents.length} {t.agents.length === 1 ? "agente" : "agentes"}
+          {words(HOME_CITY).agents(t.agents.length)}
         </span>
       )}
       {t.agents.length > 0 && <Crane lights={t.agents.length} />}
       {t.awaitsGo && (
-        <span className="mb-2 rounded-full border border-dashed border-status-jorge/55 px-2 py-0.5 text-[10.5px] font-semibold whitespace-nowrap text-ink-jorge">espera tu go</span>
+        <span className="mb-2 rounded-full border border-dashed border-status-owner/55 px-2 py-0.5 text-[10.5px] font-semibold whitespace-nowrap text-ink-owner">{words(HOME_CITY).awaitsGo}</span>
       )}
       {t.stage === "shipping" && t.agents.length === 0 && <span className="city-beacon" aria-hidden />}
       <span className="city-bld" aria-hidden>
@@ -119,17 +121,18 @@ function DistrictView({ d, envLine, offset }: { d: District; envLine: string; of
 }
 
 function Legend() {
+  const w = words(HOME_CITY);
   const win = (tone: WindowTone) => <span className="city-win !h-2.5 w-2.5 !animate-none" data-tone={tone} aria-hidden />;
   return (
-    <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[11px] text-muted-foreground" aria-label="Leyenda">
-      <li className="flex items-center gap-1.5">{win("lit")}hecho</li>
-      <li className="flex items-center gap-1.5">{win("now")}en curso</li>
-      <li className="flex items-center gap-1.5">{win("review")}en revisión</li>
-      <li className="flex items-center gap-1.5">{win("ready")}lista</li>
-      <li className="flex items-center gap-1.5">{win("dark")}backlog</li>
-      <li className="flex items-center gap-1.5"><span className="city-dot" aria-hidden />grúa = agentes</li>
+    <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[11px] text-muted-foreground" aria-label={w.legend}>
+      <li className="flex items-center gap-1.5">{win("lit")}{w.done}</li>
+      <li className="flex items-center gap-1.5">{win("now")}{w.now}</li>
+      <li className="flex items-center gap-1.5">{win("review")}{w.review}</li>
+      <li className="flex items-center gap-1.5">{win("ready")}{w.ready}</li>
+      <li className="flex items-center gap-1.5">{win("dark")}{w.backlog}</li>
+      <li className="flex items-center gap-1.5"><span className="city-dot" aria-hidden />{w.crane}</li>
       <li className="flex items-center gap-1.5">
-        <span aria-hidden className="h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-status-jorge/70" />haz = te toca
+        <span aria-hidden className="h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-status-owner/70" />{w.beam}
       </li>
     </ul>
   );
@@ -142,12 +145,13 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
   envLines: Record<string, string>;
   nowMs: number;
 }) {
+  const w = words(HOME_CITY);
   const wide = useWide();
   let offset = 0;
   return (
     <div className="grid gap-3">
       <section
-        aria-label="Las iniciativas en curso y en revisión"
+        aria-label={w.cityLabel}
         className="city dark relative overflow-hidden rounded-[22px] border border-white/[0.07] text-foreground md:rounded-[26px]"
       >
         {STARS.map(([x, y, d], i) => <span key={i} aria-hidden className="city-star" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${d}s` }} />)}
@@ -159,9 +163,9 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
             {loose.length > 0 && (
               <Link
                 to="/inbox"
-                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-jorge/45 bg-status-jorge/12 px-3 text-xs font-semibold text-ink-jorge transition hover:bg-status-jorge/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-owner/45 bg-status-owner/12 px-3 text-xs font-semibold text-ink-owner transition hover:bg-status-owner/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
-                {loose.length} {loose.length === 1 ? "cosa suelta te espera" : "cosas sueltas te esperan"}
+                {w.loose(loose.length)}
               </Link>
             )}
           </div>
@@ -171,7 +175,7 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
           <div className="relative flex w-max min-w-full items-end justify-between gap-4 px-3 pt-36 md:gap-8 md:px-8 md:pt-52">
             <div aria-hidden className="absolute inset-x-0 bottom-0 border-t border-white/10" style={{ height: "var(--street-h)", background: "var(--street)" }} />
             {districts.length === 0 ? (
-              <p className="relative z-[1] w-full pb-32 text-center font-voice text-2xl text-foreground/70 italic">Nada en curso ni en revisión. La ciudad duerme.</p>
+              <p className="relative z-[1] w-full pb-32 text-center font-voice text-2xl text-foreground/70 italic">{w.asleep}</p>
             ) : (
               districts.map((d) => {
                 const view = <DistrictView key={d.slug} d={d} envLine={envLines[d.slug] ?? ""} offset={offset} />;
@@ -201,6 +205,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
   plateFor: (d: District) => ReactNode;
   under?: ReactNode;
 }) {
+  const w = words(HOME_CITY);
   const wide = useWide();
   const [legend, setLegend] = useState(false);
   const iRef = useRef<HTMLButtonElement>(null);
@@ -218,7 +223,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
   let offset = 0;
   return (
     <div className="city-of" data-city-oficina={districts.length}>
-      <section aria-label="La ciudad: las iniciativas en curso y en revisión" className="city dark relative flex min-h-0 flex-col overflow-hidden rounded-t-[22px] border border-b-0 border-white/[0.07] text-foreground">
+      <section aria-label={w.officeLabel} className="city dark relative flex min-h-0 flex-col overflow-hidden rounded-t-[22px] border border-b-0 border-white/[0.07] text-foreground">
         {STARS.map(([x, y, d], i) => <span key={i} aria-hidden className="city-star" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${d}s` }} />)}
 
         <header className="relative z-[3] flex items-start justify-between gap-4 px-5 pt-4 md:px-7 md:pt-5">
@@ -227,7 +232,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
             <h1 className="font-display text-[26px] leading-[1.02] font-extrabold tracking-[-0.03em] text-balance md:text-[34px]" data-city-title>{headline.title}</h1>
             <p className="font-voice text-lg leading-tight text-foreground/75 italic md:text-xl" data-city-voice>
               {headline.voice.map((part, i) => (
-                <span key={i} className={part.tone === "jorge" ? "text-ink-jorge" : undefined}>{part.text}</span>
+                <span key={i} className={part.tone === "owner" ? "text-ink-owner" : undefined}>{part.text}</span>
               ))}
             </p>
             {links && <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1.5" data-city-links>{links}</div>}
@@ -239,7 +244,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
               className="city-i"
               aria-expanded={legend}
               aria-controls="city-legend"
-              aria-label="Qué significa cada color"
+              aria-label={w.legendButton}
               onClick={() => setLegend((x) => !x)}
               data-control="city-legend"
             >
@@ -255,7 +260,7 @@ export function CiudadOficina({ districts, pre, headline, links, plateFor, under
           <div className="relative flex h-full min-h-[260px] w-max min-w-full items-end justify-evenly gap-4 px-3 pt-16 md:gap-6 md:px-6">
             <div aria-hidden className="absolute inset-x-0 bottom-0 border-t border-white/10" style={{ height: "var(--street-h)", background: "var(--street)" }} />
             {districts.length === 0 ? (
-              <p className="relative z-[1] w-full pb-28 text-center font-voice text-2xl text-foreground/70 italic">Nada en curso ni en revisión. La ciudad duerme.</p>
+              <p className="relative z-[1] w-full pb-28 text-center font-voice text-2xl text-foreground/70 italic">{w.asleep}</p>
             ) : (
               districts.map((d) => {
                 const view = (

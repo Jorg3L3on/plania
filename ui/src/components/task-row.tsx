@@ -13,6 +13,8 @@ import { priorityTone, statusDot } from "@/lib/status";
 import type { StagedTask as Task } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StageWord } from "@/components/plan/stage-word";
+import { words } from "@/lib/i18n";
+import { TASK } from "@/lib/task-words";
 
 export function StatusLabel({ status }: { status: string }) {
   return (
@@ -35,7 +37,7 @@ const STAGE_CHIP: Record<string, string> = {
 export function StageChip({ stage }: { stage: string }) {
   const label = ideaStageLabel(stage);
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={`Etapa ${label}`}>
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={words(TASK).stageAria(label)}>
       {label}
     </span>
   );
@@ -52,10 +54,11 @@ export function PriorityLabel({ priority }: { priority: string }) {
 // Who holds the ticket's lease and until when; Liberar frees a lease left by a session that is gone.
 export function ClaimLine({ slug, task }: { slug: string; task: Pick<Task, "key" | "title" | "claimed_by" | "lease_until"> }) {
   const queryClient = useQueryClient();
+  const w = words(TASK);
   const release = useMutation({
     mutationFn: () => api.release(slug, task.key),
-    onSuccess: () => toast(`${task.title}: lease liberado`),
-    onError: () => toast.error("No se pudo liberar."),
+    onSuccess: () => toast(w.leaseFreed(task.title)),
+    onError: () => toast.error(w.freeFailed),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["project", slug] }),
   });
   if (!task.claimed_by || !task.lease_until) return null;
@@ -63,10 +66,10 @@ export function ClaimLine({ slug, task }: { slug: string; task: Pick<Task, "key"
     <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
       <LockIcon className="size-3" />
       <span>
-        {task.claimed_by.agent} <span className="font-mono">{task.claimed_by.session_id}</span> hasta {localTime(task.lease_until)}
+        {task.claimed_by.agent} <span className="font-mono">{task.claimed_by.session_id}</span> {w.until} {localTime(task.lease_until)}
       </span>
       <Button size="xs" variant="ghost" disabled={release.isPending} onClick={() => release.mutate()}>
-        Liberar
+        {w.free}
       </Button>
     </p>
   );

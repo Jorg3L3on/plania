@@ -19,7 +19,7 @@ how takes those choices away from the roles that have the facts.
 
 The required headings stay in English exactly as written: the screen translates them, and the move to
 the next stage checks them (`STAGE_REQUIREMENTS_MISSING` names what is missing). Everything under the
-headings is plain Spanish, because the owner reads it.
+headings is plain words in the owner's language, because the owner reads it.
 
 Replacing a doc: read it first (`get_task` lists `docs`, `get_doc` returns the `version`) and pass that
 `version`; `STALE_VERSION` means someone wrote meanwhile, so read again. A new title that already exists

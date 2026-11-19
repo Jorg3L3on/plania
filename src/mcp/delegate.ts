@@ -5,12 +5,13 @@ import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { answerInTx, type AnswerDelegation } from "./questions.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { readOldSpellings } from "../owner.js";
 
 /** Old clients still send this. Accepted and ignored for one release. */
 export const LEGACY_APPROVAL_HINT =
-  "ignored approval_id; that step was removed. Won't do and reopening take reason, and an agent also sends delegated_by_jorge {message_id, quote}.";
+  "ignored approval_id; that step was removed. Won't do and reopening take reason, and an agent also sends delegated_by_owner {message_id, quote}.";
 
-// Event ids Jorge has already reviewed. delegated_answers use reviewed_at; these moves do not have that column.
+// Event ids the owner has already reviewed. delegated_answers use reviewed_at; these moves do not have that column.
 export const MOVE_SEEN_KEY = "delegated_move_seen";
 
 export type DelegatedReviewItem = {
@@ -114,7 +115,7 @@ async function seenMoveIds(db: Q): Promise<number[]> {
   return Array.isArray(ids) ? ids.filter((n): n is number => typeof n === "number") : [];
 }
 
-// PLA-06: Jorge saw these on the Bandeja. Screen only: no MCP tool calls this. The rows stay as
+// PLA-06: the owner saw these on the Bandeja. Screen only: no MCP tool calls this. The rows stay as
 // the record; reviewed_at takes an answer off the list, and a numeric id takes a logged move off it.
 export async function markDelegatedReviewed(db: Q, ids: string[]): Promise<number> {
   if (!ids.length) return 0;
@@ -147,7 +148,7 @@ export async function markDelegatedReviewed(db: Q, ids: string[]): Promise<numbe
 // PLA-I15-2. The owner stays the one who answers a human-only question, by a click on his screen.
 // When he is away he can tell the Plania bot in his own chat. Only actor.agent plania-bot may
 // record that one instruction, and only with the message id and a short quote. The server cannot
-// prove the caller is that bot or that the message exists: every bot on this Mac shares the write
+// prove the caller is that bot or that the message exists: every bot on this machine shares the write
 // token, and the actor is a field on the request. The controls are the required evidence, the
 // audit, the Delegada badge, the rate limit and the screen kill switch.
 
@@ -166,7 +167,7 @@ export type DelegationInput = {
   approval_id?: string;
   option?: string;
   decision?: "grant" | "reject";
-  delegated_by_jorge?: { message_id?: string; quote?: string };
+  delegated_by_owner?: { message_id?: string; quote?: string };
 };
 
 // The actor stored as evidence. No model and no token: the log must not grow a secret.
@@ -178,7 +179,7 @@ export function delegatingActor(actor: Actor): Actor {
   };
 }
 
-export function parseDelegationEvidence(raw: DelegationInput["delegated_by_jorge"]): { messageId: string; quote: string } {
+export function parseDelegationEvidence(raw: DelegationInput["delegated_by_owner"]): { messageId: string; quote: string } {
   const messageId = typeof raw?.message_id === "string" ? raw.message_id.trim() : "";
   const quote = typeof raw?.quote === "string" ? raw.quote.trim() : "";
   if (!messageId || messageId.length < MESSAGE_ID_MIN || messageId.length > MESSAGE_ID_MAX) {
@@ -205,7 +206,7 @@ export async function setDelegationEnabled(db: Db, enabled: boolean): Promise<bo
 }
 
 function assertBot(ctx: Ctx): void {
-  // Exact agent name. jorge never reaches here: writeCtx already returns RESERVED_ACTOR.
+  // Exact agent name. owner never reaches here: writeCtx already returns RESERVED_ACTOR.
   // A spoofed screen session (session_id web, machine screen) does not count. Only the name does,
   // and the name is whatever the caller wrote on the shared write token.
   if (ctx.actor.agent !== PLANIA_BOT) {
@@ -230,7 +231,9 @@ export async function assertDelegationHourlyCap(tx: Q): Promise<void> {
   }
 }
 
-export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) {
+export async function answerDelegated(db: Db, raw: DelegationInput, ctx: Ctx) {
+  // PLA-I2-14: the old evidence field still reads, with an OLD_SPELLING warning in the reply.
+  const { input, warnings: oldSpellings } = readOldSpellings(raw);
   const questionId = input.question_id?.trim() || "";
   const legacy = typeof input.approval_id === "string" && input.approval_id.trim().length > 0;
   // The old approval target is not a write. Any caller gets the hint and nothing is stored.
@@ -239,7 +242,7 @@ export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) 
     throw new ToolError("NOT_DELEGABLE", { field: "target", hint: "pass question_id" });
   }
   assertBot(ctx);
-  const evidence = parseDelegationEvidence(input.delegated_by_jorge);
+  const evidence = parseDelegationEvidence(input.delegated_by_owner);
   const delegation: AnswerDelegation = { ...evidence, actor: delegatingActor(ctx.actor) };
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
@@ -248,6 +251,7 @@ export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) 
     const option = input.option ?? "";
     if (!option.trim()) throw new ToolError("INVALID_QUESTION", { field: "option" });
     const answered = await answerInTx(tx, emit, p, { question_id: questionId, answer: option }, ctx, delegation);
-    return legacy ? { ...answered, hint: LEGACY_APPROVAL_HINT } : answered;
+    const out = oldSpellings.length ? { ...answered, warnings: oldSpellings } : answered;
+    return legacy ? { ...out, hint: LEGACY_APPROVAL_HINT } : out;
   });
 }

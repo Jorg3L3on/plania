@@ -106,7 +106,7 @@ test("PLA-25: the Guardia block has a switch to go on past the guard, saying so 
 test("5b/5c a block that failed says so and offers Reintentar; unknown plan usage reads as high", () => {
   const err = html(h(parts.BlockError!, { what: "la compañía", onRetry: noop }));
   assert.ok(err.includes("No se pudo cargar la compañía."));
-  assert.ok(err.includes("Si la Mac está dormida, nada corre hasta que despierte."));
+  assert.ok(err.includes("Si la máquina está dormida, nada corre hasta que despierte."));
   assert.ok(err.includes("Reintentar"));
   const unknown = page(plumbing({ plan: { five_hour_pct: null, state: "unknown" } }));
   assert.ok(unknown.includes("Desconocido = alto"));

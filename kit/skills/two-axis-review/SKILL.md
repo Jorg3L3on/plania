@@ -68,7 +68,7 @@ check list, or a code defect with a concrete case. If it is neither, it is a sug
 
 ## The report
 
-Write the notes in Spanish, exact, one finding per line: `archivo:línea`, what is wrong, what would
+Write the notes in the owner's language, exact, one finding per line: `archivo:línea`, what is wrong, what would
 fix it. No praise and no summary of what the change does.
 
 End with the block your run prompt asks for, in exactly its format, as the last thing you write.

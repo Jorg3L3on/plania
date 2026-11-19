@@ -10,11 +10,14 @@ import { Link } from "react-router";
 import { api, type FichaDoc, type OrgProject } from "@/lib/api";
 import { useFicha } from "./listas";
 import { Btn, ReadError } from "./parts";
+import { LOCALE } from "@/lib/locale";
+import { words } from "@/lib/i18n";
+import { ARCHIVO_WORDS } from "@/lib/archivo-words";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
-const dayShort = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
+const dayShort = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
 const ymd = (d: string) => new Date(`${d}T12:00:00Z`);
-const dayWords = (d: string) => new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(ymd(d)).replace(/\./g, "").toUpperCase();
+const dayWords = (d: string) => new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(ymd(d)).replace(/\./g, "").toUpperCase();
 
 export type ArchivoLinks = { doc: (id: string) => string; pr: (n: number) => string; idea: (key: string) => string; todo: string };
 
@@ -35,8 +38,9 @@ export const namesOf = (p: OrgProject): Map<string, string> =>
 export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoLinks; timeZone?: string }) => {
   const f = useFicha(p.slug, true);
   const [more, setMore] = useState<{ own?: boolean; things?: boolean; prs?: boolean }>({});
-  if (f.isError) return <ReadError what="el archivo" onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" role="status" style={{ height: 420, margin: "20px 32px" }} aria-busy="true" aria-label="Leyendo el archivo" />;
+  const w = words(ARCHIVO_WORDS);
+  if (f.isError) return <ReadError what={w.readWhat} onRetry={() => void f.refetch()} />;
+  if (!f.data) return <div className="cor-skel" role="status" style={{ height: 420, margin: "20px 32px" }} aria-busy="true" aria-label={w.reading} />;
   const { own, things } = docGroups(f.data.docs);
   const prs = f.data.prs;
   const openPrs = prs.filter((x) => x.state === "open");
@@ -52,11 +56,11 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
   return (
     <div className="cor-archivo" data-archivo={p.slug}>
       <header className="cor-door-head">
-        <h2 className="cor-door-h">{`Archivo de ${p.title}`}</h2>
+        <h2 className="cor-door-h">{w.title(p.title)}</h2>
         <p className="cor-text">
-          Lo que se escribió, se dibujó y se fusionó. Cada papel vive dentro de su cosa; aquí están todos juntos.{" "}
+          {w.lead}{" "}
           <a className="cor-inline" href={`/p/${encodeURIComponent(p.slug)}?pagina`} data-control="pagina">
-            Abrir la página del proyecto ↗
+            {w.openPage}
           </a>
         </p>
       </header>
@@ -64,15 +68,15 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
         <section aria-label="Docs" data-archivo-docs={f.data.counts.docs}>
           <div className="cor-grp">
             <h3 className="cor-label wh">{`Docs · ${f.data.counts.docs}`}</h3>
-            <span className="cor-label">{`Del proyecto · ${own.length}`}</span>
+            <span className="cor-label">{w.own(own.length)}</span>
             {own.length > SHOW.own && (
               <Btn kind="link" className="cor-grp-more" aria-expanded={!!more.own} onClick={() => setMore((m) => ({ ...m, own: !m.own }))} data-control="ver-docs">
-                {more.own ? "Ver menos" : `Ver los otros ${own.length - SHOW.own}`}
+                {more.own ? w.showLess : w.showOthers(own.length - SHOW.own)}
               </Btn>
             )}
           </div>
           {own.length === 0 ? (
-            <p className="cor-text cor-muted cor-door-empty">El proyecto no tiene docs propios todavía.</p>
+            <p className="cor-text cor-muted cor-door-empty">{w.noOwnDocs}</p>
           ) : (
             <ul className="cor-door-list">
               {ownShown.map((d) => (
@@ -88,10 +92,10 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
           {things.length > 0 && (
             <>
               <div className="cor-grp">
-                <h3 className="cor-label">{`De cada cosa · ${things.reduce((n, t) => n + t.docs.length, 0)} en ${things.length} ${things.length === 1 ? "cosa" : "cosas"}`}</h3>
+                <h3 className="cor-label">{w.perThing(things.reduce((n, t) => n + t.docs.length, 0), things.length)}</h3>
                 {things.length > SHOW.things && (
                   <Btn kind="link" className="cor-grp-more" aria-expanded={!!more.things} onClick={() => setMore((m) => ({ ...m, things: !m.things }))} data-control="ver-cosas">
-                    {more.things ? "Ver menos" : `Ver las otras ${things.length - SHOW.things}`}
+                    {more.things ? w.showLess : w.showOthersThings(things.length - SHOW.things)}
                   </Btn>
                 )}
               </div>
@@ -110,12 +114,12 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
             </>
           )}
         </section>
-        <section aria-label="Diseños" data-archivo-disenos={nDesigns}>
+        <section aria-label={w.designs} data-archivo-disenos={nDesigns}>
           <div className="cor-grp">
-            <h3 className="cor-label wh">{`Diseños · ${nDesigns}`}</h3>
+            <h3 className="cor-label wh">{w.designsCount(nDesigns)}</h3>
           </div>
           {nDesigns === 0 ? (
-            <p className="cor-text cor-muted cor-door-empty">Ningún diseño todavía: Artist dibuja cuando una idea llega a Diseño.</p>
+            <p className="cor-text cor-muted cor-door-empty">{w.noDesigns}</p>
           ) : (
             <ul className="cor-door-cards">
               {lienzos.map((l) => (
@@ -129,7 +133,7 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
                     <span className="cor-ellipsis">
                       <span className="cor-key">{l.key}</span> {l.title}
                     </span>
-                    <span className="cor-cap">{`${l.count} ${l.count === 1 ? "MARCO" : "MARCOS"} DE ARTIST${l.unseen ? ` · ${l.unseen} SIN VER` : ""}`}</span>
+                    <span className="cor-cap">{w.frames(l.count, l.unseen)}</span>
                   </Link>
                 </li>
               ))}
@@ -139,7 +143,7 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
                     <span className="cor-ellipsis">
                       <span className="cor-key">{k}</span> {title(k)}
                     </span>
-                    <span className="cor-cap">LIENZO EN CLAUDE.AI</span>
+                    <span className="cor-cap">{w.canvasOnClaude}</span>
                   </Link>
                 </li>
               ))}
@@ -149,10 +153,10 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
         <section aria-label="PRs" data-archivo-prs={f.data.counts.prs}>
           <div className="cor-grp">
             <h3 className="cor-label wh">{`PRs · ${f.data.counts.prs}`}</h3>
-            <span className="cor-label">{openPrs.length ? `${openPrs.length} ${openPrs.length === 1 ? "abierto" : "abiertos"}` : "Ninguno abierto"}</span>
+            <span className="cor-label">{w.openPrs(openPrs.length)}</span>
           </div>
           {prs.length === 0 ? (
-            <p className="cor-text cor-muted cor-door-empty">Ningún PR todavía.</p>
+            <p className="cor-text cor-muted cor-door-empty">{w.noPrs}</p>
           ) : (
             <ul className="cor-door-list">
               {prsShown.map((x) => (
@@ -161,7 +165,7 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
                     <span className="cor-ellipsis">
                       <span className="cor-key">#{x.number}</span> {x.title}
                     </span>
-                    <span className={cls("cor-cap", x.state === "open" && "cor-state live")}>{x.merged_at ? dayShort(x.merged_at, timeZone) : x.state === "open" ? "ABIERTO" : "CERRADO"}</span>
+                    <span className={cls("cor-cap", x.state === "open" && "cor-state live")}>{x.merged_at ? dayShort(x.merged_at, timeZone) : x.state === "open" ? w.prOpen : w.prClosed}</span>
                   </Link>
                 </li>
               ))}
@@ -169,7 +173,7 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
           )}
           {prs.length > SHOW.prs && (
             <Btn kind="link" aria-expanded={!!more.prs} onClick={() => setMore((m) => ({ ...m, prs: !m.prs }))} data-control="ver-prs">
-              {more.prs ? "Ver menos" : `Ver los otros ${prs.length - SHOW.prs}`}
+              {more.prs ? w.showLess : w.showOthers(prs.length - SHOW.prs)}
             </Btn>
           )}
         </section>
@@ -182,13 +186,11 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
 
 export type HechoLinks = { iniciativa: (key: string) => string; paso: (key: string) => string; antes: (hasta: string) => string; ahora: string };
 
-const NUM = ["Cero", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
-const num = (n: number) => (n <= 10 ? NUM[n]! : String(n));
-
 export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta: string | null; links: HechoLinks; timeZone?: string }) => {
   const q = useQuery({ queryKey: ["hecho", p.slug, hasta ?? ""], queryFn: () => api.hecho(p.slug, hasta), staleTime: 30_000 });
-  if (q.isError) return <ReadError what="lo hecho" onRetry={() => void q.refetch()} />;
-  if (!q.data) return <div className="cor-skel" role="status" style={{ height: 420, margin: "20px 32px" }} aria-busy="true" aria-label="Leyendo lo hecho" />;
+  const w = words(ARCHIVO_WORDS);
+  if (q.isError) return <ReadError what={w.readDone} onRetry={() => void q.refetch()} />;
+  if (!q.data) return <div className="cor-skel" role="status" style={{ height: 420, margin: "20px 32px" }} aria-busy="true" aria-label={w.readingDone} />;
   const h = q.data;
   // Every day of the window, oldest first, for the bars.
   const span: { day: string; n: number }[] = [];
@@ -198,37 +200,41 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
   }
   const max = Math.max(1, ...span.map((d) => d.n));
   const today = !hasta;
-  const fromPedido = h.initiatives.filter((i) => i.origin === "jorge").length;
-  const sentence = [
-    `${h.total === 1 ? "Un paso hecho" : `${h.total} pasos hechos`} ${today ? "en 14 días" : `del ${dayShort(`${h.from}T12:00:00Z`, "UTC").toLowerCase()} al ${dayShort(`${h.to}T12:00:00Z`, "UTC").toLowerCase()}`}.`,
-    h.initiatives.length ? `${num(h.initiatives.length)} ${h.initiatives.length === 1 ? "iniciativa cerrada" : "iniciativas cerradas"}${fromPedido ? `; ${fromPedido === 1 ? "una nació" : `${num(fromPedido).toLowerCase()} nacieron`} de un pedido tuyo` : ""}.` : "Ninguna iniciativa cerrada.",
-  ].join(" ");
+  const fromPedido = h.initiatives.filter((i) => i.origin === "owner").length;
+  const sentence = w.summary({
+    total: h.total,
+    today,
+    from: dayShort(`${h.from}T12:00:00Z`, "UTC").toLowerCase(),
+    to: dayShort(`${h.to}T12:00:00Z`, "UTC").toLowerCase(),
+    initiatives: h.initiatives.length,
+    fromPedido,
+  });
   return (
     <div className="cor-hecho" data-hecho={p.slug} data-desde={h.from}>
       <header className="cor-door-head">
-        <h2 className="cor-door-h">{`Lo que pasó en ${p.title}`}</h2>
+        <h2 className="cor-door-h">{w.doneTitle(p.title)}</h2>
         <p className="cor-text">{sentence}</p>
       </header>
       <div className="cor-hecho-cols">
         <div className="cor-hecho-left">
           <figure className="cor-card cor-hecho-chart">
-            <figcaption className="cor-label">Pasos hechos por día</figcaption>
-            <div className="cor-hecho-bars" role="img" aria-label={`Pasos hechos por día: ${span.map((d) => `${dayWords(d.day).toLowerCase()} ${d.n}`).join(", ")}`}>
+            <figcaption className="cor-label">{w.perDay}</figcaption>
+            <div className="cor-hecho-bars" role="img" aria-label={w.perDayAria(span.map((d) => `${dayWords(d.day).toLowerCase()} ${d.n}`).join(", "))}>
               {span.map((d, i) => (
                 <span key={d.day} className="cor-hecho-bar">
                   <b className="cor-cap">{d.n || ""}</b>
                   <i className={cls(d.n === 0 && "z", today && i === span.length - 1 && "hoy")} style={{ height: d.n ? Math.max(6, Math.round((d.n / max) * 96)) : 2 }} />
-                  <span className="cor-cap">{today && i === span.length - 1 ? "HOY" : String(ymd(d.day).getUTCDate())}</span>
+                  <span className="cor-cap">{today && i === span.length - 1 ? w.today : String(ymd(d.day).getUTCDate())}</span>
                 </span>
               ))}
             </div>
           </figure>
-          <section aria-label="Iniciativas cerradas" data-cerradas={h.initiatives.length}>
+          <section aria-label={w.closed} data-cerradas={h.initiatives.length}>
             <div className="cor-grp">
-              <h3 className="cor-label green">{`Iniciativas cerradas · ${h.initiatives.length}`}</h3>
+              <h3 className="cor-label green">{w.closedCount(h.initiatives.length)}</h3>
             </div>
             {h.initiatives.length === 0 ? (
-              <p className="cor-text cor-muted cor-door-empty">Ninguna en estos días.</p>
+              <p className="cor-text cor-muted cor-door-empty">{w.noneClosed}</p>
             ) : (
               <ul className="cor-door-list">
                 {h.initiatives.slice(0, 6).map((i) => (
@@ -237,7 +243,7 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
                       <span className="cor-ellipsis">
                         <span className="cor-key">{i.key}</span> {i.title}
                       </span>
-                      <span className="cor-cap">{[dayShort(i.done_at, timeZone), `${i.steps} ${i.steps === 1 ? "PASO" : "PASOS"}`, i.idea ? (i.origin === "jorge" ? `ERA TU PEDIDO ${i.idea}` : `ERA ${i.idea}`) : null].filter(Boolean).join(" · ")}</span>
+                      <span className="cor-cap">{[dayShort(i.done_at, timeZone), w.steps(i.steps), i.idea ? (i.origin === "owner" ? w.wasYourRequest(i.idea) : w.was(i.idea)) : null].filter(Boolean).join(" · ")}</span>
                     </Link>
                   </li>
                 ))}
@@ -245,21 +251,21 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
             )}
           </section>
         </div>
-        <section className="cor-hecho-days" aria-label="Día por día" data-dias={h.days.length}>
-          <h3 className="cor-label">Día por día</h3>
-          {h.days.length === 0 && <p className="cor-text cor-muted cor-door-empty">Nada aterrizó en estos días.</p>}
+        <section className="cor-hecho-days" aria-label={w.dayByDay} data-dias={h.days.length}>
+          <h3 className="cor-label">{w.dayByDay}</h3>
+          {h.days.length === 0 && <p className="cor-text cor-muted cor-door-empty">{w.nothingLanded}</p>}
           <ol>
             {h.days.slice(0, 5).map((d) => (
               <li key={d.day} className="cor-hecho-day" data-dia={d.day}>
-                <span className="cor-label wh">{`${dayWords(d.day)} · ${d.n} ${d.n === 1 ? "PASO" : "PASOS"}`}</span>
+                <span className="cor-label wh">{w.dayHead(dayWords(d.day), d.n)}</span>
                 <p className="cor-text">
                   {d.initiatives.length > 0 && (
-                    <b>{d.initiatives.length === 1 ? `Se cerró «${d.initiatives[0]!.title}». ` : `Se cerraron ${num(d.initiatives.length).toLowerCase()} iniciativas: ${d.initiatives.map((i) => i.title).join(", ")}. `}</b>
+                    <b>{w.closedThatDay(d.initiatives.map((i) => i.title))}</b>
                   )}
                   {d.steps.map((s) => s.title).join(", ")}
-                  {d.more > 0 ? ` y ${d.more} más` : ""}
+                  {d.more > 0 ? w.more(d.more) : ""}
                   {d.steps.length ? "." : ""}
-                  {d.prs > 0 ? ` ${d.prs === 1 ? "Un PR fusionado." : `${num(d.prs)} PRs fusionados.`}` : ""}
+                  {d.prs > 0 ? w.prsMerged(d.prs) : ""}
                 </p>
               </li>
             ))}
@@ -267,12 +273,12 @@ export const HechoView = ({ p, hasta, links, timeZone }: { p: OrgProject; hasta:
           <div className="cor-hecho-nav">
             {h.before && (
               <Link className="cor-btn link" to={links.antes(h.before)} data-control="ver-antes">
-                {`Ver antes del ${dayShort(`${h.from}T12:00:00Z`, "UTC").toLowerCase()}`}
+                {w.before(dayShort(`${h.from}T12:00:00Z`, "UTC").toLowerCase())}
               </Link>
             )}
             {!today && (
               <Link className="cor-btn link" to={links.ahora} data-control="ver-ultimos">
-                Volver a los últimos 14 días
+                {w.backToLatest}
               </Link>
             )}
           </div>

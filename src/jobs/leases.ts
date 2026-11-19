@@ -32,7 +32,7 @@ export async function warnExpiringLeases(db: Db, now = new Date()): Promise<numb
           .where(and(eq(tasks.id, t.id), isNull(tasks.expiringWarnedAt)))
           .returning({ id: tasks.id });
         if (!u) return false;
-        // What the ticket has running on the Mac, so a session listening to the feed can tear it down or extend the claim.
+        // What the ticket has running on the machine, so a session listening to the feed can tear it down or extend the claim.
         const footprint = (await liveTaskFootprint(tx, t.id)).map((f) => ({ kind: f.kind, locator: f.locator, teardown: f.teardown }));
         await emit("claim.expiring", t, { owner: t.owner, lease_until: leaseUntil, minutes_left: EXPIRING_WINDOW_MIN, footprint });
         warned++;

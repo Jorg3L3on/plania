@@ -1,7 +1,58 @@
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import { ago } from "./time";
 import type { FootprintItem, FootprintKind, FootprintState } from "./types";
 
 // The Machine page's model, apart from the markup: how rows are grouped and how each one is named.
+// PLA-I2-10: the words are in MACHINE_LIB_WORDS, in both languages; STATE_WORD and SOURCE_WORD stay the Spanish ones,
+// and the page reads stateWord() and sourceWord(). Each function takes the language last.
+
+export const MACHINE_LIB_WORDS = defineWords({
+  es: {
+    orphan: "Sin dueño",
+    system: "Sistema",
+    server: "Servidor",
+    browser: "Navegador",
+    tunnel: "Túnel",
+    age: { active: "activo", commit: "último commit", created: "creado", since: "desde" },
+    states: {
+      live: "en uso",
+      orphan: "sin dueño",
+      stale: "obsoleto",
+      ghost: "fantasma",
+      gone: "detenido",
+      released: "liberado",
+      self: "Plania",
+      system: "sistema",
+    } as Record<FootprintState, string>,
+    sources: { observed: "observado", declared: "declarado", both: "observado y declarado" },
+    stale: "obsoleto",
+    // The reason is the server's, stored as written («sin claim», «rama fusionada»).
+    staleSince: (reason: string, when: string) => (reason === "sin claim" ? `${reason} desde ${when}` : `${reason} ${when}`),
+    ghost: (since: string | null) => `declarado y no se ve en la máquina${since ? `, desde ${since}` : ""}; se libera solo`,
+  },
+  en: {
+    orphan: "No owner",
+    system: "System",
+    server: "Server",
+    browser: "Browser",
+    tunnel: "Tunnel",
+    age: { active: "active", commit: "last commit", created: "created", since: "since" },
+    states: {
+      live: "in use",
+      orphan: "no owner",
+      stale: "stale",
+      ghost: "ghost",
+      gone: "stopped",
+      released: "released",
+      self: "Plania",
+      system: "system",
+    },
+    sources: { observed: "observed", declared: "declared", both: "observed and declared" },
+    stale: "stale",
+    staleSince: (reason: string, when: string) => (reason === "sin claim" ? `no claim since ${when}` : `${reason} ${when}`),
+    ghost: (since: string | null) => `declared and not seen on the machine${since ? `, since ${since}` : ""}; it is released on its own`,
+  },
+});
 
 export type TicketNode = { key: string; title: string; items: FootprintItem[] };
 export type InitiativeNode = { key: string; title: string; items: FootprintItem[]; tickets: TicketNode[] };
@@ -40,19 +91,20 @@ export function byRow(a: FootprintItem, b: FootprintItem): number {
  * (orphan) and "Sistema" (shared servers, services, LaunchAgents). Plania's own rows (self) sit in
  * the group of their repo.
  */
-export function groupItems(items: FootprintItem[]): Group[] {
+export function groupItems(items: FootprintItem[], language: Language = getLanguage()): Group[] {
+  const w = words(MACHINE_LIB_WORDS, language);
   const groups = new Map<string, Group>();
   const group = (id: string, kind: Group["kind"], title: string) =>
     groups.get(id) ?? groups.set(id, { id, kind, title, servers: [], items: [], initiatives: [], tickets: [], count: 0 }).get(id)!;
 
   for (const it of [...items].sort(byRow)) {
     const g =
-      it.state === "orphan" ? group("orphan", "orphan", "Sin dueño")
-      : it.state === "system" ? group("system", "system", "Sistema")
+      it.state === "orphan" ? group("orphan", "orphan", w.orphan)
+      : it.state === "system" ? group("system", "system", w.system)
       : it.project ? group(`p:${it.project}`, "project", it.project)
       : it.repo ? group(`r:${it.repo}`, "repo", it.repo)
       : it.state === "self" ? group("r:plania", "repo", "plania")
-      : group("system", "system", "Sistema");
+      : group("system", "system", w.system);
     g.count++;
     if (g.kind === "project" && isRunningServer(it)) {
       g.servers.push(it);
@@ -107,8 +159,9 @@ export function shortCommand(command: string | null, fallback = ""): string {
 
 const ENGINE: Record<string, string> = { postgres: "Postgres", redis: "Redis", mysql: "MySQL" };
 
-/** The human form of a row: ":3069 next dev", "zigzag @ :5433", the worktree folder with its branch. */
-export function nameOf(it: FootprintItem): { name: string; detail: string | null } {
+/** The human form of a row: ":3069 next dev", "tienda @ :5433", the worktree folder with its branch. */
+export function nameOf(it: FootprintItem, language: Language = getLanguage()): { name: string; detail: string | null } {
+  const w = words(MACHINE_LIB_WORDS, language);
   const d = it.details;
   switch (it.kind) {
     case "server": {
@@ -116,7 +169,7 @@ export function nameOf(it: FootprintItem): { name: string; detail: string | null
       return { name: `:${port}`, detail: shortCommand(str(d.command), str(d.process) ?? "") || null };
     }
     case "db_server": {
-      const engine = ENGINE[str(d.engine) ?? ""] ?? str(d.engine) ?? "Servidor";
+      const engine = ENGINE[str(d.engine) ?? ""] ?? str(d.engine) ?? w.server;
       const v = str(d.version);
       return { name: `${engine}${v ? ` ${v.split(".")[0]}` : ""}`, detail: `:${num(d.port) ?? it.locator.split(":")[1]}` };
     }
@@ -132,9 +185,9 @@ export function nameOf(it: FootprintItem): { name: string; detail: string | null
     case "container":
       return { name: str(d.name) ?? it.locator.replace(/^docker:/, ""), detail: str(d.image) };
     case "browser":
-      return { name: str(d.flavor) === "playwright-mcp" ? "Playwright" : "Navegador", detail: `pid ${num(d.pid) ?? it.locator.replace(/^pid:/, "")}` };
+      return { name: str(d.flavor) === "playwright-mcp" ? "Playwright" : w.browser, detail: `pid ${num(d.pid) ?? it.locator.replace(/^pid:/, "")}` };
     case "tunnel":
-      return { name: str(d.flavor) ?? "Túnel", detail: `pid ${num(d.pid) ?? it.locator.replace(/^pid:/, "")}` };
+      return { name: str(d.flavor) ?? w.tunnel, detail: `pid ${num(d.pid) ?? it.locator.replace(/^pid:/, "")}` };
     case "service":
       return { name: str(d.name) ?? it.locator.replace(/^[a-z]+:/, ""), detail: d.manager === "brew" ? "brew" : "LaunchAgent" };
     default:
@@ -143,19 +196,21 @@ export function nameOf(it: FootprintItem): { name: string; detail: string | null
 }
 
 /** When a process started or the work last moved, for the "uptime or age" slot. */
-export function ageSource(it: FootprintItem): { label: string; iso: string } | null {
+export function ageSource(it: FootprintItem, language: Language = getLanguage()): { label: string; iso: string; active?: true } | null {
+  const w = words(MACHINE_LIB_WORDS, language).age;
   const d = it.details;
   const started = str(d.started_at);
-  if (started) return { label: "activo", iso: started };
+  // `active`: the page shows an uptime for it instead of the label.
+  if (started) return { label: w.active, iso: started, active: true };
   if (it.kind === "worktree") {
     const last = str(d.last_commit_at);
-    if (last) return { label: "último commit", iso: last };
+    if (last) return { label: w.commit, iso: last };
   }
   if (it.kind === "container") {
     const created = str(d.created_at);
-    if (created) return { label: "creado", iso: created };
+    if (created) return { label: w.created, iso: created };
   }
-  return it.first_seen_at ? { label: "desde", iso: it.first_seen_at } : null;
+  return it.first_seen_at ? { label: w.since, iso: it.first_seen_at } : null;
 }
 
 /** 7.5 GB, 310 MB: sizes are stored in KB (worktrees, du) or bytes (databases). */
@@ -172,18 +227,11 @@ export function sizeOf(it: FootprintItem): string | null {
   return bytes !== null ? formatKb(bytes / 1024) : null;
 }
 
-export const STATE_WORD: Record<FootprintState, string> = {
-  live: "en uso",
-  orphan: "sin dueño",
-  stale: "obsoleto",
-  ghost: "fantasma",
-  gone: "detenido",
-  released: "liberado",
-  self: "Plania",
-  system: "sistema",
-};
+export const STATE_WORD: Record<FootprintState, string> = MACHINE_LIB_WORDS.es.states;
+export const stateWord = (state: FootprintState, language: Language = getLanguage()): string => words(MACHINE_LIB_WORDS, language).states[state];
 
-export const SOURCE_WORD = { observed: "observado", declared: "declarado", both: "observado y declarado" } as const;
+export const SOURCE_WORD = MACHINE_LIB_WORDS.es.sources;
+export const sourceWord = (source: keyof typeof SOURCE_WORD, language: Language = getLanguage()): string => words(MACHINE_LIB_WORDS, language).sources[source];
 
 /** The thing the work stands on (the live database, Plania itself, database servers): it has no teardown. */
 export const isPrimary = (it: FootprintItem): boolean => it.details.primary === true;
@@ -192,17 +240,18 @@ export const isPrimary = (it: FootprintItem): boolean => it.details.primary === 
  * The second line of a stale or ghost row: why it is stale ("ticket ZIG-I3-2 Done hace 3 h",
  * "sin claim desde hace 26 h", "rama fusionada") or what a ghost is.
  */
-export function whyLine(it: FootprintItem, nowMs: number): string | null {
+export function whyLine(it: FootprintItem, nowMs: number, language: Language = getLanguage()): string | null {
+  const w = words(MACHINE_LIB_WORDS, language);
   if (it.state === "stale") {
     const reason = str(it.details.stale_reason);
-    if (!reason) return "obsoleto";
+    if (!reason) return w.stale;
     const since = str(it.details.stale_since);
     if (!since) return reason;
-    return reason === "sin claim" ? `${reason} desde ${ago(since, nowMs)}` : `${reason} ${ago(since, nowMs)}`;
+    return w.staleSince(reason, ago(since, nowMs, language));
   }
   if (it.state === "ghost") {
     const at = str(it.details.ghost_since);
-    return `declarado y no se ve en la Mac${at ? `, desde ${ago(at, nowMs)}` : ""}; se libera solo`;
+    return w.ghost(at ? ago(at, nowMs, language) : null);
   }
   return null;
 }

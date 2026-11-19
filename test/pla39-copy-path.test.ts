@@ -7,9 +7,9 @@ useTestEnv();
 const { checkoutEnv, toolPath } = await import("../src/captures/run.js");
 
 test("the running node's folder and the usual tool folders go first; PATH keeps what it had, once each", () => {
-  assert.equal(toolPath("/usr/bin:/bin:/usr/sbin:/sbin", "/Users/x/.nvm/versions/node/v24/bin/node"), "/Users/x/.nvm/versions/node/v24/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
-  assert.equal(toolPath("/opt/homebrew/bin:/usr/bin", "/opt/homebrew/bin/node"), "/opt/homebrew/bin:/usr/local/bin:/usr/bin");
-  assert.equal(toolPath(undefined, "/usr/local/bin/node"), "/usr/local/bin:/opt/homebrew/bin");
+  assert.equal(toolPath("/usr/bin:/bin:/usr/sbin:/sbin", "/Users/x/.nvm/versions/node/v24/bin/node", ":"), "/Users/x/.nvm/versions/node/v24/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+  assert.equal(toolPath("/opt/homebrew/bin:/usr/bin", "/opt/homebrew/bin/node", ":"), "/opt/homebrew/bin:/usr/local/bin:/usr/bin");
+  assert.equal(toolPath(undefined, "/usr/local/bin/node", ":"), "/usr/local/bin:/opt/homebrew/bin");
 });
 
 test("checkoutEnv carries that PATH and none of Plania's secrets", () => {

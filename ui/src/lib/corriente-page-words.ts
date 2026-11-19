@@ -1,0 +1,53 @@
+// PLA-I2-10: the words of La corriente's page (pages/corriente.tsx), in both languages (lib/i18n.ts). The words of
+// its parts live with them.
+// No "@/" imports: the server and node tests import wording modules directly.
+import { defineWords } from "./i18n.js";
+
+export const CORRIENTE_PAGE = defineWords({
+  es: {
+    resumeFailed: (code: string) => `No se pudo reanudar (${code}).`,
+    thisOne: "Esto",
+    theTab: (tab: string) => `La pestaña ${tab}`,
+    noLongerWaits: "Esta entrega ya no espera tu decisión.",
+    backToList: "Volver a la lista",
+    all: (title: string) => `Todo ${title}`,
+    asking: "Pidiendo…",
+    makePlan: "Arma el plan",
+    archive: "Archivo",
+    theCompany: "la compañía",
+    loadingCompany: "Cargando la compañía",
+    noProject: (slug: string) => `No hay un proyecto «${slug}» en la compañía.`,
+    backToStream: "Volver a la corriente",
+    teamPaused: "EN PAUSA",
+    teamWorking: (n: number) => `${n} TRABAJANDO`,
+    teamFree: (n: number) => `${n} ${n === 1 ? "LIBRE" : "LIBRES"}`,
+    noGoal: "Sin meta todavía",
+    noDate: "sin fecha",
+    companyStopped: "La compañía está detenida: nada arranca.",
+    resuming: "Reanudando…",
+    resumeCompany: "Reanudar la compañía",
+  },
+  en: {
+    resumeFailed: (code: string) => `Could not resume (${code}).`,
+    thisOne: "This",
+    theTab: (tab: string) => `The ${tab} tab`,
+    noLongerWaits: "This delivery no longer waits for your decision.",
+    backToList: "Back to the list",
+    all: (title: string) => `All of ${title}`,
+    asking: "Asking…",
+    makePlan: "Make the plan",
+    archive: "Archive",
+    theCompany: "the company",
+    loadingCompany: "Loading the company",
+    noProject: (slug: string) => `There is no project “${slug}” in the company.`,
+    backToStream: "Back to La corriente",
+    teamPaused: "PAUSED",
+    teamWorking: (n: number) => `${n} WORKING`,
+    teamFree: (n: number) => `${n} FREE`,
+    noGoal: "No goal yet",
+    noDate: "no date",
+    companyStopped: "The company is stopped: nothing starts.",
+    resuming: "Resuming…",
+    resumeCompany: "Resume the company",
+  },
+});

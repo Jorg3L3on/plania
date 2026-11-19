@@ -4,6 +4,69 @@
 import { buildLanes, projectProgress, type LaneTask, type StationTone } from "./lanes.js";
 import { ago, span } from "./time.js";
 import type { EnvSummary, FootprintItem, InitiativeNote, MachineTotals, NextClaimable, Readiness } from "./types.js";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+
+// PLA-I2-10: the words are in HOME_WORDS, in both languages; each function takes the language last.
+export const HOME_WORDS = defineWords({
+  es: {
+    numbers: ["Ningún", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve"],
+    and: "y",
+    // the headline
+    nobody: "Nadie trabaja ahora.",
+    working: (word: string, n: number) => `${word} ${n === 1 ? "agente trabaja" : "agentes trabajan"} ahora.`,
+    moving: (names: string, n: number) => `${names} ${n === 1 ? "avanza sola" : "avanzan solas"}`,
+    doneToday: (n: number) => `Hoy ${n === 1 ? "se cerró 1 ticket" : `se cerraron ${n} tickets`}`,
+    noneToday: "Hoy no se cerró nada",
+    nothingWaits: "nada te espera",
+    theMachine: "la máquina",
+    twoAndMore: (a: string, b: string, n: number) => `${a} y ${b} y ${n} más`,
+    waits: (shown: string, places: number, n: number) => `${shown} ${places === 1 ? "te espera" : "te esperan"} con ${n} ${n === 1 ? "cosa" : "cosas"}`,
+    orphan: (n: number) => `${n} sin dueño`,
+    stale: (n: number) => `${n} ${n === 1 ? "obsoleto" : "obsoletos"}`,
+    machineHas: (list: string) => `, y la máquina tiene ${list}.`,
+    // a tile
+    nothingQueued: "nada en cola",
+    noEnvs: "sin entornos registrados",
+    branchesAhead: (n: number) => `${n} ${n === 1 ? "rama" : "ramas"} adelante`,
+    dbAhead: "DB adelante del código",
+    noEnv: "Sin entorno registrado",
+    onEnv: (env: string) => ` en ${env}`,
+    published: (where: string, ago: string) => `Publicado${where} ${ago}`,
+    noPublishDate: (where: string) => `Sin fecha de publicación${where}`,
+    unpublished: (n: number) => `${n} ${n === 1 ? "cambio" : "cambios"} sin publicar`,
+    baseAhead: "la base va adelante del código",
+    state: { moving: "en marcha", waiting: "te espera", quiet: "quieto", paused: "en pausa" },
+    system: "sistema",
+  },
+  en: {
+    numbers: ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"],
+    and: "and",
+    nobody: "Nobody is working now.",
+    working: (word: string, n: number) => `${word} ${n === 1 ? "agent is" : "agents are"} working now.`,
+    moving: (names: string, n: number) => `${names} ${n === 1 ? "moves on its own" : "move on their own"}`,
+    doneToday: (n: number) => `Today ${n === 1 ? "1 ticket was closed" : `${n} tickets were closed`}`,
+    noneToday: "Nothing was closed today",
+    nothingWaits: "nothing waits on you",
+    theMachine: "the machine",
+    twoAndMore: (a: string, b: string, n: number) => `${a} and ${b} and ${n} more`,
+    waits: (shown: string, places: number, n: number) => `${shown} ${places === 1 ? "has" : "have"} ${n} ${n === 1 ? "thing" : "things"} for you`,
+    orphan: (n: number) => `${n} with no owner`,
+    stale: (n: number) => `${n} stale`,
+    machineHas: (list: string) => `, and the machine has ${list}.`,
+    nothingQueued: "nothing queued",
+    noEnvs: "no environments registered",
+    branchesAhead: (n: number) => `${n} ${n === 1 ? "branch" : "branches"} ahead`,
+    dbAhead: "DB ahead of the code",
+    noEnv: "No environment registered",
+    onEnv: (env: string) => ` on ${env}`,
+    published: (where: string, ago: string) => `Published${where} ${ago}`,
+    noPublishDate: (where: string) => `No publish date${where}`,
+    unpublished: (n: number) => `${n} unpublished ${n === 1 ? "change" : "changes"}`,
+    baseAhead: "the database is ahead of the code",
+    state: { moving: "running", waiting: "waiting on you", quiet: "quiet", paused: "paused" },
+    system: "system",
+  },
+});
 
 type Tone = StationTone;
 
@@ -39,15 +102,12 @@ export type HomeProject = {
 
 type Server = Pick<FootprintItem, "kind" | "state" | "task_key" | "session_id" | "project" | "repo" | "locator" | "details" | "first_seen_at">;
 
-const WORDS = ["Ningún", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve"];
-export const numberWord = (n: number) => WORDS[n] ?? String(n);
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+export const numberWord = (n: number, language: Language = getLanguage()) => words(HOME_WORDS, language).numbers[n] ?? String(n);
 
 /** "A", "A y B", "A, B y C". */
-export function joinNames(names: string[]): string {
+export function joinNames(names: string[], language: Language = getLanguage()): string {
   if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(", ")} ${words(HOME_WORDS, language).and} ${names[names.length - 1]}`;
 }
 
 // ---- En vuelo: live claims across projects, with the server each one has up
@@ -104,7 +164,7 @@ export function doneToday(projects: HomeProject[], nowMs = Date.now()): number {
 
 // ---- The headline: one sentence in display type, one line in the voice
 
-export type VoicePart = { text: string; tone?: "jorge" };
+export type VoicePart = { text: string; tone?: "owner" };
 export type Headline = { title: string; voice: VoicePart[] };
 
 export function headlineOf(input: {
@@ -114,40 +174,40 @@ export function headlineOf(input: {
   inbox: { count: number; by_project: Record<string, number> };
   totals: Pick<MachineTotals, "orphan" | "stale"> | null;
   nowMs?: number;
-}): Headline {
+}, language: Language = getLanguage()): Headline {
+  const w = words(HOME_WORDS, language);
   const { projects, flights, inbox, totals } = input;
   const titleOf = (slug: string) => projects.find((p) => p.slug === slug)?.title ?? slug;
   const n = flights.length;
-  const title = n === 0 ? "Nadie trabaja ahora." : `${numberWord(n)} ${n === 1 ? "agente trabaja" : "agentes trabajan"} ahora.`;
+  const title = n === 0 ? w.nobody : w.working(numberWord(n, language), n);
 
   // a) who moves, or what got done
   const moving = [...new Set(flights.map((f) => f.slug))].map(titleOf);
   let a: string;
-  if (moving.length > 0) a = `${joinNames(moving)} ${moving.length === 1 ? "avanza sola" : "avanzan solas"}`;
+  if (moving.length > 0) a = w.moving(joinNames(moving, language), moving.length);
   else {
     const done = doneToday(projects, input.nowMs);
-    a = done > 0 ? `Hoy ${done === 1 ? "se cerró 1 ticket" : `se cerraron ${done} tickets`}` : "Hoy no se cerró nada";
+    a = done > 0 ? w.doneToday(done) : w.noneToday;
   }
 
-  // b) what waits on Jorge, by the project with most
+  // b) what waits on the owner, by the project with most
   let b: VoicePart;
-  if (inbox.count === 0) b = { text: "nada te espera" };
+  if (inbox.count === 0) b = { text: w.nothingWaits };
   else {
     const slugs = Object.entries(inbox.by_project)
       .filter(([, c]) => c > 0)
       .sort((x, y) => y[1] - x[1])
-      .map(([slug]) => (slug === "machine" ? "la Mac" : titleOf(slug)));
-    const shown = slugs.length > 2 ? `${slugs[0]} y ${slugs[1]} y ${slugs.length - 2} más` : joinNames(slugs);
-    const verb = slugs.length === 1 ? "te espera" : "te esperan";
-    b = { text: `${shown} ${verb} con ${plural(inbox.count, "cosa", "cosas")}`, tone: "jorge" };
+      .map(([slug]) => (slug === "machine" ? w.theMachine : titleOf(slug)));
+    const shown = slugs.length > 2 ? w.twoAndMore(slugs[0]!, slugs[1]!, slugs.length - 2) : joinNames(slugs, language);
+    b = { text: w.waits(shown, slugs.length, inbox.count), tone: "owner" };
   }
 
-  // c) what the Mac carries that nobody owns
+  // c) what the machine carries that nobody owns
   const c: string[] = [];
-  if (totals && totals.orphan > 0) c.push(`${totals.orphan} sin dueño`);
-  if (totals && totals.stale > 0) c.push(plural(totals.stale, "obsoleto", "obsoletos"));
+  if (totals && totals.orphan > 0) c.push(w.orphan(totals.orphan));
+  if (totals && totals.stale > 0) c.push(w.stale(totals.stale));
 
-  const voice: VoicePart[] = [{ text: `${a}; ` }, b, { text: c.length ? `, y la Mac tiene ${c.join(" y ")}.` : "." }];
+  const voice: VoicePart[] = [{ text: `${a}; ` }, b, { text: c.length ? w.machineHas(c.join(` ${w.and} `)) : "." }];
   return { title, voice };
 }
 
@@ -162,7 +222,7 @@ export type Tile = {
   left: { initiatives: number; tickets: number };
   /** Tickets Done out of all of them, for the bar. */
   progress: { closed: number; total: number };
-  /** Decisions in the inbox waiting on Jorge for this project. */
+  /** Decisions in the inbox waiting on the owner for this project. */
   waiting: number;
   /** Initiatives On hold. */
   onHold: number;
@@ -173,50 +233,54 @@ export type Tile = {
 };
 
 /** The one line a tile says next: the initiative's next_action note the server already chose, else the next ticket. */
-export function nextLine(p: Pick<HomeProject, "line" | "next_line" | "next_claimable" | "readiness">): { key: string | null; text: string } {
-  if (p.readiness?.state === "no_context") return { key: null, text: "nada en cola" };
+export function nextLine(p: Pick<HomeProject, "line" | "next_line" | "next_claimable" | "readiness">, language: Language = getLanguage()): { key: string | null; text: string } {
+  const nothing = words(HOME_WORDS, language).nothingQueued;
+  if (p.readiness?.state === "no_context") return { key: null, text: nothing };
   const line = p.next_line ?? p.line;
   const noted = line.match(/^([A-Z][A-Z0-9]*-[A-Z0-9-]+): (.+)$/s);
   if (noted) return { key: noted[1]!, text: noted[2]!.split("\n")[0]!.trim() };
   const next = line.match(/^Siguiente: (\S+) · (.+)$/s);
   if (next) return { key: next[1]!, text: next[2]!.trim() };
   if (p.next_claimable) return { key: p.next_claimable.key, text: p.next_claimable.title };
-  if (line.startsWith("En curso:") || !line.trim()) return { key: null, text: "nada en cola" };
+  if (line.startsWith("En curso:") || !line.trim()) return { key: null, text: nothing };
   return { key: null, text: line };
 }
 
-export function envLine(envs: EnvSummary[], nowMs = Date.now()): string {
+export function envLine(envs: EnvSummary[], nowMs = Date.now(), language: Language = getLanguage()): string {
+  const w = words(HOME_WORDS, language);
   const env = envs.find((e) => e.env === "prod") ?? envs[0];
-  if (!env) return "sin entornos registrados";
+  if (!env) return w.noEnvs;
   const parts = [`${env.env} ${env.commit ? env.commit.slice(0, 7) : "?"}`];
-  if (env.deployed_at) parts.push(ago(env.deployed_at, nowMs));
-  if (env.behind > 0) parts.push(`${env.behind} ${env.behind === 1 ? "rama" : "ramas"} adelante`);
-  if (env.flags.db_ahead_of_code) parts.push("DB adelante del código");
+  if (env.deployed_at) parts.push(ago(env.deployed_at, nowMs, language));
+  if (env.behind > 0) parts.push(w.branchesAhead(env.behind));
+  if (env.flags.db_ahead_of_code) parts.push(w.dbAhead);
   return parts.join(" · ");
 }
 
 /** The tile's deploy line, without commit hashes: when prod last got code, and what it still lacks. */
-export function deployOf(envs: EnvSummary[], nowMs = Date.now()): Tile["deploy"] {
+export function deployOf(envs: EnvSummary[], nowMs = Date.now(), language: Language = getLanguage()): Tile["deploy"] {
+  const w = words(HOME_WORDS, language);
   const env = envs.find((e) => e.env === "prod") ?? envs[0];
-  if (!env) return { text: "Sin entorno registrado", lag: null };
-  const where = env.env === "prod" ? "" : ` en ${env.env}`;
-  const text = env.deployed_at ? `Publicado${where} ${ago(env.deployed_at, nowMs)}` : `Sin fecha de publicación${where}`;
+  if (!env) return { text: w.noEnv, lag: null };
+  const where = env.env === "prod" ? "" : w.onEnv(env.env);
+  const text = env.deployed_at ? w.published(where, ago(env.deployed_at, nowMs, language)) : w.noPublishDate(where);
   const lag: string[] = [];
-  if (env.behind > 0) lag.push(`${plural(env.behind, "cambio", "cambios")} sin publicar`);
-  if (env.flags.db_ahead_of_code) lag.push("la base va adelante del código");
+  if (env.behind > 0) lag.push(w.unpublished(env.behind));
+  if (env.flags.db_ahead_of_code) lag.push(w.baseAhead);
   return { text, lag: lag.length ? lag.join(" · ") : null };
 }
 
-export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Tile {
+export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now(), language: Language = getLanguage()): Tile {
+  const word = words(HOME_WORDS, language).state;
   const lanes = buildLanes(p.tasks);
   // En marcha means someone is on it now: a live claim, or a PR open for review. Merged or Released
   // with nobody on it is waiting to be closed, not moving.
   const moving = p.tasks.some((t) => t.kind === "ticket" && (t.claimed_by || t.status === "In review"));
   const state =
-    moving ? { word: "en marcha", tone: "now" as Tone, rank: 0 }
-    : waiting > 0 ? { word: "te espera", tone: "jorge" as Tone, rank: 1 }
-    : lanes.length > 0 ? { word: "quieto", tone: "pending" as Tone, rank: 2 }
-    : { word: "en pausa", tone: "pending" as Tone, rank: 3 };
+    moving ? { word: word.moving, tone: "now" as Tone, rank: 0 }
+    : waiting > 0 ? { word: word.waiting, tone: "owner" as Tone, rank: 1 }
+    : lanes.length > 0 ? { word: word.quiet, tone: "pending" as Tone, rank: 2 }
+    : { word: word.paused, tone: "pending" as Tone, rank: 3 };
   const inits = p.tasks.filter((t) => t.kind === "initiative");
   const progress = projectProgress(p.tasks);
   return {
@@ -232,22 +296,22 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
     waiting,
     onHold: inits.filter((t) => t.status === "On hold").length,
     orden: p.audit_count ?? 0,
-    deploy: deployOf(p.envs, nowMs),
+    deploy: deployOf(p.envs, nowMs, language),
   };
 }
 
-// ---- La Mac: servers en uso
+// ---- La máquina: servers en uso
 
 export type LiveServer = { port: string; owner: string; slug: string | null; up: string };
 
-export function liveServersOf(items: Server[], nowMs = Date.now()): LiveServer[] {
+export function liveServersOf(items: Server[], nowMs = Date.now(), language: Language = getLanguage()): LiveServer[] {
   return items
     .filter((it) => it.kind === "server" && it.state === "live")
     .map((it) => ({
       port: portOf(it),
-      owner: it.project ?? it.repo ?? "sistema",
+      owner: it.project ?? it.repo ?? words(HOME_WORDS, language).system,
       slug: it.project,
-      up: it.first_seen_at ? span(it.first_seen_at, nowMs) : "",
+      up: it.first_seen_at ? span(it.first_seen_at, nowMs, language) : "",
     }))
     .sort((a, b) => a.owner.localeCompare(b.owner) || a.port.localeCompare(b.port, undefined, { numeric: true }));
 }

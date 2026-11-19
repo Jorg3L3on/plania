@@ -1,8 +1,16 @@
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+import { LOCALE } from "./locale.js";
 // 2.10: dates on screen. due_on is a calendar day (YYYY-MM-DD); time_after an instant. Both read in
 // the browser's time zone. Closed or merged work is never overdue.
+// PLA-I2-10: the words are in DUE_WORDS, in both languages.
 
-const DAY = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
-const DAY_YEAR = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", year: "numeric" });
+export const DUE_WORDS = defineWords({
+  es: { due: (day: string) => `vence ${day}`, overdue: (day: string) => `venció ${day}` },
+  en: { due: (day: string) => `due ${day}`, overdue: (day: string) => `was due ${day}` },
+});
+
+const DAY = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" });
+const DAY_YEAR = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 const NOT_DUE = ["Done", "Won't do", "Merged", "Released"];
 
 /** The browser's today as YYYY-MM-DD. */
@@ -26,9 +34,10 @@ export function isOverdue(t: { due_on?: string | null; status: string }, nowMs =
 }
 
 /** "vence 24 oct", or null when the task has no due date or is closed. */
-export function dueText(t: { due_on?: string | null; status: string }, nowMs = Date.now()): string | null {
+export function dueText(t: { due_on?: string | null; status: string }, nowMs = Date.now(), language: Language = getLanguage()): string | null {
   if (!t.due_on || NOT_DUE.includes(t.status)) return null;
-  return `${isOverdue(t, nowMs) ? "venció" : "vence"} ${dayText(t.due_on, nowMs)}`;
+  const w = words(DUE_WORDS, language);
+  return (isOverdue(t, nowMs) ? w.overdue : w.due)(dayText(t.due_on, nowMs));
 }
 
 export type Upcoming = { key: string; title: string; on: string; kind: "due" | "time_after" };

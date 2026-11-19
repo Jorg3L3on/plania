@@ -9,6 +9,7 @@ import { ToolError } from "./errors.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx } from "./tx.js";
 import { weekBounds, weekUsage } from "../runner/limits.js";
+import { screenTz } from "../locale.js";
 
 // PLA-I25: agents report how many tokens a task run used. Plania sums them per agent,
 // project and week and shows the word «reportado». The numbers are not a cap.
@@ -83,9 +84,6 @@ function parseAt(value: string | undefined): Date {
   return at;
 }
 
-function screenTz(): string {
-  return process.env.PLANIA_TZ || "America/Mexico_City";
-}
 
 // Same project, agent, task and run replaces the previous counts. A new run_id adds a row.
 export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): Promise<ReportTokensResult> {

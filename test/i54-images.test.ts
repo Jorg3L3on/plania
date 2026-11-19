@@ -222,7 +222,7 @@ test("I54-2 #4: the prompt lists the pictures' absolute paths, and says nothing 
     sessionId: "run-1",
   };
   const withPics = runner.userPrompt({ ...base, images: ["/Users/x/plania-captures/pedidos/micasa/aa.png", "/Users/x/plania-captures/pedidos/micasa/bb.jpg"] });
-  assert.match(withPics, /Pictures Jorge attached to this request \(open each one with the Read tool before you answer\):\n- \/Users\/x\/plania-captures\/pedidos\/micasa\/aa\.png\n- \/Users\/x\/plania-captures\/pedidos\/micasa\/bb\.jpg/);
+  assert.match(withPics, /Pictures the owner attached to this request \(open each one with the Read tool before you answer\):\n- \/Users\/x\/plania-captures\/pedidos\/micasa\/aa\.png\n- \/Users\/x\/plania-captures\/pedidos\/micasa\/bb\.jpg/);
   assert.doesNotMatch(runner.userPrompt(base), /Pictures/);
   assert.doesNotMatch(runner.userPrompt({ ...base, images: [] }), /Pictures/);
 });
@@ -315,7 +315,7 @@ test("I54-2 #4: a run on a task with pictures gets their paths in its prompt; a 
   runner.resetRunnerForTests();
   const g = fakes();
   assert.equal((await wakeAgent(db, { agent: "taller", taskKey: "RUN-NOPIC", now: new Date() }, { runner: g.deps as never })).reason, "ok");
-  assert.doesNotMatch(g.spawned[0]!.prompt, /Pictures Jorge attached/);
+  assert.doesNotMatch(g.spawned[0]!.prompt, /Pictures the owner attached/);
   g.spawned[0]!.child.exit(0);
   await runner.waitForAllRuns();
 });

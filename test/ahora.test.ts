@@ -260,8 +260,8 @@ describe("bloqueadoOf", () => {
       initiatives: [{
         key: "ALF-I1",
         waiting_on: [
-          { key: "ALF-1", on: "Jorge: una pregunta" },
-          { key: "ALF-2", on: "Jorge: aprobar done" },
+          { key: "ALF-1", on: "Owner: una pregunta" },
+          { key: "ALF-2", on: "Owner: aprobar done" },
           { key: "ALF-3", on: "beta migration_gte 4" },
           { key: "ALF-4", on: "ALF-9 (In review)" },
         ],
@@ -450,7 +450,9 @@ describe("ideas on Ahora", () => {
     const parts = readFileSync(new URL("../ui/src/components/plan/project-parts.tsx", import.meta.url), "utf8");
     assert.match(parts, /ideaFinished/);
     assert.match(parts, /useState\(false\)/);
-    assert.match(parts, /Mostrar terminadas \(\$\{finished\.length\}\)/);
+    // PLA-I2-10: the words live in lib/plan-words.ts.
+    assert.match(parts, /showFinished\(finished\.length\)/);
+    assert.match(readFileSync(new URL("../ui/src/lib/plan-words.ts", import.meta.url), "utf8"), /Mostrar terminadas \(\$\{n\}\)/);
     assert.equal(/localStorage|sessionStorage/.test(parts), false);
   });
 

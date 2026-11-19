@@ -22,6 +22,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { resolveClaudeBin } from "../src/lib/claude-bin.js";
 import { denySettings } from "../src/runner/deny.js";
 import { childEnv } from "../src/runner/process.js";
 import { defaultGit, expandHome, type GitFn } from "../src/runner/worktree.js";
@@ -101,8 +102,8 @@ export function promptOf(c: ReplayCase): string {
   return `# ${c.title}\n\n${c.scope.trim()}${checks}\n\nWork only in this folder. Make the change and run the project's own checks before you stop. Do not push, open a pull request or write outside this folder.`;
 }
 
-// The runner's rule (claudeCommand in src/runner/runner.ts): CLAUDE_CODE_BIN, else ~/.local/bin/claude.
-export const claudeBin = (env: NodeJS.ProcessEnv): string => env.CLAUDE_CODE_BIN?.trim() || path.join(env.HOME || homedir(), ".local", "bin", "claude");
+// The runner's rule (src/lib/claude-bin.ts): CLAUDE_CODE_BIN, ~/.local/bin/claude, then claude on PATH.
+export const claudeBin = (env: NodeJS.ProcessEnv): string => resolveClaudeBin(env);
 
 // A script given as the binary (the tests' fake) is started with node, so it also runs where a shebang does not.
 const launch = (bin: string, args: string[]): [string, string[]] => (/\.[cm]?js$/.test(bin) ? [process.execPath, [bin, ...args]] : [bin, args]);
@@ -115,7 +116,8 @@ export function claudeArgs(input: { prompt: string; settingsPath: string; mcpCon
   return args;
 }
 
-// The run's env: the caller's, minus the Anthropic API keys (childEnv) and everything that opens Plania.
+// The run's env: the run allow-list (childEnv, PLA-I2-13: Claude's own sign-in kept, Plania's secrets dropped),
+// and to be sure, nothing that opens Plania.
 export function replayEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out = childEnv(base);
   for (const k of Object.keys(out)) if (/^(PLANIA_|MCP_|DATABASE_URL$|SESSION_SECRET$|GITHUB_TOKEN$|GH_TOKEN$)/.test(k)) delete out[k];

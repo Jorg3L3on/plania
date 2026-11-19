@@ -142,7 +142,7 @@ function ficha(d: Json) {
   qc.setQueryData(["idea", "mianovia", d.key], d);
   return renderToStaticMarkup(h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(fichaMod.Ficha, { p: proj, k: d.key, now: Date.parse("2026-11-17T22:00:00Z"), timeZone: "America/Mexico_City", acts, decisions: [], links, onClose: () => undefined }))));
 }
-const stopRow = (stop: string, i: number, here: number, over: Json = {}) => ({ stop, state: i < here ? "done" : i === here ? "here" : "todo", by: i === 0 ? "jorge" : "product-owner", at: "2026-11-17T21:00:00Z", delivered: i < here || (i === here && i < 5) || i === 0, doc: null, seen: true, answer: null, ...over });
+const stopRow = (stop: string, i: number, here: number, over: Json = {}) => ({ stop, state: i < here ? "done" : i === here ? "here" : "todo", by: i === 0 ? "owner" : "product-owner", at: "2026-11-17T21:00:00Z", delivered: i < here || (i === here && i < 5) || i === 0, doc: null, seen: true, answer: null, ...over });
 const detail = (stop: string, over: Json = {}): Json => {
   const here = STOPS.indexOf(stop);
   return {

@@ -50,7 +50,7 @@ export type ProjectFacts = {
 };
 
 export type CompanyExtras = {
-  // The route only answers Jorge's cookie, so this is always true there. The sheets take it as a prop and
+  // The route only answers the owner's cookie, so this is always true there. The sheets take it as a prop and
   // hide Cambiar and Mover guardia when it is false.
   viewer: { can_edit_limits: boolean };
   prompts: Record<RunnerRole, PromptRef | null>;
@@ -164,7 +164,7 @@ export async function companyExtras(db: Db, now = new Date()): Promise<CompanyEx
     db,
     sql`select p.slug,
           count(*) filter (where t.kind = 'ticket' and t.status in ('In progress', 'In review'))::int as in_flight,
-          count(*) filter (where t.kind = 'ticket' and t.status in ('Blocked', 'Needs Jorge'))::int as blocked,
+          count(*) filter (where t.kind = 'ticket' and t.status in ('Blocked', 'Needs owner'))::int as blocked,
           max(t.updated_at) as last_move_at
         from projects p left join tasks t on t.project_id = p.id group by p.slug`,
   );
@@ -228,8 +228,8 @@ export async function projectSheet(db: Db, slug: string): Promise<ProjectSheet> 
   );
   const blocked = await rows(
     db,
-    sql`select t.key, t.title, t.status, coalesce(nullif(t.blocked_note, ''), case when t.status = 'Needs Jorge' then 'te espera a ti' else 'bloqueado' end) as why
-        from tasks t where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('Blocked', 'Needs Jorge') order by t.updated_at desc limit 6`,
+    sql`select t.key, t.title, t.status, coalesce(nullif(t.blocked_note, ''), case when t.status = 'Needs owner' then 'te espera a ti' else 'bloqueado' end) as why
+        from tasks t where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('Blocked', 'Needs owner') order by t.updated_at desc limit 6`,
   );
   const next = await rows(
     db,

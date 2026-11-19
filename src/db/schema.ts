@@ -36,7 +36,7 @@ export const projects = pgTable("projects", {
   version: integer("version").notNull().default(1),
   // Bumped when rules_text changes, so agents can tell they hold an old copy.
   rulesVersion: integer("rules_version").notNull().default(1),
-  // v2.1: the project's key prefix (FIL for filmia). Keys are PREFIX-I<n> (initiatives),
+  // v2.1: the project's key prefix (TND for tienda). Keys are PREFIX-I<n> (initiatives),
   // PREFIX-<n> (standalone tickets) and <initiative key>-<n> (phases); see src/mcp/keys.ts.
   keyPrefix: text("key_prefix").notNull().default(""),
   // v2.1: one human-readable line about where the project stands (set_project headline, ≤ 280 chars).
@@ -49,7 +49,7 @@ export const projects = pgTable("projects", {
   // v2.2: per-project settings as data: release_target (env), branch_pattern (regex), claim_from
   // (backlog|ready), resources and quotas policies, github and vercel integration config.
   settings: jsonb("settings").$type<ProjectSettings>().notNull().default({}),
-  // PLA-I29: the project kill switch. A new project starts paused; only Jorge resumes it, on screen.
+  // PLA-I29: the project kill switch. A new project starts paused; only the owner resumes it, on screen.
   runsPaused: boolean("runs_paused").notNull().default(true),
   runsPausedAt: timestamp("runs_paused_at", { withTimezone: true }),
   ...timestamps,
@@ -169,7 +169,7 @@ export const tasks = pgTable(
     status: text("status").notNull(),
     priority: text("priority"), // tickets only: P0|P1|P2|P3
     workType: text("work_type"), // tickets only: code|ops|research|decision-needed
-    origin: text("origin"), // tickets only: chartered|discovered|jorge (2.12: Jorge asked for it on screen)
+    origin: text("origin"), // tickets only: chartered|discovered|owner (2.12: the owner asked for it on screen)
     baseBranch: text("base_branch"), // initiatives only
     // Initiatives only: their part of the generated resume. Claims and next_claimable are derived.
     inProgressNote: text("in_progress_note").notNull().default(""),
@@ -185,6 +185,9 @@ export const tasks = pgTable(
     introducedBy: text("introduced_by"), // bugs: a key or a sha
     regression: boolean("regression"),
     costNote: text("cost_note"), // debt: what it costs while it stays
+    // PLA-I2-10 (0066): the words the owner typed for an order or an idea, kept as written. Null on agents' tickets
+    // and on orders made before 0066 (orderText falls back to their scope line).
+    ownerWords: text("owner_words"),
     // Bumped by every field change; appends (notes, results, checks) leave it alone.
     version: integer("version").notNull().default(1),
     // Lease: who is working on it and until when. An expired lease is free to claim and is cleared
@@ -287,7 +290,7 @@ export const docs = pgTable(
   ],
 );
 
-// v2: questions for Jorge. ask moves a ticket to Needs Jorge; the answer comes back as a decision
+// v2: questions for the owner. ask moves a ticket to Needs owner; the answer comes back as a decision
 // tied to the task, so another machine's session finds it instead of asking again.
 export const questions = pgTable(
   "questions",
@@ -308,7 +311,7 @@ export const questions = pgTable(
     answeredBy: jsonb("answered_by").$type<Actor>(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
-    // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
+    // 2.8: other task keys this question holds up, and how soon the owner is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
     humanOnly: boolean("human_only").notNull().default(false),
@@ -334,7 +337,7 @@ export const delegatedAnswers = pgTable(
     quote: text("quote").notNull(),
     actor: jsonb("actor").$type<Actor>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    // PLA-06: Jorge saw it on the Bandeja. The row stays; it leaves the list and the audit.
+    // PLA-06: the owner saw it on the Bandeja. The row stays; it leaves the list and the audit.
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   },
   (t) => [
@@ -686,7 +689,7 @@ export const pollState = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.source] })],
 );
 
-// 2.9: state of jobs that belong to the Mac, not to a project (the nightly backup), one row per key.
+// 2.9: state of jobs that belong to the machine, not to a project (the nightly backup), one row per key.
 export const machineState = pgTable("machine_state", {
   key: text("key").primaryKey(), // backup
   value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
@@ -757,7 +760,7 @@ export type Actor = { agent: string; session_id: string; machine?: string; model
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
 
 // A claim handed to another session (or anyone) with what is done and what is next.
-// footprint: what the ticket still has running on the Mac (register_footprint / the machine job), so the receiver knows.
+// footprint: what the ticket still has running on the machine (register_footprint / the machine job), so the receiver knows.
 export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string; footprint?: Record<string, unknown>[] };
 
 // Where an environment's deployed_at came from.
@@ -766,7 +769,9 @@ export type DeploySource = { provider: string; deployment_id: string; url?: stri
 // projects.settings (set_project settings, merged). Secrets never: integrations name env vars.
 // PLA-I60: the project's run limits, set in Motores. Missing keys are the defaults (1, 1, 1, true).
 // PLA-58: shared_areas, the paths no single ticket owns (default src/runner/touched.ts DEFAULT_SHARED_AREAS).
-export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean; shared_areas?: string[] };
+export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean; shared_areas?: string[];
+  // PLA-I2-13: names of server variables this project's runs also get (src/runner/run-env.ts). Never Plania's own.
+  env?: string[] };
 
 export type ProjectSettings = {
   // PLA-I60: «Agentes a la vez», «Preguntas a la vez», «Por agente» (Motores) and same-files serialization.
@@ -784,14 +789,19 @@ export type ProjectSettings = {
   quotas?: Record<string, { daily: number }>;
   github?: { repo: string; token_env?: string };
   vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string> };
-  // Where the project's repo lives on the Mac the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
+  // Where the project's repo lives on the machine the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
   // NEWPROJ-3: no_code says on purpose that the project has no code yet (never together with repo_path).
   local?: { repo_path?: string; no_code?: boolean };
-  // 2.10: the release step only Jorge takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
+  // PLA-I2-5: the branch every worktree is cut from and the only one Aceptar merges into. Default "sandbox"; never
+  // main, master, production or prod. Read it through startBranchOf (src/runner/start-branch.ts).
+  start_branch?: string;
+  // 2.10: the release step only the owner takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
   release?: ReleaseSettings;
+  // PLA-I2-3: where the project sits in lists; lower first, then by slug. Colour and mark come from the slug.
+  identity?: { order?: number };
   // PLA-I21: how long since a check-in counts as idle. A live claim past this is stuck. Default 120.
   team?: { idle_minutes?: number };
-  // PLA-I36-6: the Ready ticket Jorge picked to go first (Cambiar lo siguiente); ignored once it leaves Ready.
+  // PLA-I36-6: the Ready ticket the owner picked to go first (Cambiar lo siguiente); ignored once it leaves Ready.
   next_first?: string;
   // PLA-I36-8: a PO's plan waits for "Sí, empiecen" before any ticket is made. On for a new project.
   plan_approval?: boolean;
@@ -810,7 +820,7 @@ export type ProjectSettings = {
   maquinas?: import("../maquinas/env.js").MaquinasSettings;
 };
 
-// 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
+// 2.13: mode "command" (default) shows the command the owner runs; "merge" lets him ship from the screen
 // (a PR from → into merged with gh pr merge --merge, POST /api/projects/:slug/release/ship).
 export type ReleaseSettings = { from: string; into: string; env: string; mode?: "command" | "merge" };
 
@@ -917,11 +927,11 @@ export const goals = pgTable(
 export type Goal = typeof goals.$inferSelect;
 
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
-export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
+export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs owner", "Done", "Won't do"] as const;
 export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
-// What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
+export const ORIGINS = ["chartered", "discovered", "owner"] as const;
+// What an agent may pass to create_task; "owner" is the screen's alone (POST /api/projects/:slug/tasks).
 export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
 export const KINDS = ["initiative", "ticket", "idea"] as const;
 
@@ -1031,7 +1041,7 @@ export const heartbeatRuns = pgTable(
 
 export type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
 
-// PLA-I29: the autonomous runner. One settings row (company switch and the knobs only Jorge moves),
+// PLA-I29: the autonomous runner. One settings row (company switch and the knobs only the owner moves),
 // the run queue and live runs (PLA-21: no token budgets), the claude session per agent and project,
 // and plan-window readings. Migration 0039.
 export const runnerSettings = pgTable(
@@ -1224,8 +1234,8 @@ export const planReadings = pgTable(
 
 export type PlanReading = typeof planReadings.$inferSelect;
 
-// PLA-I32: conversations. One company thread (Jorge and Asistente) and one per project (Jorge and its PO;
-// the team answers there too). Messages link what they talk about and keep the action Jorge took.
+// PLA-I32: conversations. One company thread (the owner and Asistente) and one per project (the owner and its PO;
+// the team answers there too). Messages link what they talk about and keep the action the owner took.
 export const THREAD_KINDS = ["company", "project"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
 export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question", "brief_plan"] as const;
@@ -1271,7 +1281,7 @@ export const threads = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     kind: text("kind").notNull(),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
-    // When Jorge last read it on screen; later messages that are not his are unread.
+    // When the owner last read it on screen; later messages that are not his are unread.
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1360,7 +1370,7 @@ export const captureStills = pgTable(
 );
 export type CaptureStill = typeof captureStills.$inferSelect;
 
-// PLA-I54-2: pictures Jorge attaches to a request (pasted, dropped or picked on Pedir). Migration 0056. The file lives
+// PLA-I54-2: pictures the owner attaches to a request (pasted, dropped or picked on Pedir). Migration 0056. The file lives
 // in the local store under <captures dir>/pedidos/<project>/, named by its sha256 (src/pedidos/images.ts); Plania keeps
 // the row. The same picture twice on one request is one row; at most 6 per request (checked on upload).
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
@@ -1693,3 +1703,32 @@ export const consultas = pgTable(
   (t) => [index("consultas_project_idx").on(t.projectId, t.askedAt), check("consultas_text_check", sql`char_length(${t.text}) between 3 and 2000`)],
 );
 export type Consulta = typeof consultas.$inferSelect;
+
+// PLA-I2-14: the owner's display name, one row (id 1). Migration 0062. Null = the brief's owner_name, then
+// PLANIA_CEO_NAME, then «el dueño». Written at first start through setOwnerName (src/owner.ts).
+export const ownerProfile = pgTable(
+  "owner_profile",
+  {
+    id: integer("id").primaryKey().default(1),
+    displayName: text("display_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("owner_profile_singleton", sql`${t.id} = 1`), check("owner_profile_name_check", sql`${t.displayName} is null or char_length(${t.displayName}) between 1 and 80`)],
+);
+
+// PLA-I2-2: what the install command and the first-start screen made (migration 0063). One row, id 1.
+export const installState = pgTable(
+  "install_state",
+  {
+    id: integer("id").primaryKey().default(1),
+    setupCodeHash: text("setup_code_hash"),
+    setupCodeAt: timestamp("setup_code_at", { withTimezone: true }),
+    passwordHash: text("password_hash"),
+    runnerToken: text("runner_token"),
+    briefToken: text("brief_token"),
+    timeZone: text("time_zone"),
+    firstStartAt: timestamp("first_start_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("install_state_singleton", sql`${t.id} = 1`)],
+);

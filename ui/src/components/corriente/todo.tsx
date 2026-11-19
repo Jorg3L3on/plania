@@ -6,14 +6,18 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
-import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
+import { cosasOf, grupoName, tipoName, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
 import { cuentaAria, cuentasOf, filtrar, tokensLabel, tokensTitle, type Filtro } from "@/lib/fila";
 import { Hilo, HiloHead } from "./hilo";
 import { ladoFits } from "./lado";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
+import { LOCALE } from "@/lib/locale";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { TODO_WORDS } from "@/lib/todo-words";
 import { TramosBoton, TramosHoja } from "./tramos";
-import { REANUDAR_LINE, pulsoLabel, pulsoLine, reanudarLabel, type MetaLine } from "@/lib/barra";
+import { tramoWords } from "@/lib/tramo";
+import { pulsoLabel, reanudarLine, pulsoLine, reanudarLabel, type MetaLine } from "@/lib/barra";
 
 export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
@@ -63,12 +67,13 @@ export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD
 }
 
 /** The words beside a group's name when it shows no rows (empty, or folded whole). */
-export function groupLine(g: Exclude<Grupo, "hecho">, n: number, paused: boolean): string {
-  if (n === 0) return { toca: "Nada te espera.", mueve: "Nadie trabaja ahora.", fila: "Nada espera turno.", quieto: "Nada está quieto." }[g];
-  if (g === "toca") return n === 1 ? "una cosa te espera" : `${n} cosas te esperan`;
-  if (g === "mueve") return n === 1 ? "alguien trabaja ahora" : "trabajan ahora";
-  if (g === "fila") return paused ? "en pausa: arrancan solas cuando reanudes" : "arrancan solas o están en revisión; no te necesitan";
-  return "no se mueven solas; cada una dice qué espera";
+export function groupLine(g: Exclude<Grupo, "hecho">, n: number, paused: boolean, language: Language = getLanguage()): string {
+  const w = words(TODO_WORDS, language);
+  if (n === 0) return w.emptyLine[g];
+  if (g === "toca") return w.tocaLine(n);
+  if (g === "mueve") return w.mueveLine(n);
+  if (g === "fila") return paused ? w.filaPaused : w.filaLive;
+  return w.quietoLine;
 }
 
 // PLA-I3-3: an initiative's token line under its name: one figure, violet with a dot while one of its steps is live.
@@ -101,7 +106,7 @@ const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?:
     <li className={cls("cor-cosa", toca && "you", c.grupo === "mueve" && "liv")} data-cosa={c.key} data-grupo={c.grupo}>
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
         <span className="cor-cosa-ids">
-          <Label tone={toca ? "amber" : undefined}>{TIPO_NAME[c.tipo]}</Label>
+          <Label tone={toca ? "amber" : undefined}>{tipoName(c.tipo)}</Label>
           {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
         <b className="cor-cosa-t" title={c.title}>
@@ -109,7 +114,7 @@ const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?:
         </b>
         <TokensLine c={c} />
       </Link>
-      <Hilo h={c.hilo} onOpen={onOpen} label={`Pasos de «${c.title}»`} openKey={lado ? lado.open : undefined} />
+      <Hilo h={c.hilo} onOpen={onOpen} label={tramoWords().stepsOf(c.title)} openKey={lado ? lado.open : undefined} />
       {control && <TramosBoton c={c} open={tramos!.open === c.key} onOpen={() => tramos!.onOpen(c.key)} />}
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
@@ -129,15 +134,15 @@ const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?:
 export const Cuentas = ({ cosas, filtro, onFiltro, hechoHref }: { cosas: Cosas; filtro: Filtro; onFiltro: (f: Filtro) => void; hechoHref: string }) => {
   const { cuentas, hecho } = cuentasOf(cosas);
   return (
-    <div className="cor-cuentas" role="group" aria-label="Filtrar la lista" data-cuentas>
+    <div className="cor-cuentas" role="group" aria-label={words(TODO_WORDS).filterList} data-cuentas>
       {cuentas.map((k) => (
         <button key={k.id} type="button" className={cls("cor-cuenta", k.id === "toca" && k.n > 0 && "you")} aria-pressed={filtro === k.id} aria-label={cuentaAria(k)} onClick={() => onFiltro(k.id)} data-control={`filtro-${k.id}`}>
           <span className="cor-label">{k.label}</span>
           <b className="cor-cuenta-n">{k.n}</b>
         </button>
       ))}
-      <Link className="cor-cuenta hecho" to={hechoHref} aria-label={`Hecho: ${hecho}. Ver todo lo hecho`} data-control="filtro-hecho">
-        <span className="cor-label">Hecho</span>
+      <Link className="cor-cuenta hecho" to={hechoHref} aria-label={words(TODO_WORDS).doneAria(hecho)} data-control="filtro-hecho">
+        <span className="cor-label">{grupoName("hecho")}</span>
         <b className="cor-cuenta-n">{hecho}</b>
         <span className="cor-cuenta-go" aria-hidden>
           →
@@ -147,7 +152,7 @@ export const Cuentas = ({ cosas, filtro, onFiltro, hechoHref }: { cosas: Cosas; 
   );
 };
 
-const dayOf = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
+const dayOf = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
 
 const HechaRow = ({ h, links, timeZone }: { h: Hecha; links: TodoLinks; timeZone?: string }) => (
   <li className="cor-cosa sm" data-hecha={h.key}>
@@ -157,7 +162,7 @@ const HechaRow = ({ h, links, timeZone }: { h: Hecha; links: TodoLinks; timeZone
     </Link>
     <Hilo h={{ idea: h.idea_key ? 5 : null, ideaTono: h.idea_key ? "hecho" : null, valvula: "abierta", tramos: [{ key: h.key, title: h.title, etapa: "hecho", tono: "hecho" }], publicado: true, at: "publicado" }} small />
     <div className="cor-cosa-que">
-      <span className="cor-cap">{["Hecho", dayOf(h.done_at, timeZone), h.idea_key ? `Era ${h.idea_key}` : null].filter(Boolean).join(" · ").toUpperCase()}</span>
+      <span className="cor-cap">{[grupoName("hecho"), dayOf(h.done_at, timeZone), h.idea_key ? words(TODO_WORDS).doneOn(h.idea_key) : null].filter(Boolean).join(" · ").toUpperCase()}</span>
     </div>
   </li>
 );
@@ -187,6 +192,7 @@ export const TodoList = ({
   /** PLA-I64-5: the empty project's «Arma el plan» (null: not offered, e.g. a plan is already asked for). */
   plan?: ReactNode;
 }) => {
+  const w = words(TODO_WORDS);
   const [open, setOpen] = useState<Set<Grupo>>(new Set());
   // PLA-I3-3: the count pressed above the list; a group's count shows that group whole.
   const [filtro, setFiltro] = useState<Filtro>("todo");
@@ -245,27 +251,27 @@ export const TodoList = ({
     return (
       <div className="cor-todo-list" ref={ref} data-todo={p.slug} data-abiertas={0} data-vacio>
         <div className="cor-cosa-head" aria-hidden>
-          <span className="cor-label">Cada cosa</span>
+          <span className="cor-label">{w.eachThing}</span>
           <HiloHead />
-          <span className="cor-label">Qué toca</span>
+          <span className="cor-label">{w.whatsNext}</span>
         </div>
         <div className="cor-cosa ghost" data-fantasma>
           <div className="cor-cosa-nm">
-            <span className="cor-label">Así se verá</span>
-            <b className="cor-muted">Lo primero que pidas</b>
+            <span className="cor-label">{w.ghostLabel}</span>
+            <b className="cor-muted">{w.ghostTitle}</b>
           </div>
           <Hilo h={{ idea: 0, ideaTono: "quieto", valvula: "cerrada", tramos: [], publicado: false, at: "buzon" }} />
           <div className="cor-cosa-que">
             <span className="cor-cosa-tx">
-              <span className="cor-label">Aquí dirá qué toca</span>
-              <span className="cor-cosa-espera">Quién la tiene, qué espera y, si te toca a ti, el botón para decidir.</span>
+              <span className="cor-label">{w.ghostNext}</span>
+              <span className="cor-cosa-espera">{w.ghostWait}</span>
             </span>
           </div>
         </div>
         {cuentas}
         {plan && (
           <div className="cor-vacio-plan">
-            <p className="cor-text">¿Prefieres que el PO proponga por dónde empezar? Arma el plan del proyecto: los entregables y los pasos de cada uno.</p>
+            <p className="cor-text">{w.planNudge}</p>
             {plan}
           </div>
         )}
@@ -274,9 +280,9 @@ export const TodoList = ({
   return (
     <div className="cor-todo-list" ref={ref} data-todo={p.slug} data-abiertas={cosas.abiertas}>
       <div className="cor-cosa-head" aria-hidden>
-        <span className="cor-label">Cada cosa</span>
+        <span className="cor-label">{w.eachThing}</span>
         <HiloHead />
-        <span className="cor-label">Qué toca</span>
+        <span className="cor-label">{w.whatsNext}</span>
       </div>
       {cuentas}
       {grupos.map((g) => {
@@ -284,13 +290,13 @@ export const TodoList = ({
         const k = shown[g.grupo];
         const more = n - k;
         return (
-          <section key={g.grupo} aria-label={GRUPO_NAME[g.grupo]} data-grupo={g.grupo}>
+          <section key={g.grupo} aria-label={grupoName(g.grupo)} data-grupo={g.grupo}>
             <div className="cor-grp">
-              <h2 className={cls("cor-label", g.grupo === "toca" && n > 0 && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
+              <h2 className={cls("cor-label", g.grupo === "toca" && n > 0 && "amber")}>{`${grupoName(g.grupo)} · ${n}`}</h2>
               <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>
               {filtro === "todo" && (more > 0 || open.has(g.grupo)) && (
                 <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has(g.grupo)} onClick={() => toggle(g.grupo)} data-control={`ver-${g.grupo}`}>
-                  {open.has(g.grupo) ? "Ver menos" : k === 0 ? (n === 1 ? "Verla" : `Ver las ${n}`) : more === 1 ? "Ver la otra" : `Ver las otras ${more}`}
+                  {open.has(g.grupo) ? w.seeLess : k === 0 ? (n === 1 ? w.seeIt : w.seeAll(n)) : more === 1 ? w.seeOther : w.seeOthers(more)}
                 </button>
               )}
             </div>
@@ -305,11 +311,11 @@ export const TodoList = ({
         );
       })}
       {(hecho.iniciativas.length > 0 || hecho.sueltos > 0) && (
-        <section aria-label="Hecho" data-grupo="hecho">
+        <section aria-label={grupoName("hecho")} data-grupo="hecho">
           <div className="cor-grp">
-            <h2 className="cor-label green">{["Hecho", hecho.iniciativas.length ? `${hecho.iniciativas.length} ${hecho.iniciativas.length === 1 ? "iniciativa" : "iniciativas"}` : null, hecho.sueltos ? `${hecho.sueltos} ${hecho.sueltos === 1 ? "paso suelto" : "pasos sueltos"}` : null].filter(Boolean).join(" · ")}</h2>
+            <h2 className="cor-label green">{[grupoName("hecho"), hecho.iniciativas.length ? w.initiatives(hecho.iniciativas.length) : null, hecho.sueltos ? w.looseSteps(hecho.sueltos) : null].filter(Boolean).join(" · ")}</h2>
             <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
-              Ver todo lo hecho
+              {w.seeAllDone}
             </Link>
           </div>
           {hechoRows.length > 0 && (
@@ -322,12 +328,12 @@ export const TodoList = ({
         </section>
       )}
       {vista.guardadas > 0 && (
-        <section aria-label="Guardadas" data-guardadas={cosas.guardadas}>
+        <section aria-label={w.saved} data-guardadas={cosas.guardadas}>
           <div className="cor-grp">
-            <h2 className="cor-label">{`Guardadas · ${cosas.guardadas}`}</h2>
-            <span className="cor-grp-tx">fuera de la corriente; se restauran desde su «Más»</span>
+            <h2 className="cor-label">{`${w.saved} · ${cosas.guardadas}`}</h2>
+            <span className="cor-grp-tx">{w.savedLine}</span>
             <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has("guardadas" as Grupo)} onClick={() => toggle("guardadas" as Grupo)} data-control="ver-guardadas">
-              {open.has("guardadas" as Grupo) ? "Ver menos" : cosas.guardadas === 1 ? "Verla" : `Ver las ${cosas.guardadas}`}
+              {open.has("guardadas" as Grupo) ? w.seeLess : cosas.guardadas === 1 ? w.seeIt : w.seeAll(cosas.guardadas)}
             </button>
           </div>
           {open.has("guardadas" as Grupo) && (
@@ -376,6 +382,7 @@ export const Todo = ({
   /** PLA-I3-5: the open step's panel, drawn over the list's right side (above the Pedir bar, never over it). */
   panel?: (cosas: Cosas) => ReactNode;
 }) => {
+  const w = words(TODO_WORDS);
   const f = useFicha(p.slug);
   const cosas = cosasOf({ p, decisions, ficha: f.data ?? null, companyPaused });
   return (
@@ -385,10 +392,10 @@ export const Todo = ({
           {top?.(cosas)}
           {f.isError && !f.data ? (
             <div className="cor-todo-err">
-              <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
+              <ReadError what={w.readWhat} onRetry={() => void f.refetch()} />
             </div>
           ) : null}
-          {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} lado={lado} />}
+          {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label={w.reading} /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} lado={lado} />}
         </div>
         {panel?.(cosas)}
       </div>
@@ -413,14 +420,15 @@ export const FraseView = ({ f }: { f: Frase }) => (
       {f.sub && <span className="sub">{f.sub}</span>}
     </h2>
     {/* PLA-I3-2: paused, the same line sits beside Reanudar; it is not said twice. */}
-    {f.falta !== REANUDAR_LINE && <p className="cor-frase-falta">{f.falta}</p>}
+    {f.falta !== reanudarLine() && <p className="cor-frase-falta">{f.falta}</p>}
   </div>
 );
 
-const shortDay = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`)).replace(".", "").toUpperCase();
+const shortDay = (iso: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`)).replace(".", "").toUpperCase();
 
 /** Steps done per day, the last 14 days; today lit. Read-only; the numbers are said in words for screen readers. */
 export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
+  const w = words(TODO_WORDS);
   if (!pulso) return <div className="cor-pulso" aria-hidden />;
   const max = Math.max(1, ...pulso.days.map((d) => d.n));
   const first = pulso.days[0]?.day;
@@ -431,14 +439,14 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
         <span className="cor-label">{pulsoLabel(pulso.days.length)}</span>
       </figcaption>
       <div className="cor-pulso-chart">
-        <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
+        <div className="cor-pulso-bars" role="img" aria-label={w.pulseAria(pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", "))}>
           {pulso.days.map((d, i) => (
             <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
           ))}
         </div>
         <div className="cor-pulso-ends" aria-hidden>
           <span>{first ? shortDay(first) : ""}</span>
-          <span>HOY</span>
+          <span>{w.today}</span>
         </div>
       </div>
       {/* PLA-I3-7: a phone shows this line instead of the figure and the bars. */}
@@ -468,7 +476,7 @@ export const ReanudarView = ({ title, href }: { title: string; href: string }) =
     <Link className="cor-btn primary" to={href} data-control="reanudar">
       {reanudarLabel(title)}
     </Link>
-    <span className="cor-text">{REANUDAR_LINE}</span>
+    <span className="cor-text">{reanudarLine()}</span>
   </div>
 );
 

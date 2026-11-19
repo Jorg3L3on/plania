@@ -117,7 +117,7 @@ describe("Won't do", () => {
       status: "Won't do",
       version: await v(),
       reason: "superseded by FIL-I1-2",
-      delegated_by_jorge: { message_id: "msg-owner-9101", quote: "ciérralo, ya no hace falta" },
+      delegated_by_owner: { message_id: "msg-owner-9101", quote: "ciérralo, ya no hace falta" },
     });
     assert.equal(closed.status, "Won't do");
     assert.equal(await eventsOf("task.delegated_move"), 1);

@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { GOAL_STATUS_LABEL, progressText, type Goal, type GoalStatus } from "@/components/goals/model";
+import { words } from "@/lib/i18n";
+import { GOALS_WORDS } from "@/lib/goals-words";
 import { cn } from "@/lib/utils";
 
 // road.html is a row: a 34px number, then a card with a 15px title, a chip and a 12px line.
@@ -9,7 +11,7 @@ const STEP_BADGE = [
   "bg-status-ready text-background",
   "bg-status-done text-background",
   "bg-status-now text-background",
-  "bg-status-jorge text-background",
+  "bg-status-owner text-background",
   "bg-status-idle text-background",
 ] as const;
 
@@ -18,7 +20,7 @@ const STEP_BAR = [
   "bg-status-ready",
   "bg-status-done",
   "bg-status-now",
-  "bg-status-jorge",
+  "bg-status-owner",
   "bg-status-idle",
 ] as const;
 
@@ -62,9 +64,10 @@ export function GoalCard({
   compact?: boolean;
   onEdit: (goal: Goal) => void;
 }) {
+  const w = words(GOALS_WORDS);
   const shown = goal.initiatives.slice(0, 4);
   const rest = goal.initiatives.length - shown.length;
-  const level = goal.project ? (names.get(goal.project) ?? goal.project) : "Empresa";
+  const level = goal.project ? (names.get(goal.project) ?? goal.project) : w.company;
   const step = index % STEP_BADGE.length;
   const handleEdit = () => onEdit(goal);
 
@@ -93,7 +96,7 @@ export function GoalCard({
             </span>
           </div>
           {goal.why ? <p className="mt-1 text-xs text-muted-foreground">{goal.why}</p> : null}
-          {goal.target_on ? <p className="mt-1 text-xs text-muted-foreground">Objetivo {goal.target_on}</p> : null}
+          {goal.target_on ? <p className="mt-1 text-xs text-muted-foreground">{w.target(goal.target_on)}</p> : null}
           <ProgressBar done={goal.progress.done} total={goal.progress.total} fill={STEP_BAR[step]!} />
           {shown.length > 0 && (
             <ul className="mt-1.5 grid gap-0.5 text-xs text-muted-foreground">
@@ -103,17 +106,17 @@ export function GoalCard({
                   <span className="min-w-0 truncate text-foreground">{initiative.title}</span>
                 </li>
               ))}
-              {rest > 0 && <li>y {rest} más</li>}
+              {rest > 0 && <li>{w.more(rest)}</li>}
             </ul>
           )}
           {compact && goal.children.length > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {goal.children.length === 1 ? "1 meta de proyecto" : `${goal.children.length} metas de proyecto`}
+              {w.projectGoals(goal.children.length)}
             </p>
           )}
           <div className="mt-2">
-            <Button type="button" variant="outline" size="sm" onClick={handleEdit} aria-label={`Editar ${goal.title}`}>
-              Editar
+            <Button type="button" variant="outline" size="sm" onClick={handleEdit} aria-label={w.editGoal(goal.title)}>
+              {w.edit}
             </Button>
           </div>
         </article>

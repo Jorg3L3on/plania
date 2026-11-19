@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { isRelevantListener, primaryPgPort, type Directory, type Observed, type Repo } from "./infer.js";
@@ -10,18 +10,22 @@ import {
   parseDu,
   parseListeners,
   parsePs,
+  parseSsListeners,
+  parseSystemdUnits,
+  unitExecStart,
   parseWorktrees,
   postgresDataDir,
   redact,
   type BrewService,
   type Proc,
+  type SystemdUnit,
 } from "./parse.js";
 import { okOut, partialOut, type Run, type RunResult } from "./run.js";
 
 // The collectors: a thin runner (commands through `run`) over a pure parser (parse.ts). Each returns
 // the groups that ran and what they saw. A group that did not run (tool missing, command failed or
 // timed out) is skipped: its existing rows are left alone and nothing throws out of the job.
-// Everything here is read-only on the Mac.
+// Everything here is read-only on the machine.
 
 export type Collected = { ran: string[]; items: Observed[] };
 const none = (): Collected => ({ ran: [], items: [] });
@@ -40,7 +44,7 @@ export function groupOf(kind: string, locator: string, details: Record<string, u
     case "worktree":
       return `worktrees:${String(details.repo ?? "")}`;
     case "service":
-      return locator.startsWith("brew:") ? "brew" : "launchagents";
+      return locator.startsWith("brew:") ? "brew" : locator.startsWith("systemd:") ? "systemd" : "launchagents";
     case "container":
       return "docker";
     default:
@@ -78,28 +82,50 @@ export function discoverRepos(root: string, projects: { id: string; slug: string
 
 // ---- ports and processes (every minute)
 
-export type ProcessOpts = { selfPid: number; selfPorts: number[] };
+// PLA-I2-19: platform picks the commands (macOS: lsof and BSD ps; Linux: lsof or ss, GNU ps, cwd from /proc).
+export type ProcessOpts = { selfPid: number; selfPorts: number[]; platform?: NodeJS.Platform; readCwd?: (pid: number) => string | null };
+
+const procCwd = (pid: number): string | null => {
+  try {
+    return readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    return null; // another user's process, or gone
+  }
+};
 
 // Listening TCP ports (server, db_server) and long-lived helpers (browser, tunnel). One lsof for the
 // listeners, one ps for every process, one lsof for the cwd of the pids that matter.
 export async function collectProcesses(run: Run, dir: Directory, opts: ProcessOpts): Promise<Collected> {
   const out = none();
+  const linux = (opts.platform ?? process.platform) === "linux";
   const [listenR, psR] = await Promise.all([
     run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]),
-    run("ps", ["-axo", "pid=,ppid=,lstart=,command="]),
+    run("ps", linux ? ["-eo", "pid=,ppid=,lstart=,args="] : ["-axo", "pid=,ppid=,lstart=,command="]),
   ]);
   // lsof exits 1 when nothing is listening; that is an empty result, not a failure.
-  const listenOut = partialOut(listenR) ?? (!listenR.ok && listenR.reason === "exit" && listenR.code === 1 ? "" : null);
+  let listenOut = partialOut(listenR) ?? (!listenR.ok && listenR.reason === "exit" && listenR.code === 1 ? "" : null);
+  let listeners = listenOut === null ? [] : parseListeners(listenOut);
+  // PLA-I2-19: a Linux machine without lsof has ss (iproute2).
+  if (linux && !listenR.ok && listenR.reason === "missing") {
+    listenOut = okOut(await run("ss", ["-Htlnp"]));
+    listeners = listenOut === null ? [] : parseSsListeners(listenOut);
+  }
   const procs = new Map<number, Proc>((okOut(psR) ? parsePs(okOut(psR)!) : []).map((p) => [p.pid, p]));
-  const listeners = listenOut === null ? [] : parseListeners(listenOut);
   const helpers = [...procs.values()].flatMap((p) => {
     const kind = classifyProc(p.command);
     return kind ? [{ proc: p, kind }] : [];
   });
 
   const pids = [...new Set([...listeners.map((l) => l.pid), ...helpers.map((h) => h.proc.pid)])];
-  const cwdOut = pids.length ? partialOut(await run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fn"])) : "";
-  const cwds = parseCwds(cwdOut ?? "");
+  let cwds: Map<number, string>;
+  if (linux) {
+    // PLA-I2-19: /proc/<pid>/cwd, no program needed.
+    const read = opts.readCwd ?? procCwd;
+    cwds = new Map(pids.flatMap((p) => (read(p) ? [[p, read(p)!] as [number, string]] : [])));
+  } else {
+    const cwdOut = pids.length ? partialOut(await run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fn"])) : "";
+    cwds = parseCwds(cwdOut ?? "");
+  }
 
   if (listenOut !== null) {
     out.ran.push("ports");
@@ -219,6 +245,45 @@ export function serviceItems(brew: { ran: boolean; services: BrewService[] }, ag
     }
   }
   return out;
+}
+
+// ---- PLA-I2-19: systemd user units (Linux), the LaunchAgents of that system
+
+export async function collectSystemd(run: Run): Promise<{ ran: boolean; units: SystemdUnit[] }> {
+  const out = okOut(await run("systemctl", ["--user", "list-units", "--type=service", "--all", "--no-legend", "--plain", "--no-pager"], { timeoutMs: 10_000 }));
+  return out === null ? { ran: false, units: [] } : { ran: true, units: parseSystemdUnits(out) };
+}
+
+// The units the user wrote (~/.config/systemd/user/*.service), with their state when systemctl answered. Units
+// that come with the system (dbus, pipewire) are not footprints. A unit that runs Postgres is the base of a
+// project: shared, and the base lever may turn it on and off (src/maquinas/machines.ts).
+export function systemdItems(state: { ran: boolean; units: SystemdUnit[] }, unitFiles: string[] | null, unitDir: string, repoNames: string[], readUnit: (file: string) => string | null = readUnitFile): Collected {
+  const out = none();
+  if (!unitFiles) return out;
+  out.ran.push("systemd");
+  for (const f of unitFiles.filter((f) => f.endsWith(".service")).sort()) {
+    const file = path.join(unitDir, f);
+    const exec = unitExecStart(readUnit(file) ?? "");
+    const unit = state.units.find((u) => u.name === f);
+    const label = f.replace(/\.service$/, "");
+    const repo = repoNames.find((r) => label.toLowerCase().split(/[.@_-]/).includes(r.toLowerCase()));
+    out.items.push({
+      kind: "service",
+      locator: `systemd:${f}`,
+      shared: true,
+      repoHint: repo,
+      details: { manager: "systemd", name: f, status: unit ? `${unit.active}/${unit.sub}` : state.ran ? "inactive/dead" : null, file, exec: exec ? redact(exec) : null, attributed: !!repo },
+    });
+  }
+  return out;
+}
+
+function readUnitFile(file: string): string | null {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 export function readLaunchAgents(dir: string): string[] | null {

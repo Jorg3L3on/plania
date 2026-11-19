@@ -8,8 +8,10 @@ import { cn } from "@/lib/utils";
 import { plainWords } from "@/lib/plain-words";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
+import { MESSAGE_MAX, THREAD_PAGE, actionEffect, actionLabel, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { words } from "@/lib/i18n";
+import { COMPANIA_ORG } from "@/lib/compania-words";
 
 // ---- the one-line plumbing link to Máquina
 
@@ -21,7 +23,7 @@ export const PlumbingLink = ({ text, tone, className }: { text: string; tone: To
   >
     <Dot tone={tone} />
     <span className="truncate">{text}</span>
-    <span aria-hidden className="shrink-0">→ Máquina</span>
+    <span aria-hidden className="shrink-0">{words(COMPANIA_ORG).toMachine}</span>
   </Link>
 );
 // ---- a link chip (MIA-01 · doc "Campos y flujos" · PR #12)
@@ -65,14 +67,15 @@ export const MessageRow = ({
   onAction: (message: ThreadMessage, action: ThreadAction, text?: string) => void;
   className?: string;
 }) => {
+  const w = words(COMPANIA_ORG);
   const [open, setOpen] = useState<ThreadAction | null>(null);
   const [text, setText] = useState("");
   const [full, setFull] = useState(false);
-  const mine = message.author.role === "jorge" || message.author.agent === "jorge";
-  const waiting = waitsOnJorge(message);
+  const mine = message.author.role === "owner" || message.author.agent === "owner";
+  const waiting = waitsOnOwner(message);
   const busyHere = busy?.id === message.id;
   // The one approve button on a message says what it does, in one line under the buttons.
-  const effect = message.actions.map((a) => ACTION_EFFECT[a]).find(Boolean);
+  const effect = message.actions.map((a) => actionEffect(a)).find(Boolean);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!open || text.trim().length < 2) return;
@@ -85,11 +88,11 @@ export const MessageRow = ({
     <li
       data-message={message.id}
       data-waiting={waiting ? "1" : undefined}
-      className={cn("grid min-w-0 gap-1.5 rounded-2xl p-3", className, mine ? "ml-6 bg-muted/70" : "bg-card ring-1 ring-foreground/10", waiting && !readOnly && "ring-2 ring-status-jorge/60")}
+      className={cn("grid min-w-0 gap-1.5 rounded-2xl p-3", className, mine ? "ml-6 bg-muted/70" : "bg-card ring-1 ring-foreground/10", waiting && !readOnly && "ring-2 ring-status-owner/60")}
     >
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="min-w-0 truncate">
-          <span className="font-semibold">{mine ? "Tú" : roleName(message.author.role)}</span>
+          <span className="font-semibold">{mine ? w.you : roleName(message.author.role)}</span>
           {!mine && message.author.agent !== message.author.role && <span className="text-muted-foreground"> · {message.author.agent}</span>}
         </span>
         <time className="shrink-0 font-mono text-muted-foreground tabular-nums" dateTime={message.at}>
@@ -99,7 +102,7 @@ export const MessageRow = ({
       <p className={cn("text-sm leading-relaxed break-words whitespace-pre-line", long && !full && "line-clamp-6")}>{mine ? message.body : plainWords(message.body)}</p>
       {long && (
         <button type="button" className="justify-self-start text-xs text-muted-foreground hover:text-foreground" onClick={() => setFull(!full)}>
-          {full ? "Ver menos" : "Ver todo"}
+          {full ? w.seeLess : w.seeAll}
         </button>
       )}
       {message.links.length > 0 && (
@@ -130,7 +133,7 @@ export const MessageRow = ({
                 aria-expanded={needsText(a) ? open === a : undefined}
                 onClick={() => (needsText(a) ? setOpen(open === a ? null : a) : onAction(message, a))}
               >
-                {busyHere && busy?.action === a ? "…" : ACTION_LABEL[a]}
+                {busyHere && busy?.action === a ? "…" : actionLabel(a)}
               </button>
             ))}
           </div>
@@ -142,16 +145,16 @@ export const MessageRow = ({
           {open && (
             <form className="flex gap-2" onSubmit={submit}>
               <input
-                aria-label={open === "responder" ? "Tu respuesta" : "Qué cambiar"}
+                aria-label={open === "responder" ? w.yourAnswer : w.whatToChange}
                 className="min-h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder={open === "responder" ? "Tu respuesta" : "Qué cambiar, en una frase"}
+                placeholder={open === "responder" ? w.yourAnswer : w.whatToChangeHint}
                 value={text}
                 maxLength={MESSAGE_MAX}
                 onChange={(e) => setText(e.target.value)}
                 autoFocus
               />
               <button type="submit" className={cn(pillPrimary, "min-h-10 px-3 text-xs")} disabled={text.trim().length < 2}>
-                Enviar
+                {w.send}
               </button>
             </form>
           )}
@@ -166,7 +169,7 @@ export const MessageRow = ({
 
 export type SendState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; text: string } | { kind: "error"; message: string };
 
-// PLA-I35-3: suggestions under the box fill it (a question to send, or "Mianovia: " to finish typing).
+// PLA-I35-3: suggestions under the box fill it (a question to send, or "Tienda: " to finish typing).
 export const Composer = ({
   placeholder,
   state,
@@ -180,6 +183,7 @@ export const Composer = ({
   onSend: (body: string) => void;
   suggestions?: string[];
 }) => {
+  const w = words(COMPANIA_ORG);
   const [body, setBody] = useState("");
   const link = isBareLink(body);
   const submit = (e: FormEvent) => {
@@ -205,7 +209,7 @@ export const Composer = ({
           }}
         />
         <button type="submit" className={cn(pillPrimary, "min-h-11")} disabled={!!disabled || state.kind === "busy" || body.trim().length < 2}>
-          {state.kind === "busy" ? "Enviando…" : "Enviar"}
+          {state.kind === "busy" ? w.sending : w.send}
         </button>
       </div>
       {suggestions && suggestions.length > 0 && !disabled && (
@@ -217,7 +221,7 @@ export const Composer = ({
           ))}
         </div>
       )}
-      {link && <p className="text-xs text-muted-foreground">Un enlace suelto: Asistente lo guarda en la biblioteca de diseño.</p>}
+      {link && <p className="text-xs text-muted-foreground">{w.bareLink}</p>}
       {state.kind === "done" && (
         <p className="text-xs" data-sent>
           {state.text}
@@ -275,9 +279,10 @@ export const ThreadPanel = ({
   onMore?: () => void;
   className?: string;
 }) => {
+  const w = words(COMPANIA_ORG);
   const { messages, hidden } = visibleMessages(thread?.messages ?? [], shown);
   const items = threadItems(messages, now, timeZone);
-  const waiting = (thread?.messages ?? []).filter(waitsOnJorge).length;
+  const waiting = (thread?.messages ?? []).filter(waitsOnOwner).length;
   const total = thread?.messages.length ?? 0;
   // The newest message is at the bottom: open there, and follow new ones.
   const list = useRef<HTMLOListElement>(null);
@@ -292,8 +297,8 @@ export const ThreadPanel = ({
           {title}
         </h2>
         {waiting > 0 && !readOnly && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-jorge" data-waiting-count={waiting}>
-            <Dot tone="stop" /> {waiting === 1 ? "1 te espera" : `${waiting} te esperan`}
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-owner" data-waiting-count={waiting}>
+            <Dot tone="stop" /> {w.waiting(waiting)}
           </span>
         )}
       </div>
@@ -310,19 +315,19 @@ export const ThreadPanel = ({
           ))}
         </div>
       ) : error ? (
-        <BlockError what="el hilo" onRetry={onRetry} />
+        <BlockError what={w.theThread} onRetry={onRetry} />
       ) : total === 0 ? (
         <p className="text-sm text-muted-foreground" data-empty="thread">
-          Todavía no hay mensajes. Escribe lo que quieres y {project ? "el PO" : "Asistente"} lo vuelve trabajo.
+          {w.empty(project ? w.thePo : w.asistente)}
         </p>
       ) : (
         <>
           {hidden > 0 && onMore && (
             <button type="button" className={cn("justify-self-center text-xs text-muted-foreground hover:text-foreground", !expanded && "max-sm:hidden")} onClick={onMore}>
-              Ver anteriores ({hidden})
+              {w.earlier(hidden)}
             </button>
           )}
-          <ol ref={list} className="grid min-w-0 gap-2 lg:max-h-[min(62svh,720px)] lg:overflow-y-auto lg:pr-1" aria-label={`Mensajes con ${title}`}>
+          <ol ref={list} className="grid min-w-0 gap-2 lg:max-h-[min(62svh,720px)] lg:overflow-y-auto lg:pr-1" aria-label={w.messagesWith(title)}>
             {items.map((item) =>
               item.kind === "day" ? (
                 <li key={`d-${item.key}`} className={cn("py-1 text-center text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase", !expanded && "max-sm:hidden")} data-day>
@@ -345,12 +350,12 @@ export const ThreadPanel = ({
           </ol>
           {total > 1 && (
             <button type="button" className="justify-self-start text-xs font-semibold text-muted-foreground hover:text-foreground sm:hidden" onClick={onToggle} aria-expanded={expanded} data-control="fold">
-              {expanded ? "Plegar el hilo" : `Ver el hilo (${total})`}
+              {expanded ? w.fold : w.unfold(total)}
             </button>
           )}
         </>
       )}
-      <Composer placeholder={placeholder} state={send} disabled={readOnly ? "En pausa: no se le puede escribir." : null} onSend={onSend} />
+      <Composer placeholder={placeholder} state={send} disabled={readOnly ? w.pausedNoWrite : null} onSend={onSend} />
     </section>
   );
 };
@@ -358,13 +363,14 @@ export const ThreadPanel = ({
 // ---- the team: one row per role, on the project page (with ticket, turn and tokens). PLA-I35 retired the
 // Compañía team cards and their preview sheet: the card is a report now (components/compania/v2.tsx).
 
-export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember[]; project: string; now: number; runs?: RunBrief[]; detail?: boolean }) =>
-  team.length === 0 ? (
+export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember[]; project: string; now: number; runs?: RunBrief[]; detail?: boolean }) => {
+  const w = words(COMPANIA_ORG);
+  return team.length === 0 ? (
     <p className="text-sm text-muted-foreground" data-empty="team">
-      Sin equipo todavía.
+      {w.noTeam}
     </p>
   ) : (
-    <ul className="grid min-w-0 gap-2" aria-label="Equipo">
+    <ul className="grid min-w-0 gap-2" aria-label={w.team}>
       {[...team].sort(byRole).map((m) => {
         const line = memberLine(m, now);
         const run = detail ? runs?.find((r) => r.agent === m.agent) : undefined;
@@ -385,7 +391,7 @@ export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember
               {detail && (
                 <span className="truncate text-xs text-muted-foreground">
                   {m.agent}
-                  {run ? ` · ${run.ticket ?? "sin ticket"} · ${tokens(run.tokens)} tokens` : ""}
+                  {run ? w.runLine(run.ticket ?? w.noTicket, tokens(run.tokens)) : ""}
                 </span>
               )}
               {produced && (
@@ -393,13 +399,14 @@ export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember
                   <Chip href={produced.href}>{produced.label}</Chip>
                 </span>
               )}
-              {m.waiting && <span className="line-clamp-2 text-xs text-ink-jorge">espera: {m.waiting}</span>}
+              {m.waiting && <span className="line-clamp-2 text-xs text-ink-owner">{w.waits(m.waiting)}</span>}
             </span>
           </li>
         );
       })}
     </ul>
   );
+};
 
 // ---- PLA-I33-2: the project page's top (/p/<slug>): light, goal with Editar, plumbing line, Pausar/Reanudar
 
@@ -418,11 +425,12 @@ export const ProjectOrgBar = ({
   onPause: () => void;
   onResume: () => void;
 }) => {
+  const w = words(COMPANIA_ORG);
   const light = lightOf(project.light);
   const paused = project.paused || project.light === "paused";
   const plumbing = usageLine(project.usage, { paused });
   return (
-    <section aria-label="Proyecto" data-testid="project-org-bar" className={cn(panel, "grid min-w-0 gap-3 p-4", paused && "bg-surface-sunken")}>
+    <section aria-label={w.project} data-testid="project-org-bar" className={cn(panel, "grid min-w-0 gap-3 p-4", paused && "bg-surface-sunken")}>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <span className={cn("inline-flex items-center gap-1.5 text-sm font-semibold", TONE_INK[light.tone])} data-light-word>
           <Dot tone={light.tone} /> {light.word}
@@ -431,19 +439,19 @@ export const ProjectOrgBar = ({
         {canEdit &&
           (project.paused ? (
             <button type="button" className={cn(pillPrimary, "min-h-9 px-3 text-xs")} onClick={onResume} data-control="reanudar">
-              Reanudar
+              {w.resume}
             </button>
           ) : (
             <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-xs")} onClick={onPause} data-control="pausar">
-              Pausar
+              {w.pause}
             </button>
           ))}
       </div>
       <div className="grid min-w-0 gap-1">
         <div className="flex items-baseline justify-between gap-2">
-          <p className={eyebrow}>Meta</p>
+          <p className={eyebrow}>{w.goal}</p>
           <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onEditGoal} data-control="editar-meta">
-            Editar
+            {w.edit}
           </button>
         </div>
         {project.goal ? (
@@ -451,11 +459,11 @@ export const ProjectOrgBar = ({
             {project.goal}
           </p>
         ) : (
-          <p className="text-sm text-ink-now">Sin meta: su PO no propone ideas sin una.</p>
+          <p className="text-sm text-ink-now">{w.noGoal}</p>
         )}
       </div>
-      {paused && <p className="text-xs text-muted-foreground">En pausa: nada arranca aquí. Su PO despierta cuando lo reanudes.</p>}
-      {!paused && companyPaused && <p className="text-xs text-muted-foreground">La compañía está detenida: nada arranca hasta reanudarla en Máquina.</p>}
+      {paused && <p className="text-xs text-muted-foreground">{w.pausedHere}</p>}
+      {!paused && companyPaused && <p className="text-xs text-muted-foreground">{w.companyStopped}</p>}
     </section>
   );
 };
@@ -465,6 +473,7 @@ export const ProjectOrgBar = ({
 export type AddState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; agent: string } | { kind: "error"; message: string };
 
 export const AddToTeam = ({ templates, team, state, onAdd }: { templates: { slug: string; title: string }[]; team: OrgMember[]; state: AddState; onAdd: (template: string) => void }) => {
+  const w = words(COMPANIA_ORG);
   const have = new Set(team.map((m) => m.template));
   const free = templates.filter((t) => !have.has(t.slug));
   const [pick, setPick] = useState(free[0]?.slug ?? "");
@@ -479,10 +488,10 @@ export const AddToTeam = ({ templates, team, state, onAdd }: { templates: { slug
       }}
     >
       <label className={eyebrow} htmlFor="add-template">
-        Añadir al equipo
+        {w.addToTeam}
       </label>
       {free.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Ya tiene todas las plantillas.</p>
+        <p className="text-xs text-muted-foreground">{w.allTemplates}</p>
       ) : (
         <div className="flex gap-2">
           <select
@@ -498,13 +507,13 @@ export const AddToTeam = ({ templates, team, state, onAdd }: { templates: { slug
             ))}
           </select>
           <button type="submit" className={cn(pillGhost, "min-h-10")} disabled={!pick || state.kind === "busy"}>
-            {state.kind === "busy" ? "Añadiendo…" : "Añadir"}
+            {state.kind === "busy" ? w.adding : w.add}
           </button>
         </div>
       )}
-      {state.kind === "done" && <p className="text-xs">Listo: {state.agent} lee su prompt y las notas del proyecto.</p>}
+      {state.kind === "done" && <p className="text-xs">{w.added(state.agent)}</p>}
       {state.kind === "error" && <p className="text-xs text-ink-blocked">{state.message}</p>}
-      {state.kind === "idle" && free.length > 0 && <p className="text-xs text-muted-foreground">Una plantilla de rol; el agente nuevo trabaja en este proyecto.</p>}
+      {state.kind === "idle" && free.length > 0 && <p className="text-xs text-muted-foreground">{w.addHint}</p>}
     </form>
   );
 };
@@ -530,7 +539,7 @@ export const ProjectTeam = ({
 }) => (
   <section aria-labelledby="equipo-title" className={cn(panel, "grid min-w-0 content-start gap-3 p-4")} data-testid="project-team">
     <h2 id="equipo-title" className={heading}>
-      Equipo <span className="font-mono text-sm font-normal text-muted-foreground">{team.length}</span>
+      {words(COMPANIA_ORG).team} <span className="font-mono text-sm font-normal text-muted-foreground">{team.length}</span>
     </h2>
     <TeamRows team={team} project={project} now={now} runs={runs} detail />
     {canEdit && <AddToTeam templates={templates} team={team} state={add} onAdd={onAdd} />}

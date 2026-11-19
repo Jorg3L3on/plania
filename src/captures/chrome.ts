@@ -1,9 +1,11 @@
 // PLA-I46-6: headless Chrome over the DevTools protocol, with no new dependency: the Chrome already on
-// the Mac (or PLANIA_CHROME_PATH), Node's own WebSocket, a throwaway profile per run. Nothing paid.
+// the machine (or PLANIA_CHROME_PATH), Node's own WebSocket, a throwaway profile per run. Nothing paid.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { findOnPath } from "../lib/claude-bin.js";
+import { runEnv } from "../runner/run-env.js";
 
 export type Viewport = { width: number; height: number; mobile: boolean; scale: number };
 export type Nav = { status: number | null; url: string };
@@ -24,31 +26,47 @@ export interface Browser {
 export type LaunchBrowser = () => Promise<Browser>;
 
 const NAV_TIMEOUT_MS = 30_000;
-// A cold headless Chrome on the Mac takes 2 to 10 s to open its DevTools port when idle (PLA-I46-16 measured it),
+// A cold headless Chrome on the machine takes 2 to 10 s to open its DevTools port when idle (PLA-I46-16 measured it),
 // and more next to the test suite or a second Chrome. 15 s failed under that load; this is only an upper bound.
 const LAUNCH_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 600; // after load: fonts, client components, a streamed Suspense boundary
 
 // Where Chrome lives: PLANIA_CHROME_PATH, the installed Google Chrome or Chromium, else Playwright's
-// downloaded chromium if one is on the Mac. Null when there is none.
-export function findChrome(): string | null {
+// downloaded chromium if one is on the machine. Null when there is none.
+// PLA-I2-4: on Linux too: the usual names on PATH (google-chrome, chromium, chromium-browser) and Playwright's
+// Linux cache (~/.cache/ms-playwright/chromium-*/chrome-linux/chrome).
+export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
   const candidates = [
-    process.env.PLANIA_CHROME_PATH,
+    env.PLANIA_CHROME_PATH,
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
     "/usr/bin/google-chrome",
     "/usr/bin/chromium",
   ].filter((p): p is string => Boolean(p));
-  for (const p of candidates) if (existsSync(p)) return p;
-  const pw = path.join(homedir(), "Library/Caches/ms-playwright");
-  if (existsSync(pw)) {
-    const dirs = readdirSync(pw).filter((d) => d.startsWith("chromium-")).sort().reverse();
-    for (const d of dirs) {
-      for (const sub of ["chrome-mac-arm64", "chrome-mac"]) {
-        const app = path.join(pw, d, sub, "Chromium.app/Contents/MacOS/Chromium");
-        if (existsSync(app)) return app;
-      }
+  for (const p of candidates) if (exists(p)) return p;
+  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]) {
+    const p = findOnPath(name, env, exists);
+    if (p) return p;
+  }
+  const home = env.HOME || homedir();
+  // PLA-I2-19: PLAYWRIGHT_BROWSERS_PATH and $XDG_CACHE_HOME too; newer Playwright unpacks chrome-linux64.
+  const xdgCache = env.XDG_CACHE_HOME?.trim() && path.isAbsolute(env.XDG_CACHE_HOME.trim()) ? env.XDG_CACHE_HOME.trim() : path.join(home, ".cache");
+  const mac = ["chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium", "chrome-mac/Chromium.app/Contents/MacOS/Chromium"];
+  const linux = ["chrome-linux/chrome", "chrome-linux64/chrome"];
+  const caches: [string, string[]][] = [
+    ...(env.PLAYWRIGHT_BROWSERS_PATH && path.isAbsolute(env.PLAYWRIGHT_BROWSERS_PATH) ? [[env.PLAYWRIGHT_BROWSERS_PATH, [...linux, ...mac]] as [string, string[]]] : []),
+    [path.join(home, "Library/Caches/ms-playwright"), mac],
+    [path.join(xdgCache, "ms-playwright"), linux],
+  ];
+  for (const [pw, subs] of caches) {
+    if (!exists(pw)) continue;
+    let dirs: string[] = [];
+    try {
+      dirs = readdirSync(pw).filter((d) => d.startsWith("chromium-")).sort().reverse();
+    } catch {
+      continue;
     }
+    for (const d of dirs) for (const sub of subs) if (exists(path.join(pw, d, sub))) return path.join(pw, d, sub);
   }
   return null;
 }
@@ -179,12 +197,13 @@ class CdpPage implements BrowserPage {
 // Starts headless Chrome with a fresh profile (no cookies, no history of the owner's) and opens one tab.
 export const launchChrome: LaunchBrowser = async () => {
   const bin = findChrome();
-  if (!bin) throw new Error("No Chrome on this Mac (set PLANIA_CHROME_PATH)");
+  if (!bin) throw new Error("No Chrome on this machine (set PLANIA_CHROME_PATH)");
   const profile = mkdtempSync(path.join(tmpdir(), "plania-capture-"));
   const proc = spawn(
     bin,
     ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--mute-audio", "about:blank"],
-    { stdio: "ignore" },
+    // PLA-I2-13: the basics only, never the server's tokens (checkoutEnv, src/captures/run.ts).
+    { stdio: "ignore", env: runEnv(process.env, { claude: false }) },
   );
   const cleanup = () => {
     if (proc.exitCode === null) proc.kill("SIGKILL");

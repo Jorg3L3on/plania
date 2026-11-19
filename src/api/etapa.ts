@@ -7,7 +7,7 @@
 //
 // The rules, first match wins (Design doc of PLA-I53; the initiative's table where the doc says nothing):
 //   Done → hecho · Released → publicado · Merged → integrado · Won't do → null (no stage)
-//   Needs Jorge → te_toca
+//   Needs owner → te_toca
 //   Blocked → en_espera when only unfinished tickets hold it, else bloqueado (reason: blocked_note, else the blocker)
 //   In review →
 //     a QA run is running, or the latest QA lane is checking/reviewing → en_qa running
@@ -35,10 +35,12 @@ import { SETTLED_STATUSES, typedBlockerOpen } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 import { qaAgentOf, qaTicket, sameCommit } from "../runner/qa.js";
 import { probadorGate } from "../captures/probador.js";
-import { JORGE } from "../runner/threads.js";
+import { OWNER_AUTHOR } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
 import { zonasOf, type Zona } from "./zonas.js";
-import { startFailureOf } from "../runner/start-failures.js";
+import { failReason, startFailureOf } from "../runner/start-failures.js";
+import { SIGNED_OUT } from "../runner/signed-out.js";
+import { defineWords, say } from "../words.js";
 
 export const ETAPAS = ["despues", "lista", "en_espera", "pospuesto", "bloqueado", "construyendo", "devuelto", "sin_dueno", "en_qa", "en_revision", "te_toca", "integrado", "publicado", "hecho"] as const;
 export type EtapaId = (typeof ETAPAS)[number];
@@ -89,8 +91,63 @@ export type EtapaFacts = {
   photos?: boolean;
 };
 
+// PLA-I2-10: each stage's reason in the install's language; the Spanish is unchanged.
+export const ETAPA_WORDS = defineWords({
+  es: {
+    quote: (s: string) => `«${s}»`,
+    needsDecision: "Necesita tu decisión.",
+    waitsFor: (q: string) => `Espera a ${q}`,
+    qaQueued: "En la cola de QA.",
+    qaReturned: "QA encontró fallas y la devolvió.",
+    qaAgain: "QA encontró fallas otra vez: revísala tú.",
+    qaError: "QA no pudo terminar: revísala tú.",
+    ciFail: "Las pruebas del PR fallan.",
+    ciRun: "Las pruebas del PR corren.",
+    photos: "Plania toma las fotos de la entrega.",
+    delivered: "Entregada: espera que la aceptes.",
+    prClosed: "El PR se cerró sin fusionar.",
+    returnedLapsed: "La devolvieron y nadie la está arreglando: la reserva venció.",
+    nobody: "Nadie la tiene: la reserva venció y no corre ningún paso.",
+    returned: "La devolvieron: espera que la arreglen.",
+    postponed: "Pospuesto a propósito.",
+    backlog: "Está en Backlog: nadie la pasó a Lista.",
+    humanAction: "Espera una acción tuya.",
+    until: (at: string) => `Espera hasta ${at}`,
+    env: (env: string, cond: string, value: string) => `Espera a ${env}: ${cond} ${value}`,
+    envFlag: (flag: string, env: string) => `Espera la bandera ${flag} en ${env}`,
+    metric: (name: string, value: string) => `Espera que ${name} llegue a ${value}`,
+    blocked: "Bloqueado.",
+  },
+  en: {
+    quote: (s: string) => `“${s}”`,
+    needsDecision: "Needs your decision.",
+    waitsFor: (q: string) => `Waits for ${q}`,
+    qaQueued: "In the QA queue.",
+    qaReturned: "QA found failures and sent it back.",
+    qaAgain: "QA found failures again: review it yourself.",
+    qaError: "QA could not finish: review it yourself.",
+    ciFail: "The PR's tests fail.",
+    ciRun: "The PR's tests are running.",
+    photos: "Plania is taking the delivery's pictures.",
+    delivered: "Delivered: waits for you to accept it.",
+    prClosed: "The PR was closed without merging.",
+    returnedLapsed: "It was sent back and nobody is fixing it: the hold expired.",
+    nobody: "Nobody has it: the hold expired and no step is running.",
+    returned: "It was sent back: waits to be fixed.",
+    postponed: "Postponed on purpose.",
+    backlog: "It is in Backlog: nobody moved it to Ready.",
+    humanAction: "Waits for an action of yours.",
+    until: (at: string) => `Waits until ${at}`,
+    env: (env: string, cond: string, value: string) => `Waits for ${env}: ${cond} ${value}`,
+    envFlag: (flag: string, env: string) => `Waits for the flag ${flag} in ${env}`,
+    metric: (name: string, value: string) => `Waits for ${name} to reach ${value}`,
+    blocked: "Blocked.",
+  },
+});
+const ew = () => say(ETAPA_WORDS);
+
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
-const quoted = (s: string, n = 60) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
+const quoted = (s: string, n = 60) => ew().quote(s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const ciOf = (pr: EtapaFacts["pr"]): Ci | null => {
   if (!pr) return null;
   const c = pr.ci;
@@ -116,32 +173,32 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
       return make("integrado");
     case "Won't do":
       return null;
-    case "Needs Jorge":
-      return make("te_toca", { holder: { ...JORGE }, reason: "Necesita tu decisión." });
+    case "Needs owner":
+      return make("te_toca", { holder: { ...OWNER_AUTHOR }, reason: ew().needsDecision });
     case "Blocked":
-      if (!f.held && f.waitsOn.length > 0) return make("en_espera", { reason: `Espera a ${quoted(f.waitsOn[0]!)}` });
-      return make("bloqueado", { reason: f.blockedNote || f.held || (f.waitsOn[0] ? `Espera a ${quoted(f.waitsOn[0])}` : null) });
+      if (!f.held && f.waitsOn.length > 0) return make("en_espera", { reason: ew().waitsFor(quoted(f.waitsOn[0]!)) });
+      return make("bloqueado", { reason: f.blockedNote || f.held || (f.waitsOn[0] ? ew().waitsFor(quoted(f.waitsOn[0])) : null) });
     case "In review": {
       if ((f.run && f.run.holder.role === "qa") || (lane && QA_RUNNING.includes(lane.status))) {
         return make("en_qa", { qa: "running", holder: f.run?.holder ?? { agent: "qa", role: "qa" }, live: true, since: iso(f.run?.since ?? lane?.startedAt ?? lane?.createdAt) ?? at });
       }
       const stale = !!lane && !!f.pr?.head && !!lane.commit && !sameCommit(f.pr.head, lane.commit);
       if (f.qa.applies && (!lane || lane.status === "queued" || stale)) {
-        return make("en_qa", { qa: "queued", holder: { agent: "qa", role: "qa" }, since: iso(lane && !stale ? lane.createdAt : null) ?? at, reason: "En la cola de QA." });
+        return make("en_qa", { qa: "queued", holder: { agent: "qa", role: "qa" }, since: iso(lane && !stale ? lane.createdAt : null) ?? at, reason: ew().qaQueued });
       }
       if (lane?.status === "fail") {
-        if (lane.returned || lane.attempt === 1) return make("devuelto", { holder: worker?.holder ?? f.owner, live: !!worker, since: iso(lane.endedAt) ?? at, reason: "QA encontró fallas y la devolvió." });
-        return make("te_toca", { holder: { ...JORGE }, since: iso(lane.endedAt) ?? at, reason: "QA encontró fallas otra vez: revísala tú." });
+        if (lane.returned || lane.attempt === 1) return make("devuelto", { holder: worker?.holder ?? f.owner, live: !!worker, since: iso(lane.endedAt) ?? at, reason: ew().qaReturned });
+        return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(lane.endedAt) ?? at, reason: ew().qaAgain });
       }
-      if (lane?.status === "error") return make("te_toca", { holder: { ...JORGE }, since: iso(lane.endedAt) ?? at, reason: "QA no pudo terminar: revísala tú." });
+      if (lane?.status === "error") return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(lane.endedAt) ?? at, reason: ew().qaError });
       if (f.pr?.state === "merged") return make("integrado");
       if (f.pr?.state === "open" && (ci === "pending" || ci === "failure")) {
-        return make("en_revision", { reason: ci === "failure" ? "Las pruebas del PR fallan." : "Las pruebas del PR corren." });
+        return make("en_revision", { reason: ci === "failure" ? ew().ciFail : ew().ciRun });
       }
       // PLA-52: no card is raised before the pictures exist, so it is not the owner's turn yet either.
-      if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: "Plania toma las fotos de la entrega." });
-      if (f.delivery?.open) return make("te_toca", { holder: { ...JORGE }, since: iso(f.delivery.at) ?? at, reason: "Entregada: espera que la aceptes." });
-      return make("en_revision", { reason: f.pr?.state === "closed" ? "El PR se cerró sin fusionar." : null });
+      if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: ew().photos });
+      if (f.delivery?.open) return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(f.delivery.at) ?? at, reason: ew().delivered });
+      return make("en_revision", { reason: f.pr?.state === "closed" ? ew().prClosed : null });
     }
   }
 
@@ -149,23 +206,23 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
   const sentBack = !!f.delivery?.returned || (!!lane && lane.status === "fail" && lane.returned);
   const sentAt = iso(f.delivery?.returned ? f.delivery.at : lane?.endedAt) ?? at;
   if (f.status === "In progress" && !worker) {
-    return make("sin_dueno", { since: iso(f.lease?.until) ?? at, reason: sentBack ? "La devolvieron y nadie la está arreglando: la reserva venció." : "Nadie la tiene: la reserva venció y no corre ningún paso." });
+    return make("sin_dueno", { since: iso(f.lease?.until) ?? at, reason: sentBack ? ew().returnedLapsed : ew().nobody });
   }
   if (sentBack && (f.status === "Ready" || worker)) {
-    return make("devuelto", { holder: worker?.holder ?? f.owner, live: !!worker, since: worker?.since ?? sentAt, reason: worker ? null : "La devolvieron: espera que la arreglen." });
+    return make("devuelto", { holder: worker?.holder ?? f.owner, live: !!worker, since: worker?.since ?? sentAt, reason: worker ? null : ew().returned });
   }
   if (worker) return make("construyendo", { holder: worker.holder, live: true, since: worker.since });
   if (f.status === "Ready") {
-    if (f.postponed) return make("pospuesto", { reason: "Pospuesto a propósito." });
+    if (f.postponed) return make("pospuesto", { reason: ew().postponed });
     if (f.held) return make("bloqueado", { reason: f.held });
-    if (f.waitsOn.length > 0) return make("en_espera", { reason: `Espera a ${quoted(f.waitsOn[0]!)}` });
+    if (f.waitsOn.length > 0) return make("en_espera", { reason: ew().waitsFor(quoted(f.waitsOn[0]!)) });
     return make("lista");
   }
   // PLA-47: a ticket left for later says why it waits, so the floor can name what is next.
   if (f.status === "Backlog") {
     // A postponed step that waits on another says so: that is what is next, not the postponing.
-    if (f.postponed) return make("pospuesto", { reason: f.waitsOn.length > 0 ? `Espera a ${quoted(f.waitsOn[0]!)}` : "Pospuesto a propósito." });
-    return make("despues", { reason: f.waitsOn.length > 0 ? `Espera a ${quoted(f.waitsOn[0]!)}` : "Está en Backlog: nadie la pasó a Lista." });
+    if (f.postponed) return make("pospuesto", { reason: f.waitsOn.length > 0 ? ew().waitsFor(quoted(f.waitsOn[0]!)) : ew().postponed });
+    return make("despues", { reason: f.waitsOn.length > 0 ? ew().waitsFor(quoted(f.waitsOn[0]!)) : ew().backlog });
   }
   // An unknown status reads as not started.
   return make("despues");
@@ -344,7 +401,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       select distinct on (l->>'ref') l->>'ref' as ref, m.action_state, m.at
       from ${threadMessages} m join ${threads} th on th.id = m.thread_id
       cross join lateral jsonb_array_elements(m.links) l
-      where th.project_id = ${p.id} and l->>'kind' = 'ticket' and m.author_agent <> ${JORGE.agent}
+      where th.project_id = ${p.id} and l->>'kind' = 'ticket' and m.author_agent <> ${OWNER_AUTHOR.agent}
         and m.question_id is null and m.proposal is null
       order by l->>'ref', m.at desc`)
   ).rows as Row[];
@@ -367,7 +424,9 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
   const bySlug = new Map(roster.map((a) => [a.slug, a]));
   const runBy = new Map(runs.map((r) => [String(r.task_key), r]));
   const arranqueBy = new Map<string, Arranque>();
-  for (const r of newest) if (r.status === "fail" && startFailureOf(String(r.summary ?? ""))) arranqueBy.set(String(r.task_key), { summary: String(r.summary), at: iso(date(r.ended_at)) });
+  // PLA-I2-16: Claude signed out on this machine also waits on the owner (the run started but did nothing), so it shows
+  // the same way, with its own words (ui/src/lib/arranque.ts).
+  for (const r of newest) if (r.status === "fail" && (startFailureOf(String(r.summary ?? "")) || failReason(String(r.summary ?? "")) === SIGNED_OUT)) arranqueBy.set(String(r.task_key), { summary: String(r.summary), at: iso(date(r.ended_at)) });
   const laneBy = new Map(lanes.map((r) => [String(r.task_id), r]));
   const prBy = new Map(prs.map((r) => [String(r.task_id), r]));
   const waitBy = new Map<string, string[]>();
@@ -438,10 +497,10 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
 
 // One line for an open typed blocker.
 function heldText(type: string, spec: Record<string, unknown>): string {
-  if (type === "human_action") return String(spec.text ?? "Espera una acción tuya.");
-  if (type === "time_after") return `Espera hasta ${String(spec.at ?? "")}`.trim();
-  if (type === "env") return `Espera a ${String(spec.env ?? "")}: ${String(spec.condition ?? "")} ${String(spec.value ?? "")}`.trim();
-  if (type === "env_flag") return `Espera la bandera ${String(spec.flag ?? "")} en ${String(spec.env ?? "")}`;
-  if (type === "metric_gte") return `Espera que ${String(spec.name ?? "")} llegue a ${String(spec.value ?? "")}`;
-  return "Bloqueado.";
+  if (type === "human_action") return String(spec.text ?? ew().humanAction);
+  if (type === "time_after") return ew().until(String(spec.at ?? "")).trim();
+  if (type === "env") return ew().env(String(spec.env ?? ""), String(spec.condition ?? ""), String(spec.value ?? "")).trim();
+  if (type === "env_flag") return ew().envFlag(String(spec.flag ?? ""), String(spec.env ?? ""));
+  if (type === "metric_gte") return ew().metric(String(spec.name ?? ""), String(spec.value ?? ""));
+  return ew().blocked;
 }

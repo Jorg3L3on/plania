@@ -9,9 +9,11 @@
 // sideways on a row of their own.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
-import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
+import { DOORS, tabName, type Tab } from "@/lib/corriente";
+import { STRIP } from "@/lib/corriente-parts-words";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
-import { SWITCHER_MENU, TE_ESPERA, peerTitle,archivoCount, barState, switcherLabel, todoCount } from "@/lib/barra";
+import { archivoCount, barState, peerTitle, switcherLabel, switcherMenu, teEspera, todoCount } from "@/lib/barra";
+import { words } from "@/lib/i18n";
 import { useFicha } from "./listas";
 import { Logo } from "./parts";
 
@@ -37,14 +39,14 @@ const LaneItem = ({ l, i, current, to, onPick }: { l: Lane; i: number; current: 
       onClick={onPick}
       className={`cor-chip ${l.pace !== "live" ? "quiet" : ""}`}
       aria-current={current ? "page" : undefined}
-      aria-label={l.you.length > 0 ? `${l.title}${TE_ESPERA}` : l.title}
+      aria-label={l.you.length > 0 ? `${l.title}${teEspera()}` : l.title}
       data-chip={l.slug}
       style={{ "--cor-speed": `${6 + (i % 3) * 2}s`, "--cor-delay": `-${i * 1.7}s` } as CSSProperties}
     >
       <span className="cor-chip-name">
         <Logo slug={l.slug} title={l.title} size="sm" />
         <span className="cor-ellipsis">{l.title}</span>
-        {l.you.length > 0 && <span className="sr-only">{TE_ESPERA}</span>}
+        {l.you.length > 0 && <span className="sr-only">{teEspera()}</span>}
       </span>
       <span className={`cor-mini ${l.pace === "off" ? "off" : ""}`} aria-hidden>
         {COLUMNS.map((c) => (
@@ -92,7 +94,7 @@ export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { sl
         </button>
       </h1>
       {open && (
-        <ul className="cor-switch-menu" role="menu" aria-label={SWITCHER_MENU} data-switcher>
+        <ul className="cor-switch-menu" role="menu" aria-label={switcherMenu()} data-switcher>
           {lanes.map((l, i) => (
             <LaneItem key={l.slug} l={l} i={i} current={l.slug === slug} to={href(l.slug)} onPick={() => setOpen(false)} />
           ))}
@@ -106,10 +108,10 @@ export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { sl
  *  mini stream), the open one marked. A chip opens that project on the same door. Chips keep a set width, so one
  *  project is not a bar-wide box. A phone hides the strip and keeps back and the switcher in the bar. */
 export const Strip = ({ slug, lanes, href, back }: { slug: string; lanes: Lane[]; href: (slug: string) => string; back: string }) => (
-  <nav className="cor-strip" aria-label={SWITCHER_MENU} data-strip>
+  <nav className="cor-strip" aria-label={switcherMenu()} data-strip>
     <Link to={back} className="cor-strip-back" data-control="corriente">
       <Chevron d="M9.5 3.5 5 8l4.5 4.5" />
-      Corriente
+      {words(STRIP).corriente}
     </Link>
     <div className="cor-chips">
       {lanes.map((l, i) => (
@@ -174,6 +176,7 @@ export const ProjectBar = ({
   /** Tests: draw the switcher's menu open. */
   switcherOpen?: boolean;
 }) => {
+  const w = words(STRIP);
   const on = (t: Tab) => tab === t || (t === "equipo" && tab === "motores") || (t === "todo" && tab === "hecho");
   const state = barState(paused);
   const todo = open === undefined ? null : todoCount(open);
@@ -185,13 +188,13 @@ export const ProjectBar = ({
       <Link to={back} className="cor-strip-back" data-control="corriente-tel">
         <Chevron d="M9.5 3.5 5 8l4.5 4.5" />
         {/* PLA-I3-7: a phone shows the chevron alone; the word stays the link's name. */}
-        <span className="cor-strip-back-t">Corriente</span>
+        <span className="cor-strip-back-t">{w.corriente}</span>
       </Link>
       <Switcher slug={slug} title={title} lanes={lanes} href={projectHref} initialOpen={switcherOpen} />
-      <nav className="cor-doors" aria-label={`Puertas de ${title}`}>
+      <nav className="cor-doors" aria-label={w.doorsOf(title)}>
         {BAR_DOORS.map((t) => (
           <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
-            {TAB_NAME[t]}
+            {tabName(t)}
             {t === "todo" && todo && <span className="n">{todo}</span>}
             {t === "archivo" && <ArchivoCount slug={slug} />}
             {t === "equipo" && team && <span className="n">{team}</span>}

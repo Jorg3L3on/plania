@@ -23,6 +23,8 @@ import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
+import { ownerEs, ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
 
 export const DELIVERED = "stage.delivered";
 export const DECISION = "idea.decision";
@@ -242,8 +244,27 @@ export function decisionStates(decisions: StageDecision[], picks: DecisionPick[]
   });
 }
 
-// ---- The doc. Headings as STAGE_DOCS names them; fixed words in Spanish, which is what the owner reads.
-const q = (s: string) => `«${s}»`;
+// ---- The doc. Headings as STAGE_DOCS names them; fixed words in the install's language, which is what the owner reads.
+// PLA-I2-10: the doc's fixed words in the install's language; the Spanish is unchanged. Readers accept both
+// («Tamaño» or "Size", src/api/company-idea.ts and company-pedido.ts).
+export const STAGE_DOC_WORDS = defineWords({
+  es: {
+    q: (s: string) => `«${s}»`,
+    assumed: (rec: string, why: string, others: string) => `Se asume ${rec} hasta que ${ownerEs()} decida: ${why} Otras opciones: ${others}.`,
+    decided: (chosen: string) => `Decidido ${ownerEs("por")}: ${chosen}.`,
+    poRecommended: (rec: string) => ` El PO recomendaba ${rec}.`,
+    option: (n: number, title: string) => `**Opción ${n}: ${title}.**`,
+    size: "Tamaño",
+  },
+  en: {
+    q: (s: string) => `"${s}"`,
+    assumed: (rec: string, why: string, others: string) => `Assumed ${rec} until ${ownerName("en")} decides: ${why} Other options: ${others}.`,
+    decided: (chosen: string) => `Decided by ${ownerName("en")}: ${chosen}.`,
+    poRecommended: (rec: string) => ` The PO recommended ${rec}.`,
+    option: (n: number, title: string) => `**Option ${n}: ${title}.**`,
+    size: "Size",
+  },
+});
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const ASSUMPTIONS = "Assumptions";
 
@@ -251,11 +272,12 @@ export const ASSUMPTIONS = "Assumptions";
 export function decisionLine(n: number, d: StageDecision, chosen: number | null = null): string {
   const head = `${n}. **${d.question}**`;
   const rec = d.options[d.recommended]!;
+  const w = say(STAGE_DOC_WORDS);
   if (chosen === null) {
-    const others = d.options.filter((_, i) => i !== d.recommended).map(q);
-    return `${head} Se asume ${q(rec)} hasta que Jorge decida: ${d.why} Otras opciones: ${others.join(", ")}.`;
+    const others = d.options.filter((_, i) => i !== d.recommended).map(w.q);
+    return `${head} ${w.assumed(w.q(rec), d.why, others.join(", "))}`;
   }
-  return `${head} Decidido por Jorge: ${q(d.options[chosen]!)}.${chosen === d.recommended ? "" : ` El PO recomendaba ${q(rec)}.`}`;
+  return `${head} ${w.decided(w.q(d.options[chosen]!))}${chosen === d.recommended ? "" : w.poRecommended(w.q(rec))}`;
 }
 
 /** The doc with that decision's line as decided. A doc someone rewrote by hand gets the line added under Assumptions. */
@@ -272,7 +294,7 @@ export function rewriteDecisionLine(markdown: string, n: number, d: StageDecisio
 }
 
 /** Research's recommendation as one Markdown line: the option's number (as the screen counts them) and why. */
-export const recommendationText = (d: ResearchData) => `**Opción ${d.recommendation.option + 1}: ${d.options[d.recommendation.option]!.title}.** ${d.recommendation.why}`;
+export const recommendationText = (d: ResearchData) => `${say(STAGE_DOC_WORDS).option(d.recommendation.option + 1, d.options[d.recommendation.option]!.title)} ${d.recommendation.why}`;
 
 const bullets = (items: string[]) => items.map((x) => `- ${x}`).join("\n");
 const numbered = (items: string[]) => items.map((x, i) => `${i + 1}. ${x}`).join("\n");
@@ -316,7 +338,7 @@ export function renderStageDoc<S extends DeliverStage>(stage: S, data: StageData
     ["Try it", numbered(d.steps.map((s) => s.try_it))],
     ["Risks", bullets(d.risks)],
   ];
-  if (d.size) parts.push(["Tamaño", d.size]);
+  if (d.size) parts.push([say(STAGE_DOC_WORDS).size, d.size]);
   return sections(parts);
 }
 
@@ -383,7 +405,7 @@ export const registerStageTools = (
     {
       description: [
         "Deliver an idea's stage as data. Plania checks it, writes the stage doc for you (same title and headings as before, so do not also attach_doc it) and keeps the data for the owner's screen. Then move the idea with set_task stage.",
-        "stage idea: data {problem, who, why_now, decisions}. decisions are the open questions you would otherwise ask (0 to 6): each {question, options (2 to 4 short labels), recommended (0-based index), why}. Nothing waits: your recommended option is assumed, the owner can change it on his screen, and a change sends the idea back to you with his note.",
+        "stage idea: data {problem, who, why_now, decisions}. decisions are the open questions you would otherwise ask (0 to 6): each {question, options (2 to 4 short labels), recommended (0-based index), why}. Nothing waits: your recommended option is assumed, the owner can change it on their screen, and a change sends the idea back to you with his note.",
         "stage research: data {learned: [..], options: [{title, text}] (2 to 4), recommendation: {option (0-based index), why}, unknowns: [..] (may be empty)}.",
         "stage design: data {approach, scope: [..], out_of_scope: [at least one thing it will not do]}.",
         `stage planning: data {steps (1 to ${MAX_STEPS}): [{title, done_when, try_it, work_type code|ops|research|bug|debt}], risks: [..], size (optional, one line)}. done_when states something a person can see or check; try_it says what someone can try once that step lands.`,

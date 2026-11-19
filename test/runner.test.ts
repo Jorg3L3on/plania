@@ -2,7 +2,7 @@
 // no real claude, no real worktree, no live database (test/helpers.ts throwaway DB).
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -66,12 +66,18 @@ function fakes(opts: { onSignal?: (child: FakeChild, signal: NodeJS.Signals) => 
     env: {
       HOME: scratch,
       PATH: "/usr/bin:/bin",
-      ANTHROPIC_API_KEY: "sk-should-never-reach-the-child",
+      ANTHROPIC_API_KEY: "sk-ant-buyer-key",
       ANTHROPIC_BASE_URL: "http://127.0.0.1/never",
       anthropic_auth_token: "lowercase-too",
       PLANIA_RUNNER_TOKEN: "runner-token",
       PLANIA_PROMPTS_PROJECT: "micasa",
       CLAUDE_CODE_BIN: "/fake/bin/claude",
+      // PLA-I2-13: Plania's own secrets, which no run may receive.
+      DATABASE_URL: "postgres://plania-secret",
+      MCP_BEARER_TOKEN: "bearer-secret",
+      SESSION_SECRET: "session-secret",
+      GITHUB_TOKEN: "ghp-secret",
+      VAPID_PRIVATE_KEY: "vapid-secret",
     } as NodeJS.ProcessEnv,
     logDir: path.join(scratch, "logs"),
     tmpDir: path.join(scratch, "tmp"),
@@ -216,14 +222,17 @@ after(async () => {
 
 // ---- PLA-I29-2: the runner
 
-test("I29-2 #1: the child env has 0 ANTHROPIC_* keys and the args are the headless set", async () => {
+// PLA-I2-13: was "0 ANTHROPIC_* keys". Claude's own variables now pass unchanged; Plania's secrets never do.
+test("I29-2 #1 / I2-13 #1 #2: the child env keeps Claude's sign-in, holds no Plania secret, and the args are the headless set", async () => {
   const f = fakes();
   await ready("micasa", "RUN-ENV");
   const res = await wake("taller", f.deps, "RUN-ENV");
   assert.equal(res.reason, "ok");
   assert.equal(f.spawned.length, 1);
   const { env, args, command, cwd } = f.spawned[0]!;
-  assert.equal(Object.keys(env).filter((k) => /^ANTHROPIC_/i.test(k)).length, 0);
+  assert.equal(env.ANTHROPIC_API_KEY, "sk-ant-buyer-key", "the machine's key reaches the run unchanged");
+  assert.equal(env.ANTHROPIC_BASE_URL, "http://127.0.0.1/never");
+  for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY", "PLANIA_PROMPTS_PROJECT"]) assert.equal(env[k], undefined, k);
   assert.equal(env.PLANIA_RUNNER_TOKEN, "runner-token");
   assert.equal(command, "/fake/bin/claude");
   for (const flag of ["-p", "--verbose", "--strict-mcp-config", "--settings", "--mcp-config", "--max-turns", "--append-system-prompt-file"]) {
@@ -235,10 +244,52 @@ test("I29-2 #1: the child env has 0 ANTHROPIC_* keys and the args are the headle
   assert.equal(args.includes("-w"), false);
   assert.equal(cwd.startsWith(wtRoot), true);
   // Same helper, direct.
-  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", Anthropic_Model: "y", HOME: "/h" })).join(","), "HOME");
+  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", Anthropic_Model: "y", HOME: "/h", PLANIA_STRIP_ANTHROPIC_ENV: "1" })).join(","), "HOME");
+  assert.equal(Object.keys(childEnv({ ANTHROPIC_API_KEY: "x", HOME: "/h", DATABASE_URL: "d" })).sort().join(","), "ANTHROPIC_API_KEY,HOME");
   f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
   f.spawned[0]!.child.exit(0);
   await runner.waitForAllRuns();
+});
+
+// PLA-I2-9 check 3: a run of Plania itself (the project's repo is the running server's checkout) carries the rules
+// that keep it off the live database, and does not start when its folder points at that database.
+test("I2-9 #3: a run of Plania itself gets the live-database rules, and refuses to start pointed at the live database", async () => {
+  const LIVE = "postgres://owner@localhost:5432/plania";
+  const f = fakes();
+  const deps = { ...f.deps, serverRoot: repo, env: { ...f.deps.env, DATABASE_URL: LIVE } };
+  await ready("micasa", "SELF-RUN");
+  const res = await wake("taller", deps, "SELF-RUN");
+  assert.equal(res.reason, "ok");
+  const { args, env } = f.spawned[0]!;
+  const deny = (JSON.parse(readFileSync(args[args.indexOf("--settings") + 1]!, "utf8")) as { permissions: { deny: string[] } }).permissions.deny;
+  for (const cmd of ["psql plania", "pnpm db:migrate", "pnpm server:restart", "DATABASE_URL=postgres://localhost/plania pnpm dev"]) assert.notEqual(deniedBy("Bash", cmd, deny), null, cmd);
+  assert.equal(env.DATABASE_URL, undefined);
+  f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+  f.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+
+  // Any other project's run: no such rules.
+  const g = fakes();
+  await ready("micasa", "OTHER-RUN");
+  await wake("taller", { ...g.deps, env: { ...g.deps.env, DATABASE_URL: LIVE } }, "OTHER-RUN");
+  const otherArgs = g.spawned[0]!.args;
+  const otherDeny = (JSON.parse(readFileSync(otherArgs[otherArgs.indexOf("--settings") + 1]!, "utf8")) as { permissions: { deny: string[] } }).permissions.deny;
+  assert.equal(deniedBy("Bash", "pnpm db:migrate", otherDeny), null);
+  g.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+  g.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+
+  // The check: an env file in the run's folder that points at the live database stops the run before it starts.
+  const h = fakes();
+  await ready("micasa", "SELF-BAD");
+  const cwd = worktreePathFor(wtRoot, "micasa", "SELF-BAD");
+  mkdirSync(cwd, { recursive: true });
+  writeFileSync(path.join(cwd, ".env"), "DATABASE_URL=postgres://127.0.0.1/plania\n");
+  const bad = await wake("taller", { ...h.deps, serverRoot: repo, env: { ...h.deps.env, DATABASE_URL: LIVE } }, "SELF-BAD");
+  assert.equal(h.spawned.length, 0, "no process started");
+  const [row] = (await raw.query(`select status, summary from agent_runs where task_key = 'SELF-BAD' order by queued_at desc limit 1`)).rows as { status: string; summary: string }[];
+  assert.equal(row!.status, "fail", JSON.stringify(bad));
+  assert.match(row!.summary, /\.env in the run's folder points at the live database/);
 });
 
 test("I29-2 #2: the timeout sends SIGINT, then SIGTERM, then SIGKILL, in that order", async () => {
@@ -740,9 +791,9 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
+  assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "claude_sign_in", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.usage).sort(), ["last_week", "used"]);
-  assert.equal(state.week.timezone, "America/Mexico_City");
+  assert.equal(state.week.timezone, "UTC");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };
   const plan = machine.plumbing.plan;
   assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "override", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);

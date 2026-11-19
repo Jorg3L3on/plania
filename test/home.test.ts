@@ -54,12 +54,12 @@ describe("headlineOf", () => {
   const wrk = project("workia", "Workia");
   const text = (h: ReturnType<typeof headlineOf>) => h.voice.map((v) => v.text).join("");
 
-  test("two agents: who moves, who waits, what the Mac carries", () => {
+  test("two agents: who moves, who waits, what the machine carries", () => {
     const flights = flightsOf([zig, fil], []);
     const h = headlineOf({ projects: [fil, wrk, zig], flights, inbox: { count: 15, by_project: { workia: 15 } }, totals: { orphan: 0, stale: 1 }, nowMs: NOW });
     assert.equal(h.title, "Dos agentes trabajan ahora.");
-    assert.equal(text(h), "Zigzag y Filmia avanzan solas; Workia te espera con 15 cosas, y la Mac tiene 1 obsoleto.");
-    assert.equal(h.voice[1]!.tone, "jorge");
+    assert.equal(text(h), "Zigzag y Filmia avanzan solas; Workia te espera con 15 cosas, y la máquina tiene 1 obsoleto.");
+    assert.equal(h.voice[1]!.tone, "owner");
   });
 
   test("one agent, nothing waiting, a clean Mac", () => {
@@ -73,7 +73,7 @@ describe("headlineOf", () => {
     assert.equal(h.title, "Nadie trabaja ahora.");
     assert.equal(text(h), "Hoy se cerró 1 ticket; Zigzag y Workia y 1 más te esperan con 4 cosas.");
     const quiet = headlineOf({ projects: [wrk], flights: [], inbox: { count: 1, by_project: { machine: 1 } }, totals: { orphan: 2, stale: 0 }, nowMs: NOW });
-    assert.equal(text(quiet), "Hoy no se cerró nada; la Mac te espera con 1 cosa, y la Mac tiene 2 sin dueño.");
+    assert.equal(text(quiet), "Hoy no se cerró nada; la máquina te espera con 1 cosa, y la máquina tiene 2 sin dueño.");
   });
 });
 
@@ -88,7 +88,7 @@ describe("counts", () => {
 
 describe("tiles", () => {
   test("the next line comes from the server's chosen note, else the next ticket, else nothing", () => {
-    assert.deepEqual(nextLine({ line: "FIL-I2: Jorge: crear el cliente OAuth.\nLuego probar.", next_claimable: null }), { key: "FIL-I2", text: "Jorge: crear el cliente OAuth." });
+    assert.deepEqual(nextLine({ line: "FIL-I2: Owner: crear el cliente OAuth.\nLuego probar.", next_claimable: null }), { key: "FIL-I2", text: "Owner: crear el cliente OAuth." });
     assert.deepEqual(nextLine({ line: "Siguiente: FIL-12 · Transiciones suaves", next_claimable: null }), { key: "FIL-12", text: "Transiciones suaves" });
     const next = { key: "ZIG-I12-6", kind: "ticket" as const, title: "QA final", summary: "", status: "Ready", priority: null, parent_key: null, blocked_by: [], workspace: null };
     assert.deepEqual(nextLine({ line: "En curso: ZIG-I12-5 (Claude Code)", next_claimable: next }), { key: "ZIG-I12-6", text: "QA final" });

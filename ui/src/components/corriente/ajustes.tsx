@@ -3,18 +3,18 @@
 // sends the version it read (GET/PUT /api/company/projects/:slug/settings…, src/api/project-settings.ts); the preview
 // and plan approval keep the options route. After a save the readiness list and the floor read again.
 // Wording and checks: @/lib/ajustes. Token fields are never shown here: they stay MCP-only, as variable names.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
 import {
-  CONTEXTO,
-  GUARDADO,
-  LANZAMIENTO_CAMPOS,
-  SECCIONES,
   ajustesError,
+  ajustesWords,
   borrarBoton,
+  codigoOpciones,
+  codigoBody,
+  type CodigoOpcion,
   codigoDe,
   comandos,
   comandosAviso,
@@ -24,13 +24,16 @@ import {
   type Ajustes as AjustesRead,
   type AjustesContexto,
 } from "@/lib/ajustes";
-import { CODIGO_OPCIONES, codigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { Btn, ReadError, Switch } from "./parts";
+import { words } from "@/lib/i18n";
+import { AJUSTES_VIEW_WORDS } from "@/lib/ajustes-words";
+import { Arranque, Avanzado } from "./ajustes-avanzado";
+import { PrepararCodigo } from "./preparar-codigo";
 
 const errorOf = (e: unknown) => (e instanceof ApiError ? ajustesError(e.code, e.detail) : ajustesError(null));
 
 /** One save of the view: the answer becomes the read, the readiness list and the floor read again. */
-function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unknown>) {
+export function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unknown>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: fn,
@@ -39,12 +42,12 @@ function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unk
       else void client.invalidateQueries({ queryKey: ["ajustes", slug] });
       void client.invalidateQueries({ queryKey: ["readiness", slug] });
       void client.invalidateQueries({ queryKey: ["company"] });
-      toast(GUARDADO);
+      toast(ajustesWords().guardado);
     },
   });
 }
 
-const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; texto: string; children: ReactNode }) => (
+export const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; texto: string; children: ReactNode }) => (
   <section className="cor-card cor-ajustes-sec" aria-labelledby={`ajustes-${id}`} data-ajustes={id}>
     <h3 id={`ajustes-${id}`} className="cor-ajustes-h">
       {titulo}
@@ -54,7 +57,7 @@ const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; 
   </section>
 );
 
-const Falla = ({ error }: { error: unknown }) =>
+export const Falla = ({ error }: { error: unknown }) =>
   error ? (
     <p className="cor-state bad cor-ajustes-falla" role="alert">
       {errorOf(error)}
@@ -67,8 +70,10 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
   const [repo, setRepo] = useState(a.code.github_repo ?? "");
   const save = useGuardar(a.slug, (body: NonNullable<ReturnType<typeof codigoBody>>) => api.ajustesCodigo(a.slug, { version: a.version, ...body }));
   const body = codigoBody(opcion, carpeta, repo);
+  const w = words(AJUSTES_VIEW_WORDS);
+  const S = ajustesWords().secciones;
   return (
-    <Seccion id="codigo" titulo={SECCIONES.codigo.titulo} texto={SECCIONES.codigo.texto}>
+    <Seccion id="codigo" titulo={S.codigo.titulo} texto={S.codigo.texto}>
       <form
         className="cor-ajustes-form"
         onSubmit={(e) => {
@@ -76,8 +81,8 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
           if (body) save.mutate(body);
         }}
       >
-        <div className="cor-opts" role="radiogroup" aria-label="Dónde está su código">
-          {CODIGO_OPCIONES.map((o) => (
+        <div className="cor-opts" role="radiogroup" aria-label={w.codeChoice}>
+          {codigoOpciones().map((o) => (
             <button key={o.key} type="button" role="radio" aria-checked={opcion === o.key} className="cor-opt" onClick={() => setOpcion(o.key)} data-codigo-opcion={o.key}>
               {o.label}
             </button>
@@ -87,42 +92,46 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
           <span className="cor-hoja-two">
             {opcion === "carpeta" && (
               <label style={{ flex: 2 }}>
-                <span className="cor-text">Carpeta en esta Mac</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/Developer/Projects/nombre" autoComplete="off" spellCheck={false} data-campo="carpeta" />
+                <span className="cor-text">{w.folder}</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder={w.folderPlaceholder} autoComplete="off" spellCheck={false} data-campo="carpeta" />
               </label>
             )}
             <label>
-              <span className="cor-text">{opcion === "carpeta" ? "En GitHub (si tiene)" : "Repositorio en GitHub"}</span>
-              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} data-campo="github" />
+              <span className="cor-text">{opcion === "carpeta" ? w.githubIfAny : w.githubRepo}</span>
+              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} data-campo="github" />
             </label>
           </span>
         )}
-        {opcion === "github" && <p className="cor-cap">Sin carpeta guardada, Plania la busca en la de proyectos con el nombre del proyecto.</p>}
-        {opcion === "ninguno" && <p className="cor-cap">El equipo trabaja sin carpeta hasta que la tenga.</p>}
+        {opcion === "github" && <p className="cor-cap">{w.githubNoFolder}</p>}
+        {opcion === "ninguno" && <p className="cor-cap">{w.noFolder}</p>}
         <Falla error={save.error} />
         <div className="cor-acts">
           <Btn kind="secondary" type="submit" disabled={!body || save.isPending} data-control="guardar-codigo">
-            {save.isPending ? (opcion === "carpeta" ? "Revisando la carpeta…" : "Guardando…") : "Guardar"}
+            {save.isPending ? (opcion === "carpeta" ? w.checkingFolder : w.saving) : w.save}
           </Btn>
         </div>
       </form>
+      {/* PLA-I2-5: Plania prepares the code and the working branch (./preparar-codigo.tsx). */}
+      <PrepararCodigo a={a} />
     </Seccion>
   );
 };
 
 const Lanzamiento = ({ a }: { a: AjustesRead }) => {
-  const [form, setForm] = useState({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release?.mode === "merge" });
+  const [form, setForm] = useState({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release ? a.release.mode === "merge" : true });
   const save = useGuardar(a.slug, (release: ReturnType<typeof lanzamientoBody>) => api.ajustesLanzamiento(a.slug, { version: a.version, release }));
   const body = lanzamientoBody(form);
+  const w = words(AJUSTES_VIEW_WORDS);
+  const { secciones: S, lanzamientoCampos: C } = ajustesWords();
   const field = (k: "from" | "into" | "env") => (
     <label>
-      <span className="cor-text">{LANZAMIENTO_CAMPOS[k].label}</span>
+      <span className="cor-text">{C[k].label}</span>
       <input className="cor-input cor-mono" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} autoComplete="off" spellCheck={false} data-campo={k} />
-      <span className="cor-cap">{LANZAMIENTO_CAMPOS[k].hint}</span>
+      <span className="cor-cap">{C[k].hint}</span>
     </label>
   );
   return (
-    <Seccion id="lanzamiento" titulo={SECCIONES.lanzamiento.titulo} texto={SECCIONES.lanzamiento.texto}>
+    <Seccion id="lanzamiento" titulo={S.lanzamiento.titulo} texto={S.lanzamiento.texto}>
       <form
         className="cor-ajustes-form"
         onSubmit={(e) => {
@@ -136,14 +145,14 @@ const Lanzamiento = ({ a }: { a: AjustesRead }) => {
           {field("env")}
         </span>
         <span className="cor-ajustes-switch">
-          <Switch on={form.merge} label={LANZAMIENTO_CAMPOS.merge.label} onChange={(merge) => setForm({ ...form, merge })} data-campo="merge" />
-          <span className="cor-cap">{LANZAMIENTO_CAMPOS.merge.hint}</span>
+          <Switch on={form.merge} label={C.merge.label} onChange={(merge) => setForm({ ...form, merge })} data-campo="merge" />
+          <span className="cor-cap">{C.merge.hint}</span>
         </span>
-        {!a.release && <p className="cor-cap">Todavía no tiene paso a producción.</p>}
+        {!a.release && <p className="cor-cap">{w.noRelease}</p>}
         <Falla error={save.error} />
         <div className="cor-acts">
           <Btn kind="secondary" type="submit" disabled={!body || save.isPending} data-control="guardar-lanzamiento">
-            {save.isPending ? "Guardando…" : "Guardar"}
+            {save.isPending ? w.saving : w.save}
           </Btn>
           {a.release && (
             <Btn
@@ -151,11 +160,11 @@ const Lanzamiento = ({ a }: { a: AjustesRead }) => {
               disabled={save.isPending}
               onClick={() => {
                 save.mutate(null);
-                setForm({ from: "", into: "", env: "", merge: false });
+                setForm({ from: "", into: "", env: "", merge: true });
               }}
               data-control="quitar-lanzamiento"
             >
-              Quitar el paso
+              {w.removeRelease}
             </Btn>
           )}
         </div>
@@ -169,8 +178,10 @@ const Pruebas = ({ a }: { a: AjustesRead }) => {
   const save = useGuardar(a.slug, (commands: string[]) => api.ajustesPruebas(a.slug, { version: a.version, commands }));
   const cmds = comandos(text);
   const aviso = comandosAviso(cmds);
+  const w = words(AJUSTES_VIEW_WORDS);
+  const S = ajustesWords().secciones;
   return (
-    <Seccion id="pruebas" titulo={SECCIONES.pruebas.titulo} texto={SECCIONES.pruebas.texto}>
+    <Seccion id="pruebas" titulo={S.pruebas.titulo} texto={S.pruebas.texto}>
       <form
         className="cor-ajustes-form"
         onSubmit={(e) => {
@@ -179,15 +190,15 @@ const Pruebas = ({ a }: { a: AjustesRead }) => {
         }}
       >
         <label>
-          <span className="sr-only">Comandos de QA, uno por línea</span>
+          <span className="sr-only">{w.qaCommands}</span>
           <textarea className="cor-textarea cor-mono cor-ajustes-area" rows={Math.max(3, cmds.length + 1)} value={text} onChange={(e) => setText(e.target.value)} placeholder={"pnpm test\npnpm exec tsc --noEmit"} spellCheck={false} data-campo="comandos" />
         </label>
         {aviso && <p className="cor-state amber">{aviso}</p>}
-        {!aviso && cmds.length === 0 && <p className="cor-cap">Sin comandos, QA no corre pruebas en cada entrega.</p>}
+        {!aviso && cmds.length === 0 && <p className="cor-cap">{w.noCommands}</p>}
         <Falla error={save.error} />
         <div className="cor-acts">
           <Btn kind="secondary" type="submit" disabled={!!aviso || save.isPending} data-control="guardar-pruebas">
-            {save.isPending ? "Guardando…" : "Guardar"}
+            {save.isPending ? w.saving : w.save}
           </Btn>
         </div>
       </form>
@@ -199,8 +210,10 @@ const Vista = ({ a }: { a: AjustesRead }) => {
   const [url, setUrl] = useState(a.preview_url ?? "");
   const save = useGuardar(a.slug, (input: { preview_url?: string | null; plan_approval?: boolean }) => api.setProjectOptions(a.slug, input));
   const ok = vistaPreviaOk(url);
+  const w = words(AJUSTES_VIEW_WORDS);
+  const S = ajustesWords().secciones;
   return (
-    <Seccion id="vista" titulo={SECCIONES.vista.titulo} texto={SECCIONES.vista.texto}>
+    <Seccion id="vista" titulo={S.vista.titulo} texto={S.vista.texto}>
       <form
         className="cor-ajustes-form"
         onSubmit={(e) => {
@@ -209,16 +222,16 @@ const Vista = ({ a }: { a: AjustesRead }) => {
         }}
       >
         <label>
-          <span className="cor-text">Dirección de la vista previa</span>
+          <span className="cor-text">{w.previewAddress}</span>
           <span className="cor-ajustes-row">
             <input className="cor-input cor-mono" type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" autoComplete="off" spellCheck={false} data-campo="vista" />
             <Btn kind="secondary" type="submit" disabled={!ok || save.isPending} data-control="guardar-vista">
-              Guardar
+              {w.save}
             </Btn>
           </span>
         </label>
-        {!ok && <p className="cor-state amber">Empieza con http:// o https://. Vacía, se quita.</p>}
-        <Switch on={a.plan_approval} label="Un plan espera tu «Sí, empiecen»" onChange={(plan_approval) => save.mutate({ plan_approval })} disabled={save.isPending} data-campo="aprobar-planes" />
+        {!ok && <p className="cor-state amber">{w.previewBad}</p>}
+        <Switch on={a.plan_approval} label={w.planApproval} onChange={(plan_approval) => save.mutate({ plan_approval })} disabled={save.isPending} data-campo="aprobar-planes" />
         <Falla error={save.error} />
       </form>
     </Seccion>
@@ -228,7 +241,8 @@ const Vista = ({ a }: { a: AjustesRead }) => {
 const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
   const [text, setText] = useState<string | null>(null);
   const save = useGuardar(a.slug, (markdown: string) => api.ajustesContexto(a.slug, c.id, c.doc_id ? { markdown, version: c.version! } : { markdown }));
-  const w = CONTEXTO[c.id];
+  const v = words(AJUSTES_VIEW_WORDS);
+  const w = ajustesWords().contexto[c.id];
   return (
     <li className="cor-ajustes-nota" data-contexto={c.id} data-existe={c.doc_id ? "1" : "0"}>
       <div className="cor-ajustes-nota-head">
@@ -239,7 +253,7 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
         </span>
         {text === null && (
           <Btn kind="secondary" small onClick={() => (save.reset(), setText(c.doc_id ? c.markdown : c.template))} data-control={c.doc_id ? "editar-contexto" : "crear-contexto"}>
-            {c.doc_id ? "Editar" : "Crear desde la plantilla"}
+            {c.doc_id ? v.edit : v.fromTemplate}
           </Btn>
         )}
       </div>
@@ -252,17 +266,17 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
           }}
         >
           <label>
-            <span className="sr-only">{`${w.titulo}, en markdown`}</span>
+            <span className="sr-only">{v.inMarkdown(w.titulo)}</span>
             <textarea className="cor-textarea cor-mono cor-ajustes-area tall" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} data-campo={`contexto-${c.id}`} />
           </label>
-          {!c.doc_id && <p className="cor-cap">Es la plantilla: llénala y borra los comentarios antes de guardar.</p>}
+          {!c.doc_id && <p className="cor-cap">{v.isTemplate}</p>}
           <Falla error={save.error} />
           <div className="cor-acts">
             <Btn kind="secondary" type="submit" disabled={save.isPending} data-control="guardar-contexto">
-              {save.isPending ? "Guardando…" : c.doc_id ? "Guardar" : "Crear"}
+              {save.isPending ? v.saving : c.doc_id ? v.save : v.create}
             </Btn>
             <Btn kind="quiet" onClick={() => (save.reset(), setText(null))}>
-              Cancelar
+              {v.cancel}
             </Btn>
           </div>
         </form>
@@ -273,7 +287,7 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
 
 /** PLA-I3-2: Borrar proyecto opens from Ajustes (its sheet is ?hoja=borrar, unchanged). */
 export const AjustesBorrar = ({ title, to }: { title: string; to: string }) => (
-  <Seccion id="borrar" titulo={SECCIONES.borrar.titulo} texto={SECCIONES.borrar.texto}>
+  <Seccion id="borrar" titulo={ajustesWords().secciones.borrar.titulo} texto={ajustesWords().secciones.borrar.texto}>
     <div className="cor-acts">
       <Link className="cor-btn danger" to={to} data-control="borrar">
         {borrarBoton(title)}
@@ -284,29 +298,38 @@ export const AjustesBorrar = ({ title, to }: { title: string; to: string }) => (
 
 export const Ajustes = ({ p, borrarTo }: { p: { slug: string; title: string }; borrarTo?: string }) => {
   const q = useQuery({ queryKey: ["ajustes", p.slug], queryFn: () => api.ajustes(p.slug) });
-  if (q.isError && !q.data) return <ReadError what="los ajustes" onRetry={() => void q.refetch()} />;
+  // PLA-I2-6: the readiness list links to a section (#ajustes-<id>); scroll there once the view has loaded.
+  const loaded = !!q.data;
+  const w = words(AJUSTES_VIEW_WORDS);
+  useEffect(() => {
+    if (!loaded || !window.location.hash.startsWith("#ajustes-")) return;
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [loaded]);
+  if (q.isError && !q.data) return <ReadError what={w.readWhat} onRetry={() => void q.refetch()} />;
   const a = q.data;
   return (
     <div className="cor-ajustes" data-ajustes-de={p.slug}>
       <header className="cor-door-head">
-        <h2 className="cor-door-h">{`Ajustes de ${p.title}`}</h2>
-        <p className="cor-text">Lo que el equipo necesita para trabajar en este proyecto. Cada cambio se guarda por separado.</p>
+        <h2 className="cor-door-h">{w.title(p.title)}</h2>
+        <p className="cor-text">{w.lead}</p>
       </header>
       {!a ? (
-        <div className="cor-skel" style={{ height: 320 }} role="status" aria-busy="true" aria-label="Cargando los ajustes" />
+        <div className="cor-skel" style={{ height: 320 }} role="status" aria-busy="true" aria-label={w.loading} />
       ) : (
         <div className="cor-ajustes-cols">
           <Codigo a={a} />
           <Pruebas a={a} />
           <Lanzamiento a={a} />
           <Vista a={a} />
-          <Seccion id="contexto" titulo={SECCIONES.contexto.titulo} texto={SECCIONES.contexto.texto}>
+          <Arranque a={a} />
+          <Seccion id="contexto" titulo={ajustesWords().secciones.contexto.titulo} texto={ajustesWords().secciones.contexto.texto}>
             <ul className="cor-ajustes-notas">
               {a.context.map((c) => (
                 <Nota key={c.id} a={a} c={c} />
               ))}
             </ul>
           </Seccion>
+          <Avanzado a={a} />
           {borrarTo && <AjustesBorrar title={p.title} to={borrarTo} />}
         </div>
       )}

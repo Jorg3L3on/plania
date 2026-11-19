@@ -12,10 +12,12 @@ import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { readTokenFile } from "../jobs/gh-token.js";
 import { repoPathOf } from "../runner/worktree.js";
+import { isSignedOut } from "../runner/signed-out.js";
 import { StreamReader } from "../runner/stream.js";
 import { briefArgs, briefChildEnv, briefSettings, commandOf } from "./claude.js";
 import { PROMPTS_DIR, PROMPT_FILES, readSchemaText } from "./prompts.js";
 import { loadBriefProjects, loadBriefSettings, validTimezone } from "./settings.js";
+import { storedBriefToken, storedRunnerToken } from "../install-state.js";
 
 export type DoctorLine = { ok: boolean; text: string };
 export type ExecResult = { code: number | null; stdout: string; stderr: string };
@@ -42,11 +44,19 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
 
 const line = (ok: boolean, text: string): DoctorLine => ({ ok, text });
 
+export type ClaudeSignIn =
+  | { state: "signed_in"; structuredOutput: boolean }
+  | { state: "signed_out" }
+  | { state: "no_result" }
+  | { state: "failed"; subtype: string }
+  | { state: "could_not_start" };
+
 /**
  * The dry run: pass A's flags and pass A's own schema (PLA-I44-2: so a schema the CLI refuses fails here, not at
- * 07:00), no MCP server, 2 turns (the StructuredOutput tool call takes one).
+ * 07:00), no MCP server, 2 turns (the StructuredOutput tool call takes one). PLA-I2-12: exported for the machine
+ * check (src/machine-check/), which asks only whether Claude is signed in.
  */
-async function claudeDryRun(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): Promise<DoctorLine> {
+export async function claudeDryRun(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): Promise<ClaudeSignIn> {
   const dir = mkdtempSync(path.join(tmpdir(), "plania-brief-doctor-"));
   try {
     const systemPromptPath = path.join(dir, "system.md");
@@ -61,18 +71,44 @@ async function claudeDryRun(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): 
     reader.feed(res.stdout);
     reader.end();
     const r = reader.result;
-    if (!r) return line(false, "claude logged in: no result from a 1-turn run (run `claude` once and log in with your subscription)");
-    if (r.isError) {
-      const why = /log ?in|auth|credential|api key/i.test(`${r.resultText ?? ""} ${res.stderr}`) ? "not logged in (run `claude` and log in)" : `the run ended with ${r.subtype}`;
-      return line(false, `claude logged in: ${why}`);
-    }
+    if (r?.isError && /log ?in|auth|credential|api key/i.test(`${r.resultText ?? ""} ${res.stderr}`)) return { state: "signed_out" };
+    if (isSignedOut(r, res.stderr)) return { state: "signed_out" };
+    if (!r) return { state: "no_result" };
+    if (r.isError) return { state: "failed", subtype: r.subtype };
     const so = r.structuredOutput;
-    if (so && typeof so === "object" && !Array.isArray(so)) return line(true, "claude logged in; the result event carries structured_output");
-    return line(false, "claude logged in, but the result event has no structured_output (the brief would fall back to parsing result)");
+    return { state: "signed_in", structuredOutput: !!so && typeof so === "object" && !Array.isArray(so) };
   } catch {
-    return line(false, "claude logged in: the dry run could not start");
+    return { state: "could_not_start" };
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function dryRunLine(r: ClaudeSignIn): DoctorLine {
+  switch (r.state) {
+    case "signed_out":
+      return line(false, "claude logged in: not logged in (run `claude` and log in)");
+    case "no_result":
+      return line(false, "claude logged in: no result from a 1-turn run (run `claude` once and log in with your subscription)");
+    case "failed":
+      return line(false, `claude logged in: the run ended with ${r.subtype}`);
+    case "could_not_start":
+      return line(false, "claude logged in: the dry run could not start");
+    case "signed_in":
+      return r.structuredOutput
+        ? line(true, "claude logged in; the result event carries structured_output")
+        : line(false, "claude logged in, but the result event has no structured_output (the brief would fall back to parsing result)");
+  }
+}
+
+/** PLA-I2-12: the version `claude --version` prints, or null when it is not there. Shared with the machine check. */
+export async function claudeVersion(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): Promise<string | null> {
+  try {
+    const v = await exec(cmd, ["--version"], { env: briefChildEnv(env, ""), cwd: tmpdir(), timeoutMs: 20_000 });
+    const version = v.stdout.match(/\d+\.\d+\.\d+/)?.[0];
+    return v.code === 0 && version ? version : null;
+  } catch {
+    return null;
   }
 }
 
@@ -122,24 +158,18 @@ export async function runDoctor(db: Db | null, deps: DoctorDeps = {}): Promise<D
 
   // 1-2. claude
   const cmd = commandOf(env);
-  let found = false;
-  try {
-    const v = await exec(cmd, ["--version"], { env: briefChildEnv(env, ""), cwd: tmpdir(), timeoutMs: 20_000 });
-    const version = v.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-    found = v.code === 0 && !!version;
-    out.push(found ? line(true, `claude found (version ${version})`) : line(false, "claude found: not at CLAUDE_CODE_BIN or ~/.local/bin/claude"));
-  } catch {
-    out.push(line(false, "claude found: not at CLAUDE_CODE_BIN or ~/.local/bin/claude"));
-  }
+  const version = await claudeVersion(cmd, env, exec);
+  const found = !!version;
+  out.push(found ? line(true, `claude found (version ${version})`) : line(false, "claude found: not at CLAUDE_CODE_BIN, ~/.local/bin/claude or on PATH"));
   if (deps.skipClaudeRun) out.push(line(true, "claude logged in: skipped (--skip-claude)"));
   else if (!found) out.push(line(false, "claude logged in: skipped, claude was not found"));
-  else out.push(await claudeDryRun(cmd, env, exec));
+  else out.push(dryRunLine(await claudeDryRun(cmd, env, exec)));
 
   // 3-4. tokens (set or not; never the value)
-  if (env.PLANIA_BRIEF_TOKEN?.trim()) out.push(line(true, "read token set (PLANIA_BRIEF_TOKEN)"));
+  if (storedBriefToken(env)) out.push(line(true, "read token set (PLANIA_BRIEF_TOKEN)")); // PLA-I2-2
   else if (env.MCP_READ_TOKEN?.trim()) out.push(line(true, "read token set (MCP_READ_TOKEN fallback; issue a morning-brief read token on /tokens)"));
   else out.push(line(false, "read token set: add PLANIA_BRIEF_TOKEN (read scope, issued on /tokens) to .env"));
-  out.push(env.PLANIA_RUNNER_TOKEN?.trim() ? line(true, "runner token set (PLANIA_RUNNER_TOKEN, for Send to Plania)") : line(false, "runner token set: add PLANIA_RUNNER_TOKEN to .env (Send to Plania needs it)"));
+  out.push(storedRunnerToken(env) ? line(true, "runner token set (PLANIA_RUNNER_TOKEN, for Send to Plania)") : line(false, "runner token set: add PLANIA_RUNNER_TOKEN to .env (Send to Plania needs it)"));
 
   // 5. GitHub token: the env var the poller reads first, then the token file.
   let gh = !!env.GITHUB_TOKEN?.trim();

@@ -1,7 +1,7 @@
 // Inicio's city: every open initiative is a tower in its project's district. Windows are its
 // tickets, lit from the ground up as work closes; a crane means agents are on it; a red beacon
 // means it is shipping; scaffolding means it is still being planned; a searchlight means it waits
-// on Jorge. Pure functions over the /api shapes, so test/city.test.ts can load this file.
+// on the owner. Pure functions over the /api shapes, so test/city.test.ts can load this file.
 import type { InboxItem, InitiativeNote } from "./types.js";
 
 export type CityTask = {
@@ -21,7 +21,7 @@ export type CityProject = {
 };
 
 /** One window per ticket. lit: Done; the rest by where the ticket stands. */
-export type WindowTone = "lit" | "review" | "now" | "jorge" | "blocked" | "ready" | "dark";
+export type WindowTone = "lit" | "review" | "now" | "owner" | "blocked" | "ready" | "dark";
 
 /** planning: scaffolding. building: Active. shipping: beacon on top. paused: On hold, lights off. */
 export type Stage = "planning" | "building" | "shipping" | "paused";
@@ -43,9 +43,9 @@ export type Tower = {
   agents: Agent[];
   /** A ticket is En curso or En revisión: only these stand in the skyline. */
   working: boolean;
-  /** Something here waits on Jorge: an inbox item, a ticket in Needs Jorge, or a next step addressed to him with nobody working. */
+  /** Something here waits on the owner: an inbox item, a ticket in Needs owner, or a next step addressed to them with nobody working. */
   waits: boolean;
-  /** Still on paper and waiting for Jorge's go: planning, and no ticket started yet. */
+  /** Still on paper and waiting for the owner's go: planning, and no ticket started yet. */
   awaitsGo: boolean;
   /** The inbox items that belong to this initiative or its tickets. */
   inbox: InboxItem[];
@@ -65,12 +65,12 @@ const WINDOW_OF: Record<string, WindowTone> = {
   Merged: "review",
   "In review": "review",
   "In progress": "now",
-  "Needs Jorge": "jorge",
+  "Needs owner": "owner",
   Blocked: "blocked",
   Ready: "ready",
   Backlog: "dark",
 };
-const FLOOR_ORDER: WindowTone[] = ["lit", "review", "now", "jorge", "blocked", "ready", "dark"];
+const FLOOR_ORDER: WindowTone[] = ["lit", "review", "now", "owner", "blocked", "ready", "dark"];
 
 const STAGE_OF: Record<string, Stage> = { Planning: "planning", Active: "building", Shipping: "shipping", "On hold": "paused" };
 
@@ -78,15 +78,18 @@ const STAGE_OF: Record<string, Stage> = { Planning: "planning", Active: "buildin
 export const columnsFor = (n: number) => (n <= 20 ? 2 : n <= 45 ? 3 : 4);
 
 /**
- * A next step that is Jorge's now, as agents write them: "Jorge: …", "Jorge to …",
- * "Esperar el OK de Jorge …". Each sentence counts only up to its "then" / "luego", so
- * "Get CI green, then Jorge merges" is still the agent's; "skipped by Jorge" is history, not a request.
+ * A next step that is the owner's now, as agents write them: "Owner: …", "The owner to …",
+ * "Esperar el OK del dueño …". Each sentence counts only up to its "then" / "luego", so
+ * "Get CI green, then the owner merges" is still the agent's; "skipped by the owner" is history, not a request.
+ * PLA-I2-14: the owner's display name (name) counts too, and the first owner's name until protocol 2.25.
  */
-export function addressedToJorge(note: string): boolean {
+export function addressedToOwner(note: string, name?: string | null): boolean {
+  const named = name?.trim() ? String.raw`|${name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\p{L}\p{N}])` : "";
+  const who = new RegExp(String.raw`(?<!\b(?:by|por)\s)(?:\bOwner\b|\b[Tt]he owner\b|\b(?:[Ee]l|de)l? due[ñn]o|\bJorge\b${named})`, "u");
   return note
     .split(/[.;\n]+/)
     .map((sentence) => sentence.split(/\b(?:then|luego|después|al día siguiente)\b/i)[0]!)
-    .some((now) => /(?<!\b(?:by|por)\s)\bJorge\b/.test(now));
+    .some((now) => who.test(now));
 }
 
 const byKey = (a: { key: string }, b: { key: string }) => a.key.localeCompare(b.key, undefined, { numeric: true });
@@ -105,7 +108,7 @@ export function towerOf(p: CityProject, initiative: CityTask, inbox: InboxItem[]
   const keys = new Set([initiative.key, ...tickets.map((t) => t.key)]);
   const mine = inbox.filter((i) => i.project === p.slug && ((i.key && keys.has(i.key)) || i.parent_key === initiative.key));
   const stage = STAGE_OF[initiative.status] ?? "building";
-  const waits = mine.length > 0 || windows.includes("jorge") || (agents.length === 0 && stage !== "paused" && addressedToJorge(next));
+  const waits = mine.length > 0 || windows.includes("owner") || (agents.length === 0 && stage !== "paused" && addressedToOwner(next));
   return {
     key: initiative.key,
     slug: p.slug,
@@ -143,7 +146,7 @@ export function cityOf(projects: CityProject[], inbox: InboxItem[]): District[] 
 
 /**
  * The skyline: only towers with a ticket En curso or En revisión. The rest stay in Proyectos below;
- * count what waits on Jorge on the full city, so a hidden tower still reaches the headline.
+ * count what waits on the owner on the full city, so a hidden tower still reaches the headline.
  */
 export function workingCity(districts: District[]): District[] {
   return districts.map((d) => ({ ...d, towers: d.towers.filter((t) => t.working) })).filter((d) => d.towers.length > 0);
@@ -174,7 +177,7 @@ export function crewCity(districts: District[], crew: { slug: string; agent: str
     .filter((d) => d.towers.length > 0);
 }
 
-/** Inbox items that belong to no open initiative: they still wait on Jorge, outside the skyline. */
+/** Inbox items that belong to no open initiative: they still wait on the owner, outside the skyline. */
 export function looseInbox(districts: District[], inbox: InboxItem[]): InboxItem[] {
   const placed = new Set(districts.flatMap((d) => d.towers.flatMap((t) => t.inbox.map((i) => i.id))));
   return inbox.filter((i) => !placed.has(i.id));
@@ -194,15 +197,15 @@ export function towerLabel(t: Tower, projectTitle: string): string {
 }
 
 /**
- * What waits on Jorge, for the headline and the project tiles: the inbox, plus each tower with a ticket
- * in Needs Jorge and nothing in the inbox. A next step that only names him lights the tower's
+ * What waits on the owner, for the headline and the project tiles: the inbox, plus each tower with a ticket
+ * in Needs owner and nothing in the inbox. A next step that only names him lights the tower's
  * searchlight but is not counted: it is a guess from the text, not a request.
  */
 export function waitingOf(districts: District[], inbox: InboxItem[]): { count: number; by_project: Record<string, number> } {
   const by_project: Record<string, number> = {};
   for (const i of inbox) by_project[i.project] = (by_project[i.project] ?? 0) + 1;
   for (const t of districts.flatMap((d) => d.towers)) {
-    if (t.windows.includes("jorge") && t.inbox.length === 0) by_project[t.slug] = (by_project[t.slug] ?? 0) + 1;
+    if (t.windows.includes("owner") && t.inbox.length === 0) by_project[t.slug] = (by_project[t.slug] ?? 0) + 1;
   }
   return { count: Object.values(by_project).reduce((a, b) => a + b, 0), by_project };
 }

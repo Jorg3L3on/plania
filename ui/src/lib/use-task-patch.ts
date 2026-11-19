@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "./api";
+import { words } from "./i18n";
 import { useLive } from "./live";
+import { TASK_PATCH_WORDS } from "./task-patch-words";
 import type { ProjectDetail } from "./types";
 
 type Patch = { status?: string; priority?: string; note?: string; reason?: string };
@@ -9,22 +11,12 @@ type Patch = { status?: string; priority?: string; note?: string; reason?: strin
 const TERMINAL = new Set(["Done", "Won't do"]);
 type Target = { key: string; title: string; version: number };
 
-const MESSAGES: Record<string, string> = {
-  BLOCKED_REQUIRES_NOTE: "Blocked necesita una nota.",
-  INVALID_STATUS: "Ese estado no aplica aquí.",
-  INVALID_PRIORITY: "Esa prioridad no aplica aquí.",
-  TASK_NOT_FOUND: "La tarea ya no existe.",
-  STALE_VERSION: "Cambió mientras la veías. Ya está al día: revisa y vuelve a intentarlo.",
-  CHECKS_OPEN: "Quedan puntos del Done when sin cerrar: márcalos o exímelos en la ficha.",
-  INITIATIVE_CHILDREN_OPEN: "La iniciativa tiene tickets abiertos; ciérralos primero.",
-  HUMAN_ONLY: "Won't do y reabrir piden un motivo.",
-};
-
 // PLA-I56-2: a refused initiative Done names the tickets still open.
 const describe = (e: unknown) => {
+  const w = words(TASK_PATCH_WORDS);
   if (e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN" && Array.isArray(e.detail?.open) && e.detail.open.length)
-    return `La iniciativa tiene tickets abiertos: ${(e.detail.open as string[]).join(", ")}. Ciérralos primero.`;
-  return (e instanceof ApiError && MESSAGES[e.code]) || "No se pudo guardar el cambio.";
+    return w.childrenOpen((e.detail.open as string[]).join(", "));
+  return (e instanceof ApiError && w.refused[e.code]) || w.failed;
 };
 
 // Status and priority changes: applied to the cache at once, rolled back if the server refuses.
@@ -78,10 +70,10 @@ export function useTaskPatch(slug: string) {
     // Lives on the mutation, not on mutate(): it still runs if the row unmounted meanwhile.
     onSuccess: (data, { target, patch, undo }) => {
       setVersion(target.key, data.version);
-      // Closing with things still running on the Mac: say what and how to remove each (Plania never runs them).
+      // Closing with things still running on the machine: say what and how to remove each (Plania never runs them).
       const live = (data.warnings ?? []).filter((w): w is Exclude<typeof w, string> => typeof w !== "string" && w.code === "FOOTPRINT_LIVE");
       if (live.length) {
-        toast.warning(`${target.title} sigue con ${live.length === 1 ? "algo corriendo" : `${live.length} cosas corriendo`}`, {
+        toast.warning(words(TASK_PATCH_WORDS).stillRunning(target.title, live.length), {
           duration: 15000,
           description: live.map((w) => `${w.kind} ${w.locator}${w.teardown ? `: ${w.teardown}` : ""}`).join("\n"),
         });
@@ -89,7 +81,7 @@ export function useTaskPatch(slug: string) {
       if (!undo) return;
       toast(`${target.title} → ${patch.status}`, {
         duration: 8000,
-        action: { label: "Deshacer", onClick: () => undoTo({ ...target, version: data.version }, undo) },
+        action: { label: words(TASK_PATCH_WORDS).undo, onClick: () => undoTo({ ...target, version: data.version }, undo) },
       });
     },
     onError: (error, _vars, context) => {

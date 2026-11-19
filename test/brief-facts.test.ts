@@ -116,7 +116,7 @@ before(async () => {
 
   // Threads: what pass A would have read with thread_read, carrying an email and token values that must not leak.
   const pt = (await q(`insert into threads (kind, project_id, read_at) values ('project', $1, $2) returning id`, [ids.workia, at(3)]))[0].id;
-  await q(`insert into thread_messages (thread_id, at, author_agent, author_role, body, links) values ($1, $2, 'jorge', 'ceo', $3, '[]'), ($1, $4, 'po-workia', 'po', $5, $6), ($1, $7, 'po-workia', 'po', 'old message', '[]')`, [
+  await q(`insert into thread_messages (thread_id, at, author_agent, author_role, body, links) values ($1, $2, 'owner', 'ceo', $3, '[]'), ($1, $4, 'po-workia', 'po', $5, $6), ($1, $7, 'po-workia', 'po', 'old message', '[]')`, [
     pt,
     at(5),
     `Use the legal text from mail of luis.perez@empresa.mx; my token is ${TEST_BEARER} and ${PLA_TOKEN}`,
@@ -147,7 +147,7 @@ const proj = (slug: string) => facts.projects.find((p) => p.slug === slug)!;
 
 test("facts: window, settings, project order (included projects only)", () => {
   assert.deepEqual(facts.window, { from: FROM.toISOString(), to: NOW.toISOString() });
-  assert.equal(facts.timezone, "America/Mexico_City");
+  assert.equal(facts.timezone, "UTC");
   assert.deepEqual(facts.hidden_refs, ["PLA-I16"]);
   assert.deepEqual(facts.projects.map((p) => p.slug), ["workia", "zigzag", "filmia", "micasa"]);
 });
@@ -205,7 +205,7 @@ test("facts: a stale env record names the merges since; a fresh one is not stale
 test("facts: threads carry what thread_read would have shown, within the window", () => {
   const t = proj("workia").thread;
   assert.equal(t.messages.length, 2, "the 4-day-old message is outside the window");
-  assert.deepEqual(t.messages.map((m) => m.author), ["jorge", "po-workia"]);
+  assert.deepEqual(t.messages.map((m) => m.author), ["owner", "po-workia"]);
   assert.deepEqual(t.messages[1]!.links, [{ kind: "ticket", ref: "WRK-I15", title: "Renewal board" }]);
   assert.equal(t.unread, 1, "one message after read_at not written by the owner");
   assert.deepEqual(facts.company_thread.messages.map((m) => m.body), ["Brief de hoy: 3 runs ok"]);
@@ -265,10 +265,10 @@ test("facts v2: handles on questions, steps, the release, PRs, tickets, initiati
 
   // A human step: its blocker id is kept, with who it is for.
   const [t] = await q(`select id from tasks where key = 'WRK-I14-1'`);
-  const [b] = await q(`insert into blockers (task_id, type, spec) values ($1, 'human_action', $2) returning id`, [t.id, JSON.stringify({ assignee: "jorge", text: "Check the legal text on the phone" })]);
+  const [b] = await q(`insert into blockers (task_id, type, spec) values ($1, 'human_action', $2) returning id`, [t.id, JSON.stringify({ assignee: "owner", text: "Check the legal text on the phone" })]);
   const again = (await buildFacts(db, W)).projects.find((p) => p.slug === "workia")!;
   const step = again.inbox.find((x) => x.kind === "human_action")!;
-  assert.deepEqual([step.handle, step.id, step.key, step.assignee], [`b:${b.id}`, b.id, "WRK-I14-1", "jorge"]);
+  assert.deepEqual([step.handle, step.id, step.key, step.assignee], [`b:${b.id}`, b.id, "WRK-I14-1", "owner"]);
   await q(`delete from blockers where id = $1`, [b.id]);
 });
 

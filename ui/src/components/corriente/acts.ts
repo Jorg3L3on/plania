@@ -7,44 +7,25 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type IdeaDecisionInput, type PedidoStop } from "@/lib/api";
 import { arranqueLine } from "@/lib/arranque";
+import { words } from "@/lib/i18n";
+import { ACTS_WORDS } from "@/lib/acts-words";
 
-export const SLEEPY = "No se pudo. Si la Mac está dormida, intenta al despertar.";
+// PLA-I2-10: the words live in @/lib/acts-words; these exports stay for the files that import them (the language is
+// fixed for the page's life, so reading them once at load is the same as reading them at use).
+export const SLEEPY: string = words(ACTS_WORDS).sleepy;
+export const STEER_REFUSAL: Record<string, string> = words(ACTS_WORDS).steerRefusal;
+export const DECISION_REFUSAL: Record<string, string> = words(ACTS_WORDS).decisionRefusal;
 
-export const STEER_REFUSAL: Record<string, string> = {
-  PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo primero.",
-  COMPANY_PAUSED: "La compañía está detenida.",
-  RUN_NOT_LIVE: "Esa corrida ya terminó.",
-  NOT_READY: "Ese ya no está listo.",
+export const refusal = (e: unknown) => {
+  const w = words(ACTS_WORDS);
+  return e instanceof ApiError ? (w.steerRefusal[e.code] ?? w.failedCode(e.code)) : w.sleepy;
 };
-
-export const DECISION_REFUSAL: Record<string, string> = {
-  NOT_COMBINABLE: "Esas opciones no van juntas.",
-  ALREADY_ACTED: "Ya actuaste sobre esto.",
-  CHECKS_OPEN: "El paso tiene checks abiertos.",
-  NOT_IN_REVIEW: "Ya no está en revisión.",
-  MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
-  MERGE_CONFLICT: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
-  BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
-  OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
-  INVALID_ACTION: "Eso no se puede hacer aquí. Recarga la página y vuelve a intentarlo.",
-  PR_NOT_OPEN: "El PR está cerrado sin fusionar: pide ajuste o que Taller abra otro.",
-  NO_TICKET: "El mensaje no enlaza un paso.",
-};
-
-const START_WORDS: Record<string, string> = {
-  queued: "Quedó en fila: arranca en cuanto haya lugar.",
-  busy: "Ya está trabajando.",
-  idle: "No tiene nada listo para empezar.",
-  held: "No pudo arrancar: el uso de Claude está al límite.",
-  fail: "No pudo arrancar. Míralo en Máquinas.",
-};
-
-export const refusal = (e: unknown) => (e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : SLEEPY);
 
 export type DecisionBusy = { id: string; key: string } | null;
 
 export function useCorrienteActs() {
   const client = useQueryClient();
+  const w = words(ACTS_WORDS);
   // PLA-112 (guided test PLA-86, F-4): an open step or idea view reads again too; after «Quitar» the ficha still said
   // «Pasó a Backlog».
   const refresh = () => {
@@ -78,8 +59,8 @@ export function useCorrienteActs() {
         ...x,
         [v.d.id]:
           e instanceof ApiError
-            ? (DECISION_REFUSAL[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}). Recarga la página: puede que ya haya cambiado.`))
-            : SLEEPY,
+            ? (w.decisionRefusal[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : w.decisionFailed(e.code)))
+            : w.sleepy,
       })),
     onSettled: () => setBusy(null),
   });
@@ -90,7 +71,7 @@ export function useCorrienteActs() {
   const [quick, setQuick] = useState<string | null>(null);
   // PLA-I64-4: the last refusal per call key, so a row can say it in place (the toast says it too).
   const [failed, setFailed] = useState<Record<string, string>>({});
-  const run = (key: string, fn: () => Promise<unknown>, ok?: (r: any) => string | null, words: (e: unknown) => string = refusal) => {
+  const run = (key: string, fn: () => Promise<unknown>, ok?: (r: any) => string | null, say: (e: unknown) => string = refusal) => {
     setQuick(key);
     setFailed((f) => (f[key] ? { ...f, [key]: "" } : f));
     fn()
@@ -99,9 +80,9 @@ export function useCorrienteActs() {
         if (said) toast(said);
       })
       .catch((e) => {
-        const w = words(e);
-        setFailed((f) => ({ ...f, [key]: w }));
-        toast.error(w);
+        const said = say(e);
+        setFailed((f) => ({ ...f, [key]: said }));
+        toast.error(said);
       })
       .finally(() => {
         setQuick(null);
@@ -116,18 +97,18 @@ export function useCorrienteActs() {
     failed,
     stopRun: (id: string) => run(`stop-${id}`, () => api.stopRun(id)),
     resumeRun: (id: string) => run(`resume-${id}`, () => api.resumeRun(id)),
-    start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : ((r.reason === "fail" && arranqueLine(r.summary)) || (START_WORDS[r.reason] ?? "No arrancó.")))),
-    plan: (slug: string, text: string) => run(`${slug}:plan`, () => api.askProject(slug, { text, mode: "ya" }), () => "Se lo pediste al PO."),
+    start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : ((r.reason === "fail" && arranqueLine(r.summary)) || (w.start[r.reason] ?? w.notStarted)))),
+    plan: (slug: string, text: string) => run(`${slug}:plan`, () => api.askProject(slug, { text, mode: "ya" }), () => w.planAsked),
     autoAccept: (slug: string, on: boolean) =>
-      run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept: on }), () => (on ? "Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba." : "Vuelves a aprobar cada entrega.")),
+      run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept: on }), () => (on ? w.autoAcceptOn : w.autoAcceptOff)),
     autoInvisible: (slug: string, on: boolean) =>
-      run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept_invisible: on }), () => (on ? "Las entregas que no cambian la pantalla se aprueban solas." : "Vuelves a aprobar también lo que no se ve.")),
+      run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept_invisible: on }), () => (on ? w.autoInvisibleOn : w.autoInvisibleOff)),
     resend: (slug: string, key: string) =>
-      run(`${slug}:request`, () => api.resendRequest(slug, key), (r) => (r.wake === "queued" ? "Se lo mandaste al PO otra vez." : r.wake === "busy" ? "El PO está ocupado; lo toma al terminar." : "Los avisos están apagados; lo ve en su próximo turno.")),
-    closeRequest: (slug: string, key: string) => run(`${slug}:request`, () => api.cancelOrder(slug, key), () => "Pedido cerrado."),
+      run(`${slug}:request`, () => api.resendRequest(slug, key), (r) => (r.wake === "queued" ? w.resendQueued : r.wake === "busy" ? w.resendBusy : w.resendOff)),
+    closeRequest: (slug: string, key: string) => run(`${slug}:request`, () => api.cancelOrder(slug, key), () => w.requestClosed),
     cancelOrder: (slug: string, key: string) => run(`cancel-${key}`, () => api.cancelOrder(slug, key)),
     pickNext: (slug: string, key: string) => run(`next-${key}`, () => api.pickNext(slug, key)),
-    note: (slug: string, key: string, text: string) => run(`note-${key}`, () => api.noteTask(slug, key, text), () => "Se lo dijiste; lo lee en su siguiente paso"),
+    note: (slug: string, key: string, text: string) => run(`note-${key}`, () => api.noteTask(slug, key, text), () => w.noteSent),
     resume: (slug: string) => run(`${slug}:resume`, () => api.setProjectPaused(slug, false)),
     // PLA-I54-3/4, PLA-I61: a request or idea (Guardar, Restaurar, Descartar, Constrúyelo), its question, a wake.
     pedido: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar" | "construir") =>
@@ -167,20 +148,20 @@ export function useCorrienteActs() {
             return null;
           }
         },
-        (r) => (!r ? null : r.changed ? "La idea vuelve al PO con tu respuesta." : "Quedó decidido. Nada se detiene."),
+        (r) => (!r ? null : r.changed ? w.decisionChanged : w.decisionKept),
       ),
     notePedido: (slug: string, key: string, text: string, files: File[]) =>
       run(`pedido-${key}:note`, async () => {
         await api.noteTask(slug, key, text);
         if (files.length) {
           const r = await uploadPedidoImages(slug, key, files);
-          if (r.error) toast.error(typeof r.error.detail.message === "string" ? r.error.detail.message : "Una imagen no subió.");
+          if (r.error) toast.error(typeof r.error.detail.message === "string" ? r.error.detail.message : w.imageFailed);
         }
         void client.invalidateQueries({ queryKey: ["idea", slug, key] });
       }),
     visto: (slug: string, key: string, stop: PedidoStop) => void api.ideaVisto(slug, key, stop).then(() => client.invalidateQueries({ queryKey: ["idea", slug, key] }), () => undefined),
     pause: (slug: string) => run(`${slug}:pause`, () => api.setProjectPaused(slug, true)),
-    // PLA-I64-4: Pasar a Lista (a step that only sits in Backlog goes to Ready, as Jorge would on the board) and
+    // PLA-I64-4: Pasar a Lista (a step that only sits in Backlog goes to Ready, as the owner would on the board) and
     // Cerrar iniciativa from the list (the board's call, PLA-I56-2).
     aLista: (slug: string, key: string) =>
       run(
@@ -189,19 +170,19 @@ export function useCorrienteActs() {
           const t = await api.task(slug, key);
           await api.patchTask(slug, key, { status: "Ready", version: t.version });
         },
-        () => "Pasó a Lista: arranca cuando le toque.",
-        (e) => (e instanceof ApiError && e.code === "INVALID_TRANSITION" ? "Ya no está en Backlog." : e instanceof ApiError && e.code === "STALE_VERSION" ? "Cambió mientras la veías: vuelve a intentarlo." : refusal(e)),
+        () => w.toReady,
+        (e) => (e instanceof ApiError && e.code === "INVALID_TRANSITION" ? w.notInBacklog : e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : refusal(e)),
       ),
     cerrar: (slug: string, key: string, version: number) =>
       run(
         `cerrar-${key}`,
         () => api.patchTask(slug, key, { status: "Done", version }),
-        () => "Iniciativa cerrada: ya está en Hecho.",
+        () => w.initiativeClosed,
         (e) =>
           e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN"
-            ? "Todavía no se puede cerrar: le quedan pasos abiertos."
+            ? w.childrenOpen
             : e instanceof ApiError && e.code === "STALE_VERSION"
-              ? "Cambió mientras la veías: vuelve a intentarlo."
+              ? w.stale
               : refusal(e),
       ),
   };

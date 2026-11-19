@@ -58,7 +58,7 @@ If the request also wants options or a recommendation, that is a second delivera
    behaviour cannot be settled by reading.
 6. Before attaching, read the doc once looking only for judging words, and delete each one.
 
-Sentences are plain Spanish. Identifiers, paths and commands stay exactly as they are in the code.
+Sentences are plain words in the owner's language. Identifiers, paths and commands stay exactly as they are in the code.
 
 ## Done when
 

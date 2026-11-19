@@ -1,10 +1,12 @@
-// PLA-I30-2: the nav is Inicio (the logo) · Compañía · Bandeja · Progreso · Máquina (PLA-I63-5: Brief moved into Compañía). On the Mac the four sit in
+// PLA-I30-2: the nav is Inicio (the logo) · Compañía · Bandeja · Progreso · Máquina (PLA-I63-5: Brief moved into Compañía). On the machine the four sit in
 // the header; on a phone they move to a bottom tab bar, so the header never overflows at 390 px.
 // Presentational: the counts come in as props (test/compania-ui.test.ts renders it).
 import { BuildingIcon, CpuIcon, FlameIcon, InboxIcon } from "lucide-react";
 import { Link, NavLink } from "react-router";
 import { PlaniaMark } from "@/components/plania-mark";
-import { NAV } from "@/lib/compania";
+import { navItems } from "@/lib/compania";
+import { words } from "@/lib/i18n";
+import { SHELL } from "@/lib/shell-words";
 import { cn } from "@/lib/utils";
 
 const ICON: Record<string, typeof InboxIcon> = { "/ceo": BuildingIcon, "/inbox": InboxIcon, "/progreso": FlameIcon, "/machine": CpuIcon };
@@ -12,15 +14,16 @@ const ICON: Record<string, typeof InboxIcon> = { "/ceo": BuildingIcon, "/inbox":
 export type NavCounts = { inbox: number; chores: number };
 
 const Badge = ({ to, counts }: { to: string; counts: NavCounts }) => {
+  const w = words(SHELL);
   if (to === "/inbox" && counts.inbox > 0)
     return (
-      <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-semibold text-white tabular-nums" aria-label={`${counts.inbox} pendientes`}>
+      <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-semibold text-white tabular-nums" aria-label={w.inboxWaiting(counts.inbox)}>
         {counts.inbox}
       </span>
     );
   if (to === "/machine" && counts.chores > 0)
     return (
-      <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums" aria-label={`${counts.chores} por limpiar`}>
+      <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums" aria-label={w.choresWaiting(counts.chores)}>
         {counts.chores}
       </span>
     );
@@ -28,16 +31,16 @@ const Badge = ({ to, counts }: { to: string; counts: NavCounts }) => {
 };
 
 export const Logo = () => (
-  <Link to="/" aria-label="Inicio" className="flex min-h-9 shrink-0 items-center gap-2 font-display text-lg font-extrabold tracking-tight" data-nav="logo">
+  <Link to="/" aria-label={words(SHELL).home} className="flex min-h-9 shrink-0 items-center gap-2 font-display text-lg font-extrabold tracking-tight" data-nav="logo">
     <PlaniaMark className="size-6" />
     Plania
   </Link>
 );
 
-// The Mac header's five links. Hidden on phones, where TabBar takes over.
+// The machine header's five links. Hidden on phones, where TabBar takes over.
 export const HeaderNav = ({ counts }: { counts: NavCounts }) => (
-  <nav aria-label="Principal" className="hidden items-center gap-1 sm:flex" data-nav="header">
-    {NAV.map(({ to, label }) => {
+  <nav aria-label={words(SHELL).navMain} className="hidden items-center gap-1 sm:flex" data-nav="header">
+    {navItems().map(({ to, label }) => {
       const Icon = ICON[to]!;
       return (
         <NavLink
@@ -62,12 +65,12 @@ export const HeaderNav = ({ counts }: { counts: NavCounts }) => (
 // The phone's bottom tab bar: five destinations, no "Más".
 export const TabBar = ({ counts }: { counts: NavCounts }) => (
   <nav
-    aria-label="Principal"
+    aria-label={words(SHELL).navMain}
     data-nav="tabs"
     className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
   >
     <ul className="grid grid-cols-4">
-      {NAV.map(({ to, label }) => {
+      {navItems().map(({ to, label }) => {
         const Icon = ICON[to]!;
         return (
           <li key={to}>

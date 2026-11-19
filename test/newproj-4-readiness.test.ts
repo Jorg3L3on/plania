@@ -120,7 +120,7 @@ test("NEWPROJ-4: a folder whose origin lacks the start branch is the single item
   const res = await create({ name: "Despensa", goal: "Saber qué hay.", repo_path: "/repos/despensa", github_repo: "jorge/despensa" });
   assert.equal(res.status, 201, await res.clone().text());
   calls.length = 0;
-  setReadinessDeps({ env: env({ PLANIA_RUNNER_TOKEN: "t" }), exists, repoCheck: fakeGit({ branch: false }) });
+  setReadinessDeps({ env: env({ PLANIA_RUNNER_TOKEN: "t" }), exists, repoCheck: fakeGit({ branch: false }), githubAccess: async () => "ok" });
   const r = await readiness("despensa");
 
   assert.ok(calls.every((c) => ["rev-parse", "remote", "ls-remote"].includes(c[0]!)), "only the injected git");
@@ -134,7 +134,7 @@ test("NEWPROJ-4: a folder whose origin lacks the start branch is the single item
   assert.equal(r.items.find((i) => i.id === "verify")?.state, "missing");
   const linea = listo.listoLinea(stops[0]!);
   assert.equal(linea.para, true);
-  assert.match(linea.texto, /no tiene la rama de donde parte el equipo/);
+  assert.match(linea.texto, /no tiene la rama de trabajo.*«Crear la rama de trabajo»/);
   assert.doesNotMatch(linea.texto, /sandbox/i);
 
   // With the branch there, nothing stops a run and the sheet may say «listo».

@@ -2,18 +2,18 @@ import { ToolError } from "./errors.js";
 
 // The status machine, enforced on every write. Three vocabularies:
 //
-// Idea:       Open → Done. Won't do and reopening are Jorge's. The stage is a separate machine (ideas.ts).
+// Idea:       Open → Done. Won't do and reopening are the owner's. The stage is a separate machine (ideas.ts).
 // Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released → Done
 //             Blocked from Backlog, Ready, In progress or In review; back to Backlog or Ready.
-//             Needs Jorge only through ask; it leaves only through answer.
+//             Needs owner only through ask; it leaves only through answer.
 //             In review goes back to In progress through claim (rework).
 //             Merged and Released are the server's (the GitHub and Vercel pollers, via "system");
 //             an agent sets them only with a ci result that names the merge commit (writes.ts).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
 // Done is the agents' once the work is finished (DONE_FROM, by work type); the checks still apply
-// (checks closed, an initiative's tickets closed). Won't do and reopening are Jorge's: on screen
-// with a reason, or by an agent who also sends delegated_by_jorge {message_id, quote}. The move
+// (checks closed, an initiative's tickets closed). Won't do and reopening are the owner's: on screen
+// with a reason, or by an agent who also sends delegated_by_owner {message_id, quote}. The move
 // is logged. Nothing is spent and nothing waits on a screen step.
 
 export const TERMINAL = ["Done", "Won't do"] as const;
@@ -29,7 +29,7 @@ const TICKET_MOVES: Record<string, string[]> = {
   Merged: ["Released", "In review"],
   Released: [],
   Blocked: ["Backlog", "Ready"],
-  "Needs Jorge": [],
+  "Needs owner": [],
 };
 
 // What the pollers may do on their own, from GitHub and deploy data.
@@ -52,7 +52,7 @@ const IDEA_MOVES: Record<string, string[]> = {
 };
 
 // Where an agent may close a ticket: code-like work once it merged, ops and research once in
-// review, a decision once answered (it leaves Needs Jorge first). An initiative from any open status.
+// review, a decision once answered (it leaves Needs owner first). An initiative from any open status.
 const DONE_FROM: Record<string, string[]> = {
   code: ["Merged", "Released"],
   bug: ["Merged", "Released"],
@@ -70,16 +70,16 @@ export function doneFrom(kind: string, workType?: string | null): string[] {
 }
 
 // Moves that only one tool makes.
-const VIA_TOOL: Record<string, string> = { "In progress": "claim", "Needs Jorge": "ask" };
+const VIA_TOOL: Record<string, string> = { "In progress": "claim", "Needs owner": "ask" };
 
 export type ApprovalAction = "done" | "wont_do" | "reopen" | "waive_check" | "runbook_step" | "lease_resource";
 
 export type TransitionCtx = {
-  human?: boolean; // Jorge's screen
+  human?: boolean; // the owner's screen
   via?: "set_task" | "claim" | "ask" | "answer" | "system";
   workType?: string | null; // the ticket's, for where Done may come from
   reason?: string; // required for Won't do and for reopening
-  delegated?: boolean; // an agent presented delegated_by_jorge evidence
+  delegated?: boolean; // an agent presented delegated_by_owner evidence
 };
 
 const isTerminal = (s: string) => (TERMINAL as readonly string[]).includes(s);
@@ -92,7 +92,7 @@ export function actionForMove(from: string, to: string): ApprovalAction | null {
 }
 
 const SPECIAL_HINT =
-  "Won't do and reopening need a reason. On screen that is enough. An agent also sends delegated_by_jorge {message_id, quote}.";
+  "Won't do and reopening need a reason. On screen that is enough. An agent also sends delegated_by_owner {message_id, quote}.";
 
 // Throws if the move is not allowed. Returns true when the move is a logged Won't do or reopen.
 export function assertTransition(kind: string, from: string, to: string, ctx: TransitionCtx): boolean {
@@ -120,12 +120,12 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
     return false;
   }
   // answer puts a ticket back where it was before the question, whatever that was.
-  if (kind === "ticket" && from === "Needs Jorge" && ctx.via === "answer") return false;
+  if (kind === "ticket" && from === "Needs owner" && ctx.via === "answer") return false;
   const tool = kind === "ticket" ? VIA_TOOL[to] : undefined;
   if (tool && ctx.via !== tool) throw new ToolError("INVALID_TRANSITION", { from, to, hint: `use ${tool}` });
   if (tool && ctx.via === tool) return false;
-  if (kind === "ticket" && from === "Needs Jorge") {
-    throw new ToolError("INVALID_TRANSITION", { from, to, hint: "Needs Jorge leaves through answer" });
+  if (kind === "ticket" && from === "Needs owner") {
+    throw new ToolError("INVALID_TRANSITION", { from, to, hint: "Needs owner leaves through answer" });
   }
   const allowed = (kind === "initiative" ? INITIATIVE_MOVES : kind === "idea" ? IDEA_MOVES : TICKET_MOVES)[from] ?? [];
   if (!allowed.includes(to) && ctx.via !== "claim") {

@@ -8,12 +8,16 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as R
 import { Link } from "react-router";
 import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type VivoRead } from "@/lib/api";
 import { acceptWords, evidenceView, MARK_MAX } from "@/lib/evidencia";
-import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
+import { firstVista, kindWord, probadorWords, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { Btn, Key, Label, Opt, ReadError, You } from "./parts";
 import { AutoSwitches } from "./pendiente";
 import { useProbadorRead, useQaRead } from "./reads";
+import { words } from "@/lib/i18n";
+import { ENTREGA_WORDS } from "@/lib/entrega-words";
+
+const W = probadorWords();
 
 type Pin = Marca & { n: number };
 
@@ -39,7 +43,7 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
   if (f.kind === "nueva")
     return (
       <div className="cor-noshot" data-frame="nueva">
-        <b>Pantalla nueva</b>
+        <b>{words(ENTREGA_WORDS).newScreen}</b>
         <span className="cor-text">{W.nueva}</span>
       </div>
     );
@@ -107,7 +111,7 @@ const Compare = ({ v, width, hi }: { v: ParVista; width: Width; hi: boolean }) =
         type="button"
         className="cor-cmp-handle"
         role="slider"
-        aria-label="Línea entre antes y después"
+        aria-label={words(ENTREGA_WORDS).compareLine}
         aria-valuemin={2}
         aria-valuemax={98}
         aria-valuenow={Math.round(line)}
@@ -126,6 +130,7 @@ const Compare = ({ v, width, hi }: { v: ParVista; width: Width; hi: boolean }) =
 };
 
 export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts: CorrienteActs; back: string }) => {
+  const w = words(ENTREGA_WORDS);
   const read = useProbadorRead(p.slug, d.ref);
   const qa = useQaRead(p.slug, d.ref);
   const r = read.data;
@@ -239,7 +244,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
       }
     } catch {
       tab?.close();
-      setVivo({ url: null, local_url: null, tailnet: false, signed_in: false, user: null, error: "No se pudo abrir la copia en vivo", hint: null });
+      setVivo({ url: null, local_url: null, tailnet: false, signed_in: false, user: null, error: w.liveFailed, hint: null });
     } finally {
       setOpening(false);
     }
@@ -248,13 +253,13 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const pr = (d.links ?? []).find((l) => l.kind === "pr")?.ref ?? ev.pr;
 
   const stage = () => {
-    if (read.isPending) return <div className="cor-skel" style={{ position: "absolute", inset: 0 }} role="status" aria-busy="true" aria-label="Leyendo las fotos" />;
-    if (read.isError) return <ReadError what="las fotos de la entrega" onRetry={() => void read.refetch()} />;
+    if (read.isPending) return <div className="cor-skel" style={{ position: "absolute", inset: 0 }} role="status" aria-busy="true" aria-label={w.readingPhotos} />;
+    if (read.isError) return <ReadError what={w.thePhotos} onRetry={() => void read.refetch()} />;
     if (!r || !r.muestra || !v)
       return (
         <div className="cor-noshot" data-stage="sin-fotos">
-          <b>{r?.state?.state === "tomando" ? "Tomando las fotos de la entrega…" : "Esta entrega no tiene fotos"}</b>
-          <span className="cor-text">{r?.state?.state === "tomando" ? "Aparecen aquí en cuanto estén." : (state ?? (d.cambio === "no_se_ve" ? "Nada cambia en pantalla: juzga con las pruebas y la revisión." : "Juzga con las pruebas y la revisión, o pide a Taller que la muestre."))}</span>
+          <b>{r?.state?.state === "tomando" ? w.takingPhotos : w.noPhotos}</b>
+          <span className="cor-text">{r?.state?.state === "tomando" ? w.photosSoon : (state ?? (d.cambio === "no_se_ve" ? w.judgeNoScreen : w.judgeOrAsk))}</span>
         </div>
       );
     if (shownSide === "comparar")
@@ -283,7 +288,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M9.5 3.5 5 8l4.5 4.5" />
             </svg>
-            Ahora
+            {w.back}
           </Link>
           <You />
           {d.ref && <Key>{d.ref}</Key>}
@@ -293,26 +298,26 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
         </div>
         {r && r.vistas.length > 0 && v && (
           <div className="cor-entrega-bar">
-            <div className="cor-tabs" role="tablist" aria-label="Vistas de la entrega">
+            <div className="cor-tabs" role="tablist" aria-label={w.views}>
               {r.vistas.map((x) => (
                 <button key={x.key} type="button" role="tab" aria-selected={x.key === v.key} className="cor-tab" onClick={() => (setKey(x.key), setSide(null))} data-vista={x.key}>
                   {x.label}
-                  <em>{KIND_WORD[x.kind]}</em>
+                  <em>{kindWord(x.kind)}</em>
                 </button>
               ))}
             </div>
             <span className="cor-entrega-modes">
-              <span className="cor-segbox" role="group" aria-label="Lado">
+              <span className="cor-segbox" role="group" aria-label={w.side}>
                 {(["antes", "despues", "comparar"] as const).map((s) => (
                   <Opt key={s} on={shownSide === s} onClick={() => setSide(s)} data-side={s}>
                     {W[s]}
                   </Opt>
                 ))}
               </span>
-              <span className="cor-segbox" role="group" aria-label="Tamaño">
-                {(["desktop", "phone"] as const).map((w) => (
-                  <Opt key={w} on={width === w} onClick={() => setWidth(w)} data-width={w}>
-                    {W[w]}
+              <span className="cor-segbox" role="group" aria-label={w.size}>
+                {(["desktop", "phone"] as const).map((x) => (
+                  <Opt key={x} on={width === x} onClick={() => setWidth(x)} data-width={x}>
+                    {W[x]}
                   </Opt>
                 ))}
               </span>
@@ -328,7 +333,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           {stage()}
           {pinning && (
             <span className="cor-cap r" role="status">
-              Toca el punto que quieres cambiar
+              {w.tapPoint}
             </span>
           )}
         </div>
@@ -342,19 +347,19 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
               void send();
             }}
           >
-            <input className="cor-input" value={ask} maxLength={400} placeholder="Pregúntale a Taller sobre esta entrega" aria-label="Pregunta para Taller" onChange={(e) => setAsk(e.target.value)} disabled={asking || !d.ref} />
+            <input className="cor-input" value={ask} maxLength={400} placeholder={w.askPlaceholder} aria-label={w.askLabel} onChange={(e) => setAsk(e.target.value)} disabled={asking || !d.ref} />
             <Btn kind="secondary" type="submit" disabled={asking || !ask.trim() || !d.ref} data-control="preguntar">
-              {asking ? "Enviando…" : "Preguntar"}
+              {asking ? w.sending : w.ask}
             </Btn>
           </form>
           <div className="cor-menu" ref={menu}>
             <Btn kind="secondary" aria-haspopup="menu" aria-expanded={more} onClick={() => setMore((x) => !x)} data-control="mas">
-              Más ▾
+              {w.more}
             </Btn>
             {more && (
               <div className="cor-menu-list" role="menu">
                 <Btn kind="quiet" role="menuitem" disabled={!single || !v} onClick={() => (setPinning((x) => !x), setMore(false))} data-control="senalar">
-                  {pinning ? "Dejar de señalar" : single ? "Señalar algo" : "Señalar algo (elige Antes o Después)"}
+                  {pinning ? w.stopPointing : single ? w.point : w.pointPick}
                 </Btn>
                 {liveUrl ? (
                   <a className="cor-btn quiet" role="menuitem" href={liveUrl} target="_blank" rel="noreferrer" data-control="vivo">
@@ -362,7 +367,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
                   </a>
                 ) : live?.phase === "live" ? (
                   <Btn kind="quiet" role="menuitem" onClick={() => (setMore(false), void abrir())} disabled={opening} data-control="abrir-vivo">
-                    {opening ? "Entrando…" : W.vivo}
+                    {opening ? w.entering : W.vivo}
                   </Btn>
                 ) : (
                   <Btn kind="quiet" role="menuitem" onClick={() => (setMore(false), void encender())} disabled={starting || !d.ref || live?.phase === "starting"} data-control="encender">
@@ -382,7 +387,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
                     }}
                     data-control="tomar"
                   >
-                    {retaking ? "Tomando…" : W.tomar}
+                    {retaking ? w.taking : W.tomar}
                   </Btn>
                 )}
               </div>
@@ -397,9 +402,9 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
         )}
         {!liveUrl && !starting && live?.phase === "live" && (
           <p className="cor-cap" role="status" data-copia="live">
-            La copia está lista.{" "}
+            {w.copyReady}{" "}
             <button type="button" className="cor-inline" onClick={() => void abrir()} disabled={opening} data-control="abrir-vivo-linea">
-              {opening ? "Entrando…" : W.vivo}
+              {opening ? w.entering : W.vivo}
             </button>
           </p>
         )}
@@ -412,7 +417,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
         )}
         {live?.phase === "failed" && (
           <p className="cor-cap" role="status" data-copia="failed">
-            <span className="cor-state bad">La copia no pudo encender.</span> {live.error ?? ""}
+            <span className="cor-state bad">{w.copyFailed}</span> {live.error ?? ""}
           </p>
         )}
         {vivo && (vivo.error || vivo.hint) && (
@@ -421,36 +426,36 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           </p>
         )}
       </div>
-      <aside className="cor-entrega-side" aria-label="Tu decisión y la evidencia">
+      <aside className="cor-entrega-side" aria-label={w.decisionAndEvidence}>
         <section className="cor-decide" data-decide>
-          <Label tone="amber">Tu decisión</Label>
+          <Label tone="amber">{w.decision}</Label>
           {d.state ? (
-            <p className="cor-state ok">✓ Ya decidiste sobre esta entrega.</p>
+            <p className="cor-state ok">{w.decided}</p>
           ) : (
             <>
-              <p className="cor-text">{siAceptas(null, null)[0]} Pedir ajuste la devuelve a Taller con tus marcas.</p>
+              <p className="cor-text">{siAceptas(null, null)[0]} {w.changesHint}</p>
               {/* PLA-70: every view came back the same, so the card shows nothing of the change (MIA-I9-1 showed the
                   list for «Ficha de una clienta»). Say so, and make asking for another sample the main move. */}
               {blind && (
                 <p className="cor-hold" data-muestra-ciega>
-                  Ninguna vista cambió: esta muestra no enseña lo que hizo Taller. Pide otra antes de aceptar.
+                  {w.blind}
                 </p>
               )}
               <div className="cor-acts">
                 {accept && (
                   <Btn kind={blind || held ? "secondary" : "primary"} disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
-                    {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
+                    {busy && acts.decisions.busy?.key === "aceptar" ? "…" : w.accept}
                   </Btn>
                 )}
                 {d.actions.includes("cambios") && (
                   <Btn kind={blind || held ? "primary" : "secondary"} aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
-                    Pedir ajuste
+                    {w.askChange}
                   </Btn>
                 )}
               </div>
               {d.hold && (
                 <span className="cor-hold" data-hold>
-                  {`No puedes aceptar todavía: ${d.hold.charAt(0).toLowerCase()}${d.hold.slice(1)}`}
+                  {w.held(`${d.hold.charAt(0).toLowerCase()}${d.hold.slice(1)}`)}
                 </span>
               )}
               {ajuste && <Ajuste d={d} acts={acts} marcas={pins} onDone={() => (setAjuste(false), setPins([]))} />}
@@ -463,19 +468,19 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           )}
         </section>
         <AutoSwitches p={p} acts={acts} compact />
-        <section className="cor-ev" aria-label="Evidencia" data-evidencia>
-          <Label as="h2">Evidencia</Label>
+        <section className="cor-ev" aria-label={w.evidence} data-evidencia>
+          <Label as="h2">{w.evidence}</Label>
           <dl>
             <div>
-              <dt>Qué cambia</dt>
-              <dd>{r?.muestra?.frase ?? (d.cambio === "no_se_ve" ? "Nada cambia en pantalla" : d.cambio === "se_comporta" ? "Cambia lo que hace la app" : "—")}</dd>
+              <dt>{w.whatChanges}</dt>
+              <dd>{r?.muestra?.frase ?? (d.cambio === "no_se_ve" ? w.nothingOnScreen : d.cambio === "se_comporta" ? w.behaviour : "—")}</dd>
             </div>
             <div>
-              <dt>Pruebas</dt>
-              <dd data-ok={ev.tests.ok === null ? undefined : String(ev.tests.ok)}>{ev.loading ? "Leyendo lo que vio QA…" : `${ev.tests.value}${ev.tests.sub ? ` · ${ev.tests.sub}` : ""}`}</dd>
+              <dt>{w.tests}</dt>
+              <dd data-ok={ev.tests.ok === null ? undefined : String(ev.tests.ok)}>{ev.loading ? w.readingQa : `${ev.tests.value}${ev.tests.sub ? ` · ${ev.tests.sub}` : ""}`}</dd>
             </div>
             <div>
-              <dt>Revisión</dt>
+              <dt>{w.review}</dt>
               <dd>
                 {/* AUDIT-6: two verdicts, a line each; a review with one verdict reads as before. */}
                 {ev.loading
@@ -495,27 +500,27 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
                   <>
                     {" "}
                     <a className="cor-inline" href={pr} target="_blank" rel="noreferrer" data-control="ver-pr">
-                      Ver el PR
+                      {w.seePr}
                     </a>
                   </>
                 )}
               </dd>
             </div>
             <div>
-              <dt>Publicado</dt>
-              <dd>Aún no tiene este cambio.</dd>
+              <dt>{w.published}</dt>
+              <dd>{w.notYet}</dd>
             </div>
           </dl>
         </section>
         {pins.length > 0 && (
-          <section aria-label="Tus marcas" data-marcas-list={pins.length}>
-            <Label as="h2">{`Tus marcas · ${pins.length}`}</Label>
+          <section aria-label={w.yourMarks} data-marcas-list={pins.length}>
+            <Label as="h2">{w.marksCount(pins.length)}</Label>
             <ol className="cor-marcas">
               {pins.map((m, i) => (
                 <li key={i}>
                   <b aria-hidden>{i + 1}</b>
-                  <input className="cor-input" value={m.note} maxLength={MARK_MAX} placeholder="Qué quieres que cambie" aria-label={`Nota de la marca ${i + 1}`} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
-                  <Btn kind="quiet" small aria-label={`Quitar la marca ${i + 1}`} onClick={() => setPins((l) => l.filter((_, j) => j !== i))}>
+                  <input className="cor-input" value={m.note} maxLength={MARK_MAX} placeholder={w.markPlaceholder} aria-label={w.markNote(i + 1)} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
+                  <Btn kind="quiet" small aria-label={w.markRemove(i + 1)} onClick={() => setPins((l) => l.filter((_, j) => j !== i))}>
                     ×
                   </Btn>
                 </li>
@@ -524,12 +529,12 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           </section>
         )}
         {qas.length > 0 && (
-          <section aria-label="Tus preguntas a Taller" data-preguntas={qas.length}>
-            <Label as="h2">Preguntas a Taller</Label>
+          <section aria-label={w.yourQuestions} data-preguntas={qas.length}>
+            <Label as="h2">{w.questions}</Label>
             {qas.map((q) => (
               <div key={q.id} className="cor-qa">
                 <span>{q.text}</span>
-                <span className="cor-muted">{q.answer ? q.answer.text : "Taller la recibió. Te responde aquí."}</span>
+                <span className="cor-muted">{q.answer ? q.answer.text : w.received}</span>
               </div>
             ))}
           </section>
@@ -543,15 +548,16 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
 // card jumped to «Esta entrega ya no espera tu decisión». While its pictures are being taken it says so instead
 // (no buttons: nothing to accept until they exist); otherwise the old words stay.
 export const EntregaRetomando = ({ p, d, onBack }: { p: OrgProject; d: Decision; onBack: () => void }) => {
+  const w = words(ENTREGA_WORDS);
   const read = useProbadorRead(p.slug, d.ref);
   const tomando = read.data?.state?.state === "tomando" || read.isPending;
   return (
     <div className="cor-empty" data-entrega-retomando={tomando ? "tomando" : "fuera"}>
       <p className="cor-text" role="status">
-        {tomando ? `Tomando las fotos de ${d.ref ?? "la entrega"} otra vez… La tarjeta vuelve en cuanto estén.` : "Esta entrega ya no espera tu decisión."}
+        {tomando ? w.retaking(d.ref ?? null) : w.gone}
       </p>
       <Btn kind="secondary" onClick={onBack}>
-        Volver a la lista
+        {w.backToList}
       </Btn>
     </div>
   );

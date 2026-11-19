@@ -13,7 +13,7 @@ export type AnswerDelegation = { messageId: string; quote: string; actor: Actor 
 
 export type DelegatedView = { message_id: string; quote: string; at: string; by: Actor };
 
-// Questions for Jorge live in Plania, not in one session's chat. ask puts a ticket in Needs Jorge
+// Questions for the owner live in Plania, not in one session's chat. ask puts a ticket in Needs owner
 // (initiatives keep their status); answer records the reply, logs a decision on the task when the
 // caller gives decision_text and, once no question is left open, puts the ticket back where it was.
 
@@ -31,7 +31,7 @@ export function questionShape(q: QuestionRow, taskKey: string, delegated?: Deleg
     answered_by: q.answeredBy,
     answered_at: iso(q.answeredAt),
     decision_id: q.decisionId,
-    // 2.8: what else waits on this answer, and how soon Jorge is needed.
+    // 2.8: what else waits on this answer, and how soon the owner is needed.
     blocks: q.blocks,
     urgency: q.urgency,
     human_only: q.humanOnly,
@@ -91,11 +91,11 @@ export async function ask(
       if (!blocks.includes(b.key)) blocks.push(b.key);
     }
     if ((TERMINAL as readonly string[]).includes(t.status)) {
-      throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "Needs Jorge", hint: "the task is closed" });
+      throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "Needs owner", hint: "the task is closed" });
     }
     const options = input.options ?? [];
-    const moves = t.kind === "ticket" && t.status !== "Needs Jorge";
-    if (moves) assertTransition(t.kind, t.status, "Needs Jorge", { via: "ask" });
+    const moves = t.kind === "ticket" && t.status !== "Needs owner";
+    if (moves) assertTransition(t.kind, t.status, "Needs owner", { via: "ask" });
     const humanOnly = input.human_only ?? false;
     const [q] = await tx
       .insert(questions)
@@ -112,17 +112,17 @@ export async function ask(
       })
       .returning();
     if (moves) {
-      // The lease stays: the asker keeps the ticket while Jorge thinks (heartbeat to keep it).
+      // The lease stays: the asker keeps the ticket while the owner thinks (heartbeat to keep it).
       await tx
         .update(tasks)
-        .set({ status: "Needs Jorge", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .set({ status: "Needs owner", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
         .where(eq(tasks.id, t.id));
-      await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
+      await emit("task.status", t, { from: t.status, to: "Needs owner" });
     }
     await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency, human_only: q!.humanOnly });
     const u = await requireTask(tx, p.id, t.key);
     // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
-    const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";
+    const waits = u.status === "Needs owner" ? "the ticket waits in Needs owner until they answer" : "the question waits in the owner's inbox until they answer";
     return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], {
       question_id: q!.id,
       waits,
@@ -228,7 +228,7 @@ export async function answerInTx(
     .where(and(eq(questions.taskId, t.id), isNull(questions.answeredAt)))
     .limit(1);
   const changed = ["questions"];
-  if (t.status === "Needs Jorge" && !stillOpen) {
+  if (t.status === "Needs owner" && !stillOpen) {
     let to = first?.statusBefore ?? "Ready";
     if (to === "In progress" && !liveOwner(t)) to = "Ready";
     assertTransition(t.kind, t.status, to, { via: "answer" });

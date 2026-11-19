@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
 
-// The only way the machine job touches the Mac: read-only commands through execFile (no shell, so
+// The only way the machine job touches the machine: read-only commands through execFile (no shell, so
 // no quoting to get wrong), each with a timeout. Injectable so tests feed recorded output.
 
 export type RunResult =
@@ -15,10 +16,11 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 
 // launchd starts the service with PATH=/usr/bin:/bin:/usr/sbin:/sbin, where brew, docker and a brew git
 // are not found, so their collectors would be skipped. Append the usual install dirs once.
-const EXTRA_PATH = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
-export function commandPath(current = process.env.PATH ?? ""): string {
-  const parts = current.split(":").filter(Boolean);
-  return [...parts, ...EXTRA_PATH.filter((d) => !parts.includes(d))].join(":");
+// PLA-I2-4: Linuxbrew too, and the system's own separator (path.delimiter), so the list also reads right off a Mac.
+const EXTRA_PATH = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+export function commandPath(current = process.env.PATH ?? "", sep: string = path.delimiter): string {
+  const parts = current.split(sep).filter(Boolean);
+  return [...parts, ...EXTRA_PATH.filter((d) => !parts.includes(d))].join(sep);
 }
 const ENV = { ...process.env, PATH: commandPath() };
 

@@ -5,6 +5,7 @@ import { PR_NUMBER } from "./queries.js";
 import { releasePending } from "./release-plan.js";
 import type { StatusBlock } from "./status.js";
 import type { Q } from "./tx.js";
+import { defineWords, say } from "../words.js";
 
 // 2.11 (item 3): the project headline, generated from the status block so it cannot go stale.
 //   "<env> = <branch> <sha7> (<initiatives released there>). <from> = <into> + <PR numbers> (<keys>).
@@ -16,9 +17,29 @@ export const HEADLINE_MAX = 280;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+// PLA-I2-10: the headline's clauses in the install's language; the Spanish is unchanged.
+export const HEADLINE_WORDS = defineWords({
+  es: {
+    more: (shown: string, n: number) => `${shown} y ${n} más`,
+    running: (list: string) => `En curso: ${list}.`,
+    decisions: ["decisión", "decisiones"] as [string, string],
+    steps: ["paso", "pasos"] as [string, string],
+    yourTurn: (list: string) => `Te toca: ${list}.`,
+    next: (key: string) => `Siguiente: ${key}.`,
+  },
+  en: {
+    more: (shown: string, n: number) => `${shown} and ${n} more`,
+    running: (list: string) => `Running: ${list}.`,
+    decisions: ["decision", "decisions"] as [string, string],
+    steps: ["step", "steps"] as [string, string],
+    yourTurn: (list: string) => `Your turn: ${list}.`,
+    next: (key: string) => `Next: ${key}.`,
+  },
+});
+
 /** Up to `max` items, then "y N más". */
 function some(items: string[], max = 4): string {
-  return items.length <= max ? items.join(", ") : `${items.slice(0, max - 1).join(", ")} y ${items.length - max + 1} más`;
+  return items.length <= max ? items.join(", ") : say(HEADLINE_WORDS).more(items.slice(0, max - 1).join(", "), items.length - max + 1);
 }
 
 /** Clauses joined until the next one would pass `max`; a first clause too long on its own is clipped. */
@@ -69,15 +90,16 @@ export async function generatedHeadline(db: Q, p: Project, d: HeadlineInput): Pr
     clauses.push(`${plan.from.branch} = ${plan.into.branch}${prs.length ? ` + ${some(prs)}` : ""} (${some(keys, 3)}).`);
   }
 
-  if (d.claims.length) clauses.push(`En curso: ${some(d.claims.map((c) => (c.owner?.agent ? `${c.key} (${c.owner.agent})` : c.key)), 3)}.`);
+  const w = say(HEADLINE_WORDS);
+  if (d.claims.length) clauses.push(w.running(some(d.claims.map((c) => (c.owner?.agent ? `${c.key} (${c.owner.agent})` : c.key)), 3)));
 
-  // What waits on Jorge, in the inbox's own words (decisiones and pasos; limpieza is the Mac's).
+  // What waits on the owner, in the inbox's own words (decisiones and pasos; limpieza is the machine's).
   const box = await inboxFor(db, p);
   const decisiones = box.filter((i) => i.group === "decisiones").length;
   const pasos = box.filter((i) => i.group === "pasos").length;
-  const toca = [decisiones && plural(decisiones, "decisión", "decisiones"), pasos && plural(pasos, "paso", "pasos")].filter(Boolean);
-  if (toca.length) clauses.push(`Te toca: ${toca.join(", ")}.`);
+  const toca = [decisiones && plural(decisiones, ...w.decisions), pasos && plural(pasos, ...w.steps)].filter(Boolean);
+  if (toca.length) clauses.push(w.yourTurn(toca.join(", ")));
 
-  if (d.next_claimable) clauses.push(`Siguiente: ${d.next_claimable.key}.`);
+  if (d.next_claimable) clauses.push(w.next(d.next_claimable.key));
   return fitClauses(clauses);
 }

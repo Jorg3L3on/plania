@@ -55,7 +55,14 @@ function cachePath(): string | null {
 async function downloadPinned(): Promise<ResolvedGitleaks | { error: string }> {
   const asset = gitleaksAsset();
   const dest = cachePath();
-  if (!asset || !dest) return { error: `gitleaks ${GITLEAKS_PIN} has no binary for ${process.platform}/${process.arch}` };
+  // PLA-I2-19: native Windows has no pinned download here; it is not a supported system (WSL is Linux).
+  if (!asset || !dest)
+    return {
+      error:
+        process.platform === "win32"
+          ? `gitleaks ${GITLEAKS_PIN} is not downloaded on Windows: run Plania inside WSL, or put gitleaks ${GITLEAKS_PIN} on PATH`
+          : `gitleaks ${GITLEAKS_PIN} has no binary for ${process.platform}/${process.arch}`,
+    };
   if (existsSync(dest) && readVersion(dest) === GITLEAKS_PIN) return { bin: dest, version: GITLEAKS_PIN, source: "download" };
   let response: Response;
   try {

@@ -12,24 +12,24 @@ import { DelegationSwitch } from "@/components/delegation-switch";
 import { QuestionsPanel } from "@/components/resume";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
+import { words } from "@/lib/i18n";
 import { actionWord, waitText } from "@/lib/inbox";
+import { INBOX_PAGE } from "@/lib/inbox-words";
 import { localTime } from "@/lib/time";
 import type { DelegatedReview, InboxGroup, InboxItem, Question } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Everything waiting on Jorge, in three tabs (2.10): Decisiones (questions to answer), Pasos
+// Everything waiting on the owner, in three tabs (2.10): Decisiones (questions to answer), Pasos
 // (what only he can do: human actions and releases, each with Hecho) and Limpieza (what agents
-// left on the Mac). Logged moves sit in the delegated list, not in a group.
+// left on the machine). Logged moves sit in the delegated list, not in a group.
 
-const TABS: { id: InboxGroup; label: string; empty: string }[] = [
-  { id: "decisiones", label: "Decisiones", empty: "Nada que decidir." },
-  { id: "pasos", label: "Pasos", empty: "Ningún paso tuyo pendiente." },
-  { id: "limpieza", label: "Limpieza", empty: "La Mac está limpia." },
-];
+// PLA-I2-10: the ids only; each tab's label and empty line are in lib/inbox-words.ts.
+const TABS: { id: InboxGroup }[] = [{ id: "decisiones" }, { id: "pasos" }, { id: "limpieza" }];
 
 function Tabs({ tab, counts, onChange }: { tab: InboxGroup; counts: Record<InboxGroup, number>; onChange: (t: InboxGroup) => void }) {
+  const w = words(INBOX_PAGE);
   return (
-    <div role="tablist" aria-label="Bandeja" className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-full border bg-background/60 p-1">
+    <div role="tablist" aria-label={w.tablist} className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-full border bg-background/60 p-1">
       {TABS.map((t) => (
         <button
           key={t.id}
@@ -44,7 +44,7 @@ function Tabs({ tab, counts, onChange }: { tab: InboxGroup; counts: Record<Inbox
             tab === t.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {t.label}
+          {w.tabs[t.id].label}
           <span className={cn("rounded-full px-1.5 text-[11px] font-semibold tabular-nums", tab === t.id ? "bg-background/20" : t.id === "limpieza" ? "bg-muted" : counts[t.id] ? "bg-orange-500 text-white" : "bg-muted")}>{counts[t.id]}</span>
         </button>
       ))}
@@ -55,6 +55,7 @@ function Tabs({ tab, counts, onChange }: { tab: InboxGroup; counts: Record<Inbox
 
 // A human action a ticket waits on: the verb, the ticket, and Hecho with an optional note.
 function ActionRow({ item }: { item: InboxItem }) {
+  const w = words(INBOX_PAGE);
   const parsed = item.target?.source === "parsed";
   return (
     <li className="grid gap-2 px-4 py-3 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-x-3">
@@ -63,8 +64,8 @@ function ActionRow({ item }: { item: InboxItem }) {
         <span className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
           <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono underline-offset-4 hover:underline">{item.key}</Link>
           <span>{item.title}</span>
-          <span>espera {waitText(item.wait_s)}</span>
-          {parsed && <span title="Leído de una línea «Jorge:» del ticket">del texto</span>}
+          <span>{w.waits(waitText(item.wait_s))}</span>
+          {parsed && <span title={w.parsedTitle}>{w.parsed}</span>}
           {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">PR</a>}
         </span>
       </span>
@@ -73,9 +74,10 @@ function ActionRow({ item }: { item: InboxItem }) {
   );
 }
 
-// Something left on the Mac that nobody claims, or whose ticket is long done: the command is for Jorge to run.
+// Something left on the machine that nobody claims, or whose ticket is long done: the command is for the owner to run.
 function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: () => void; busy: boolean }) {
-  const what = item.action ? actionWord(item.action) : "Pregunta";
+  const w = words(INBOX_PAGE);
+  const what = item.action ? actionWord(item.action) : w.question;
   const choice = item.answer;
   return (
     <li className="grid gap-1.5 px-4 py-3 text-sm">
@@ -86,8 +88,8 @@ function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: (
           </Link>
         )}
         <span className="text-muted-foreground">{what}{choice ? ` · ${choice}` : ""}</span>
-        <Button variant="ghost" size="sm" className="ml-auto h-7" disabled={busy} onClick={onSeen} aria-label={`Marcar como vista ${item.key ?? ""}`.trim()}>
-          Visto
+        <Button variant="ghost" size="sm" className="ml-auto h-7" disabled={busy} onClick={onSeen} aria-label={w.markSeen(item.key ?? "")}>
+          {w.seen}
         </Button>
       </span>
       <DelegadaBadge quote={item.quote} at={item.at} />
@@ -96,6 +98,7 @@ function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: (
 }
 
 function LeaseRow({ item }: { item: InboxItem }) {
+  const w = words(INBOX_PAGE);
   return (
     <li className="grid gap-1 px-4 py-3 text-sm">
       <span className="flex flex-wrap items-baseline gap-x-2">
@@ -106,7 +109,7 @@ function LeaseRow({ item }: { item: InboxItem }) {
         )}
         <span className="font-medium">{item.title}</span>
         <span className="text-muted-foreground">{item.why}</span>
-        <span className="text-xs text-muted-foreground">desde hace {waitText(item.wait_s)}</span>
+        <span className="text-xs text-muted-foreground">{w.since(waitText(item.wait_s))}</span>
       </span>
       <span className="text-xs text-muted-foreground">{item.action_hint}</span>
     </li>
@@ -114,6 +117,7 @@ function LeaseRow({ item }: { item: InboxItem }) {
 }
 
 function FootprintRow({ item }: { item: InboxItem }) {
+  const w = words(INBOX_PAGE);
   const teardown = typeof item.target?.teardown === "string" ? item.target.teardown : "";
   return (
     <li className="grid gap-1 px-4 py-3 text-sm">
@@ -123,7 +127,7 @@ function FootprintRow({ item }: { item: InboxItem }) {
         )}
         <Link to="/machine" className="font-mono text-xs font-medium break-all underline-offset-4 hover:underline">{item.title}</Link>
         <span className="text-muted-foreground">{item.why}</span>
-        <span className="text-xs text-muted-foreground">desde hace {waitText(item.wait_s)}</span>
+        <span className="text-xs text-muted-foreground">{w.since(waitText(item.wait_s))}</span>
       </span>
       {teardown ? <code className="rounded-lg bg-surface-sunken px-2.5 py-1 font-mono text-xs leading-5 break-all whitespace-pre-wrap">{teardown}</code> : <span className="text-xs text-muted-foreground">{item.action_hint}</span>}
     </li>
@@ -131,6 +135,7 @@ function FootprintRow({ item }: { item: InboxItem }) {
 }
 
 export function InboxPage() {
+  const w = words(INBOX_PAGE);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox() });
@@ -138,8 +143,8 @@ export function InboxPage() {
   // PLA-06: a seen delegated answer or move leaves this list; the record stays on the server.
   const seen = useMutation({
     mutationFn: (ids: string[]) => api.reviewDelegated(ids),
-    onSuccess: (out) => toast(out.reviewed === 1 ? "1 marcada como vista" : `${out.reviewed} marcadas como vistas`),
-    onError: () => toast.error("No se pudo marcar."),
+    onSuccess: (out) => toast(w.markedSeen(out.reviewed)),
+    onError: () => toast.error(w.markFailed),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["inbox"] }),
   });
 
@@ -172,7 +177,7 @@ export function InboxPage() {
   }, [inbox.data, tab]);
 
   if (inbox.isPending) return <Skeleton className="h-40 rounded-2xl" />;
-  if (inbox.isError) return <p className="text-sm text-destructive">No se pudo cargar la bandeja.</p>;
+  if (inbox.isError) return <p className="text-sm text-destructive">{w.loadFailed}</p>;
 
   const toQuestion = (i: InboxItem): Question => ({
     id: i.id,
@@ -191,22 +196,22 @@ export function InboxPage() {
   return (
     <div className="grid gap-8">
       <header className="grid gap-2">
-        <Kicker>Te toca a ti</Kicker>
-        <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">Bandeja</h1>
+        <Kicker>{w.kicker}</Kicker>
+        <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{w.title}</h1>
         <p className="text-muted-foreground">
-          {inbox.data.count === 0 ? "Nada espera por ti." : `${inbox.data.count} ${inbox.data.count === 1 ? "cosa espera" : "cosas esperan"} por ti.`}
+          {w.count(inbox.data.count)}
         </p>
         <Tabs tab={tab} counts={counts} onChange={setTab} />
       </header>
       <DelegationSwitch />
       {inbox.data.delegated.length > 0 && (
-        <section className="grid gap-3" aria-label="Respuestas delegadas">
+        <section className="grid gap-3" aria-label={w.delegated}>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">
-              Respuestas delegadas <span className="tabular-nums text-muted-foreground">({inbox.data.delegated.length})</span>
+              {w.delegated} <span className="tabular-nums text-muted-foreground">({inbox.data.delegated.length})</span>
             </h2>
             <Button variant="outline" size="sm" disabled={seen.isPending} onClick={() => seen.mutate(inbox.data.delegated.map((d) => d.id))}>
-              Marcar todas como vistas
+              {w.markAllSeen}
             </Button>
           </div>
           <Card className="gap-0 py-0">
@@ -220,11 +225,11 @@ export function InboxPage() {
       )}
 
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="grid gap-8">
-      {grouped.length === 0 && <p className="text-sm text-muted-foreground">{TABS.find((t) => t.id === tab)!.empty}</p>}
+      {grouped.length === 0 && <p className="text-sm text-muted-foreground">{w.tabs[tab].empty}</p>}
       {grouped.map(({ project, questions, releases, actions, footprints, leases }) => (
         <section key={project} id={project} className="scroll-mt-20 grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
-            <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? "Máquina" : project}</Link>
+            <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? w.machine : project}</Link>
           </h2>
           {releases.length > 0 && <ul className="grid gap-3">{releases.map((item) => <ReleaseRow key={item.id} item={item} />)}</ul>}
           {actions.length > 0 && (

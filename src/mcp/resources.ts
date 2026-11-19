@@ -6,7 +6,7 @@ import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
-// Shared resources (R-10): a lease on a name (port:3001@MacBook-Air, neon-prod:migrate) that one
+// Shared resources (R-10): a lease on a name (port:3001@laptop, neon-prod:migrate) that one
 // session holds at a time, and daily quotas (quota:omdb) counted with consume. Policies live in
 // projects.settings.resources (ttl_max) and settings.quotas ({daily}). A needs_approval flag is ignored.
 

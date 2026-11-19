@@ -1,5 +1,5 @@
 // PLA-I39: the building (/ceo). Pure functions, so test/edificio-*.test.ts loads them with node:test.
-//   windowState  a teammate's window from what the server reported: running is work, waiting_jorge is ask, idle is
+//   windowState  a teammate's window from what the server reported: running is work, waiting_owner is ask, idle is
 //                idle, paused is off. Nothing else lights a window. PLA-21: no budgets, so no "hold".
 //   caption      under a window: the role with its verb, then what it is on (with since when), else the first of
 //                its queue, else its last delivery. Never a ticket key, null or money.
@@ -10,12 +10,18 @@ import { obrasOf, seatOf, type Obra } from "./ahora-piso";
 import { ETAPA_WORD } from "./etapas";
 import { byLight, byRole, roleName } from "./org";
 import { pending, waitingPlan } from "./v2";
+import { LOCALE } from "./locale.js";
+import { getLanguage, words, type Language } from "./i18n.js";
+import { EDIFICIO_WORDS } from "./edificio-words";
+// PLA-I2-10: the words are in EDIFICIO_WORDS (lib/edificio-words.ts), in both languages; the functions that return
+// words take the language last, the screen's by default.
+const W = (language: Language) => words(EDIFICIO_WORDS, language);
 
 // PLA-I46-10: back is violet, a delivery sent back that Taller is fixing (never from the server's state alone).
 export type WindowState = "work" | "ask" | "idle" | "off" | "back";
 const STATE: Record<OrgMemberState, WindowState> = {
   running: "work",
-  waiting_jorge: "ask",
+  waiting_owner: "ask",
   idle: "idle",
   paused: "off",
 };
@@ -35,19 +41,7 @@ export function windowState(m: Pick<OrgMember, "state">, companyPaused = false, 
 export const seatIn = (p: Pick<OrgProject, "team" | "ahora">, m: Pick<OrgMember, "agent">, companyPaused = false): Obra | null | undefined => (p.ahora ? seatOf(m, obrasOf(p, { companyPaused })) : undefined);
 
 // role → [name, verb]. Any other role gets its name and "trabaja".
-const VERB: Record<string, string> = {
-  "product-owner": "coordina",
-  po: "coordina",
-  research: "investiga",
-  artist: "diseña",
-  taller: "construye",
-  qa: "prueba",
-  copy: "escribe",
-  seguridad: "revisa",
-  marketing: "difunde",
-  data: "mide",
-};
-export const roleVerb = (role: string) => VERB[role] ?? "trabaja";
+export const roleVerb = (role: string, language: Language = getLanguage()) => W(language).verb[role] ?? W(language).verbOther;
 // The prop on the silhouette: PO headset, Research glasses, Artist beret, Taller hard hat, QA magnifier.
 export type Prop = "headset" | "glasses" | "beret" | "hardhat" | "magnifier" | "none";
 const PROPS: Record<string, Prop> = {
@@ -61,18 +55,20 @@ const PROPS: Record<string, Prop> = {
 export const propOf = (role: string): Prop => PROPS[role] ?? "none";
 
 const MIN = 60_000;
-const since = (iso: string, now: number) => {
+const since = (iso: string, now: number, language: Language) => {
+  const w = W(language);
   const m = Math.max(0, Math.round((now - Date.parse(iso)) / MIN));
-  if (m < 1) return "recién empezó";
-  if (m < 60) return `desde hace ${m} min`;
+  if (m < 1) return w.justStarted;
+  if (m < 60) return w.sinceMin(m);
   const h = Math.round(m / 60);
-  return h < 48 ? `desde hace ${h} h` : `desde hace ${Math.round(h / 24)} días`;
+  return h < 48 ? w.sinceH(h) : w.sinceDays(Math.round(h / 24));
 };
-const agoShort = (iso: string, now: number) => {
+const agoShort = (iso: string, now: number, language: Language) => {
+  const w = W(language);
   const m = Math.max(0, Math.round((now - Date.parse(iso)) / MIN));
-  if (m < 60) return `hace ${Math.max(1, m)} min`;
+  if (m < 60) return w.agoMin(Math.max(1, m));
   const h = Math.round(m / 60);
-  return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+  return h < 48 ? w.agoH(h) : w.agoDays(Math.round(h / 24));
 };
 const clip = (s: string, n = 90) => {
   const one = s.replace(/\s+/g, " ").trim();
@@ -80,73 +76,68 @@ const clip = (s: string, n = 90) => {
 };
 
 export type Caption = { who: string; verb: string; doing: string; sub: string };
-export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean; timeZone?: string; seat?: Obra | null } = {}): Caption {
+export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean; timeZone?: string; seat?: Obra | null } = {}, language: Language = getLanguage()): Caption {
+  const w = W(language);
   const state = windowState(m, opts.companyPaused, opts.seat);
-  const base = { who: roleName(m.role), verb: roleVerb(m.role) };
+  const base = { who: roleName(m.role, language), verb: roleVerb(m.role, language) };
   // PLA-I53-4: a seat on the floor's obras says what the Ahora line says about it.
   const seat = opts.seat;
   if (seat && (state === "work" || state === "back"))
     return {
       ...base,
-      doing: seat.title ? clip(seat.title) : "Trabajando",
-      sub: [seat.etapa === "devuelto" ? "devuelto, arreglando" : seat.etapa === "en_qa" ? "probando" : "", seat.since ? since(seat.since, now) : ""].filter(Boolean).join(" · "),
+      doing: seat.title ? clip(seat.title) : w.working,
+      sub: [seat.etapa === "devuelto" ? w.backFixing : seat.etapa === "en_qa" ? w.testing : "", seat.since ? since(seat.since, now, language) : ""].filter(Boolean).join(" · "),
     };
   const queue = m.queue ?? [];
-  const rest = queue.length > 1 ? `${queue.length - 1} más en fila` : "";
+  const rest = queue.length > 1 ? w.moreInLine(queue.length - 1) : "";
   if (state === "work")
     return {
       ...base,
-      doing: m.now?.title ? clip(m.now.title) : "Trabajando",
-      sub: m.now ? since(m.now.since, now) : "",
+      doing: m.now?.title ? clip(m.now.title) : w.working,
+      sub: m.now ? since(m.now.since, now, language) : "",
     };
   if (state === "ask")
     return {
       ...base,
-      doing: "Te pregunta algo",
-      sub: m.waiting ? clip(m.waiting, 80) : "te espera",
+      doing: w.asksYou,
+      sub: m.waiting ? clip(m.waiting, 80) : w.waitsForYou,
     };
-  if (state === "off") return { ...base, doing: "En pausa", sub: "" };
+  if (state === "off") return { ...base, doing: w.paused, sub: "" };
   if (queue[0])
     return {
       ...base,
       // PLA-23: next, not now: it has not started (a live run is "work" above).
-      doing: `Siguiente: ${clip(queue[0].title)}`,
+      doing: w.next(clip(queue[0].title)),
       // PLA-I40-4: the server's reason when it sent one, not just "not yet".
-      sub: [m.next_start ? startsLine(m.next_start, now, opts.timeZone) : "aún no empieza", rest].filter(Boolean).join(" · "),
+      sub: [m.next_start ? startsLine(m.next_start, now, opts.timeZone, language) : w.notYet, rest].filter(Boolean).join(" · "),
     };
   if (m.produced)
     return {
       ...base,
-      doing: `Entregó: ${clip(m.produced.title)}`,
-      sub: m.last ? agoShort(m.last.at, now) : "",
+      doing: w.delivered(clip(m.produced.title)),
+      sub: m.last ? agoShort(m.last.at, now, language) : "",
     };
   if (m.last?.title)
     return {
       ...base,
-      doing: `Último: ${clip(m.last.title)}`,
-      sub: agoShort(m.last.at, now),
+      doing: w.last(clip(m.last.title)),
+      sub: agoShort(m.last.at, now, language),
     };
-  return { ...base, doing: "Sin trabajo", sub: "" };
+  return { ...base, doing: w.noWork, sub: "" };
 }
 
 // The accessible name of a window: role, state and what it is on.
-const STATE_WORD: Record<WindowState, string> = {
-  back: "devuelto",
-  work: "trabajando",
-  ask: "te espera",
-  idle: "libre",
-  off: "en pausa",
-};
-export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false, seat?: Obra | null) => {
-  const c = caption(m, now, { companyPaused, seat });
+export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false, seat?: Obra | null, language: Language = getLanguage()) => {
+  const w = W(language);
+  const c = caption(m, now, { companyPaused, seat }, language);
   const state = windowState(m, companyPaused, seat);
-  return `${c.who} de ${project}, ${STATE_WORD[state]}: ${c.doing}${c.sub ? `, ${c.sub}` : ""}`;
+  return `${w.windowLabel(c.who, project, w.stateWord[state], c.doing)}${c.sub ? `, ${c.sub}` : ""}`;
 };
 
 // ---- floors
 
 export const isPaused = (p: OrgProject) => p.paused || p.light === "paused";
-export const waitsOnOwner = (p: OrgProject, decisions: Decision[]) => p.light === "needs_jorge" || decisions.some((d) => d.project === p.slug && pending(d));
+export const waitsOnOwner = (p: OrgProject, decisions: Decision[]) => p.light === "needs_owner" || decisions.some((d) => d.project === p.slug && pending(d));
 /** PLA-32: who works now, by Compañía's reading (a teammate whose run is live), on floors that are not paused. The
  *  Oficina headline counts these, so it says the same as each plate's word (nowLine «work»). */
 /** PLA-32: whether /ceo shows Oficina for this address: ?edificio, or nothing that names a floor (?piso, a La ficha
@@ -251,19 +242,21 @@ export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | n
 // ---- asking from the floor (PLA-I39-7)
 
 // Where the order landed, in plain words: the PO of that project, and whether it woke.
-export function askedLine(r: AskResult, project?: string): string {
-  const who = project ? `el PO de ${project}` : "el PO";
-  // PLA-101 (F-26): «a el PO» → «al PO».
-  const toWho = `a${who.startsWith("el ") ? "l" + who.slice(2) : " " + who}`;
+export function askedLine(r: AskResult, project?: string, language: Language = getLanguage()): string {
+  const w = W(language);
+  const who = project ? w.poOf(project) : w.po;
+  // PLA-101 (F-26): «a el PO» → «al PO» (the Spanish words' own to()).
+  const toWho = w.to(who);
+  const Who = `${who[0]!.toUpperCase()}${who.slice(1)}`;
   // PLA-I57-1: a question creates nothing; the answer comes back in Pedir's side page.
-  if (r.mode === "pregunta") return r.wake === "queued" ? `${who[0]!.toUpperCase()}${who.slice(1)} lee el código para contestarte.` : `${who[0]!.toUpperCase()}${who.slice(1)} te contesta en cuanto termine lo que corre.`;
+  if (r.mode === "pregunta") return r.wake === "queued" ? w.questionQueued(Who) : w.questionBusy(Who);
   // PLA-I54-1: Darle forma lands in the tube, not on the board.
-  if (r.mode === "forma") return r.wake === "queued" ? `Entró al tubo como ${r.key}; ${who} le da forma ahora.` : `Entró al tubo como ${r.key}; ${who} la abre en su turno.`;
-  if (r.woke?.woke) return `Le llegó ${toWho} y ya está en ello.`;
-  if (r.woke) return `Le llegó ${toWho}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "starting" ? "arranca ahora" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
-  return r.wake === "busy" ? `Le llegó ${toWho}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó ${toWho}; lo toma en su turno.` : `Le llegó ${toWho}; lo ve en su próximo turno.`;
+  if (r.mode === "forma") return r.wake === "queued" ? w.formaQueued(r.key, who) : w.formaLater(r.key, who);
+  if (r.woke?.woke) return w.wokeNow(toWho);
+  if (r.woke) return w.woke(toWho, r.woke.reason === "busy" ? w.wokeBusy : r.woke.reason === "starting" ? w.wokeStarting : r.woke.reason === "queued" ? w.wokeQueued : w.wokeTurn);
+  return r.wake === "busy" ? w.wakeBusy(toWho) : r.wake === "queued" ? w.wakeQueued(toWho) : w.wakeLater(toWho);
 }
-export const RECIBIRIA = "Recibiría tu pedido";
+export const RECIBIRIA = EDIFICIO_WORDS.es.recibiria;
 
 // ---- Ahora (PLA-I40-4): what is happening on a floor, why, until when, and the one thing the owner can do
 
@@ -278,24 +271,27 @@ export const countdown = (iso: string, now: number) => {
   return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m}:${String(s % 60).padStart(2, "0")}`;
 };
 // Under a window: the hold in a few words, with the time when there is one.
-export function startsLine(n: OrgNextStart, now: number, timeZone?: string): string {
+export function startsLine(n: OrgNextStart, now: number, timeZone?: string, language: Language = getLanguage()): string {
+  const w = W(language);
   const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, timeZone) : null;
-  if (n.hold === "rest") return at ? `descansa · arranca ${at}` : "descansa un momento";
-  if (n.hold === "soon") return "arranca en un momento";
-  if (n.hold === "usage") return at ? `detenido por el uso · reintenta ${at}` : "detenido por el uso";
-  if (n.hold === "slot") return "espera un lugar";
-  if (n.hold === "paused") return "en pausa";
-  if (n.hold === "no_goal") return "falta la meta";
-  if (n.hold === "waiting_owner") return "espera tu visto bueno";
-  if (n.hold === "waiting_step") return "espera un paso anterior";
-  return "nadie lo ha despertado";
+  if (n.hold === "rest") return at ? w.restAt(at) : w.rest;
+  if (n.hold === "soon") return w.soon;
+  if (n.hold === "usage") return at ? w.usageAt(at) : w.usage;
+  if (n.hold === "slot") return w.slot;
+  if (n.hold === "paused") return w.holdPaused;
+  if (n.hold === "no_goal") return w.noGoal;
+  if (n.hold === "waiting_owner") return w.waitingOwner;
+  if (n.hold === "waiting_step") return w.waitingStep;
+  return w.unqueued;
 }
 
 export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle" | "back";
 // PLA-I53-5: the band's words that name a stage come from the stage map (lib/etapas.ts); the rest are the floor's own
 // states, not stages.
 export const BACK_WORD = ETAPA_WORD.devuelto;
-export const NOW_WORD: Record<NowState, string> = { back: BACK_WORD, work: "Trabajando", rest: "Pausa corta", you: ETAPA_WORD.te_toca, stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
+/** The band's words in Spanish (kept for the tests); nowWord reads them in the screen's language. */
+export const NOW_WORD: Record<NowState, string> = EDIFICIO_WORDS.es.nowWord;
+export const nowWord = (state: NowState, language: Language = getLanguage()): string => W(language).nowWord[state];
 // PLA-I46-3: the band's action is the floor's move (OrgMoveAction, green), or a secondary nudge that is never the
 // owner's turn (start a resting teammate now, or past the usage guard).
 export type NowAction = OrgMoveAction | { kind: "start"; agent: string; pastGuard: boolean; label: string };
@@ -304,7 +300,7 @@ export type NowLine = {
   word: string;
   say: string;
   why: string;
-  // Who holds the work: a teammate's agent, "owner" when it waits on Jorge, null when nobody does.
+  // Who holds the work: a teammate's agent, "owner" when it waits on the owner, null when nobody does.
   holder: string | null;
   starts_at: string | null;
   action: NowAction | null;
@@ -327,47 +323,50 @@ export function returnedOf(slug: string, decisions: Decision[]): Returned | null
   return { d, agent: d.asker?.agent ?? null, role: d.asker?.role ?? "taller", text: typeof r.text === "string" ? r.text : "", by: r.by === "qa" ? "qa" : "owner" };
 }
 
-const DOES: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe" };
-const q = (s: string | null | undefined, n = 80) => (s ? `«${clip(s, n)}»` : "lo siguiente");
+const q = (s: string | null | undefined, n = 80, language: Language = getLanguage()) => (s ? W(language).quote(clip(s, n)) : W(language).nextThing);
 const HOLD_ORDER = ["rest", "soon", "usage", "no_goal", "unqueued", "slot", "waiting_owner", "waiting_step"];
 
 // PLA-I46-3: the floor's move as the server sent it; an older server sends none.
 export const moveOf = (p: Pick<OrgProject, "next_move">): OrgNextMove | null => p.next_move ?? null;
 
 // The second line under a move: why it is the owner's. The sentence itself is the move's texto, unchanged.
-function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[]): string {
+function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[], language: Language): string {
+  const w = W(language);
   const o = m.origen;
   if (o.kind === "decision") {
     const mine = decisions.filter((d) => d.project === p.slug && pending(d));
     const d = mine.find((x) => x.id === o.id);
-    const more = mine.length > 1 ? ` Hay ${mine.length - 1} más.` : "";
+    const more = mine.length > 1 ? w.moreDecisions(mine.length - 1) : "";
     const hold = d?.hold ? `${d.hold} ` : "";
-    if (o.decision === "release") return `Publicar es tuyo.${more}`;
-    if (o.decision === "pr" || o.decision === "deliverable") return `${hold}Mientras no la apruebes, el paso siguiente no arranca.${more}`;
+    if (o.decision === "release") return w.publishIsYours(more);
+    if (o.decision === "pr" || o.decision === "deliverable") return w.untilApproved(hold, more);
     // PLA-I46-11: a leg's plan says what the PO proposes.
     if (o.decision === "plan" && d?.plan?.leg) {
       const n = d.plan.steps.length;
       const k = d.plan.questions?.length ?? 0;
-      return `El PO propone ${n === 1 ? "1 paso" : `${n} pasos`}${k ? ` y ${k === 1 ? "1 pregunta" : `${k} preguntas`}, con su respuesta sugerida ya marcada` : ""}.${more}`;
+      return w.poProposes(n, k, more);
     }
-    return `${hold}El equipo espera tu respuesta para seguir.${more}`;
+    return w.teamWaits(hold, more);
   }
-  if (o.kind === "hold") return o.hold === "no_goal" ? "Sin meta nadie arranca. Fíjala y sigue solo." : o.hold === "waiting_owner" ? "Mientras no la apruebes, el paso siguiente no arranca." : "Está listo para empezar y nadie lo ha despertado.";
+  if (o.kind === "hold") return o.hold === "no_goal" ? w.noGoalWhy : o.hold === "waiting_owner" ? w.untilApproved("", "") : w.readyNobodyWoke;
   if (o.kind === "route") {
     const here = p.route?.legs.find((l) => l.state === "here");
-    return `${here ? `${q(here.title)} está completo. ` : ""}El PO arma los pasos y tú los apruebas.`;
+    return w.routeWhy(here ? q(here.title, 80, language) : null);
   }
   return "";
 }
 
-export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): NowLine {
-  const line = (state: NowState, x: Partial<NowLine> & { say: string }): NowLine => ({ state, word: NOW_WORD[state], why: "", holder: null, starts_at: null, action: null, move: null, ...x });
-  if (opts.companyPaused) return line("off", { say: "La compañía está en pausa.", why: "Nada arranca hasta que la reanudes en Máquina." });
-  if (isPaused(p)) return line("off", { say: "Este proyecto está en pausa.", why: "Nada arranca hasta que lo reanudes." });
+export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}, language: Language = getLanguage()): NowLine {
+  const w = W(language);
+  const qq = (s: string | null | undefined) => q(s, 80, language);
+  const verbOf = (role: string) => w.does[role] ?? w.doesOther;
+  const line = (state: NowState, x: Partial<NowLine> & { say: string }): NowLine => ({ state, word: w.nowWord[state], why: "", holder: null, starts_at: null, action: null, move: null, ...x });
+  if (opts.companyPaused) return line("off", { say: w.companyPaused, why: w.companyPausedWhy });
+  if (isPaused(p)) return line("off", { say: w.projectPaused, why: w.projectPausedWhy });
 
   // PLA-I46-3: one source. What is the owner's comes from the server's move; nothing below offers him a turn.
   const m = moveOf(p);
-  if (m) return line("you", { say: m.texto, why: moveWhy(m, p, decisions), holder: "owner", action: m.accion, move: m });
+  if (m) return line("you", { say: m.texto, why: moveWhy(m, p, decisions, language), holder: "owner", action: m.accion, move: m });
 
   // PLA-I53-4: with the server's ahora, who works comes from the floor's obras only (lib/ahora-piso.ts), the same
   // source as the Ahora line, the seats and the cards; a delivery sent back that nobody fixes yet is not «arreglando».
@@ -375,11 +374,11 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
     const o = obrasOf(p, opts)[0];
     const back = returnedOf(p.slug, decisions);
     if (o) {
-      const who = roleName(o.role);
-      const ago = o.since ? since(o.since, now) : "";
-      const started = ago === "recién empezó" ? "Recién empezó." : ago ? `Trabaja ${ago}.` : "";
-      if (o.etapa === "devuelto") return line("back", { say: `${who} arregla ${q(o.title)}.`, why: started, holder: o.agent, note: back?.text || null });
-      return line("work", { say: o.title ? `${who} ${o.etapa === "en_qa" ? "prueba" : (DOES[o.role] ?? "trabaja en")} ${q(o.title)}.` : `${who} está trabajando.`, why: started, holder: o.agent });
+      const who = roleName(o.role, language);
+      const ago = o.since ? since(o.since, now, language) : "";
+      const started = ago === w.justStarted ? w.startedJust : ago ? w.worksFor(ago) : "";
+      if (o.etapa === "devuelto") return line("back", { say: w.fixes(who, qq(o.title)), why: started, holder: o.agent, note: back?.text || null });
+      return line("work", { say: o.title ? w.doesWhat(who, o.etapa === "en_qa" ? w.tests : verbOf(o.role), qq(o.title)) : w.isWorking(who), why: started, holder: o.agent });
     }
   }
 
@@ -388,8 +387,8 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   if (back) {
     const qa = p.team.some((x) => x.role === "qa");
     return line("back", {
-      say: `${roleName(back.role)} arregla ${q(back.d.title)}.`,
-      why: `${back.by === "qa" ? "QA lo devolvió. " : ""}Vuelve a ti ${qa ? "cuando QA lo pase otra vez" : "con la próxima entrega"}.`,
+      say: w.fixes(roleName(back.role, language), qq(back.d.title)),
+      why: w.backWhy(back.by === "qa", qa),
       holder: back.agent,
       note: back.text || null,
     });
@@ -398,10 +397,10 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   const team = [...p.team].sort(byRole);
   const working = p.ahora ? undefined : team.find((x) => x.state === "running");
   if (working) {
-    const who = roleName(working.role);
+    const who = roleName(working.role, language);
     return line("work", {
-      say: working.now?.title ? `${who} ${DOES[working.role] ?? "trabaja en"} ${q(working.now.title)}.` : `${who} está trabajando.`,
-      why: working.now ? (since(working.now.since, now) === "recién empezó" ? "Recién empezó." : `Trabaja ${since(working.now.since, now)}.`) : "",
+      say: working.now?.title ? w.doesWhat(who, verbOf(working.role), qq(working.now.title)) : w.isWorking(who),
+      why: working.now ? (since(working.now.since, now, language) === w.justStarted ? w.startedJust : w.worksFor(since(working.now.since, now, language))) : "",
       holder: working.agent,
     });
   }
@@ -411,48 +410,48 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
     .sort((a, b) => HOLD_ORDER.indexOf(a.next_start!.hold) - HOLD_ORDER.indexOf(b.next_start!.hold))[0];
   if (next) {
     const n = next.next_start!;
-    const who = roleName(next.role);
-    const what = q(n.title);
+    const who = roleName(next.role, language);
+    const what = qq(n.title);
     const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, opts.timeZone) : null;
     const start = (label: string, pastGuard = false): NowAction => ({ kind: "start", agent: next.agent, pastGuard, label });
     switch (n.hold) {
       case "rest":
-        return line("rest", { say: at ? `${who} arranca ${what} a las ${at}.` : `${who} arranca ${what} en un momento.`, why: `${n.text} No tienes que hacer nada.`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start("Que empiece ya") });
+        return line("rest", { say: at ? w.startsAt(who, what, at) : w.startsSoon(who, what), why: w.nothingToDo(n.text), holder: next.agent, starts_at: at ? n.starts_at : null, action: start(w.startNow) });
       case "soon":
-        return line("rest", { say: `${who} arranca ${what} en un momento.`, why: "Ya está en fila; no tienes que hacer nada.", holder: next.agent });
+        return line("rest", { say: w.startsSoon(who, what), why: w.inLineNothingToDo, holder: next.agent });
       case "slot":
-        return line("rest", { say: `${who} arranca ${what} en cuanto haya lugar.`, why: n.text, holder: next.agent });
+        return line("rest", { say: w.startsWhenRoom(who, what), why: n.text, holder: next.agent });
       case "usage":
-        return line("stuck", { say: `${who} no arrancó ${what}.`, why: `${n.text} ${at ? `Vuelve a intentarlo solo a las ${at}.` : "Vuelve a intentarlo solo cuando el uso baje."}`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start("Seguir de todos modos", true) });
+        return line("stuck", { say: w.didNotStart(who, what), why: `${n.text} ${at ? w.retryAt(at) : w.retryUsage}`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start(w.goOnAnyway, true) });
       case "no_goal":
-        return line("stuck", { say: `${who} no puede arrancar: falta la meta del proyecto.`, why: n.text, holder: next.agent });
+        return line("stuck", { say: w.cannotStartNoGoal(who), why: n.text, holder: next.agent });
       case "unqueued":
-        return line("stuck", { say: `Nadie ha despertado a ${who} para ${what}.`, why: "Está listo para empezar.", holder: next.agent });
+        return line("stuck", { say: w.nobodyWoke(who, what), why: w.readyToStart, holder: next.agent });
       case "waiting_owner":
-        return line("idle", { say: `${what} espera una entrega anterior.`, why: n.text, holder: null });
+        return line("idle", { say: w.waitsDelivery(what), why: n.text, holder: null });
       default:
-        return line("idle", { say: `${what} espera un paso anterior.`, why: n.text, holder: null });
+        return line("idle", { say: w.waitsStep(what), why: n.text, holder: null });
     }
   }
 
   // PLA-I46-11: a leg's plan the owner left for later waits here; nothing starts until he accepts it.
   const later = decisions.find((d) => d.project === p.slug && waitingPlan(d) && d.plan?.leg);
-  if (later) return line("rest", { word: "En pausa", say: `El plan de ${q(later.plan!.leg!.title)} te espera.`, why: "Nadie empieza hasta que lo apruebes." });
+  if (later) return line("rest", { word: w.nowWord.off, say: w.planWaits(qq(later.plan!.leg!.title)), why: w.nobodyUntilApproved });
 
   const legs = p.route?.legs ?? [];
   const at = legs.findIndex((l) => l.state === "here");
   const here = legs[at];
   if (here && here.total > 0 && here.done === here.total) {
     const after = legs.slice(at + 1).find((l) => l.state !== "done");
-    if (!after) return line("done", { say: `${q(here.title)} está completo.`, why: "No queda nada más en el plan." });
-    return line("done", { say: `${q(here.title)} está completo. Sigue ${q(after.title)}.`, why: "" });
+    if (!after) return line("done", { say: w.complete(qq(here.title)), why: w.nothingLeft });
+    return line("done", { say: w.completeNext(qq(here.title), qq(after.title)), why: "" });
   }
-  return line("idle", { say: "Nadie tiene trabajo ahora.", why: "Pide algo con Pedir y el PO lo reparte." });
+  return line("idle", { say: w.nobodyHasWork, why: w.askWithPedir });
 }
 
 // What the owner's own window says: the floor's move, word for word, else nothing for now.
-export function ownerCaption(l: NowLine): { doing: string; lit: boolean } {
-  if (!l.move) return { doing: "Nada por ahora", lit: false };
+export function ownerCaption(l: NowLine, language: Language = getLanguage()): { doing: string; lit: boolean } {
+  if (!l.move) return { doing: W(language).nothingForNow, lit: false };
   return { doing: l.move.texto, lit: true };
 }
 
@@ -463,17 +462,18 @@ export function skyMove(projects: OrgProject[], decisions: Decision[]): { projec
   const first = withMove[0];
   return first ? { project: first, move: moveOf(first)!, more: withMove.length - 1 } : null;
 }
-export function skyLine(projects: OrgProject[], decisions: Decision[], base: string): string {
+export function skyLine(projects: OrgProject[], decisions: Decision[], base: string, language: Language = getLanguage()): string {
+  const w = W(language);
   const s = skyMove(projects, decisions);
   if (!s) {
     // PLA-I61-6: nothing waits on him, but the team left something he has not opened.
     const look = floorOrder(projects, decisions).floors.find((p) => (p.pedidos ?? []).some((x) => !x.guardada && (x.unseen ?? 0) > 0));
-    return look ? `${base}. Te espera algo para mirar en ${look.title}.` : `${base}. Nada te espera.`;
+    return look ? w.somethingToSee(base, look.title) : w.nothingWaits(base);
   }
-  const more = s.more ? ` · y ${s.more === 1 ? "1 piso más" : `${s.more} pisos más`}` : "";
+  const more = s.more ? w.moreFloors(s.more) : "";
   // PLA-I47-7: a texto that already ends a sentence keeps one period, not two.
   const texto = more ? s.move.texto.replace(/[.。]+\s*$/, "") : s.move.texto;
-  return `Te toca: ${texto}${more}${/[.!?…]\s*$/.test(texto + more) ? "" : "."}`;
+  return `${w.yourTurn(`${texto}${more}`)}${/[.!?…]\s*$/.test(texto + more) ? "" : "."}`;
 }
 
 // ---- dates (PLA-I40-5)
@@ -481,76 +481,79 @@ export function skyLine(projects: OrgProject[], decisions: Decision[], base: str
 const DAY_MS = 86_400_000;
 const dayKey = (t: number, timeZone?: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(t));
 // "hoy 2:35 pm", "ayer", else "el 12 nov".
-export function whenWord(iso: string, now: number, timeZone?: string): string {
+export function whenWord(iso: string, now: number, timeZone?: string, language: Language = getLanguage()): string {
+  const w = W(language);
   const t = Date.parse(iso);
-  if (dayKey(t, timeZone) === dayKey(now, timeZone)) return `hoy ${clockAt(t, timeZone)}`;
-  if (dayKey(t, timeZone) === dayKey(now - DAY_MS, timeZone)) return "ayer";
-  return `el ${new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "")}`;
+  if (dayKey(t, timeZone) === dayKey(now, timeZone)) return w.today(clockAt(t, timeZone));
+  if (dayKey(t, timeZone) === dayKey(now - DAY_MS, timeZone)) return w.yesterday;
+  return w.onDay(new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", ""));
 }
 
 // ---- under the route (PLA-I40-6): what runs without the owner, what only he does, and the last things that happened
 
-const TO_DO: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe", "product-owner": "prepara" };
-export function sinTi(p: OrgProject): string {
-  if (isPaused(p)) return "Nada: el proyecto está en pausa.";
+export function sinTi(p: OrgProject, language: Language = getLanguage()): string {
+  const w = W(language);
+  if (isPaused(p)) return w.nothingPaused;
   const steps = p.route?.legs.find((l) => l.state === "here")?.steps ?? [];
   const at = steps.find((s) => s.state === "working") ?? steps.find((s) => s.state === "next");
   if (at) {
-    const who = at.who ? roleName(at.who) : "El equipo";
+    const who = at.who ? roleName(at.who, language) : w.theTeam;
     const then = steps[steps.indexOf(at) + 1];
-    return `${who} ${at.state === "working" ? "termina" : (TO_DO[at.who ?? ""] ?? "hace")} ${q(at.title)} y te lo entrega.${then ? ` Después sigue ${q(then.title)}.` : ""}`;
+    return w.handsYou(who, at.state === "working" ? w.finishes : (w.toDo[at.who ?? ""] ?? w.toDoOther), q(at.title, 80, language), then ? q(then.title, 80, language) : null);
   }
-  if (steps.some((s) => s.state === "delivered")) return "En cuanto apruebes la entrega, el equipo toma el paso siguiente.";
+  if (steps.some((s) => s.state === "delivered")) return w.onceApproved;
   const queued = [...p.team].sort(byRole).find((m) => m.state === "running" || m.next_start || (m.queue ?? []).length > 0);
-  if (queued) return `${roleName(queued.role)} sigue con lo que tiene en fila.`;
-  return "Nada en fila. Lo que pidas lo reparte el PO.";
+  if (queued) return w.goesOn(roleName(queued.role, language));
+  return w.nothingInLine;
 }
-export const SOLO_TU = "Aprobar cada entrega para que el paso siguiente arranque, y publicar.";
+// The Spanish words, kept for the tests; words(EDIFICIO_WORDS).soloTu and the rest read them in the screen's language.
+export const SOLO_TU = EDIFICIO_WORDS.es.soloTu;
 // PLA-I40-7: with the switch on, accepting is the team's when the tests pass; publishing stays the owner's.
-export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba.";
-export const AUTO_LABEL = "Aprobar sola si las pruebas pasan (solo a la copia de prueba)";
+export const SOLO_TU_AUTO = EDIFICIO_WORDS.es.soloTuAuto;
+export const AUTO_LABEL = EDIFICIO_WORDS.es.autoLabel;
 
-const DID: Record<string, string> = { aceptar: "Aprobaste", fusionar: "Aprobaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste", despues: "Dejaste para después" };
 export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
 // The newest three: the owner's answers (a decision's state) and what the server saw (a publish, a delivery).
-export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
+export function lastLines(p: OrgProject, decisions: Decision[], max = 3, language: Language = getLanguage()): LastLine[] {
+  const w = W(language);
   const answered = decisions
     .filter((d) => d.project === p.slug && d.state)
     .map((d) => {
       // PLA-I40-7: an accept the project's switch made says so, with the test counts it stood on.
       const auto = d.state!.result?.by === "auto";
-      const counts = auto && d.evidence?.pass != null ? ` · ${d.evidence.pass} pruebas pasan` : "";
-      return { id: `d-${d.id}`, text: auto ? `Se aprobó sola ${q(d.title, 70)}${counts}` : `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d };
+      const counts = auto && d.evidence?.pass != null ? w.testsPass(d.evidence.pass) : "";
+      return { id: `d-${d.id}`, text: auto ? w.approvedItself(q(d.title, 70, language), counts) : w.didWhat(w.did[d.state!.action] ?? w.didOther, q(d.title, 70, language)), at: d.state!.at, decision: d };
     });
   const seen = (p.latest ?? []).map((l, i) => ({
     id: `l-${i}-${l.at}`,
-    text: l.kind === "published" ? (l.n ? `Publicaste ${l.n === 1 ? "1 cambio" : `${l.n} cambios`}` : "Publicaste los cambios") : `El equipo entregó ${q(l.title, 70)}`,
+    text: l.kind === "published" ? (l.n ? w.published(l.n) : w.publishedAll) : w.teamDelivered(q(l.title, 70, language)),
     at: l.at,
     decision: null,
   }));
   return [...answered, ...seen].sort((a, b) => b.at.localeCompare(a.at)).slice(0, max);
 }
 // "lleva 16 h" / "lleva 3 días".
-export const staleAge = (sinceIso: string, now: number) => {
+export const staleAge = (sinceIso: string, now: number, language: Language = getLanguage()) => {
   const h = Math.max(1, Math.round((now - Date.parse(sinceIso)) / HOUR));
-  return h < 48 ? `${h} h` : `${Math.round(h / 24)} días`;
+  return h < 48 ? W(language).hours(h) : W(language).days(Math.round(h / 24));
 };
 
 // ---- the plate (PLA-I46-4): one status line, in plain words
 
 // Where the delivery stands, what is postponed on purpose, and the forecast when late. Never a token, never a key.
-export function plateStatus(p: OrgProject): string {
+export function plateStatus(p: OrgProject, language: Language = getLanguage()): string {
+  const w = W(language);
   const legs = p.route?.legs ?? [];
   const here = legs.find((l) => l.state === "here");
   const parts: string[] = [];
-  if (here) parts.push(here.total > 0 && here.done === here.total ? `${here.title} completo` : here.total > 0 ? `${here.title}: ${here.done} de ${here.total} ${here.total === 1 ? "paso" : "pasos"}` : `${here.title}: sin pasos todavía`);
-  else if (p.plan && p.plan.total > 0) parts.push(`${p.plan.done} de ${p.plan.total} pasos hechos`);
-  else if (!legs.length) parts.push("Aún no hay pasos");
+  if (here) parts.push(here.total > 0 && here.done === here.total ? w.legComplete(here.title) : here.total > 0 ? w.legSteps(here.title, here.done, here.total) : w.legNoSteps(here.title));
+  else if (p.plan && p.plan.total > 0) parts.push(w.stepsDone(p.plan.done, p.plan.total));
+  else if (!legs.length) parts.push(w.noStepsYet);
   const postponed = legs.filter((l) => l.note && /^pospuesto|pospuestos$/i.test(l.note));
   const one = postponed.length === 1 ? /^Pospuesto: (.+)$/i.exec(postponed[0]!.note!) : null;
-  if (one) parts.push(`${q(one[1], 50)} sigue pospuesto a propósito`);
-  else if (postponed.length) parts.push("hay pasos pospuestos a propósito");
+  if (one) parts.push(w.postponedOne(q(one[1], 50, language)));
+  else if (postponed.length) parts.push(w.postponedSome);
   const r = p.rumbo;
-  if (r && !r.missing && (r.weeks_behind ?? 0) > 0 && r.forecast_on) parts.push(`va ${r.weeks_behind === 1 ? "1 semana" : `${r.weeks_behind} semanas`} tarde`);
+  if (r && !r.missing && (r.weeks_behind ?? 0) > 0 && r.forecast_on) parts.push(w.weeksLate(r.weeks_behind!));
   return parts.join(" · ");
 }

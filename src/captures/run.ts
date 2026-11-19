@@ -12,6 +12,55 @@ import { ToolError } from "../mcp/errors.js";
 import { launchChrome, type BrowserPage, type LaunchBrowser } from "./chrome.js";
 import { baseUrl, VIEWPORT_NAMES, VIEWPORTS, type CapturePage, type CaptureSettings, type ViewportName } from "./settings.js";
 import { prune, recordStill } from "./store.js";
+import { runEnv } from "../runner/run-env.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: why a still did not come out, in the install's language; the Spanish is unchanged. crashed() in
+// src/captures/probador.ts reads `crash` and `answered` back in both languages: keep them in step.
+export const RUN_WORDS = defineWords({
+  es: {
+    noFields: (page: string, user: string, pass: string) => `La página ${page} no tiene los campos ${user} y ${pass}`,
+    noForm: (page: string) => `Los campos de ${page} no están en un formulario`,
+    noLogin: (user: string, page: string) => `No se pudo entrar con ${user} (seguía en ${page})`,
+    notYet: (path: string) => `${path} no existe todavía`,
+    answered: (path: string, status: number) => `${path} respondió ${status}`,
+    loginAgain: (path: string) => `${path} pidió entrar otra vez`,
+    noMatch: (path: string, follow: string) => `En ${path} no hay nada que coincida con ${follow}`,
+    leaves: (follow: string) => `${follow} lleva fuera de la copia de prueba`,
+    noClick: (path: string, click: string) => `En ${path} no encontré «${click}»`,
+    noFill: (path: string, fill: string) => `En ${path} no hay ${fill}`,
+    noOption: (path: string, fill: string, value: string) => `En ${path}, ${fill} no tiene la opción «${value}»`,
+    crash: (path: string, crash: string) => `${path} muestra un error: ${crash}`,
+    noUserCode: (code: number | null) => `No se pudo preparar el usuario de prueba (código ${code})`,
+    copyAnswered: (status: number, base: string) => `La copia de prueba respondió ${status} en ${base}`,
+    copyDown: (base: string) => `La copia de prueba no responde en ${base}`,
+    noChrome: (why: string) => `No se pudo abrir Chrome: ${why}`,
+    code: (code: number | null) => `código ${code}`,
+    noUser: (why: string) => `No se pudo preparar el usuario de prueba: ${why}`,
+    noSignIn: (why: string) => `No se pudo entrar: ${why}`,
+  },
+  en: {
+    noFields: (page: string, user: string, pass: string) => `The page ${page} has no ${user} and ${pass} fields`,
+    noForm: (page: string) => `The fields on ${page} are not in a form`,
+    noLogin: (user: string, page: string) => `Could not sign in as ${user} (still on ${page})`,
+    notYet: (path: string) => `${path} does not exist yet`,
+    answered: (path: string, status: number) => `${path} answered ${status}`,
+    loginAgain: (path: string) => `${path} asked to sign in again`,
+    noMatch: (path: string, follow: string) => `On ${path} nothing matches ${follow}`,
+    leaves: (follow: string) => `${follow} leads outside the test copy`,
+    noClick: (path: string, click: string) => `On ${path} I did not find «${click}»`,
+    noFill: (path: string, fill: string) => `On ${path} there is no ${fill}`,
+    noOption: (path: string, fill: string, value: string) => `On ${path}, ${fill} has no option «${value}»`,
+    crash: (path: string, crash: string) => `${path} shows an error: ${crash}`,
+    noUserCode: (code: number | null) => `Could not prepare the test user (code ${code})`,
+    copyAnswered: (status: number, base: string) => `The test copy answered ${status} at ${base}`,
+    copyDown: (base: string) => `The test copy does not answer at ${base}`,
+    noChrome: (why: string) => `Could not open Chrome: ${why}`,
+    code: (code: number | null) => `code ${code}`,
+    noUser: (why: string) => `Could not prepare the test user: ${why}`,
+    noSignIn: (why: string) => `Could not sign in: ${why}`,
+  },
+});
 
 export type Exec = (
   command: string,
@@ -21,20 +70,21 @@ export type Exec = (
 // What a command run in the app's checkout inherits: the shell basics only. Plania's own environment
 // (DATABASE_URL, tokens, secrets) never reaches the app: its tools read their own .env.local, and Node's
 // --env-file does not override a variable that is already set.
-const CHECKOUT_ENV = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "NVM_DIR", "NVM_BIN", "PNPM_HOME", "COREPACK_HOME"];
-export function checkoutEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const k of CHECKOUT_ENV) if (process.env[k] !== undefined) env[k] = process.env[k];
-  env.PATH = toolPath(process.env.PATH, process.execPath);
+// PLA-I2-13: the same allow-list as a run (src/runner/run-env.ts), without Claude's variables: an app needs no
+// Claude sign-in. extra (PORT, a test copy's own database URL) goes in as given.
+export function checkoutEnv(extra: Record<string, string> = {}, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = runEnv(base, { claude: false });
+  env.PATH = toolPath(base.PATH, process.execPath);
   return { ...env, ...extra };
 }
 
 // PLA-39: under launchd Plania's PATH is the bare system one, so npm and node are not found. The running node's own
 // folder (where npm lives for nvm and Homebrew) and the usual tool folders go first; what PATH had stays, once each.
 export const TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
-export function toolPath(current: string | undefined, execPath: string): string {
-  const parts = [path.dirname(execPath), ...TOOL_DIRS, ...(current ?? "").split(":")].filter(Boolean);
-  return [...new Set(parts)].join(":");
+// PLA-I2-4: joined with the system's separator (path.delimiter).
+export function toolPath(current: string | undefined, execPath: string, sep: string = path.delimiter): string {
+  const parts = [path.dirname(execPath), ...TOOL_DIRS, ...(current ?? "").split(sep)].filter(Boolean);
+  return [...new Set(parts)].join(sep);
 }
 
 export type CaptureDeps = {
@@ -100,6 +150,9 @@ export const shellExec: Exec = (command, { cwd, stdin, timeoutMs = 120_000, env 
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
+    // PLA-I2-19: a command that exits without reading its stdin closes the pipe first; on Linux the write then fails
+    // with EPIPE, which must not escape as an uncaught error. The exit code still says how the command ended.
+    child.stdin.on("error", () => undefined);
     child.stdin.end(stdin ?? "");
   });
 
@@ -130,8 +183,8 @@ async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSett
     pass.form.requestSubmit();
     return 'ok';
   })()`);
-  if (filled === "missing") return `La página ${s.login_path} no tiene los campos ${s.user_field} y ${s.password_field}`;
-  if (filled === "noform") return `Los campos de ${s.login_path} no están en un formulario`;
+  if (filled === "missing") return say(RUN_WORDS).noFields(s.login_path, s.user_field, s.password_field);
+  if (filled === "noform") return say(RUN_WORDS).noForm(s.login_path);
   const prefix = s.after_login_prefix;
   const until = Date.now() + waitMs;
   while (Date.now() < until) {
@@ -144,17 +197,17 @@ async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSett
     }
     if (at !== s.login_path && (!prefix || at.startsWith(prefix))) return null;
   }
-  return `No se pudo entrar con ${s.user} (seguía en ${s.login_path})`;
+  return say(RUN_WORDS).noLogin(s.user, s.login_path);
 }
 
 // Opens one page (and its follow), checks it is the page and not an error or the login, and takes the still.
 async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: CaptureSettings, allowMissing = false): Promise<{ png: Buffer; url: string }> {
   let nav = await page.goto(base + pg.path);
   const check = () => {
-    if (allowMissing && nav.status === 404) throw new Missing(`${pg.path} no existe todavía`);
-    if (nav.status !== null && nav.status >= 400) throw new Error(`${pg.path} respondió ${nav.status}`);
+    if (allowMissing && nav.status === 404) throw new Missing(say(RUN_WORDS).notYet(pg.path));
+    if (nav.status !== null && nav.status >= 400) throw new Error(say(RUN_WORDS).answered(pg.path, nav.status));
     const login = settings.session?.login_path;
-    if (pg.session && login && new URL(nav.url).pathname === login) throw new Error(`${pg.path} pidió entrar otra vez`);
+    if (pg.session && login && new URL(nav.url).pathname === login) throw new Error(say(RUN_WORDS).loginAgain(pg.path));
   };
   check();
   if (pg.follow) {
@@ -162,8 +215,8 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
     // is a CSS selector, as before. Taller was told to give the prefix and the photo pass threw on it.
     const sel = followSelector(pg.follow);
     const href = await page.evaluate<string | null>(`(() => { const a = document.querySelector(${JSON.stringify(sel)}); return a ? a.href : null; })()`);
-    if (!href) throw new Error(`En ${pg.path} no hay nada que coincida con ${pg.follow}`);
-    if (new URL(href).origin !== new URL(base).origin) throw new Error(`${pg.follow} lleva fuera de la copia de prueba`);
+    if (!href) throw new Error(say(RUN_WORDS).noMatch(pg.path, pg.follow));
+    if (new URL(href).origin !== new URL(base).origin) throw new Error(say(RUN_WORDS).leaves(pg.follow));
     nav = await page.goto(href);
     check();
   }
@@ -197,20 +250,20 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
       await new Promise((res) => setTimeout(res, ACTION_POLL_MS));
       done = await act();
     }
-    if (done === "missing") throw new Error("click" in a ? `En ${pg.path} no encontré «${a.click}»` : `En ${pg.path} no hay ${a.fill}`);
-    if (done === "nooption") throw new Error(`En ${pg.path}, ${"fill" in a ? a.fill : ""} no tiene la opción «${"fill" in a ? a.value : ""}»`);
+    if (done === "missing") throw new Error("click" in a ? say(RUN_WORDS).noClick(pg.path, a.click) : say(RUN_WORDS).noFill(pg.path, a.fill));
+    if (done === "nooption") throw new Error(say(RUN_WORDS).noOption(pg.path, "fill" in a ? a.fill : "", "fill" in a ? a.value : ""));
     await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
   }
   // PLA-76 (F-24): a page that answered 200 but shows the framework's error (Next's overlay, «Application error»)
   // is not a picture of the delivery: it becomes an error with the error's first line, so the card says «error»
   // and holds Aceptar back instead of calling it «cambió».
   const crash = pageError(await page.evaluate<PageText>(PAGE_TEXT_SCRIPT).catch(() => null));
-  if (crash) throw new Error(`${pg.path} muestra un error: ${crash}`);
+  if (crash) throw new Error(say(RUN_WORDS).crash(pg.path, crash));
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
 }
 
 // PLA-I52-5: sign the test user in on a running copy and return the session cookies, for El Probador's live copy.
-// A fresh password every time (never kept), the same login as the stills. Throws with the reason in Spanish.
+// A fresh password every time (never kept), the same login as the stills. Throws with the reason in the install's language.
 export async function sessionCookies(
   input: { base_url: string; checkout: string; settings: CaptureSettings; env?: Record<string, string> },
   deps: CaptureDeps = {},
@@ -220,7 +273,7 @@ export async function sessionCookies(
   const exec = deps.exec ?? shellExec;
   const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
   const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
-  if (r.code !== 0) throw new Error(`No se pudo preparar el usuario de prueba (código ${r.code})`);
+  if (r.code !== 0) throw new Error(say(RUN_WORDS).noUserCode(r.code));
   const browser = await (deps.launch ?? launchChrome)();
   try {
     await browser.page.setViewport(VIEWPORTS.desktop);
@@ -285,9 +338,9 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
   let up: string | null = null;
   try {
     const r = await doFetch(base + (settings.ready_path ?? "/"), { redirect: "manual", signal: AbortSignal.timeout(10_000) });
-    if (r.status >= 500) up = `La copia de prueba respondió ${r.status} en ${base}`;
+    if (r.status >= 500) up = say(RUN_WORDS).copyAnswered(r.status, base);
   } catch {
-    up = `La copia de prueba no responde en ${base}`;
+    up = say(RUN_WORDS).copyDown(base);
   }
   if (up) {
     await failAll(pages, up);
@@ -298,7 +351,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
   try {
     browser = await launch();
   } catch (e) {
-    await failAll(pages, `No se pudo abrir Chrome: ${short(e)}`);
+    await failAll(pages, say(RUN_WORDS).noChrome(short(e)));
     return finish();
   }
   try {
@@ -309,13 +362,13 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
       const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
       const cmd = s.password_command.replaceAll("{user}", s.user);
       const r = await exec(cmd, { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
-      if (r.code !== 0) sessionError = `No se pudo preparar el usuario de prueba: ${(r.stderr || r.stdout).trim().split("\n").pop()?.slice(0, 200) ?? `código ${r.code}`}`;
+      if (r.code !== 0) sessionError = say(RUN_WORDS).noUser((r.stderr || r.stdout).trim().split("\n").pop()?.slice(0, 200) ?? say(RUN_WORDS).code(r.code));
       else {
         try {
           await browser.page.setViewport(VIEWPORTS.desktop);
           sessionError = await logIn(browser.page, base, s, password, deps.loginWaitMs ?? LOGIN_WAIT_MS);
         } catch (e) {
-          sessionError = `No se pudo entrar: ${short(e)}`;
+          sessionError = say(RUN_WORDS).noSignIn(short(e));
         }
       }
     }

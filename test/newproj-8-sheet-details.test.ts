@@ -108,5 +108,6 @@ test("NEWPROJ-8: .env.example names PLANIA_WORKTREES_ROOT", () => {
   const lines = readFileSync(new URL("../.env.example", import.meta.url), "utf8").split(/\r?\n/);
   const at = lines.findIndex((l) => l.startsWith("PLANIA_WORKTREES_ROOT="));
   assert.ok(at > 0, "listed");
-  assert.match(lines[at - 1]!, /^# .*~\/Developer\/\.plania-worktrees/);
+  // PLA-I2-3: the default is neutral now (the folder chosen at first start, else one under the user's home).
+  assert.match(lines[at - 1]!, /^# .*~\/plania\/worktrees/);
 });

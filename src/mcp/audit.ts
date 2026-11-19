@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js";
 import { auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, events, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
-import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
+import { gatingSql, parseOwnerLines, waitingOnOwner } from "./owner-lines.js";
 import { prefixOf } from "./keys.js";
 import { releasePending, releasePlan } from "./release-plan.js";
 import { isScreenActor, iso, type Q } from "./tx.js";
@@ -13,7 +13,7 @@ import { isScreenActor, iso, type Q } from "./tx.js";
 // every ten minutes, storing the last run so the status block can show the count.
 
 // 2.11: id names what a one-click fix acts on (a decision id, an env, a branch, a worktree path) and
-// command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
+// command is the shell line the owner copies, when the fix is one (src/mcp/orden.ts).
 import { checkRunnerInvariants } from "../runner/invariants.js";
 
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
@@ -37,8 +37,8 @@ export function canonicalAuditCode(code: string): string {
 const CLOSED = ["Done", "Won't do"];
 // A ticket that has not reached In review yet (PLA-03 drift).
 const REVIEW_LIMBO_MS = 30 * 60_000;
-export const DRIFT_STATUSES = ["Backlog", "Ready", "In progress", "Blocked", "Needs Jorge"];
-export { WAITING_ON_JORGE };
+export const DRIFT_STATUSES = ["Backlog", "Ready", "In progress", "Blocked", "Needs owner"];
+export { waitingOnOwner };
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 const PR = /pull\/(\d+)|#(\d{2,6})\b/g;
 // A Plania key token, case-sensitive: a three-letter uppercase project prefix (FIL, ZIG, PLA, MIC, WRK)
@@ -163,7 +163,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       if (head && !head.startsWith(target.commit) && !target.commit.startsWith(head) && heads.find((b) => b.name === i.branch)?.mergedAt) {
         out.push(
           releasePending(plan)
-            ? { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged; it ships with the release step ${plan.from.branch} → ${plan.into.branch} in Jorge's inbox`, fix_hint: "nothing to do here: the release step (get_resume.status.release) is Jorge's" }
+            ? { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged; it ships with the release step ${plan.from.branch} → ${plan.into.branch} in the owner's inbox`, fix_hint: "nothing to do here: the release step (get_resume.status.release) is the owner's" }
             : { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged but ${env} still runs ${target.commit.slice(0, 7)}`, fix_hint: "deploy, then set_env (or wait for the poller)" },
         );
       }
@@ -206,11 +206,11 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const used = all.some((t) => t.branch === b.name || t.workspace?.branch === b.name) || prs.some((pr) => pr.headBranch === b.name);
     if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch", id: b.name, command: `git push origin --delete ${b.name}` });
   }
-  // 2.8: "waiting on Jorge" written as free text, with nothing he can act on in the inbox.
+  // 2.8: "waiting on the owner" written as free text, with nothing he can act on in the inbox.
   const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));
   const humanActionOn = new Set((await openHumanActions(db, p.id)).map((r) => r.b.taskId));
-  // 2.10: the parser (jorge-lines.ts) turns most of these into blockers on the next write; the detail
-  // says so, or names the parsed blocker when Jorge already marked it done and the text still waits.
+  // 2.10: the parser (owner-lines.ts) turns most of these into blockers on the next write; the detail
+  // says so, or names the parsed blocker when the owner already marked it done and the text still waits.
   const parsedDone = ids.length
     ? await db
         .select({ id: blockers.id, taskId: blockers.taskId, hash: sql<string>`${blockers.spec}->>'line_hash'` })
@@ -219,17 +219,17 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     : [];
   for (const t of all.filter((t) => !CLOSED.includes(t.status))) {
     const texts = [t.kind === "initiative" ? t.nextAction : "", t.blockedNote ?? ""].filter(Boolean);
-    const hit = texts.find((x) => WAITING_ON_JORGE.test(x));
+    const hit = texts.find((x) => waitingOnOwner(x));
     if (hit && !openQ.has(t.id) && !humanActionOn.has(t.id)) {
-      const lines = parseJorgeLines(hit);
+      const lines = parseOwnerLines(hit);
       const done = parsedDone.find((b) => b.taskId === t.id && lines.some((l) => l.hash === b.hash));
       const detail = done
-        ? `"${hit.slice(0, 80)}" parsed into blocker ${done.id}, already marked done, and the text still waits on Jorge`
+        ? `"${hit.slice(0, 80)}" parsed into blocker ${done.id}, already marked done, and the text still waits on the owner`
         : lines.length
           ? `"${hit.slice(0, 80)}" with no open question or human_action; the parser makes it one on the next write of that field`
           : `"${hit.slice(0, 80)}" with no open question or human_action`;
-      const fix = done ? "rewrite the text now that it is done" : "ask (question) or blocked_by human_action, so it reaches his inbox";
-      out.push({ code: "WAITING_ON_JORGE_FREE_TEXT", key: t.key, detail, fix_hint: fix });
+      const fix = done ? "rewrite the text now that it is done" : "ask (question) or blocked_by human_action, so it reaches their inbox";
+      out.push({ code: "WAITING_ON_OWNER_FREE_TEXT", key: t.key, detail, fix_hint: fix });
     }
   }
   // 2.8: due dates that passed with the task still open.
@@ -341,11 +341,11 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
         level: "warn",
         key: t.key,
         detail: `${t.key} is Won't do with no screen actor and no delegated evidence`,
-        fix_hint: "review it with Jorge. A screen move needs a reason; an agent move also needs delegated_by_jorge {message_id, quote}",
+        fix_hint: "review it with the owner. A screen move needs a reason; an agent move also needs delegated_by_owner {message_id, quote}",
       });
     }
   }
-  // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
+  // What this project's agents left running on the machine (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));
   // PLA-I60-6: the runner's rules (one active run per work item, caps, lock keys), reported on Plania's own project.
   if (p.slug === (process.env.PLANIA_HOME_PROJECT || "plania")) {

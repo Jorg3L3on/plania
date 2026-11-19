@@ -19,6 +19,7 @@
 // an initiative no idea points at answers with empty stops and its `built`.
 // Nothing waits on an answer: without one the idea keeps going.
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { UNDERSTOOD_MARK, isUnderstood } from "./understood.js";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -35,6 +36,98 @@ import { listFrames, type FrameView } from "../pedidos/frames.js";
 import { projectPo } from "./company-actions.js";
 import { DESPERTAR, RESPUESTA, VISTO, askedText, fichaOf, sectionAll, trailOf, whoOf, type FichaIdea, type TrailItem } from "./company-pedido.js";
 import { PEDIDO_STOPS, pedidoOf, type Pedido, type PedidoStop } from "./company-pedidos.js";
+import { ownerEs, ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the idea's gists, refusals, and the notes and wake reasons it writes, in the install's language; the
+// Spanish is unchanged. company-pedido.ts reads the Spanish notes of old rows back (ANSWER_NOTE).
+const Owner = () => ownerEs(undefined, { capital: true });
+const OwnerEn = () => ownerName("en", { capital: true });
+export const COMPANY_IDEA_WORDS = defineWords({
+  es: {
+    stop: { entendido: "Entendido", investigacion: "Investigación", diseno: "Diseño", plan: "Plan" } as Record<string, string>,
+    stage: { research: "Investigación", design: "Diseño", planning: "Plan", ready: "Lista" } as Record<string, string>,
+    notHere: "Esa idea no está en este proyecto.",
+    recommends: (t: string) => `Recomienda: ${t}`,
+    frames: (n: number) => `${n} ${n === 1 ? "marco" : "marcos"} de Artist`,
+    steps: (n: number) => `${n} ${n === 1 ? "paso" : "pasos"}`,
+    onBoard: (k: string) => `Es ${k} en el tablero`,
+    readyToBuild: "Lista para construir",
+    closed: "Esa idea ya está cerrada.",
+    promoted: (k: string) => `Ya es ${k} en el tablero.`,
+    noStop: "Esa parada no existe.",
+    headChanges: (stop: string) => `${Owner()} pide cambios en ${stop} (desde Compañía).`,
+    headOption: (n: unknown) => `${Owner()} pide la opción ${n} de la investigación en lugar de la recomendada (desde Compañía).`,
+    headCorrect: () => `${Owner()} dice que no es eso lo que pidió (desde Compañía).`,
+    words: (t: string) => `Sus palabras: «${t}»`,
+    pin: (i: number, frame: string, name: string | null, x: number, y: number, text: string) =>
+      `${i}. Marco ${frame}${name !== null ? ` (${name})` : ""}, punto ${x}% desde la izquierda y ${y}% desde arriba: ${text}`,
+    redo: "Rehaz esta etapa con eso y vuelve a mover la idea cuando esté.",
+    notAnswerable: "A esa parada no se le responde.",
+    nothingYet: "Esa parada todavía no entrega nada.",
+    noOption: "Esa opción no está en la investigación.",
+    correctPo: "Corregir es para lo que entendió el PO.",
+    emptyAnswer: "Di qué cambiarías: una frase o una nota en un marco.",
+    undoLike: "Solo se deshace un «me gusta».",
+    answeredReason: (stop: string) => `${Owner()} respondió en ${stop}: rehaz la etapa con su nota`,
+    decided: (label: string, question: string, was: string) => `${Owner()} decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».`,
+    confirmed: (label: string, question: string) => `${Owner()} confirmó (desde Compañía) «${label}» en «${question}».`,
+    nothingChanges: "Nada cambia: sigue con lo que asumiste.",
+    forward: (stage: string) =>
+      `La idea sigue en ${stage}; el doc «Idea» ya dice lo que decidió. Tenlo en cuenta en esta etapa: si cambia algo de lo que ya entregaste, entrégala otra vez con deliver_stage. Si su decisión deshace una etapa anterior, regrésala con una nota que diga por qué.`,
+    redoDeliver: "Rehaz esta etapa con eso: entrégala otra vez con deliver_stage y vuelve a mover la idea cuando esté.",
+    noDecisions: "Esta idea no trae preguntas por decidir.",
+    noQuestion: "Esa pregunta no está en la idea.",
+    questionsChanged: "Las preguntas cambiaron. Vuelve a abrir la idea y elige otra vez.",
+    noPick: "Esa opción no está en la pregunta.",
+    alreadyPicked: "Ya habías elegido esa.",
+    changedReason: (stage: string) => `${Owner()} cambió una decisión del PO: llévala a tu etapa (${stage}) según su nota`,
+    otherReason: () => `${Owner()} decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage`,
+    wokeReason: (stage: string) => `${Owner()} la despertó desde Compañía: sigue la etapa ${stage}`,
+  },
+  en: {
+    stop: { entendido: "Understood", investigacion: "Research", diseno: "Design", plan: "Plan" } as Record<string, string>,
+    stage: { research: "Research", design: "Design", planning: "Plan", ready: "Ready" } as Record<string, string>,
+    notHere: "That idea is not in this project.",
+    recommends: (t: string) => `Recommends: ${t}`,
+    frames: (n: number) => `${n} ${n === 1 ? "frame" : "frames"} from Artist`,
+    steps: (n: number) => `${n} ${n === 1 ? "step" : "steps"}`,
+    onBoard: (k: string) => `It is ${k} on the board`,
+    readyToBuild: "Ready to build",
+    closed: "That idea is already closed.",
+    promoted: (k: string) => `It is already ${k} on the board.`,
+    noStop: "That stop does not exist.",
+    headChanges: (stop: string) => `${OwnerEn()} asks for changes in ${stop} (from Compañía).`,
+    headOption: (n: unknown) => `${OwnerEn()} asks for option ${n} of the research instead of the recommended one (from Compañía).`,
+    headCorrect: () => `${OwnerEn()} says that is not what they asked for (from Compañía).`,
+    words: (t: string) => `Their words: «${t}»`,
+    pin: (i: number, frame: string, name: string | null, x: number, y: number, text: string) =>
+      `${i}. Frame ${frame}${name !== null ? ` (${name})` : ""}, point ${x}% from the left and ${y}% from the top: ${text}`,
+    redo: "Redo this stage with that and move the idea again when it is ready.",
+    notAnswerable: "That stop takes no answer.",
+    nothingYet: "That stop has delivered nothing yet.",
+    noOption: "That option is not in the research.",
+    correctPo: "Correct is for what the PO understood.",
+    emptyAnswer: "Say what you would change: a sentence or a note on a frame.",
+    undoLike: "Only a «like» can be undone.",
+    answeredReason: (stop: string) => `${OwnerEn()} answered on ${stop}: redo the stage with their note`,
+    decided: (label: string, question: string, was: string) => `${OwnerEn()} decided (from Compañía) «${label}» on «${question}», instead of «${was}».`,
+    confirmed: (label: string, question: string) => `${OwnerEn()} confirmed (from Compañía) «${label}» on «${question}».`,
+    nothingChanges: "Nothing changes: go on with what you assumed.",
+    forward: (stage: string) =>
+      `The idea stays in ${stage}; the «Idea» doc already says what was decided. Keep it in mind in this stage: if it changes anything you already delivered, deliver it again with deliver_stage. If the decision undoes an earlier stage, send it back with a note that says why.`,
+    redoDeliver: "Redo this stage with that: deliver it again with deliver_stage and move the idea again when it is ready.",
+    noDecisions: "This idea has no questions to decide.",
+    noQuestion: "That question is not in the idea.",
+    questionsChanged: "The questions changed. Open the idea again and choose again.",
+    noPick: "That option is not in the question.",
+    alreadyPicked: "You had already chosen that one.",
+    changedReason: (stage: string) => `${OwnerEn()} changed one of the PO's decisions: carry it into your stage (${stage}) per their note`,
+    otherReason: () => `${OwnerEn()} decided otherwise on one of your questions: redo the stage with their note and deliver it with deliver_stage`,
+    wokeReason: (stage: string) => `${OwnerEn()} woke it from Compañía: continue the ${stage} stage`,
+  },
+});
+const iw = () => say(COMPANY_IDEA_WORDS);
 
 export type IdeaVerdict = "ok" | "deshacer" | "cambios" | "opcion" | "corregir";
 export type IdeaNote = { frame: string; x: number; y: number; text: string };
@@ -43,7 +136,7 @@ export type IdeaStop = {
   stop: PedidoStop;
   // done: behind the idea; here: where it is; todo: ahead (what it has is redone when it gets there).
   state: "done" | "here" | "todo";
-  // Who delivered it (a role, or jorge for the request), and when.
+  // Who delivered it (a role, or owner for the request), and when.
   by: string | null;
   at: string | null;
   delivered: boolean;
@@ -82,7 +175,7 @@ export type IdeaDetail = Pedido & {
   status: string;
   stage: string | null;
   promoted_to: string | null;
-  // His own request (origin jorge): the view carries Constrúyelo, Guardar and Descartar.
+  // His own request (origin owner): the view carries Constrúyelo, Guardar and Descartar.
   pedido: boolean;
   question_options: string[];
   stops: IdeaStop[];
@@ -121,13 +214,12 @@ const STOP_STAGE: Record<PedidoStop, string> = { buzon: "idea", entendido: "idea
 const STAGE_ORDER = ["idea", "research", "design", "planning", "ready"];
 const STAGE_ROLE: Record<string, "product-owner" | "research" | "artist"> = { idea: "product-owner", research: "research", design: "artist", planning: "product-owner", ready: "product-owner" };
 const ANSWERABLE: PedidoStop[] = ["entendido", "investigacion", "diseno", "plan"];
-const STOP_WORD: Record<string, string> = { entendido: "Entendido", investigacion: "Investigación", diseno: "Diseño", plan: "Plan" };
 
 async function anyIdea(db: Db, slug: string, key: string): Promise<{ project: { id: string; slug: string }; t: Task } | Refusal> {
   const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
-  if (!t || t.kind !== "idea") return { error: "IDEA_NOT_FOUND", status: 404, hint: "Esa idea no está en este proyecto." };
+  if (!t || t.kind !== "idea") return { error: "IDEA_NOT_FOUND", status: 404, hint: iw().notHere };
   return { project: p, t };
 }
 
@@ -137,7 +229,7 @@ async function thingOf(db: Db, slug: string, key: string): Promise<{ project: { 
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (t?.kind === "idea") return { project: p, t, init: null };
-  if (t?.kind !== "initiative") return { error: "IDEA_NOT_FOUND", status: 404, hint: "Esa idea no está en este proyecto." };
+  if (t?.kind !== "initiative") return { error: "IDEA_NOT_FOUND", status: 404, hint: iw().notHere };
   const [idea] = await db
     .select()
     .from(tasks)
@@ -218,17 +310,17 @@ const oneLine = (s: string | null | undefined, n = 90) => {
 export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "understood_text" | "research" | "frames" | "plan_steps" | "ficha" | "stage" | "promoted_to" | "stops">): Record<PedidoStop, string | null> {
   const has = (s: PedidoStop) => d.stops.find((x) => x.stop === s)?.delivered ?? false;
   const rec = d.research.recommendation;
-  const n = rec ? Number(/opci[oó]n\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
+  const n = rec ? Number(/(?:opci[oó]n|option)\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
   const recOption = d.research.options.find((o) => o.n === n) ?? (rec ? null : (d.research.options[0] ?? null));
   const nf = d.frames.length;
   const size = oneLine(d.ficha.tamano, 40);
   return {
     buzon: oneLine(d.text, 80),
-    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")) : null,
-    investigacion: has("investigacion") ? (recOption ? `Recomienda: ${recOption.title}` : oneLine(rec)) : null,
-    diseno: has("diseno") && nf ? `${nf} ${nf === 1 ? "marco" : "marcos"} de Artist` : null,
-    plan: has("plan") && d.plan_steps.length ? `${d.plan_steps.length} ${d.plan_steps.length === 1 ? "paso" : "pasos"}${size ? ` · ${size.replace(/\.$/, "").toLowerCase()}` : ""}` : null,
-    lista: d.promoted_to ? `Es ${d.promoted_to} en el tablero` : d.stage === "ready" ? "Lista para construir" : null,
+    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(UNDERSTOOD_MARK, "")) : null,
+    investigacion: has("investigacion") ? (recOption ? iw().recommends(recOption.title) : oneLine(rec)) : null,
+    diseno: has("diseno") && nf ? iw().frames(nf) : null,
+    plan: has("plan") && d.plan_steps.length ? `${iw().steps(d.plan_steps.length)}${size ? ` · ${size.replace(/\.$/, "").toLowerCase()}` : ""}` : null,
+    lista: d.promoted_to ? iw().onBoard(d.promoted_to) : d.stage === "ready" ? iw().readyToBuild : null,
   };
 }
 
@@ -274,7 +366,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
   const stageData = deliveredOf(evs);
   const frames = await listFrames(db, slug, t.id, t.key);
   const framesAt = evs.findLast((e) => e.type === "frames.attached")?.at ?? null;
-  const understood = evs.find((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
+  const understood = evs.find((e) => e.type === "note" && isUnderstood(String((e.payload as { text?: string }).text ?? "")));
   const cache = new Map<string, string>();
   const here = PEDIDO_STOPS.indexOf(base.stop);
   const stops: IdeaStop[] = [];
@@ -284,7 +376,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     let by: string | null = d ? await whoOf(db, d.actor as Actor, cache) : null;
     if (stop === "buzon") {
       at = t.createdAt;
-      by = t.origin === "jorge" ? "jorge" : null;
+      by = t.origin === "owner" ? "owner" : null;
     }
     if (stop === "entendido" && !d && understood) {
       at = understood.at;
@@ -336,11 +428,11 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
   const out: Omit<IdeaDetail, "gist"> & { gist?: IdeaDetail["gist"] } = {
     ...base,
     summary: t.summary,
-    text: askedText(t.scope, t.title),
+    text: askedText(t.scope, t.title, t.ownerWords),
     status: t.status,
     stage: t.stage,
     promoted_to: t.promotedTo,
-    pedido: t.origin === "jorge",
+    pedido: t.origin === "owner",
     question_options: q?.options ?? [],
     stops,
     ficha: fichaOf(list),
@@ -363,12 +455,12 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     quiet_since: base.state === "quieta" && !inLine && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
     queued: inLine?.role ?? null,
     trail: await trailOf(db, t),
-    pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
+    pictures: t.origin === "owner" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
     kind: init ? "initiative" : "idea",
     short: shortOf(t.summary, t.title),
     understood_text: ((): string | null => {
-      const last = evs.findLast((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
-      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(/^\s*entend[ií]\s*[:：-]\s*/i, "").trim() : "";
+      const last = evs.findLast((e) => e.type === "note" && isUnderstood(String((e.payload as { text?: string }).text ?? "")));
+      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(UNDERSTOOD_MARK, "").trim() : "";
       return text || null;
     })(),
     built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted) : null,
@@ -433,12 +525,12 @@ export async function unseenByIdea(db: Db, slug: string, keys: string[]): Promis
 }
 
 const writable = (t: Task): Refusal | null =>
-  t.status !== "Open" ? { error: "IDEA_CLOSED", status: 409, hint: "Esa idea ya está cerrada." } : t.promotedTo ? { error: "IDEA_PROMOTED", status: 409, hint: `Ya es ${t.promotedTo} en el tablero.` } : null;
+  t.status !== "Open" ? { error: "IDEA_CLOSED", status: 409, hint: iw().closed } : t.promotedTo ? { error: "IDEA_PROMOTED", status: 409, hint: iw().promoted(t.promotedTo) } : null;
 
 export async function ideaVisto(db: Db, slug: string, key: string, stop: string): Promise<{ key: string; stop: string } | Refusal> {
   const found = await anyIdea(db, slug, key);
   if ("error" in found) return found;
-  if (!(PEDIDO_STOPS as readonly string[]).includes(stop)) return { error: "INVALID_STOP", status: 400, hint: "Esa parada no existe." };
+  if (!(PEDIDO_STOPS as readonly string[]).includes(stop)) return { error: "INVALID_STOP", status: 400, hint: iw().noStop };
   const p = await findProject(db, slug);
   await writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (_tx, emit) => emit(VISTO, { id: found.t.id, key: found.t.key }, { stop }));
   return { key, stop };
@@ -448,14 +540,15 @@ type AnswerInput = { stop: string; verdict: IdeaVerdict; text?: string; option?:
 
 // The note the stage owner reads: his words, the option, each pinned note with its frame and spot.
 export function answerNote(stop: string, input: AnswerInput, frames: { frame: string; name: string }[]): string {
-  const head = { cambios: `Jorge pide cambios en ${STOP_WORD[stop] ?? stop} (desde Compañía).`, opcion: `Jorge pide la opción ${input.option} de la investigación en lugar de la recomendada (desde Compañía).`, corregir: "Jorge dice que no es eso lo que pidió (desde Compañía)." }[input.verdict as "cambios" | "opcion" | "corregir"];
+  const w = iw();
+  const head = { cambios: () => w.headChanges(w.stop[stop] ?? stop), opcion: () => w.headOption(input.option), corregir: () => w.headCorrect() }[input.verdict as "cambios" | "opcion" | "corregir"]();
   const lines = [head];
-  if (input.text?.trim()) lines.push(`Sus palabras: «${input.text.trim()}»`);
+  if (input.text?.trim()) lines.push(w.words(input.text.trim()));
   (input.notes ?? []).forEach((n, i) => {
     const f = frames.find((x) => x.frame === n.frame);
-    lines.push(`${i + 1}. Marco ${n.frame}${f ? ` (${f.name})` : ""}, punto ${Math.round(n.x)}% desde la izquierda y ${Math.round(n.y)}% desde arriba: ${n.text.trim()}`);
+    lines.push(w.pin(i + 1, n.frame, f ? f.name : null, Math.round(n.x), Math.round(n.y), n.text.trim()));
   });
-  lines.push("Rehaz esta etapa con eso y vuelve a mover la idea cuando esté.");
+  lines.push(w.redo);
   return lines.join("\n").slice(0, 3800);
 }
 
@@ -466,17 +559,17 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
   const no = writable(t);
   if (no) return no;
   const stop = input.stop as PedidoStop;
-  if (!ANSWERABLE.includes(stop)) return { error: "INVALID_STOP", status: 400, hint: "A esa parada no se le responde." };
+  if (!ANSWERABLE.includes(stop)) return { error: "INVALID_STOP", status: 400, hint: iw().notAnswerable };
   const detail = await ideaDetail(db, slug, key, { lite: true });
   if ("error" in detail) return detail;
   const s = detail.stops.find((x) => x.stop === stop)!;
-  if (!s.delivered) return { error: "NOTHING_TO_ANSWER", status: 409, hint: "Esa parada todavía no entrega nada." };
+  if (!s.delivered) return { error: "NOTHING_TO_ANSWER", status: 409, hint: iw().nothingYet };
   const v = input.verdict;
-  if (v === "opcion" && (stop !== "investigacion" || !detail.research.options.some((o) => o.n === input.option))) return { error: "INVALID_OPTION", status: 400, hint: "Esa opción no está en la investigación." };
-  if (v === "corregir" && stop !== "entendido") return { error: "INVALID_VERDICT", status: 400, hint: "Corregir es para lo que entendió el PO." };
+  if (v === "opcion" && (stop !== "investigacion" || !detail.research.options.some((o) => o.n === input.option))) return { error: "INVALID_OPTION", status: 400, hint: iw().noOption };
+  if (v === "corregir" && stop !== "entendido") return { error: "INVALID_VERDICT", status: 400, hint: iw().correctPo };
   if ((v === "cambios" || v === "corregir" || v === "opcion") && !input.text?.trim() && !(input.notes ?? []).some((n) => n.text.trim()) && v !== "opcion")
-    return { error: "EMPTY_ANSWER", status: 400, hint: "Di qué cambiarías: una frase o una nota en un marco." };
-  if (v === "deshacer" && s.answer?.verdict !== "ok") return { error: "NOTHING_TO_UNDO", status: 409, hint: "Solo se deshace un «me gusta»." };
+    return { error: "EMPTY_ANSWER", status: 400, hint: iw().emptyAnswer };
+  if (v === "deshacer" && s.answer?.verdict !== "ok") return { error: "NOTHING_TO_UNDO", status: 409, hint: iw().undoLike };
   const notes = (input.notes ?? []).filter((n) => n.text.trim()).map((n) => ({ frame: n.frame, x: Math.max(0, Math.min(100, n.x)), y: Math.max(0, Math.min(100, n.y)), text: n.text.trim().slice(0, 600) }));
   const p = await findProject(db, slug);
   const ref = { id: t.id, key: t.key };
@@ -488,8 +581,8 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
   const text = answerNote(stop, { ...input, notes }, detail.frames);
   return writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (tx, emit) => {
     await emit(RESPUESTA, ref, payload);
-    await emit("note", ref, { text });
-    return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], `Jorge respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota`, RESPUESTA)) };
+    await emit("note", ref, { text, kind: "answer" });
+    return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], iw().answeredReason(iw().stop[stop]!), RESPUESTA)) };
   });
 }
 
@@ -519,17 +612,14 @@ const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLower
 // PLA-88: forward is the stage the idea sits on when it is past the idea stage: the decision is carried into that
 // stage instead of sending the idea back to the PO.
 export function decisionNote(question: string, label: string, was: string, changed: boolean, text?: string, forward?: string): string {
-  const lines = [changed ? `Jorge decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».` : `Jorge confirmó (desde Compañía) «${label}» en «${question}».`];
-  if (text?.trim()) lines.push(`Sus palabras: «${text.trim()}»`);
-  if (!changed) lines.push("Nada cambia: sigue con lo que asumiste.");
-  else if (forward)
-    lines.push(
-      `La idea sigue en ${STAGE_WORD[forward] ?? forward}; el doc «Idea» ya dice lo que decidió. Tenlo en cuenta en esta etapa: si cambia algo de lo que ya entregaste, entrégala otra vez con deliver_stage. Si su decisión deshace una etapa anterior, regrésala con una nota que diga por qué.`,
-    );
-  else lines.push("Rehaz esta etapa con eso: entrégala otra vez con deliver_stage y vuelve a mover la idea cuando esté.");
+  const w = iw();
+  const lines = [changed ? w.decided(label, question, was) : w.confirmed(label, question)];
+  if (text?.trim()) lines.push(w.words(text.trim()));
+  if (!changed) lines.push(w.nothingChanges);
+  else if (forward) lines.push(w.forward(w.stage[forward] ?? forward));
+  else lines.push(w.redoDeliver);
   return lines.join("\n");
 }
-const STAGE_WORD: Record<string, string> = { research: "Investigación", design: "Diseño", planning: "Plan", ready: "Lista" };
 
 // A pick is a change when it is not the option in force (the recommended one while assumed, his earlier pick after).
 // On the idea stage a change wakes the PO to redo it. PLA-88: past it, the idea stays where it is and the owner of
@@ -544,14 +634,14 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
   if (no) return no;
   const delivered = await deliveredFor(db, t.id);
   const states = decisionStates(delivered.stages.idea?.decisions ?? [], delivered.picks);
-  if (!states.length) return { error: "NO_DECISIONS", status: 409, hint: "Esta idea no trae preguntas por decidir." };
+  if (!states.length) return { error: "NO_DECISIONS", status: 409, hint: iw().noDecisions };
   const s = states[input.decision - 1];
-  if (!s) return { error: "INVALID_DECISION", status: 400, hint: "Esa pregunta no está en la idea." };
-  if (input.question !== undefined && !sameText(input.question, s.question)) return { error: "DECISION_CHANGED", status: 409, hint: "Las preguntas cambiaron. Vuelve a abrir la idea y elige otra vez." };
+  if (!s) return { error: "INVALID_DECISION", status: 400, hint: iw().noQuestion };
+  if (input.question !== undefined && !sameText(input.question, s.question)) return { error: "DECISION_CHANGED", status: 409, hint: iw().questionsChanged };
   const pick = input.option - 1;
   const label = s.options[pick];
-  if (label === undefined) return { error: "INVALID_OPTION", status: 400, hint: "Esa opción no está en la pregunta." };
-  if (s.state === "decided" && s.chosen === pick) return { error: "ALREADY_DECIDED", status: 409, hint: "Ya habías elegido esa." };
+  if (label === undefined) return { error: "INVALID_OPTION", status: 400, hint: iw().noPick };
+  if (s.state === "decided" && s.chosen === pick) return { error: "ALREADY_DECIDED", status: 409, hint: iw().alreadyPicked };
   const changed = pick !== s.chosen;
   const was = s.options[s.chosen]!;
   const words = input.text?.trim().slice(0, 1000) || undefined;
@@ -563,11 +653,11 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
     if (doc) await tx.update(docs).set({ markdown: rewriteDecisionLine(doc.markdown, input.decision, s, pick), version: sql`${docs.version} + 1` }).where(eq(docs.id, doc.id));
     const at = t.stage ?? "idea";
     const forward = changed && at !== "idea" && STAGE_ORDER.includes(at) ? at : undefined;
-    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward) });
+    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward), kind: "answer" });
     const decision = decisionView({ ...s, state: "decided", chosen: pick, at: new Date() }, input.decision - 1);
     if (!changed) return { key, stage: t.stage, changed, decision, wake: "none" as const };
-    if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, `Jorge cambió una decisión del PO: llévala a tu etapa (${STAGE_WORD[forward]}) según su nota`, DECISION)) };
-    return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", "Jorge decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage", DECISION)) };
+    if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, iw().changedReason(iw().stage[forward]!), DECISION)) };
+    return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", iw().otherReason(), DECISION)) };
   });
 }
 
@@ -576,7 +666,7 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
 const DecisionBody = z.object({ decision: z.number().int().min(1).max(6), option: z.number().int().min(1).max(4), question: z.string().max(300).optional(), text: z.string().trim().max(1000).optional() }).strict();
 export const ideaDecisionRoutes = new Hono();
 ideaDecisionRoutes.post("/projects/:slug/ideas/:key/decision", async (c) => {
-  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "FORBIDDEN", hint: "a decision on an idea is Jorge's screen only" }, 403);
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "FORBIDDEN", hint: "a decision on an idea is the owner's screen only" }, 403);
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
   const input = DecisionBody.safeParse(await c.req.json().catch(() => undefined));
@@ -602,7 +692,7 @@ export async function ideaDespertar(db: Db, slug: string, key: string): Promise<
     await emit(DESPERTAR, ref, { stage: t.stage });
     if (!eventWakesEnabled()) return { key, wake: "off" as const };
     const agent = role === "product-owner" ? ((await projectPo(db, p)) ?? (await serviceAgent(tx, role, p))) : await serviceAgent(tx, role, p);
-    const w = await queueWake(tx, p, ref, { agent, taskKey: key, reason: `Jorge la despertó desde Compañía: sigue la etapa ${t.stage ?? "idea"}` }, DESPERTAR);
+    const w = await queueWake(tx, p, ref, { agent, taskKey: key, reason: iw().wokeReason(t.stage ?? "idea") }, DESPERTAR);
     return { key, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
   });
 }

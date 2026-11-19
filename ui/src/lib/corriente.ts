@@ -1,4 +1,8 @@
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+import { LOCALE } from "./locale.js";
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
+// PLA-I2-10: the words are in CORRIENTE_LIB_WORDS, in both languages. TAB_NAME and MODES keep their Spanish for their
+// readers; the screen reads tabName() and modesOf().
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
 //   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
@@ -15,15 +19,67 @@ export type View = (typeof VIEWS)[number];
 export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
 export const DOORS = ["archivo", "equipo", "maquinas", "ajustes"] as const;
-export const TAB_NAME: Record<Tab, string> = {
-  todo: "Todo",
-  archivo: "Archivo",
-  hecho: "Hecho",
-  equipo: "Equipo",
-  motores: "Motores",
-  maquinas: "Máquinas",
-  ajustes: "Ajustes",
-};
+export const CORRIENTE_LIB_WORDS = defineWords({
+  es: {
+    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", ajustes: "Ajustes" } as Record<Tab, string>,
+    // The ask box's three modes (the same words as the building's).
+    modes: {
+      forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
+      ya: { name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
+      pregunta: { name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
+    },
+    // PLA-I3-6 «Un solo Pedir»: the bar's words.
+    pedir: {
+      placeholder: {
+        forma: "Una idea para darle forma: el PO la entiende y te pregunta…",
+        ya: "Un cambio pequeño y claro, directo al tablero…",
+        pregunta: "¿Qué quieres saber? El PO lee el código y te contesta…",
+      },
+      sending: "Enviando…",
+      ask: "Preguntar",
+      send: "Pedir",
+      past: "Lo pedido",
+      picture: "Añadir una imagen",
+      error: "No se pudo enviar. Si la máquina está dormida, intenta al despertar.",
+      held: (title: string) => `En pausa. Reanuda ${title} para pedir algo nuevo; lo que ya pediste sigue aquí.`,
+      chipAria: (mode: string) => `Cómo: ${mode}`,
+      menu: "Cómo pedirlo",
+    },
+    // countWords(): a count in words up to ten.
+    numbers: ["Cero", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    oneFem: "Una",
+  },
+  en: {
+    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", ajustes: "Settings" },
+    modes: {
+      forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
+      ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },
+      pregunta: { name: "Ask a question", line: "You only want to know something. The PO reads the code and answers you. It makes no idea and no step." },
+    },
+    pedir: {
+      placeholder: {
+        forma: "An idea to shape: the PO understands it and asks you…",
+        ya: "A small, clear change, straight to the board…",
+        pregunta: "What do you want to know? The PO reads the code and answers you…",
+      },
+      sending: "Sending…",
+      ask: "Ask",
+      send: "Ask",
+      past: "Your requests",
+      picture: "Add a picture",
+      error: "It could not be sent. If the machine is asleep, try again when it wakes.",
+      held: (title: string) => `Paused. Resume ${title} to ask for something new; what you already asked for stays here.`,
+      chipAria: (mode: string) => `How: ${mode}`,
+      menu: "How to ask",
+    },
+    numbers: ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    oneFem: "One",
+  },
+});
+
+/** The Spanish names, kept for their readers; the screen reads tabName(). */
+export const TAB_NAME: Record<Tab, string> = CORRIENTE_LIB_WORDS.es.tab;
+export const tabName = (tab: Tab, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).tab[tab];
 /** The retired tabs (PLA-I62) and where each one lives now. */
 export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo" };
 export const tabOf = (raw: string | null | undefined): Tab | null => (!raw ? null : (TABS as readonly string[]).includes(raw) ? (raw as Tab) : (OLD_TAB[raw] ?? null));
@@ -223,12 +279,12 @@ export function hueOf(slug: string): string {
   for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return HUES[h % HUES.length]!;
 }
-export const initialOf = (title: string) => (title.trim()[0] ?? "?").toLocaleUpperCase("es-MX");
+export const initialOf = (title: string) => (title.trim()[0] ?? "?").toLocaleUpperCase(LOCALE);
 
-const NUM = ["Cero", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
 /** «Tres agentes trabajando.»: a count in words up to ten, then digits. */
-export function countWords(n: number, one: string, many: string, fem = false): string {
-  const word = n <= 10 ? (n === 1 ? (fem ? "Una" : "Un") : NUM[n]!) : String(n);
+export function countWords(n: number, one: string, many: string, fem = false, language: Language = getLanguage()): string {
+  const w = words(CORRIENTE_LIB_WORDS, language);
+  const word = n <= 10 ? (n === 1 && fem ? w.oneFem : w.numbers[n]!) : String(n);
   return `${word} ${n === 1 ? one : many}`;
 }
 
@@ -237,12 +293,12 @@ export const thousands = (n: number) => n.toLocaleString("en-US");
 /** «MAR 17 NOV · 15:06» in the screen's time zone. */
 export function clockLine(now: number, timeZone?: string): string {
   const d = new Date(now);
-  const day = new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone })
+  const day = new Intl.DateTimeFormat(LOCALE, { weekday: "short", day: "numeric", month: "short", timeZone })
     .formatToParts(d)
     .filter((p) => p.type !== "literal")
     .map((p) => p.value.replace(".", ""))
     .join(" ");
-  const time = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(d);
+  const time = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(d);
   return `${day} · ${time}`.toUpperCase();
 }
 
@@ -264,32 +320,37 @@ export const linkTo = (at: Partial<At>): string => (isBuilt(at) ? hrefOf(at) : l
 export type AskMode = "forma" | "ya" | "pregunta";
 export type AskInput = { text: string; mode: AskMode; consulta?: string };
 export const ASK_MAX = 2000;
-export const MODES: { id: AskMode; name: string; line: string }[] = [
-  { id: "forma", name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
-  { id: "ya", name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
-  { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
-];
+const MODE_IDS: AskMode[] = ["forma", "ya", "pregunta"];
+export const modesOf = (language: Language = getLanguage()): { id: AskMode; name: string; line: string }[] =>
+  MODE_IDS.map((id) => ({ id, ...words(CORRIENTE_LIB_WORDS, language).modes[id] }));
+/** The Spanish modes, kept for their readers; the screen reads modesOf(). */
+export const MODES: { id: AskMode; name: string; line: string }[] = modesOf("es");
 
 // PLA-I3-6 «Un solo Pedir»: the bar at the foot is the only Pedir. Its words and its keys, tested without a browser.
 /** The input's placeholder: the selected mode's line, short enough to read inside the bar. */
-export const PEDIR_PLACEHOLDER: Record<AskMode, string> = {
-  forma: "Una idea para darle forma: el PO la entiende y te pregunta…",
-  ya: "Un cambio pequeño y claro, directo al tablero…",
-  pregunta: "¿Qué quieres saber? El PO lee el código y te contesta…",
-};
-export const pedirPlaceholder = (mode: AskMode): string => PEDIR_PLACEHOLDER[mode];
+export const PEDIR_PLACEHOLDER: Record<AskMode, string> = CORRIENTE_LIB_WORDS.es.pedir.placeholder;
+export const pedirPlaceholder = (mode: AskMode, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.placeholder[mode];
 /** The send button's word. */
-export const pedirSendLabel = (mode: AskMode, sending = false): string => (sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir");
+export const pedirSendLabel = (mode: AskMode, sending = false, language: Language = getLanguage()): string => {
+  const w = words(CORRIENTE_LIB_WORDS, language).pedir;
+  return sending ? w.sending : mode === "pregunta" ? w.ask : w.send;
+};
 /** Shift+Tab from the input: the next mode, round. */
-export const nextMode = (mode: AskMode): AskMode => MODES[(MODES.findIndex((m) => m.id === mode) + 1) % MODES.length]?.id ?? "forma";
-export const PEDIR_PAST = "Lo pedido";
-export const PEDIR_PICTURE = "Añadir una imagen";
-export const PEDIR_ERROR = "No se pudo enviar. Si la Mac está dormida, intenta al despertar.";
+export const nextMode = (mode: AskMode): AskMode => MODE_IDS[(MODE_IDS.indexOf(mode) + 1) % MODE_IDS.length] ?? "forma";
+// PLA-I2-10: the Spanish constants are kept for their readers; the screen reads the functions.
+export const PEDIR_PAST = CORRIENTE_LIB_WORDS.es.pedir.past;
+export const PEDIR_PICTURE = CORRIENTE_LIB_WORDS.es.pedir.picture;
+export const PEDIR_ERROR = CORRIENTE_LIB_WORDS.es.pedir.error;
+export const PEDIR_MENU = CORRIENTE_LIB_WORDS.es.pedir.menu;
+export const pedirPast = (language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.past;
+export const pedirPicture = (language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.picture;
+export const pedirError = (language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.error;
+export const pedirMenu = (language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.menu;
 /** Paused: one sentence instead of a disabled input. */
-export const pedirHeld = (title: string): string => `En pausa. Reanuda ${title} para pedir algo nuevo; lo que ya pediste sigue aquí.`;
+export const pedirHeld = (title: string, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.held(title);
 /** PLA-I3-7: on a phone the mode is one chip; its menu holds the three modes, the picture button and «Lo pedido». */
-export const pedirChipAria = (mode: AskMode): string => `Cómo: ${MODES.find((m) => m.id === mode)?.name ?? ""}`;
-export const PEDIR_MENU = "Cómo pedirlo";
+export const pedirChipAria = (mode: AskMode, language: Language = getLanguage()): string =>
+  words(CORRIENTE_LIB_WORDS, language).pedir.chipAria(modesOf(language).find((m) => m.id === mode)?.name ?? "");
 /** The key hint: `/` at rest, `↵` while the input has focus. */
 export const pedirKeyHint = (focused: boolean): string => (focused ? "↵" : "/");
 /** `/` focuses the input unless a field already has focus, a modifier is held, or a sheet is open. */

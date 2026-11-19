@@ -15,12 +15,12 @@ import { PG_USER } from "./helpers.js";
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
 const PROJECTS: [slug: string, title: string, prefix: string][] = [
-  ["filmia", "Filmia", "FIL"],
-  ["mianovia", "Mianovia", "MIA"],
-  ["micasa", "MiCasa", "MIC"],
+  ["alfa", "Alfa", "ALF"],
+  ["bravo", "Bravo", "BRV"],
+  ["charlie", "Charlie", "CHA"],
+  ["delta", "Delta", "DEL"],
+  ["eco", "Eco", "ECO"],
   ["plania", "Plania", "PLA"],
-  ["workia", "Workia", "WRK"],
-  ["zigzag", "Zigzag", "ZIG"],
 ];
 
 // Today's 11 rows after PLA-I30-1 (fake names, same roles).
@@ -30,12 +30,12 @@ const ROSTER: [slug: string, name: string, role: string, title: string, kind: st
   ["taller", "Taller", "taller", "Builder", "bot", "{engineering}", "ceo"],
   ["research", "Research", "shared", "Shared service", "bot", "{research}", "asistente"],
   ["artist", "Artist", "shared", "Shared service", "bot", "{design}", "asistente"],
-  ["po-mianovia", "Bot Mianovia", "product-owner", "Product owner", "bot", "{mianovia}", "ceo"],
-  ["housi", "Housi", "product-owner", "Product owner", "bot", "{micasa}", "ceo"],
-  ["workia", "Workia", "product-owner", "Product owner", "bot", "{workia}", "ceo"],
-  ["filmia", "Filmia", "product-owner", "Product owner", "bot", "{filmia}", "ceo"],
-  ["zigzag", "ZigZag", "product-owner", "Product owner", "bot", "{zigzag}", "ceo"],
-  ["owner-plania", "Plania", "product-owner", "Product owner", "bot", "{plania}", "ceo"],
+  ["po-charlie", "Bot Charlie", "product-owner", "Product owner", "bot", "{charlie}", "ceo"],
+  ["po-alfa", "Casita", "product-owner", "Product owner", "bot", "{alfa}", "ceo"],
+  ["po-delta", "Delta", "product-owner", "Product owner", "bot", "{delta}", "ceo"],
+  ["po-bravo", "Bravo", "product-owner", "Product owner", "bot", "{bravo}", "ceo"],
+  ["po-eco", "Eco", "product-owner", "Product owner", "bot", "{eco}", "ceo"],
+  ["po-plania", "Plania", "product-owner", "Product owner", "bot", "{plania}", "ceo"],
 ];
 
 test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four; the shared three retire with their history", async () => {
@@ -64,21 +64,20 @@ test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four;
     }
     const id = async (slug: string) => (await raw.query(`select id from agents where slug = $1`, [slug])).rows[0]?.id as string;
     const pid = async (slug: string) => (await raw.query(`select id from projects where slug = $1`, [slug])).rows[0].id as string;
-    // History on the rows that change: runs of a PO about to be renamed and of the shared taller,
-    // an open ticket of the shared taller in micasa and a closed one in filmia.
-    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'product-owner', 'ok'), ($1, $2, 'product-owner', 'fail')`, [await id("housi"), await pid("micasa")]);
-    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'taller', 'ok')`, [await id("taller"), await pid("micasa")]);
-    await raw.query(`insert into heartbeat_runs (agent_id, started_at, status, adapter) values ($1, now(), 'ok', 'claude_code')`, [await id("owner-plania")]);
-    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'MIC-1', 'Fake open ticket', 'ticket', 'Ready', $2)`, [await pid("micasa"), await id("taller")]);
-    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'FIL-1', 'Fake closed ticket', 'ticket', 'Done', $2)`, [await pid("filmia"), await id("taller")]);
-    const housiId = await id("housi");
+    // History on the rows that change or stay: runs of an existing PO and of the shared taller,
+    // an open ticket of the shared taller in alfa and a closed one in bravo.
+    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'product-owner', 'ok'), ($1, $2, 'product-owner', 'fail')`, [await id("po-alfa"), await pid("alfa")]);
+    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'taller', 'ok')`, [await id("taller"), await pid("alfa")]);
+    await raw.query(`insert into heartbeat_runs (agent_id, started_at, status, adapter) values ($1, now(), 'ok', 'claude_code')`, [await id("po-plania")]);
+    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'ALF-1', 'Fake open ticket', 'ticket', 'Ready', $2)`, [await pid("alfa"), await id("taller")]);
+    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'BRV-1', 'Fake closed ticket', 'ticket', 'Done', $2)`, [await pid("bravo"), await id("taller")]);
+    const alfaPoId = await id("po-alfa");
 
     const db = drizzle(pool, { schema });
     const first = await seedOrg(db);
-    assert.deepEqual(first.renamed.sort(), ["filmia→po-filmia", "housi→po-micasa", "owner-plania→po-plania", "workia→po-workia", "zigzag→po-zigzag"]);
     assert.deepEqual(first.retired.sort(), ["artist", "research", "taller"]);
     const second = await seedOrg(db);
-    assert.deepEqual([second.inserted, second.removed, second.renamed, second.retired], [[], [], [], []], "a second run changes nothing");
+    assert.deepEqual([second.inserted, second.removed, second.retired], [[], [], []], "a second run changes nothing");
 
     const { rows } = await raw.query<{ slug: string; status: string; adapter: string; project: string | null; role_template: string | null; boss: string | null; note: string; role: string; capabilities: string[] }>(
       `select a.slug, a.status, a.adapter, p.slug as project, a.role_template, b.slug as boss, a.note, a.role, a.capabilities
@@ -110,19 +109,18 @@ test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four;
     const retired = rows.filter((r) => r.status === "retired");
     assert.deepEqual(retired.map((r) => [r.slug, r.adapter, r.project]), [["artist", "none", null], ["research", "none", null], ["taller", "none", null]]);
 
-    // Renamed POs keep their id, name and runs; the old slug is in the note.
-    const micasaPo = (await raw.query(`select id, name, note from agents where slug = 'po-micasa'`)).rows[0];
-    assert.equal(micasaPo.id, housiId);
-    assert.equal(micasaPo.name, "Housi");
-    assert.match(micasaPo.note, /alias: housi/);
-    assert.equal((await raw.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [housiId])).rows[0].n, 2);
+    // An existing PO keeps its id, name and runs (PLA-I2-3: no slug is renamed any more).
+    const alfaPo = (await raw.query(`select id, name from agents where slug = 'po-alfa'`)).rows[0];
+    assert.equal(alfaPo.id, alfaPoId);
+    assert.equal(alfaPo.name, "Casita");
+    assert.equal((await raw.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [alfaPoId])).rows[0].n, 2);
     assert.equal((await raw.query(`select count(*)::int as n from heartbeat_runs h join agents a on a.id = h.agent_id where a.slug = 'po-plania'`)).rows[0].n, 1);
-    assert.equal((await raw.query(`select name from agents where slug = 'po-mianovia'`)).rows[0].name, "Bot Mianovia", "an existing name is kept");
+    assert.equal((await raw.query(`select name from agents where slug = 'po-charlie'`)).rows[0].name, "Bot Charlie", "an existing name is kept");
 
     // The shared taller keeps its run; its open ticket moved to the project's Taller, the closed one stayed.
     assert.equal((await raw.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [await id("taller")])).rows[0].n, 1);
     const owners = (await raw.query(`select t.key, a.slug from tasks t join agents a on a.id = t.owner_agent order by t.key`)).rows;
-    assert.deepEqual(owners, [{ key: "FIL-1", slug: "taller" }, { key: "MIC-1", slug: "taller-micasa" }]);
+    assert.deepEqual(owners, [{ key: "ALF-1", slug: "taller-alfa" }, { key: "BRV-1", slug: "taller" }]);
   } finally {
     await pool.end();
     await raw.end();

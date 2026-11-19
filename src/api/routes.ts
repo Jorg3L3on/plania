@@ -6,6 +6,10 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
+import { firstStart, firstStartOpen, fromLoopback } from "../auth/first-start.js";
+import { clearFailures, noteFailure, waitSeconds } from "../auth/login-limit.js";
+import { storedPasswordHash } from "../install-state.js";
+import { LANGUAGES, installLanguage, languageChosen, saveLanguage } from "../language.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -21,7 +25,7 @@ import { footprintFindings } from "../mcp/footprint-audit.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
-import { gatingSql } from "../mcp/jorge-lines.js";
+import { gatingSql } from "../mcp/owner-lines.js";
 import { etapaRow, projectEtapas, tableroOf, zonasRow } from "./etapa.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
@@ -44,15 +48,24 @@ import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
+import { machineCheckRoutes } from "./machine-check.js";
+import { guiaRoutes } from "./guia.js";
+import { helpReportRoutes } from "./help-report.js";
+import { releaseRoutes } from "./release.js";
+import { limitsRoutes } from "./limits.js";
+import { selfMigrationRoutes } from "./self-migrations.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
+import { isOwnerAgent } from "../owner.js";
+import { screenTz } from "../locale.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
 export const api = new Hono();
 
 const HEARTBEAT_MS = 25_000;
+const LOGIN_DOOR = "login";
 
 // Contract errors keep their detail (e.g. STALE_VERSION carries current_version).
 function errorResponse(c: Context, e: unknown) {
@@ -66,7 +79,7 @@ const ACTIVITY_DAYS = 7;
 // Events per project per day in the screen's time zone, the last ACTIVITY_DAYS days, oldest first.
 // One query for every project; the index draws one small bar per day.
 async function activityByProject(db: Db): Promise<Map<string, number[]>> {
-  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const tz = screenTz();
   const rows = (
     await db.execute<{ project_id: string; d: string; n: number }>(sql`
       select project_id, to_char(created_at at time zone ${tz}, 'YYYY-MM-DD') as d, count(*)::int as n
@@ -96,16 +109,54 @@ async function readJson<T extends z.ZodType>(c: Context, schema: T): Promise<z.i
 
 // ---- Session
 
+// PLA-I2-2: the hash from .env, else the one first start stored; ten wrong passwords in a minute and the next
+// try waits (429 with Retry-After), right or wrong.
 api.post("/login", async (c) => {
   const body = await readJson(c, z.object({ password: z.string() }));
   if (body instanceof Response) return body;
-  const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
+  const wait = waitSeconds(LOGIN_DOOR);
+  if (wait != null) {
+    c.header("Retry-After", String(wait));
+    return c.json({ error: "TOO_MANY_TRIES", retry_after: wait }, 429);
+  }
+  const stored = storedPasswordHash();
   if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
+    noteFailure(LOGIN_DOOR);
     return c.json({ error: "INVALID_PASSWORD" }, 401);
   }
+  clearFailures(LOGIN_DOOR);
   setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions(c.req.raw));
   return c.body(null, 204);
 });
+
+// PLA-I2-2: first start. Open (no session) only while no owner exists; the POST also needs loopback and the
+// one-time code the install command printed. Success signs the owner in.
+const remoteAddress = (c: Context): string | undefined =>
+  (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+
+api.get("/first-start", (c) => c.json({ open: firstStartOpen(), loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
+
+api.post("/first-start", async (c) => {
+  const body = await readJson(c, z.object({ code: z.string().max(64), name: z.string().max(200), password: z.string().max(1024), time_zone: z.string().max(64), projects_root: z.string().max(500).optional(), worktrees_root: z.string().max(500).optional(), language: z.string().max(8).optional() }).strict());
+  if (body instanceof Response) return body;
+  const out = await withDb((db) => firstStart(db, body, { loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
+  if ("error" in out) {
+    if (out.retry_after) c.header("Retry-After", String(out.retry_after));
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions(c.req.raw));
+  return c.json(out, 201);
+});
+
+// The machine check, before there is a session to open /api/machine-check: the first-start screen links it so the
+// owner sees what is missing before finishing. Only while first start is open, and only on loopback.
+api.use("/first-start/machine-check", async (c, next) => {
+  if (!firstStartOpen()) return c.json({ error: "FIRST_START_CLOSED" }, 410);
+  if (!fromLoopback(remoteAddress(c), c.req.raw)) return c.json({ error: "NOT_LOOPBACK" }, 403);
+  await next();
+});
+api.route("/first-start/machine-check", machineCheckRoutes());
 
 api.post("/logout", (c) => {
   deleteCookie(c, SESSION_COOKIE, { path: "/", secure: sessionCookieOptions(c.req.raw).secure });
@@ -137,7 +188,7 @@ api.post("/delegation", async (c) => {
   return c.json({ enabled });
 });
 
-// PLA-06: Jorge marks the delegated answers he saw. Same rule as the kill switch: the
+// PLA-06: the owner marks the delegated answers he saw. Same rule as the kill switch: the
 // screen cookie only, never a Bearer, and no MCP tool, so a bot cannot hide its own answers.
 api.post("/delegated/reviewed", async (c) => {
   const refused = delegationAuth(c);
@@ -156,6 +207,10 @@ api.route("/company", companyRoutes);
 // PLA-I32-3: the threads, the same way (src/api/threads.ts).
 api.route("/threads", threadRoutes);
 
+// PLA-I2-10: the install's language (src/language.ts). Read without a session: the login and first-start screens
+// speak it too, and it says nothing private.
+api.get("/language", (c) => c.json({ language: installLanguage(), chosen: languageChosen(), languages: LANGUAGES }));
+
 // Everything below needs a valid session.
 api.use("*", async (c, next) => {
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
@@ -163,6 +218,13 @@ api.use("*", async (c, next) => {
 });
 
 api.get("/session", (c) => c.body(null, 204));
+
+// PLA-I2-10: the owner changes the language in Plomería; the brief follows.
+api.put("/language", async (c) => {
+  const body = await readJson(c, z.object({ language: z.enum(LANGUAGES) }).strict());
+  if (body instanceof Response) return body;
+  return c.json({ language: await withDb((db) => saveLanguage(db, body.language)) });
+});
 
 // ---- Projects
 
@@ -240,7 +302,7 @@ api.get("/projects", async (c) => {
           // 2.11: Orden's count (the last audit run), shown on the tile when above zero.
           audit_count: audits.get(p.id) ?? 0,
           // Inicio's city: what each open initiative says it is doing and what it needs next.
-          // Ahora's Bloqueado reads waiting_on (already derived for the resume) and drops what starts with "Jorge".
+          // Ahora's Bloqueado reads waiting_on (already derived for the resume) and drops what starts with "The owner".
           initiatives: digest.initiatives.map((i) => ({
             key: i.key,
             in_progress: i.in_progress.note,
@@ -263,7 +325,7 @@ const DATE_DONE = ["Done", "Won't do", "Merged", "Released"];
 // Per project for Inicio's "Próximo": due dates and time_after blockers within UPCOMING_DAYS, and the
 // keys past their due date. Days are the screen's (PLANIA_TZ); time_after keeps its instant.
 export function datesOf(rows: { key: string; title: string; status: string; due_on: string | null; time_after: string | null }[], now = new Date()) {
-  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const tz = screenTz();
   const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
   const today = day(now);
   const until = day(new Date(now.getTime() + UPCOMING_DAYS * 86_400_000));
@@ -372,7 +434,7 @@ api.patch("/projects/:slug", async (c) => {
   }
 });
 
-// 2.11 Orden: the last audit run with can_fix per finding, and the one-click fixes, run as Jorge.
+// 2.11 Orden: the last audit run with can_fix per finding, and the one-click fixes, run as the owner.
 api.get("/projects/:slug/audit", async (c) => {
   try {
     return c.json(await withDb(async (db) => projectAudit(db, await findProject(db, c.req.param("slug")))));
@@ -391,7 +453,7 @@ api.post("/projects/:slug/audit/fix", async (c) => {
   }
 });
 
-// 2.12 Pedir: Jorge asks for something. A Backlog ticket as Jorge with origin jorge and a
+// 2.12 Pedir: the owner asks for something. A Backlog ticket as the owner with origin owner and a
 // server-assigned key; agents read it first (requests) and get_next offers it before its priority's
 // other tickets. A sentence is enough: the agent that takes it writes the scope and the checks.
 const requestBody = z.object({
@@ -414,7 +476,7 @@ api.post("/projects/:slug/tasks", async (c) => {
           summary: body.summary || undefined,
           priority: body.priority ?? "P2",
           parent_key: body.parent_key || undefined,
-          origin: "jorge",
+          origin: "owner",
           status: "Backlog",
         },
         screenCtx,
@@ -444,7 +506,7 @@ api.get("/projects/:slug/tasks/:key", async (c) => {
 // Writes from the screen ask for the full task back (verbose), so the panel can refresh in place.
 const screenCtx = { ...webCtx, verbose: true };
 
-// Status and priority changes from the screen go through the same set_task path agents use, as Jorge:
+// Status and priority changes from the screen go through the same set_task path agents use, as the owner:
 // any move is allowed (Done included) and leases do not stop him, but the version shown must be current.
 const taskPatch = z.object({
   status: z.string().optional(),
@@ -459,14 +521,14 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) => setTask(db, { project: c.req.param("slug"), key: c.req.param("key"), ...body }, screenCtx));
-    // warnings ride along: closing a ticket that still has things running on the Mac names each one.
+    // warnings ride along: closing a ticket that still has things running on the machine names each one.
     return c.json(result.warnings?.length ? { ...result.task, warnings: result.warnings } : result.task);
   } catch (e) {
     return errorResponse(c, e);
   }
 });
 
-// Jorge waives a check (no approval needed on screen); the note says why.
+// The owner waives a check (no approval needed on screen); the note says why.
 api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
   const body = await readJson(c, z.object({ reason: z.string().trim().min(1) }));
   if (body instanceof Response) return body;
@@ -480,9 +542,9 @@ api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
   }
 });
 
-// Jorge marks a human action done (a ticket blocked on him); the ticket may go back to Ready at once.
+// The owner marks a human action done (a ticket blocked on him); the ticket may go back to Ready at once.
 api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
-  // 2.10: an optional note goes to the ticket's log as Jorge's. A body is optional.
+  // 2.10: an optional note goes to the ticket's log as the owner's. A body is optional.
   const raw = c.req.header("Content-Type")?.startsWith("application/json") ? await c.req.json().catch(() => ({})) : {};
   const parsed = z.object({ note: z.string().max(2000).optional() }).safeParse(raw ?? {});
   if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
@@ -497,10 +559,10 @@ api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
   }
 });
 
-// 2.13: Jorge ships the release (settings.release.mode "merge"): a PR from → into, merged with
+// 2.13: the owner ships the release (settings.release.mode "merge"): a PR from → into, merged with
 // gh pr merge --merge. The screen's cookie only: a request that carries any Bearer token is refused,
 // so no agent token, CI token or MCP client can ever merge into `into`, whatever else it holds.
-// PLA-24: no owner's code (Jorge, who never enrolled one: "remove it from there"); the cookie-only guard above stays.
+// PLA-24: no owner's code (the owner, who never enrolled one: "remove it from there"); the cookie-only guard above stays.
 api.post("/projects/:slug/release/ship", async (c) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the release ships from the screen only" }, 403);
   try {
@@ -510,7 +572,7 @@ api.post("/projects/:slug/release/ship", async (c) => {
   }
 });
 
-// Jorge frees a lease held by a session that is gone.
+// The owner frees a lease held by a session that is gone.
 api.post("/projects/:slug/tasks/:key/release", async (c) => {
   try {
     const result = await withDb((db) =>
@@ -536,7 +598,7 @@ function rejectBotAnswer(c: Context): Response | null {
   return null;
 }
 
-// Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
+// The owner answers a question an agent asked; with decision_text the answer is also logged as a decision.
 // A human_only question is answered here. The stored actor is always the screen actor, not anything in the body.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
   const refused = rejectBotAnswer(c);
@@ -568,7 +630,7 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
 
 // ---- Inbox
 
-// Everything waiting on Jorge, for one project or all of them.
+// Everything waiting on the owner, for one project or all of them.
 api.get("/inbox", async (c) => {
   const which = c.req.query("project") || "all";
   try {
@@ -630,7 +692,7 @@ api.delete("/push/subscribe", async (c) => {
 
 // ---- Machine
 
-// What runs and is stored on this Mac for agent work (the machine job's footprints plus declarations),
+// What runs and is stored on this machine for agent work (the machine job's footprints plus declarations),
 // every unreleased row with its project, initiative, ticket and session, and the header totals.
 // Read-only: the screen never stops or deletes anything.
 api.get("/machine", async (c) => {
@@ -664,7 +726,7 @@ api.post("/tokens", async (c) => {
     }),
   );
   if (body instanceof Response) return body;
-  if (body.agent.toLowerCase() === "jorge") return c.json({ error: "RESERVED_ACTOR" }, 400);
+  if (isOwnerAgent(body.agent)) return c.json({ error: "RESERVED_ACTOR" }, 400);
   const out = await withDb((db) => issueToken(db, body, WEB_ACTOR));
   return c.json(out, 201);
 });
@@ -706,6 +768,18 @@ api.route("/projects", captureRoutes);
 // PLA-I48: Máquinas, the floor's second level, and the building's tablero (src/api/maquinas.ts).
 api.route("/projects", maquinasRoutes);
 api.route("/maquinas", tableroRoutes);
+// PLA-I2-12: what this machine lacks to run Plania (src/api/machine-check.ts).
+api.route("/machine-check", machineCheckRoutes());
+// PLA-I2-16: the guide to a first delivery on the home screen (src/api/guia.ts).
+api.route("/guia", guiaRoutes());
+// PLA-I2-18: the help report as a file (src/api/help-report.ts).
+api.route("/help-report", helpReportRoutes());
+// PLA-I2-17: the release and its notes (src/api/release.ts).
+api.route("/release", releaseRoutes());
+// PLA-I2-7: what the team may never do, from the real rules (src/api/limits.ts).
+api.route("/limits", limitsRoutes());
+// PLA-I2-9: migrations agents wrote in deliveries of Plania itself, not applied (src/api/self-migrations.ts).
+api.route("/projects", selfMigrationRoutes);
 // PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).

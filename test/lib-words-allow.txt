@@ -1,0 +1,9 @@
+# PLA-I2-10: modules under ui/src/lib that may hold Spanish outside a defineWords call, each with its reason after #.
+# test/i2-10-language.test.ts fails on a module with Spanish outside defineWords that is not here, on an entry with no
+# reason, and on an entry whose module no longer holds any. Run `node --import tsx scripts/inline-words.ts --lib`.
+ui/src/lib/brief-i18n.ts # the brief's own two-language table (BRIEF_LABELS.es / .en), older than defineWords
+ui/src/lib/city.ts # a regex that finds the owner in Spanish text («el dueño»), not words
+ui/src/lib/equipo-words.ts # a Spanish sentence kept in a constant and used inside its es words
+ui/src/lib/plan-words.ts # a Spanish plural helper used inside its es words
+ui/src/lib/release-words.ts # a Spanish plural helper used inside its es words
+ui/src/lib/stream-words.ts # a data-control identifier («nuevo-proyecto»), not words

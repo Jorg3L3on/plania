@@ -208,7 +208,7 @@ describe("release_footprint", () => {
     assert.deepEqual([row.state, row.released_at !== null], ["released", true]);
     const ev = await raw.query("select task_key, payload from events where type = 'footprint.released' and payload->>'locator' = 'docker:redis-test'");
     assert.equal(ev.rows.length, 1);
-    assert.equal(ev.rows[0].payload.reason, "released by Jorge");
+    assert.equal(ev.rows[0].payload.reason, "released by the owner");
 
     const mine = await call("release_footprint", { ...P, locator: "docker:pg-test", kind: "container" });
     assert.deepEqual([mine.released, mine.footprint.state], [true, "released"]);

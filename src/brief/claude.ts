@@ -8,6 +8,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
+import { resolveClaudeBin } from "../lib/claude-bin.js";
+import { defaultBriefTmpDir, defaultRunLogDir } from "../lib/run-dirs.js";
 import type { ZodType } from "zod";
 import type { Db } from "../db/client.js";
 import { SYSTEM_ACTOR, type Ctx } from "../mcp/tx.js";
@@ -18,6 +20,7 @@ import { childEnv, defaultKill, defaultSpawn, supervise, type ExitInfo, type Kil
 import { defaultProbeUsage, liveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
 import { StreamReader, parseUsageText, totalOf, type ModelTokens } from "../runner/stream.js";
 import { worktreeRoot } from "../runner/worktree.js";
+import { storedBriefToken } from "../install-state.js";
 
 export type BriefPass = "brief" | "ideas";
 
@@ -133,13 +136,10 @@ export function briefArgs(input: BriefArgsInput): string[] {
   return args;
 }
 
-// Parent env minus ANTHROPIC_* (childEnv) and minus every other token or secret the server holds,
-// so the pass only ever sees its read token.
-const SECRET_KEY = /(TOKEN|SECRET|PASSWORD|OWNER_CODE|DATABASE_URL|_KEY)$/i;
+// PLA-I2-13: the shared allow-list (childEnv, src/runner/run-env.ts): no token or secret the server holds,
+// Claude's own sign-in untouched, and the pass's read token.
 export function briefChildEnv(base: NodeJS.ProcessEnv, token: string): NodeJS.ProcessEnv {
-  const kept: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) if (!SECRET_KEY.test(key)) kept[key] = value;
-  return childEnv(kept, { PLANIA_BRIEF_TOKEN: token });
+  return childEnv(base, { PLANIA_BRIEF_TOKEN: token });
 }
 
 // Deletes Morning brief logs older than LOG_KEEP_DAYS. Returns how many went.
@@ -206,8 +206,9 @@ export type PassOutcome<T> =
   | { ok: true; data: T; attempts: number; turns: number; tokens: PassTokens; models: ModelTokens[]; logPath: string }
   | { ok: false; reason: PassFailure; summary: string; attempts: number; plan?: PlanView; logPath: string | null };
 
-/** Claude's own sign-in failures ("Failed to authenticate", "OAuth session expired", "Please run /login"). */
-export const SIGN_IN = /authenticat|oauth|\/login|log ?in|not signed in|credential|invalid api key|\b401\b/i;
+// PLA-I2-12: one sign-in test for the brief, the runner and the machine check.
+import { SIGN_IN } from "../runner/signed-out.js";
+export { SIGN_IN };
 
 /** One clipped line of a result's text with home paths and token-like strings taken out. */
 export function plainResultText(raw: unknown): string {
@@ -233,7 +234,8 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 const home = (env: NodeJS.ProcessEnv) => env.HOME || homedir();
-export const commandOf = (env: NodeJS.ProcessEnv): string => env.CLAUDE_CODE_BIN?.trim() || path.join(home(env), ".local", "bin", "claude");
+// PLA-I2-4: the runner's rule (src/lib/claude-bin.ts): CLAUDE_CODE_BIN, ~/.local/bin/claude, then claude on PATH.
+export const commandOf = (env: NodeJS.ProcessEnv): string => resolveClaudeBin(env);
 const sysCtx: Ctx = { actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool: "brief.report_tokens" };
 
 // Short, plain zod error for the retry prompt (no values echoed back beyond the path).
@@ -281,10 +283,10 @@ export async function spawnPass<T>(db: Db, input: SpawnPassInput<T>, deps: Spawn
   const env = deps.env ?? process.env;
   const now = deps.now ?? (() => new Date());
   const id8 = (input.runId ?? randomUUID()).replace(/-/g, "").slice(0, 8);
-  const logDir = deps.logDir ?? path.join(home(env), "Library", "Logs", "plania-runs");
+  const logDir = deps.logDir ?? defaultRunLogDir(env);
   pruneBriefLogs(logDir, now());
 
-  const token = env.PLANIA_BRIEF_TOKEN?.trim() || env.MCP_READ_TOKEN?.trim();
+  const token = storedBriefToken(env) || env.MCP_READ_TOKEN?.trim(); // PLA-I2-2: or the one first start stored
   if (!token) return { ok: false, reason: "no_token", summary: "Add PLANIA_BRIEF_TOKEN (read scope) to .env", attempts: 0, logPath: null };
 
   // Hold the slot: reserve first (no new run starts), then wait until the live ones end.
@@ -303,7 +305,7 @@ export async function spawnPass<T>(db: Db, input: SpawnPassInput<T>, deps: Spawn
     const limits = PASS_LIMITS[input.pass];
     const cwd = path.join(deps.briefRoot ?? path.join(worktreeRoot(env), "_brief"), input.date);
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
-    const tmp = path.join(deps.tmpDir ?? path.join(tmpdir(), "plania-brief"), `${id8}-${input.pass}-${randomUUID().slice(0, 8)}`);
+    const tmp = path.join(deps.tmpDir ?? defaultBriefTmpDir(env), `${id8}-${input.pass}-${randomUUID().slice(0, 8)}`);
     mkdirSync(tmp, { recursive: true, mode: 0o700 });
     const stamp = now().toISOString().replace(/[:.]/g, "-");
     const logPath = path.join(logDir, `${stamp}-${BRIEF_AGENT}-${input.pass}-${id8}.jsonl`);

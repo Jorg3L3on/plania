@@ -227,12 +227,13 @@ test("PLA-108: a PR that conflicts with sandbox is not merged; the delivery goes
   assert.equal(calls.some((a) => a[1] === "merge"), false, "nothing merged");
   assert.equal((await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0].status, "Ready");
   const note = (await raw.query(`select payload->>'text' as text from events where type = 'note' and task_key = $1 order by id desc limit 1`, [t.key])).rows[0].text as string;
-  assert.match(note, /choca con sandbox/);
+  assert.match(note, /choca con la rama de trabajo/);
   const run = (await raw.query(`select r.reason from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 and r.task_key = $2`, [taller, t.key])).rows;
   assert.equal(run.length, 1, "one run for Taller");
   assert.match(run[0].reason, /Merge origin\/sandbox into the branch/);
   // The screen's words for it.
-  for (const f of ["../ui/src/components/corriente/acts.ts", "../ui/src/components/compania/use-thread.ts"]) {
+  // PLA-I2-10: Compañía's thread words moved to lib/compania-words.ts.
+  for (const f of ["../ui/src/lib/acts-words.ts", "../ui/src/lib/compania-words.ts"]) {
     assert.match(await readFile(new URL(f, import.meta.url), "utf8"), /MERGE_CONFLICT: "Choca con lo último que aceptaste/);
   }
 });

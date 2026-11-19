@@ -111,7 +111,7 @@ test("I60-1 #2: the migration backfills work_key, trigger, lane and reason, and 
     const ev = await ins("MIC-1", "ok", "queued: event ticket ready", "2026-11-01T00:00:00Z");
     const dupOld = await ins("MIC-2", "queued", "queued: cap reached", "2026-11-02T00:00:00Z");
     const dupNew = await ins("MIC-2", "queued", "queued: cap reached", "2026-11-03T00:00:00Z");
-    const q = await ins(null, "queued", `queued: event [pregunta] [consulta ${c}] Jorge pregunta`, "2026-11-04T00:00:00Z");
+    const q = await ins(null, "queued", `queued: event [pregunta] [consulta ${c}] El dueño pregunta`, "2026-11-04T00:00:00Z");
     await raw.query(`update consultas set run_id = $1 where id = $2`, [q, c]);
     for (const u of updates) await raw.query(u);
     const get = async (rid: string) => (await raw.query(`select work_key, trigger, lane, reason, status from agent_runs where id = $1`, [rid])).rows[0];
@@ -380,7 +380,7 @@ const detachedDeps = (ms = 300) => {
     if (args[0] === "worktree" && args[1] === "add") mkdirSync(args[args[2] === "--no-track" ? 3 : 2]!, { recursive: true });
     return { code: 0, stdout: "", stderr: "" };
   };
-  const deps = { ...f.deps, git, spawn: undefined, detached: true, pollMs: 50, env: { ...f.deps.env, CLAUDE_CODE_BIN: FAKE, FAKE_MS: String(ms), PATH: process.env.PATH } };
+  const deps = { ...f.deps, git, spawn: undefined, detached: true, pollMs: 50, env: { ...f.deps.env, CLAUDE_CODE_BIN: FAKE, CLAUDE_FAKE_MS: String(ms), PATH: process.env.PATH } };
   return deps;
 };
 
@@ -570,7 +570,7 @@ test("I60-5 #1: the preview says what Guardar would start and offers the number 
   let c = alv.countsOf(r, team)!;
   let p = alv.previewAdmission(r, c, team, "Mianovia");
   assert.equal(p.verdicts[0]!.code, "ceiling");
-  assert.equal(p.verdicts[0]!.fix!.label, "Subir el tope de la Mac a 4");
+  assert.equal(p.verdicts[0]!.fix!.label, "Subir el tope de la máquina a 4");
   assert.equal(p.verdicts[1]!.code, "areas", "same files is not something a number fixes");
   assert.equal(p.verdicts[1]!.fix, null);
   // Apply each fix in turn, as the owner would from the queue card.

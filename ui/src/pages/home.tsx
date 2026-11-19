@@ -1,5 +1,5 @@
-// Inicio: la ciudad of open initiatives, with the headline in its sky and whatever waits on Jorge
-// decided from a tower's ficha; under it, what the Mac runs and the projects as a rail. The data
+// Inicio: la ciudad of open initiatives, with the headline in its sky and whatever waits on the owner
+// decided from a tower's ficha; under it, what the machine runs and the projects as a rail. The data
 // comes from the same three queries the other screens use.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -8,11 +8,14 @@ import { GoalsHome } from "@/components/goals/goals-board";
 import { Ciudad } from "@/components/home/ciudad";
 import { Hoy } from "@/components/home/hoy";
 import { PedirHome } from "@/components/pedir";
+import { GuiaPrimeraEntrega } from "@/components/home/guia-primera-entrega";
 import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
 import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
 import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
 import { envLine, flightsOf, headlineOf, liveServersOf, tileOf } from "@/lib/home";
+import { HOME_PAGE } from "@/lib/home-words";
+import { words } from "@/lib/i18n";
 
 // Re-render now and then so "hace 42 min" keeps moving without a refetch.
 function useNow(everyMs = 30_000) {
@@ -25,9 +28,10 @@ function useNow(everyMs = 30_000) {
 }
 
 export function HomePage() {
+  const w = words(HOME_PAGE);
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inboxQuery = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
-  // The city counts decisiones and pasos; Limpieza (things left on the Mac) lives in the Máquina.
+  // The city counts decisiones and pasos; Limpieza (things left on the machine) lives in the Máquina.
   const decisions = useMemo(() => (inboxQuery.data?.items ?? []).filter((i) => i.group !== "limpieza"), [inboxQuery.data]);
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
@@ -37,7 +41,7 @@ export function HomePage() {
     const items = machine.data?.items ?? [];
     const flights = flightsOf(list, items);
     const all = cityOf(list, decisions);
-    // The headline and the tiles count every open initiative waiting on Jorge, shown or not.
+    // The headline and the tiles count every open initiative waiting on the owner, shown or not.
     const waiting = waitingOf(all, decisions);
     // The sky shows only what is En curso or En revisión; decisions on hidden towers go to the loose pile.
     const districts = workingCity(all);
@@ -54,7 +58,7 @@ export function HomePage() {
 
   const names = (slug: string) => projects.data?.find((p) => p.slug === slug)?.title ?? slug;
 
-  if (projects.isError) return <p className="text-sm text-destructive">No se pudieron cargar los proyectos.</p>;
+  if (projects.isError) return <p className="text-sm text-destructive">{w.failed}</p>;
   if (!projects.data) {
     return (
       <div className="grid gap-6">
@@ -69,10 +73,13 @@ export function HomePage() {
 
   return (
     <div className="grid grid-cols-1 gap-6 sm:gap-7">
+      {/* PLA-I2-16: the guide to a first delivery, until one is accepted. */}
+      <GuiaPrimeraEntrega />
+
       {/* 2.12: one field to ask for something in any project. */}
       <PedirHome projects={projects.data} />
 
-      {/* 2.12: what changed since "Visto", and what waits on Jorge, above the city. */}
+      {/* 2.12: what changed since "Visto", and what waits on the owner, above the city. */}
       <Hoy names={names} />
 
       <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} nowMs={nowMs} />
@@ -81,7 +88,7 @@ export function HomePage() {
 
       <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
 
-      {/* Under the city, as before: La Mac beside the projects; they stack below xl. */}
+      {/* Under the city, as before: La máquina beside the projects; they stack below xl. */}
       <div className="grid items-start gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
         <div className="min-w-0 animate-rise" style={{ animationDelay: "280ms" }}>
           {machine.data ? <LaMac machine={machine.data} servers={model.servers} names={names} nowMs={nowMs} /> : <Skeleton className="h-72 rounded-[22px]" />}

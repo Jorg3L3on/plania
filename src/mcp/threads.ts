@@ -15,6 +15,25 @@ import { roleOf } from "../runner/limits.js";
 import { isRunSession, runPrefixOf } from "../runner/run-session.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the closing line a run posts in its project thread, in the install's language; the Spanish is unchanged.
+export const THREAD_WORDS = defineWords({
+  es: {
+    prOf: (key: string) => `PR de ${key}`,
+    inReview: (key: string, title: string) => `${key} queda En revisión: ${title}.`,
+    evidence: (key: string, verdict: string) => `${key}: evidencia ${verdict} registrada.`,
+    did: (cite: string) => `Hice: ${cite}`,
+    need: (code: boolean) => `Necesito: que lo revises (${code ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).`,
+  },
+  en: {
+    prOf: (key: string) => `PR for ${key}`,
+    inReview: (key: string, title: string) => `${key} is In review: ${title}.`,
+    evidence: (key: string, verdict: string) => `${key}: ${verdict} evidence recorded.`,
+    did: (cite: string) => `Done: ${cite}`,
+    need: (code: boolean) => `I need: your review (${code ? "Approve into the test copy" : "Approve and close"} or Ask for changes).`,
+  },
+});
 
 // A code ticket with a PR is approved into the test copy; anything else is approved and closed (src/runner/threads.ts).
 const CODE_WORK = new Set(["code", "bug", "debt"]);
@@ -25,7 +44,7 @@ type WriteCtx = (
   identity: Identity | undefined,
 ) => Ctx;
 
-export const THREAD_REF = "\"company\" (Asistente's thread with Jorge), a project slug (that project's thread), or a thread id";
+export const THREAD_REF = "\"company\" (Asistente's thread with the owner), a project slug (that project's thread), or a thread id";
 
 export async function threadPost(db: Db, input: { thread: string; body: string; links?: unknown }, ctx: Ctx) {
   const ref = await resolveThread(db, input.thread);
@@ -77,13 +96,14 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
 
   const links: ThreadLink[] = [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }];
   const pr = c.prUrl?.trim() || t.prUrl;
-  if (pr) links.push({ kind: "pr", ref: pr, title: `PR de ${t.key}` });
+  if (pr) links.push({ kind: "pr", ref: pr, title: say(THREAD_WORDS).prOf(t.key) });
   const [doc] = await db.select({ id: docs.id, title: docs.title }).from(docs).where(eq(docs.taskId, t.id)).orderBy(desc(docs.updatedAt)).limit(1);
   if (doc) links.push({ kind: "doc", ref: doc.id, title: doc.title.slice(0, 200) });
 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
-  const head = c.via === "finish" ? `${t.key} queda En revisión: ${t.title}.` : `${t.key}: evidencia ${c.verdict ?? ""} registrada.`.replace(/\s+\./, ".");
-  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? `Necesito: que lo revises (${pr && CODE_WORK.has(t.workType ?? "code") ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).` : null].filter(Boolean).join("\n");
+  const w = say(THREAD_WORDS);
+  const head = c.via === "finish" ? w.inReview(t.key, t.title) : w.evidence(t.key, c.verdict ?? "").replace(/\s+\./, ".");
+  const body = [head, cite ? w.did(cite) : null, c.via === "finish" ? w.need(!!pr && CODE_WORK.has(t.workType ?? "code")) : null].filter(Boolean).join("\n");
   const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
   return msg.id;
 }
@@ -129,10 +149,10 @@ export const registerThreadTools = (
     "thread_post",
     {
       description: [
-        "Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him.",
+        "Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them.",
         "Asistente may post in every thread; any other agent only in its own project's thread (THREAD_FORBIDDEN otherwise).",
         "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets «Aprobar y pasar a prueba» (with a PR) or «Aprobar y cerrar» (without one) and «Pedir cambios» on screen; a question link gets Responder.",
-        "body: plain Spanish, up to 4000 characters. You are the author (your roster slug and role).",
+        "body: plain words in the owner's language, up to 4000 characters. You are the author (your roster slug and role).",
       ].join(" "),
       inputSchema: {
         actor,
@@ -155,7 +175,7 @@ export const registerThreadTools = (
     {
       description: [
         "Read a thread's messages, oldest first (the last 200, or only those after `after`: an ISO time or a message id).",
-        "Each message has its author {agent, role}, body, links, the actions Jorge can take on it and the one he took (action_state).",
+        "Each message has its author {agent, role}, body, links, the actions the owner can take on it and the one they took (action_state).",
         "Same access as thread_post: Asistente every thread, a team member its own project's.",
       ].join(" "),
       inputSchema: {

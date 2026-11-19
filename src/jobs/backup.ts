@@ -11,6 +11,8 @@ import { machineState } from "../db/schema.js";
 import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
 import type { Job } from "./index.js";
+import { pgToolFor } from "../lib/pg-bin.js";
+import { screenTz } from "../locale.js";
 
 // The nightly backup (2.9 fix b): once per local day after 03:00 (PLANIA_TZ), `pg_dump --no-owner`
 // of DATABASE_URL, gzipped into ~/plania-backups/plania-<YYYYMMDD>.sql.gz. Keeps the last KEEP daily
@@ -55,19 +57,21 @@ function localParts(now: Date, tz: string): { day: string; hour: number } {
 
 // PLANIA_PG_BIN (a directory or the binary itself), else Homebrew's pg_dump for the server's major
 // version (a newer pg_dump writes SET lines an older server rejects on restore), else Homebrew's default.
-async function findPgDump(db: Q): Promise<string> {
-  const env = process.env.PLANIA_PG_BIN;
-  if (env) return env.endsWith("pg_dump") ? env : path.join(env, "pg_dump");
+export async function findPgDump(db: Q): Promise<string> {
   const major = await db
     .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
     .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
     .catch(() => 0);
-  const candidates = [
-    ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`] : []),
-    "/opt/homebrew/bin/pg_dump",
-    "/usr/local/bin/pg_dump",
-  ];
-  return candidates.find((c) => existsSync(c)) ?? "pg_dump";
+  return pgDumpFor(major);
+}
+
+// PLA-I2-12: the same choice from a known server major, for the machine check (src/machine-check/).
+// PLA-I2-4: the lookup is shared with psql and the test copies (src/lib/pg-bin.ts): PLANIA_PG_BIN, the server's
+// major on macOS and Linux, PATH, then the usual folders.
+export function pgDumpFor(major: number, env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync, listDir?: (dir: string) => string[]): string {
+  const bin = env.PLANIA_PG_BIN?.trim();
+  if (bin && /pg_dump(.exe)?$/i.test(path.basename(bin))) return bin;
+  return pgToolFor("pg_dump", major, { env, exists, listDir });
 }
 
 export async function backupState(db: Q): Promise<BackupState> {
@@ -83,7 +87,8 @@ async function saveState(db: Q, value: BackupState): Promise<void> {
 }
 
 // pg_dump's stdout through gzip into `file`. Rejects with pg_dump's stderr when it fails.
-function dumpTo(pgDump: string, url: string, file: string): Promise<void> {
+// PLA-I2-8: exported for the update's backup (src/update/).
+export function dumpTo(pgDump: string, url: string, file: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(pgDump, ["--no-owner", url], { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
@@ -111,7 +116,7 @@ export async function prune(dir: string, keep = KEEP): Promise<string[]> {
 
 // One tick: dumps when today's dump is still missing and it is past 03:00 local time.
 export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promise<{ dumped: number; pruned: number; failed: number }> {
-  const tz = deps.tz ?? (process.env.PLANIA_TZ || "America/Mexico_City");
+  const tz = deps.tz ?? screenTz();
   const { day, hour } = localParts(now, tz);
   const state = await backupState(db);
   if (hour < AFTER_HOUR || state.day === day) return { dumped: 0, pruned: 0, failed: 0 };

@@ -11,7 +11,7 @@ import { ToolError } from "./errors.js";
 // A Db or an open transaction. Reads that run inside writeTx must use the transaction.
 export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 
-// Who is writing and through which channel. human is true only for Jorge's screen (cookie),
+// Who is writing and through which channel. human is true only for the owner's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
 // system: a poller acting on GitHub or deploy data (moves In review → Merged → Released).
@@ -21,7 +21,7 @@ export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?:
 const REQUEST_TTL = "30 days";
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes
 
-export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
+export const WEB_ACTOR: Actor = { agent: "owner", session_id: "web", machine: "screen" };
 
 // A screen-session answer counts only when this actor stored it. The screen route sets it from the session
 // cookie. human on the context is never inferred from an actor a caller sent.

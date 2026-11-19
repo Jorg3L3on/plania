@@ -59,7 +59,7 @@ Three worked cases: [examples.md](examples.md).
    - `recommended_reason`: one sentence with the evidence.
    - `links`: the ticket and the Retro doc.
 
-The owner reads it in Te toca. Plain Spanish; no ticket keys, branch names or the word sandbox in the
+The owner reads it in Te toca. Plain words in the owner's language; no ticket keys, branch names or the word sandbox in the
 title or the labels.
 
 When there is nothing to propose, do not call `propose`. Post one line in the project's thread saying

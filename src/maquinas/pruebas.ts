@@ -6,10 +6,31 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { machineState } from "../db/schema.js";
 import { checkoutEnv, shellExec } from "../captures/run.js";
+import { supported } from "../lib/system-support.js";
+import { SISTEMA } from "../../ui/src/lib/sistema.js";
 import { appDirs, scrub, secretValues } from "./env.js";
 import { findScripts } from "./detect.js";
 import { MaquinaError } from "./errors.js";
 import { appEnvOf, mdeps, menv, projectOf } from "./machines.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the tests panel's reasons and refusals in the install's language; the Spanish is unchanged.
+export const PRUEBAS_WORDS = defineWords({
+  es: {
+    noCommandsWhy: "Este piso no tiene comandos de prueba (settings.qa.verify o un script test)",
+    noCommands: "Este piso no tiene comandos de prueba",
+    noCopy: "Enciende la app una vez para crear la copia de prueba",
+    interrupted: "Plania se reinició a media corrida: las pruebas no terminaron. Córrelas otra vez.",
+    running: "Las pruebas ya están corriendo",
+  },
+  en: {
+    noCommandsWhy: "This floor has no test commands (settings.qa.verify or a test script)",
+    noCommands: "This floor has no test commands",
+    noCopy: "Turn the app on once to make the test copy",
+    interrupted: "Plania restarted mid-run: the tests did not finish. Run them again.",
+    running: "The tests are already running",
+  },
+});
 
 export type PruebaStep = { name: string; command: string; ok: boolean; code: number | null; ms: number; passed: number | null; failed: number | null; tail: string[] };
 export type PruebasResult = { ok: boolean; started_at: string; ended_at: string; duration_ms: number; passed: number | null; failed: number | null; steps: PruebaStep[]; commit: string | null };
@@ -49,14 +70,16 @@ export async function pruebasRead(db: Db, slug: string): Promise<PruebasRead> {
   const wt = appDirs(slug, p.settings, menv()).prueba;
   const r = running.get(slug);
   if (!r) await closeInterrupted(db, slug);
-  const reason = !cmds.length ? "Este piso no tiene comandos de prueba (settings.qa.verify o un script test)" : !wt ? "Enciende la app una vez para crear la copia de prueba" : null;
+  // PLA-I2-4: a system that cannot run the test copy cannot run its tests either: a plain state, not an error.
+  const reason = !supported("test_copy") ? say(SISTEMA).unavailable : !cmds.length ? say(PRUEBAS_WORDS).noCommandsWhy : !wt ? say(PRUEBAS_WORDS).noCopy : null;
   return { running: r ? { started_at: r.started_at, step: r.step } : null, last: await last(db, slug), commands: cmds.map(({ name, command }) => ({ name, command })), can: !reason, reason };
 }
 
 // PLA-53: a run lives in this process. It leaves a marker while it runs; a marker with no run behind it is a run the
 // server's restart cut, and it is recorded as that (once) instead of vanishing.
 const markKey = (slug: string) => `maquinas:pruebas:${slug}:corriendo`;
-export const INTERRUPTED = "Plania se reinició a media corrida: las pruebas no terminaron. Córrelas otra vez.";
+// The Spanish line, kept for test/i48-llaves-pruebas.test.ts; a new record is written in the install's language.
+export const INTERRUPTED = PRUEBAS_WORDS.es.interrupted;
 async function closeInterrupted(db: Db, slug: string): Promise<void> {
   const [m] = await db.select().from(machineState).where(eq(machineState.key, markKey(slug)));
   if (!m) return;
@@ -72,7 +95,7 @@ async function closeInterrupted(db: Db, slug: string): Promise<void> {
     duration_ms: Math.max(0, ended.getTime() - Date.parse(started)),
     passed: null,
     failed: null,
-    steps: [{ name: v.step ?? "?", command: "", ok: false, code: null, ms: 0, passed: null, failed: null, tail: [INTERRUPTED] }],
+    steps: [{ name: v.step ?? "?", command: "", ok: false, code: null, ms: 0, passed: null, failed: null, tail: [say(PRUEBAS_WORDS).interrupted] }],
     commit: null,
   };
   await db.insert(machineState).values({ key: key(slug), value: result }).onConflictDoUpdate({ target: machineState.key, set: { value: result, updatedAt: ended } });
@@ -89,12 +112,13 @@ const alive = (pid: number) => {
 
 // Starts a run. A second call while one runs is refused.
 export async function correrPruebas(db: Db, slug: string): Promise<PruebasRead> {
-  if (running.has(slug)) throw new MaquinaError("TESTS_RUNNING", "Las pruebas ya están corriendo");
+  if (running.has(slug)) throw new MaquinaError("TESTS_RUNNING", say(PRUEBAS_WORDS).running);
+  if (!supported("test_copy")) return pruebasRead(db, slug);
   const p = await projectOf(db, slug);
   const cmds = commandsOf(p);
-  if (!cmds.length) throw new MaquinaError("NOT_CONFIGURED", "Este piso no tiene comandos de prueba");
+  if (!cmds.length) throw new MaquinaError("NOT_CONFIGURED", say(PRUEBAS_WORDS).noCommands);
   const wt = appDirs(slug, p.settings, menv()).prueba;
-  if (!wt) throw new MaquinaError("NO_TEST_COPY", "Enciende la app una vez para crear la copia de prueba");
+  if (!wt) throw new MaquinaError("NO_TEST_COPY", say(PRUEBAS_WORDS).noCopy);
   const secrets = [...secretValues(process.env), ...secretValues(appEnvOf(p).env.values)];
   const startedAt = new Date();
   const state = { started_at: startedAt.toISOString(), step: cmds[0]!.name as string | null, done: Promise.resolve() };

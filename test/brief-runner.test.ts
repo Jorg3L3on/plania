@@ -69,7 +69,10 @@ function fakes(behave: (child: FakeChild, n: number) => void = (c) => (c.write([
     env: {
       HOME: scratch,
       PATH: "/usr/bin:/bin",
-      ANTHROPIC_API_KEY: "sk-should-never-reach-the-child",
+      ANTHROPIC_API_KEY: "sk-ant-buyer-key",
+      DATABASE_URL: "postgres://plania-secret",
+      MCP_BEARER_TOKEN: "bearer-secret",
+      GITHUB_TOKEN: "ghp-secret",
       anthropic_auth_token: "lowercase-too",
       PLANIA_RUNNER_TOKEN: "runner-write-token",
       PLANIA_BRIEF_TOKEN: "brief-read-token-value",
@@ -369,11 +372,13 @@ test("I41-3 #2: a reservation the pipeline holds survives the pass (spawnPass on
 
 // ---- Check 3: env and mcp.json
 
-test("I41-3 #3: child env has no ANTHROPIC_* or write token; mcp.json names the variable, never the value, mode 0600", async () => {
+// PLA-I2-13: was "no ANTHROPIC_*". Claude's own sign-in now passes unchanged; Plania's secrets never do.
+test("I41-3 #3: child env has Claude's key unchanged, no Plania secret or write token; mcp.json names the variable, never the value, mode 0600", async () => {
   const f = fakes();
   await brief.spawnPass(db, passInput(), f.deps);
   const { env, files } = f.spawned[0]!;
-  assert.equal(Object.keys(env).filter((k) => /^ANTHROPIC_/i.test(k)).length, 0);
+  assert.equal(env.ANTHROPIC_API_KEY, "sk-ant-buyer-key");
+  for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "GITHUB_TOKEN"]) assert.equal(env[k], undefined, k);
   assert.equal(env.PLANIA_RUNNER_TOKEN, undefined);
   assert.equal(env.PLANIA_BRIEF_TOKEN, "brief-read-token-value");
   const mcp = files["--mcp-config"]!;

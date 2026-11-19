@@ -11,6 +11,7 @@ import { ToolError } from "../mcp/errors.js";
 import type { Ctx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
+import { supported } from "../lib/system-support.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
 import { apagar, apagarEntrega, cargarDatos, datosDe, encender, encenderEntrega, entregaEnv, entregaRead, hashDatos, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
@@ -18,6 +19,47 @@ import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } fro
 import { imageUrl, readFile } from "./store.js";
 import { preguntasOf, type QA } from "./preguntas.js";
 import { VIEWPORT_NAMES, type ViewportName } from "./settings.js";
+import { SISTEMA } from "../../ui/src/lib/sistema.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: why pictures are missing, the note back to Taller and the card's hold, in the install's language; the
+// Spanish is unchanged.
+export const PROBADOR_WORDS = defineWords({
+  es: {
+    planiaFailed: (why: string) => `Plania falló al tomar las fotos: ${why}`,
+    noBranch: "La entrega no tiene rama: no hay fotos",
+    noStart: (why: string) => `No se pudo encender la copia de la entrega: ${why}`,
+    late: "La copia de la entrega no arrancó a tiempo",
+    noDatos: (why: string) => `Los datos de la muestra no se cargaron: ${why}`,
+    before: (why: string) => `Antes: ${why}`,
+    noBefore: "Sin antes: la copia de prueba no arrancó",
+    noShoot: (why: string) => `No se pudo fotografiar la entrega: ${why}`,
+    noView: "ninguna vista salió",
+    noPicture: (why: string) => `No salió ninguna foto de la entrega: ${why}`,
+    someMissing: (n: number, of: number, why: string | undefined) => `${n} de ${of} fotos no salieron (${why})`,
+    returned: (error: string) => `Plania no pudo fotografiar la entrega para El Probador: ${error}. Revisa la muestra (rutas, sesión, acciones) o que la app arranque, y vuelve a entregar.`,
+    olderCommit: (sha: string) => `Las fotos son de un commit anterior (${sha})`,
+    unavailable: (what: string) => `Fotos: ${what}`,
+    missing: (why: string) => `Faltan fotos: ${why}`,
+  },
+  en: {
+    planiaFailed: (why: string) => `Plania failed while taking the pictures: ${why}`,
+    noBranch: "The delivery has no branch: no pictures",
+    noStart: (why: string) => `Could not turn on the delivery's copy: ${why}`,
+    late: "The delivery's copy did not start in time",
+    noDatos: (why: string) => `The preview's data did not load: ${why}`,
+    before: (why: string) => `Before: ${why}`,
+    noBefore: "No before: the test copy did not start",
+    noShoot: (why: string) => `Could not photograph the delivery: ${why}`,
+    noView: "no view came out",
+    noPicture: (why: string) => `No picture of the delivery came out: ${why}`,
+    someMissing: (n: number, of: number, why: string | undefined) => `${n} of ${of} pictures did not come out (${why})`,
+    returned: (error: string) => `Plania could not photograph the delivery for El Probador: ${error}. Check the preview (paths, session, actions) or that the app starts, and deliver again.`,
+    olderCommit: (sha: string) => `The pictures are of an earlier commit (${sha})`,
+    unavailable: (what: string) => `Pictures: ${what}`,
+    missing: (why: string) => `Pictures missing: ${why}`,
+  },
+});
 
 export type ProbadorState = {
   state: "tomando" | "lista" | "fallo";
@@ -87,6 +129,8 @@ export const viewsOf = (m: Muestra): ViewPage[] =>
 export async function probar(db: Db, slug: string, key: string, deps: ProbadorDeps = {}): Promise<ProbadorState | null> {
   const id = `${slug}/${key}`;
   if (running.has(id)) return null;
+  // PLA-I2-4: nothing to photograph with here (probadorGate says so on the card).
+  if (!supported("stills") || !supported("test_copy")) return null;
   running.add(id);
   try {
     return await onLane(slug, () => pass(db, slug, key, deps));
@@ -96,7 +140,7 @@ export async function probar(db: Db, slug: string, key: string, deps: ProbadorDe
     console.log(`[probador] ${id} failed: ${short(e)}`);
     const got = await load(db, slug, key).catch(() => null);
     if (!got) return null;
-    return failed(db, got.p, got.t, got.t.probador?.attempts ?? 0, `Plania falló al tomar las fotos: ${short(e)}`, { ...deps, returnToTaller: false }).catch((e2) => {
+    return failed(db, got.p, got.t, got.t.probador?.attempts ?? 0, say(PROBADOR_WORDS).planiaFailed(short(e)), { ...deps, returnToTaller: false }).catch((e2) => {
       console.log(`[probador] ${id} could not record the failure: ${short(e2)}`);
       return null;
     });
@@ -116,7 +160,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   if (!settings || !t.muestra) return null;
   const attempts = t.probador?.attempts ?? 0;
   // PLA-52: a delivery with no branch cannot be photographed; the card shows with the reason instead of waiting forever.
-  if (!branch) return setState(db, t, { state: "lista", attempts, error: "La entrega no tiene rama: no hay fotos", commit: null });
+  if (!branch) return setState(db, t, { state: "lista", attempts, error: say(PROBADOR_WORDS).noBranch, commit: null });
   await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
   // PLA-110 (guided test PLA-86, F-40): passes took 10–20 minutes and the log could not say where. Each phase's
   // seconds go to the server log at the end, so a slow pass shows its own breakdown.
@@ -139,7 +183,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   try {
     await startEntrega(db, slug, { key: t.key, branch, head: deps.forHead ?? null });
   } catch (e) {
-    return failed(db, p, t, attempts, `No se pudo encender la copia de la entrega: ${short(e)}`, deps);
+    return failed(db, p, t, attempts, say(PROBADOR_WORDS).noStart(short(e)), deps);
   }
   const until = Date.now() + (deps.waitMs ?? WAIT_MS);
   const settled = (ph: string | undefined) => ph === "live" || ph === "failed";
@@ -152,14 +196,14 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   }
   const e = entregaRead(slug);
   mark("copias");
-  if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? "La copia de la entrega no arrancó a tiempo", deps);
+  if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? say(PROBADOR_WORDS).late, deps);
 
   // PLA-78: the muestra's fake rows, in the delivery's database (a failure goes back to Taller: its SQL is wrong for
   // its own branch) and in the test copy's (a failure there is fine: the rows may need the branch's new columns).
   if (t.muestra.datos) {
     const load = deps.cargarDatos ?? cargarDatos;
     const d = await load(slug, "entrega", t.muestra.datos);
-    if (!d.ok) return failed(db, p, t, attempts, `Los datos de la muestra no se cargaron: ${d.error}`, deps);
+    if (!d.ok) return failed(db, p, t, attempts, say(PROBADOR_WORDS).noDatos(d.error), deps);
     if (!outside && pruebaOf(slug)?.phase === "live") {
       const a = await load(slug, "sandbox", t.muestra.datos, { bestEffort: true });
       if (!a.ok) console.log(`[probador] ${slug}/${t.key}: antes without the muestra's datos: ${a.error}`);
@@ -183,27 +227,27 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   let antesError: string | null = null;
   if (sb?.phase === "live" && sb.port) {
     const info = pruebaInfo(slug);
-    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
-      (err) => (antesError = `Antes: ${short(err)}`),
+    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: info?.branch ?? BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
+      (err) => (antesError = say(PROBADOR_WORDS).before(short(err))),
     );
-  } else antesError = "Sin antes: la copia de prueba no arrancó";
+  } else antesError = say(PROBADOR_WORDS).noBefore;
   mark("antes");
   // Después: the delivery.
   let despues: CaptureSummary | null = null;
   try {
     despues = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views, side: "despues", actor, env: entregaEnv(slug) });
   } catch (err) {
-    return failed(db, p, t, attempts, `No se pudo fotografiar la entrega: ${short(err)}`, deps);
+    return failed(db, p, t, attempts, say(PROBADOR_WORDS).noShoot(short(err)), deps);
   }
-  mark("después");
+  mark("despues");
   console.log(`[probador] ${slug}/${t.key}: ${lap.join(", ")}`);
   await markDiffs(db, p, t, despues.run_id);
   if (despues.ok === 0) {
-    const why = despues.stills.find((x) => x.error)?.error ?? "ninguna vista salió";
-    return failed(db, p, t, attempts, `No salió ninguna foto de la entrega: ${why}`, deps);
+    const why = despues.stills.find((x) => x.error)?.error ?? say(PROBADOR_WORDS).noView;
+    return failed(db, p, t, attempts, say(PROBADOR_WORDS).noPicture(why), deps);
   }
   const missing = despues.stills.filter((x) => x.status === "error");
-  const error = [missing.length ? `${missing.length} de ${despues.stills.length} fotos no salieron (${missing[0]!.error})` : null, antesError].filter(Boolean).join(" · ") || null;
+  const error = [missing.length ? say(PROBADOR_WORDS).someMissing(missing.length, despues.stills.length, missing[0]!.error) : null, antesError].filter(Boolean).join(" · ") || null;
   return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
 }
 
@@ -261,7 +305,7 @@ async function failed(db: Db, p: Project, t: Task, attempts: number, error: stri
 async function returnToTaller(db: Db, p: Project, t0: Task, error: string): Promise<boolean> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, t0.id)).limit(1);
   if (!t || t.status !== "In review") return true;
-  const text = `Plania no pudo fotografiar la entrega para El Probador: ${error}. Revisa la muestra (rutas, sesión, acciones) o que la app arranque, y vuelve a entregar.`.slice(0, 2000);
+  const text = say(PROBADOR_WORDS).returned(error).slice(0, 2000);
   try {
     await setTask(db, { project: p.slug, key: t.key, status: "Ready", version: t.version, note: text } as never, ctx());
   } catch (e) {
@@ -325,7 +369,7 @@ export async function sweepProbador(db: Db, now = new Date(), deps: ProbadorDeps
     if (!need || probando(p.slug) || started.has(p.slug)) continue;
     if (moved && s!.for_head && sameCommit(s!.for_head, head!)) {
       // Asked once for this head already and the copy still shows another commit: show what there is and say so.
-      await setState(db, t, { state: "lista", attempts: s!.attempts, error: `Las fotos son de un commit anterior (${s!.commit!.slice(0, 7)})`, commit: head, for_head: head });
+      await setState(db, t, { state: "lista", attempts: s!.attempts, error: say(PROBADOR_WORDS).olderCommit(s!.commit!.slice(0, 7)), commit: head, for_head: head });
       out.opened += 1;
       continue;
     }
@@ -350,9 +394,12 @@ const onScreen = (e: string) => e.replace(/copia de sandbox/g, "copia de prueba"
 export function probadorGate(p: Project | null, t: Task | null, head: string | null): ProbadorGate {
   if (!p?.settings.capture || !t?.muestra) return { pending: false, hold: null };
   const s = t.probador;
+  // PLA-I2-4: no pictures can come on a system without Chrome or a test copy, so the card never waits for them.
+  // A saved error still wins: the owner reads what happened, not only what this machine lacks.
+  if (!supported("stills") || !supported("test_copy")) return { pending: false, hold: s?.error ? say(PROBADOR_WORDS).missing(onScreen(s.error)) : say(PROBADOR_WORDS).unavailable(say(SISTEMA).unavailable.toLowerCase()) };
   if (!s || s.state === "tomando" || s.state === "fallo") return { pending: true, hold: null };
   if (head && s.commit && !head.startsWith(s.commit.slice(0, 7)) && !s.commit.startsWith(head.slice(0, 7))) return { pending: true, hold: null };
-  return { pending: false, hold: s.error ? `Faltan fotos: ${onScreen(s.error)}` : null };
+  return { pending: false, hold: s.error ? say(PROBADOR_WORDS).missing(onScreen(s.error)) : null };
 }
 
 // ---- The read El Probador draws (GET /api/projects/:slug/probador/:key)
@@ -378,7 +425,9 @@ export type ProbadorRead = {
 
 // PLA-76: the después page crashed (the framework's error overlay, read by run.ts, or a 5xx), as opposed to a picture
 // that did not come out for another reason (the login, a missing link).
-export const crashed = (error: string | null): boolean => !!error && /muestra un error: |respondió 5\d\d\b/.test(error);
+// PLA-I2-10: run.ts writes these in the install's language (RUN_WORDS crash and answered); both are read, so a
+// still taken before a language change still counts.
+export const crashed = (error: string | null): boolean => !!error && /muestra un error: |respondió 5\d\d\b|shows an error: |answered 5\d\d\b/.test(error);
 
 export async function probadorRead(db: Db, slug: string, key: string): Promise<ProbadorRead | null> {
   const got = await load(db, slug, key);

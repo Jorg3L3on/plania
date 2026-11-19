@@ -25,6 +25,8 @@ import { statusDot } from "@/lib/status";
 import { CLOSED_STATUSES, IDEA_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Row } from "@/lib/types";
 import { useTaskPatch } from "@/lib/use-task-patch";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { TASK } from "@/lib/task-words";
 
 // What the controls need from a task: a list row and the side panel's full task both have it.
 type TaskRow = Pick<Row, "key" | "title" | "kind" | "status" | "priority" | "blocked_note" | "version">;
@@ -43,34 +45,35 @@ function ReasonDialog({
   onConfirm: (reason: string) => void;
 }) {
   const [reason, setReason] = useState("");
+  const w = words(TASK);
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!reason.trim()) return;
     onConfirm(reason.trim());
     setReason("");
   }
-  const title = to === "Won't do" ? `Descartar «${task.title}»` : `Reabrir «${task.title}»`;
+  const title = to === "Won't do" ? w.discard(task.title) : w.reopen(task.title);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>Di por qué. El motivo queda en el registro.</DialogDescription>
+            <DialogDescription>{w.reasonHint}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor={`reason-${task.key}`}>Motivo</Label>
+            <Label htmlFor={`reason-${task.key}`}>{w.reason}</Label>
             <Textarea
               id={`reason-${task.key}`}
               autoFocus
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Por qué"
+              placeholder={w.reasonPlaceholder}
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={!reason.trim()}>Guardar</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>{w.cancel}</Button>
+            <Button type="submit" disabled={!reason.trim()}>{w.save}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -90,6 +93,7 @@ function BlockedDialog({
   onConfirm: (note: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const w = words(TASK);
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!note.trim()) return;
@@ -101,22 +105,22 @@ function BlockedDialog({
       <DialogContent>
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Bloquear «{task.title}»</DialogTitle>
-            <DialogDescription>Di qué lo bloquea. La nota se muestra en la lista y la leen los agentes.</DialogDescription>
+            <DialogTitle>{w.blockTitle(task.title)}</DialogTitle>
+            <DialogDescription>{w.blockHint}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor={`blocked-${task.key}`}>Nota</Label>
+            <Label htmlFor={`blocked-${task.key}`}>{w.note}</Label>
             <Textarea
               id={`blocked-${task.key}`}
               autoFocus
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Esperando…"
+              placeholder={w.blockPlaceholder}
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit" disabled={!note.trim()}>Bloquear</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>{w.cancel}</Button>
+            <Button type="submit" disabled={!note.trim()}>{w.block}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -128,8 +132,9 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   const { setStatus, setPriority } = useTaskPatch(slug);
   const [blocking, setBlocking] = useState(false);
   const [reasonFor, setReasonFor] = useState<string | null>(null);
+  const w = words(TASK);
   const statuses = task.kind === "initiative" ? INITIATIVE_STATUSES : task.kind === "idea" ? IDEA_STATUSES : TICKET_STATUSES;
-  // Jorge marks Done after merging: tickets offer it once In review (and PLA-I56-2 once Merged or Released, when a check
+  // The owner marks Done after merging: tickets offer it once In review (and PLA-I56-2 once Merged or Released, when a check
   // or the rule holds them), initiatives while open, ideas from Open.
   const from = { status: task.status, note: task.blocked_note };
   const offerDone = task.kind === "idea" ? task.status === "Open" : task.kind === "initiative" ? !CLOSED_STATUSES.has(task.status) : ["In review", "Merged", "Released"].includes(task.status);
@@ -153,12 +158,12 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
         <DropdownMenu>
           <DropdownMenuTrigger
             className="rounded-4xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            aria-label={`Prioridad de ${task.title}: ${task.priority}`}
+            aria-label={w.priorityOf(task.title, task.priority)}
           >
             <PriorityLabel priority={task.priority} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Prioridad</DropdownMenuLabel>
+            <DropdownMenuLabel>{w.priority}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={task.priority} onValueChange={(p) => p !== task.priority && setPriority(task, p)}>
               {PRIORITIES.map((p) => (
@@ -171,12 +176,12 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="px-2" aria-label={`Estado de ${task.title}: ${task.status}`}>
+          <Button variant="ghost" size="sm" className="px-2" aria-label={w.statusOf(task.title, task.status)}>
             <StatusLabel status={task.status} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Estado</DropdownMenuLabel>
+          <DropdownMenuLabel>{w.status}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuRadioGroup value={task.status} onValueChange={chooseStatus}>
             {statuses.map((s) => (

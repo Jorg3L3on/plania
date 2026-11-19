@@ -70,7 +70,7 @@ for a Done when or check-list item; mark that item.
 ## The report
 
 The walk-through goes into the same report block as the review, in the format the run prompt gives.
-Set `walked` to true only if you completed the walk at both widths. Notes are in Spanish.
+Set `walked` to true only if you completed the walk at both widths. Notes are in the owner's language.
 
 ## Done when
 
@@ -81,4 +81,4 @@ Set `walked` to true only if you completed the walk at both widths. Notes are in
 - The copy is stopped, the port is free, and the footprint is released.
 - `walked` in the report says the truth.
 
-Origin: seed skill from the audit of 2026-11-17 (AUDIT-4, AUDIT-6); no run on record yet. It prevents a review that passes a change from its diff and its stills while the flow cannot be completed in the running app, and a test copy left running on the Mac after the review ends.
+Origin: seed skill from the audit of 2026-11-17 (AUDIT-4, AUDIT-6); no run on record yet. It prevents a review that passes a change from its diff and its stills while the flow cannot be completed in the running app, and a test copy left running on the machine after the review ends.

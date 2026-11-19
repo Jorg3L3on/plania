@@ -7,7 +7,7 @@
 // Words in lib/tramo.ts.
 import { Link } from "react-router";
 import type { Cosa } from "@/lib/cosas";
-import { TRAMOS_CERRAR, TRAMOS_LISTA, tramoState, tramoTip, tramosAria, tramosCuenta, tramosPos } from "@/lib/tramo";
+import { tramoState, tramoWords, tramoTip, tramosAria, tramosCuenta, tramosPos } from "@/lib/tramo";
 import { Hoja } from "./hojas";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
@@ -55,10 +55,10 @@ export const TramosHoja = ({ c, paso, onClose, now }: { c: Iniciativa; paso: (ke
       title={c.title}
       onClose={onClose}
     >
-      <button type="button" className="cor-lado-ic cor-hoja-x" aria-label={TRAMOS_CERRAR} onClick={onClose} data-control="tramos-cerrar">
+      <button type="button" className="cor-lado-ic cor-hoja-x" aria-label={tramoWords().cerrar} onClick={onClose} data-control="tramos-cerrar">
         <Icon d="M4 4l8 8M12 4l-8 8" size={18} />
       </button>
-      <ol className="cor-tramos-list" aria-label={TRAMOS_LISTA} data-tramos-hoja={c.key}>
+      <ol className="cor-tramos-list" aria-label={tramoWords().lista} data-tramos-hoja={c.key}>
         {ts.map((t, i) => (
           <li key={t.key}>
             <Link to={paso(t.key)} className={cls("cor-tramo", t.tono)} aria-label={tramoTip(t, i, ts.length, now).aria} data-tramo={t.key} data-tono={t.tono}>

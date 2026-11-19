@@ -4,6 +4,7 @@
 // order, color slots (never a hex), http(s) URLs only, deterministic items when pass A failed, fallback ideas when
 // there are none, one cross item per failure, and the D7 "Turn on runs for <Project>" items.
 import { createHash } from "node:crypto";
+import { defineWords, say } from "../words.js";
 import type { Facts } from "./facts.js";
 import {
   BRIEF_VERSION,
@@ -184,31 +185,9 @@ export function resolveTargets(about: unknown, r: Parameters<typeof inferTargets
 }
 
 // ---- Server-made texts (the brief's language)
+// PLA-I2-10: a wording module (defineWords); the Spanish is unchanged.
 
-const T = {
-  en: {
-    briefFailed: (why: string) => ({
-      title: "The brief pass failed: items come from Plania facts",
-      detail: `Claude's brief pass did not finish (${why}). These items are built from Plania data only. Press Generate now to try again.`,
-    }),
-    ideasFailed: (why: string) => ({
-      title: "The ideas pass failed: ideas come from Plania",
-      detail: `Claude's ideas pass did not finish (${why}). Today's ideas are open Plania ideas and yesterday's unchecked ones.`,
-    }),
-    factsOnly: (why: string) => ({ title: "This brief is facts only", detail: why }),
-    github: (project: string, detail: string, fix: string) => ({ title: clip(`GitHub data missing for ${project}`, TITLE_MAX), detail: `${detail} ${fix}`.trim() }),
-    turnOn: (project: string, codes: string[]) => ({
-      title: `Turn on runs for ${project} to plan ${codes.join(", ")}`,
-      detail: `${project} runs are paused, so its product owner has not planned ${codes.join(", ")}. Turn its runs on in Compañía and it starts on the next tick.`,
-    }),
-    review: (key: string) => `Review ${key}`,
-    answer: (what: string) => `Answer: ${what}`,
-    fix: (what: string) => `Fix: ${what}`,
-    start: (key: string, title: string) => `Start ${key}: ${title}`,
-    noIdeas: { title: "Write one idea per project in Plania", why: "No ideas came from Claude or Plania today. One open idea per project gives tomorrow's brief something to build on." },
-    openIdea: (key: string) => `Open idea in Plania (${key}).`,
-    nothing: "Nothing needs you today.",
-  },
+const T = defineWords({
   es: {
     briefFailed: (why: string) => ({
       title: "Falló el paso del brief: los puntos salen de Plania",
@@ -231,9 +210,38 @@ const T = {
     noIdeas: { title: "Escribe una idea por proyecto en Plania", why: "Hoy no llegaron ideas de Claude ni de Plania. Una idea abierta por proyecto le da material al brief de mañana." },
     openIdea: (key: string) => `Idea abierta en Plania (${key}).`,
     nothing: "Hoy nada te necesita.",
+    ideaSketch: (title: string) => `Mira el boceto de ${title}`,
+    ideaResearch: (title: string) => `Lee la investigación de ${title}`,
+    ideaDecide: "Decide qué pasa con la idea: dásela al PO o descártala.",
   },
-} as const;
-export const textsFor = (lang: string) => T[(lang === "es" ? "es" : "en") as Lang];
+  en: {
+    briefFailed: (why: string) => ({
+      title: "The brief pass failed: items come from Plania facts",
+      detail: `Claude's brief pass did not finish (${why}). These items are built from Plania data only. Press Generate now to try again.`,
+    }),
+    ideasFailed: (why: string) => ({
+      title: "The ideas pass failed: ideas come from Plania",
+      detail: `Claude's ideas pass did not finish (${why}). Today's ideas are open Plania ideas and yesterday's unchecked ones.`,
+    }),
+    factsOnly: (why: string) => ({ title: "This brief is facts only", detail: why }),
+    github: (project: string, detail: string, fix: string) => ({ title: clip(`GitHub data missing for ${project}`, TITLE_MAX), detail: `${detail} ${fix}`.trim() }),
+    turnOn: (project: string, codes: string[]) => ({
+      title: `Turn on runs for ${project} to plan ${codes.join(", ")}`,
+      detail: `${project} runs are paused, so its product owner has not planned ${codes.join(", ")}. Turn its runs on in Compañía and it starts on the next tick.`,
+    }),
+    review: (key: string) => `Review ${key}`,
+    answer: (what: string) => `Answer: ${what}`,
+    fix: (what: string) => `Fix: ${what}`,
+    start: (key: string, title: string) => `Start ${key}: ${title}`,
+    noIdeas: { title: "Write one idea per project in Plania", why: "No ideas came from Claude or Plania today. One open idea per project gives tomorrow's brief something to build on." },
+    openIdea: (key: string) => `Open idea in Plania (${key}).`,
+    nothing: "Nothing needs you today.",
+    ideaSketch: (title: string) => `Look at the sketch for ${title}`,
+    ideaResearch: (title: string) => `Read the research on ${title}`,
+    ideaDecide: "Decide what happens to the idea: give it to the PO or discard it.",
+  },
+});
+export const textsFor = (lang: string) => say(T, (lang === "es" ? "es" : "en") as Lang);
 
 // ---- Inputs
 
@@ -461,8 +469,9 @@ export function mergeBrief(input: MergeInput): BriefData {
     const h = `idea:${r.key}`;
     if (!ctx.handles!.has(h)) ctx.handles!.set(h, { kind: "idea", project: r.project, key: r.key });
     const sketch = r.next === "sketch_ready";
-    const title = s.language === "es" ? (sketch ? `Mira el boceto de ${r.title}` : `Lee la investigación de ${r.title}`) : sketch ? `Look at the sketch for ${r.title}` : `Read the research on ${r.title}`;
-    const detail = s.language === "es" ? "Decide qué pasa con la idea: dásela al PO o descártala." : "Decide what happens to the idea: give it to the PO or discard it.";
+    const tl = textsFor(s.language);
+    const title = sketch ? tl.ideaSketch(r.title) : tl.ideaResearch(r.title);
+    const detail = tl.ideaDecide;
     server.push({ app: ctx.apps.has(r.project) ? r.project : CROSS, status: "needs_you", ref: r.key, title: clip(title, TITLE_MAX), detail, ...(r.doc_url ? { url: r.doc_url } : {}), action: "Open", about: [h] });
   }
   for (const [slug, codes] of paused) {

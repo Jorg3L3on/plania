@@ -98,7 +98,7 @@ describe("list_projects", () => {
     const fil = r.projects[0];
     assert.equal(fil.key_prefix, "FIL");
     assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code). Siguiente: FIL-I1-2.");
-    assert.deepEqual(fil.counts, { open: 2, in_progress: 1, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 });
+    assert.deepEqual(fil.counts, { open: 2, in_progress: 1, in_review: 0, needs_owner: 0, blocked: 0, done: 0, overdue: 0 });
     assert.equal(fil.claims, 1);
     assert.ok(fil.last_event_id > 0 && typeof fil.last_event_at === "string");
     const mic = r.projects[1];
@@ -184,7 +184,7 @@ describe("get_digest", () => {
     assert.ok(fil.changes.every((c: Json) => typeof c.summary === "string" && typeof c.id === "number"));
     assert.equal(d.projects[1].quiet, true, "zigzag's claim expired");
     assert.deepEqual(d.running.map((r: Json) => r.key), ["FIL-I1-1"]);
-    assert.deepEqual(d.needs_jorge, []);
+    assert.deepEqual(d.needs_owner, []);
     cursor = d.cursor;
   });
 
@@ -213,10 +213,10 @@ describe("get_digest", () => {
     assert.deepEqual(d.projects.map((p: Json) => p.slug), ["filmia"]);
     const fil = d.projects[0];
     assert.deepEqual(fil.highlights.to_review, ["FIL-I1-1"]);
-    assert.deepEqual(fil.highlights.needs_jorge, ["FIL-I1-2"]);
+    assert.deepEqual(fil.highlights.needs_owner, ["FIL-I1-2"]);
     assert.equal(fil.changes.filter((c: Json) => c.type === "task.status" && c.key === "FIL-I1-1").length, 1);
     assert.equal(fil.changes.filter((c: Json) => c.type === "question.asked").length, 1);
-    assert.deepEqual(d.needs_jorge.map((n: Json) => [n.project, n.kind, n.key]), [["filmia", "question", "FIL-I1-2"]]);
+    assert.deepEqual(d.needs_owner.map((n: Json) => [n.project, n.kind, n.key]), [["filmia", "question", "FIL-I1-2"]]);
     assert.equal(d.running.length, 0, "In review released the claim");
     const again = await call("get_digest");
     assert.equal(again.since, d.cursor);
@@ -225,7 +225,7 @@ describe("get_digest", () => {
     const z = await call("get_digest", { since: 0, project: "zigzag" });
     assert.deepEqual(z.projects.map((p: Json) => p.slug), ["zigzag"]);
     assert.deepEqual(z.unchanged_projects, []);
-    assert.deepEqual(z.needs_jorge, []);
+    assert.deepEqual(z.needs_owner, []);
   });
 
   test("project.created from the registration script shows up in the feed", async () => {

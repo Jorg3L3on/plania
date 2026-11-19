@@ -1,7 +1,7 @@
 // Inicio's city (ui/src/lib/city.ts): towers per open initiative, windows per ticket. Pure, no database.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { addressedToJorge, cityOf, columnsFor, looseInbox, stageLabel, towerLabel, waitingOf, workingCity, type CityProject, type CityTask } from "../ui/src/lib/city.js";
+import { addressedToOwner, cityOf, columnsFor, looseInbox, stageLabel, towerLabel, waitingOf, workingCity, type CityProject, type CityTask } from "../ui/src/lib/city.js";
 import type { InboxItem } from "../ui/src/lib/types.js";
 
 const init = (key: string, status: string, title = `Iniciativa ${key}`): CityTask => ({ key, kind: "initiative", title, status, parent_key: null });
@@ -27,7 +27,7 @@ const filmia: CityProject = {
     ticket("FIL-12", null, "Ready"),
   ],
   initiatives: [
-    { key: "FIL-I6", in_progress: "Fases 1–4 Done.", next_action: "Jorge: llevar sandbox a main y desplegar." },
+    { key: "FIL-I6", in_progress: "Fases 1–4 Done.", next_action: "Owner: llevar sandbox a main y desplegar." },
     { key: "FIL-I2", in_progress: "Solo queda FIL-04.", next_action: "" },
   ],
 };
@@ -42,7 +42,7 @@ const workia: CityProject = {
     init("WRK-I10", "Planning"),
     init("WRK-I2", "Active"),
     ticket("WRK-I2-1", "WRK-I2", "In review"),
-    ticket("WRK-I2-2", "WRK-I2", "Needs Jorge"),
+    ticket("WRK-I2-2", "WRK-I2", "Needs owner"),
   ],
   initiatives: [
     { key: "WRK-I3", in_progress: "", next_action: "Jorge to review the plan; T2 and T3 can start first." },
@@ -69,7 +69,7 @@ describe("city", () => {
     assert.equal(i6.stage, "shipping");
     assert.equal(stageLabel(i6), "Estreno · 2/3");
     const wrk = cityOf([workia], [])[0]!;
-    assert.deepEqual(wrk.towers.find((t) => t.key === "WRK-I2")!.windows, ["review", "jorge"]);
+    assert.deepEqual(wrk.towers.find((t) => t.key === "WRK-I2")!.windows, ["review", "owner"]);
   });
 
   test("a crane counts the live claims under the initiative", () => {
@@ -78,7 +78,7 @@ describe("city", () => {
     assert.equal(i3.agents[0]!.model, "claude-sonnet-5-5");
   });
 
-  test("waits on Jorge: a next step addressed to him with nobody working, a ticket in Needs Jorge, or an inbox item under it", () => {
+  test("waits on Owner: a next step addressed to him with nobody working, a ticket in Needs owner, or an inbox item under it", () => {
     const [fil] = cityOf([filmia], []);
     assert.equal(fil!.towers.find((t) => t.key === "FIL-I6")!.waits, true);
     assert.equal(fil!.towers.find((t) => t.key === "FIL-I2")!.waits, false);
@@ -113,7 +113,7 @@ describe("city", () => {
 
   test("the note is the next step, else what it is doing", () => {
     const [fil] = cityOf([filmia], []);
-    assert.equal(fil!.towers.find((t) => t.key === "FIL-I6")!.note, "Jorge: llevar sandbox a main y desplegar.");
+    assert.equal(fil!.towers.find((t) => t.key === "FIL-I6")!.note, "Owner: llevar sandbox a main y desplegar.");
     assert.equal(fil!.towers.find((t) => t.key === "FIL-I2")!.note, "Solo queda FIL-04.");
   });
 
@@ -124,10 +124,10 @@ describe("city", () => {
   });
 
 
-  test("what waits on Jorge counts the inbox and every tower with a ticket in Needs Jorge outside it", () => {
+  test("what waits on Jorge counts the inbox and every tower with a ticket in Needs owner outside it", () => {
     const inbox = [item("a1", "filmia", "FIL-I6-5", "FIL-I6"), item("q1", "zigzag", "ZIG-01", null, "question")];
     const city = cityOf([filmia, workia], inbox);
-    // FIL-I6 counts once (its approval); WRK-I2 has a ticket in Needs Jorge. WRK-I10's note only names him: not counted.
+    // FIL-I6 counts once (its approval); WRK-I2 has a ticket in Needs owner. WRK-I10's note only names him: not counted.
     assert.deepEqual(waitingOf(city, inbox), { count: 3, by_project: { filmia: 1, zigzag: 1, workia: 1 } });
     assert.deepEqual(waitingOf([], []), { count: 0, by_project: {} });
   });
@@ -148,14 +148,14 @@ describe("city", () => {
   });
 
   test("words", () => {
-    assert.ok(addressedToJorge("Jorge: crear el cliente OAuth"));
-    assert.ok(addressedToJorge("Esperar el OK de Jorge para arrancar"));
-    assert.ok(!addressedToJorge("Phase 1 first."));
-    assert.ok(addressedToJorge("Jorge releases sandbox → main; then the MIC-I1-4 device check on prod"));
-    assert.ok(addressedToJorge("PR 45 merged into sandbox. Awaiting Jorge's approval to close the tickets"));
-    assert.ok(addressedToJorge("Q1–Q3 answered (pinned decision). Jorge: say go to move ZIG-I18 to Active."));
-    assert.ok(!addressedToJorge("Get CI green on #576, record results per phase, then Jorge merges into sandbox"));
-    assert.ok(!addressedToJorge("WRK-I2-3 skipped by Jorge. Migrations apply on release."));
+    assert.ok(addressedToOwner("Owner: crear el cliente OAuth"));
+    assert.ok(addressedToOwner("Esperar el OK de Jorge para arrancar"));
+    assert.ok(!addressedToOwner("Phase 1 first."));
+    assert.ok(addressedToOwner("Jorge releases sandbox → main; then the MIC-I1-4 device check on prod"));
+    assert.ok(addressedToOwner("PR 45 merged into sandbox. Awaiting Jorge's approval to close the tickets"));
+    assert.ok(addressedToOwner("Q1–Q3 answered (pinned decision). Owner: say go to move ZIG-I18 to Active."));
+    assert.ok(!addressedToOwner("Get CI green on #576, record results per phase, then Jorge merges into sandbox"));
+    assert.ok(!addressedToOwner("WRK-I2-3 skipped by Jorge. Migrations apply on release."));
     const i3 = cityOf([workia], [])[0]!.towers.find((t) => t.key === "WRK-I3")!;
     assert.equal(towerLabel(i3, "Workia"), "WRK-I3, Iniciativa WRK-I3, Workia, planeando, 0 de 3 hechos, 2 agentes trabajan");
   });

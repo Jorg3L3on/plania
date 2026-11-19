@@ -241,6 +241,9 @@ importers:
       sonner:
         specifier: ^2.0.8
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -281,9 +284,6 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

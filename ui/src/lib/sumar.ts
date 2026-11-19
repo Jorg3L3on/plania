@@ -3,27 +3,36 @@
 // The packs come from GET /api/company/packs (Plania docs), never from this file; only the suggestion names slugs.
 import type { HireRole, PackRef } from "@/lib/api";
 import { roleName } from "@/lib/org";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+
+// PLA-I2-10: the sheet's words in both languages.
+export const SUMAR_WORDS = defineWords({
+  es: {
+    roles: { qa: "QA", copy: "Escritura", seguridad: "Seguridad", research: "Research" } as Record<string, string>,
+    stateNote: { free: null, taken: "Ya está", no_doc: "Falta su doc" } as Record<HireRole["state"], string | null>,
+  },
+  en: {
+    roles: { qa: "QA", copy: "Writing", seguridad: "Security", research: "Research" },
+    stateNote: { free: null, taken: "Already there", no_doc: "Its doc is missing" },
+  },
+});
 
 export const MOTOR = "Claude Code";
 export const OTRO = "otro";
 
-const MAIN: { slug: string; label: string }[] = [
-  { slug: "qa", label: "QA" },
-  { slug: "copy", label: "Escritura" },
-  { slug: "seguridad", label: "Seguridad" },
-  { slug: "research", label: "Research" },
-];
+/** The four named roles, in order (their labels are words: SUMAR_WORDS.roles). */
+const MAIN = ["qa", "copy", "seguridad", "research"] as const;
 
 export type RoleChoice = { slug: string; label: string; state: HireRole["state"] };
 
-export const hireLabel = (slug: string): string => MAIN.find((m) => m.slug === slug)?.label ?? roleName(slug);
+export const hireLabel = (slug: string, language: Language = getLanguage()): string => ((MAIN as readonly string[]).includes(slug) ? words(SUMAR_WORDS, language).roles[slug] : undefined) ?? roleName(slug, language);
 
 // The four named roles in order (a template the server does not know shows as no_doc), then the rest under Otro.
-export function roleChoices(hire: HireRole[]): { main: RoleChoice[]; otros: RoleChoice[] } {
+export function roleChoices(hire: HireRole[], language: Language = getLanguage()): { main: RoleChoice[]; otros: RoleChoice[] } {
   const by = new Map(hire.map((h) => [h.slug, h]));
-  const main = MAIN.map((m) => ({ slug: m.slug, label: m.label, state: by.get(m.slug)?.state ?? ("no_doc" as const) }));
-  const named = new Set(MAIN.map((m) => m.slug));
-  const otros = hire.filter((h) => !named.has(h.slug)).map((h) => ({ slug: h.slug, label: hireLabel(h.slug), state: h.state }));
+  const main = MAIN.map((slug) => ({ slug, label: hireLabel(slug, language), state: by.get(slug)?.state ?? ("no_doc" as const) }));
+  const named = new Set<string>(MAIN);
+  const otros = hire.filter((h) => !named.has(h.slug)).map((h) => ({ slug: h.slug, label: hireLabel(h.slug, language), state: h.state }));
   return { main, otros };
 }
 
@@ -46,4 +55,7 @@ export const suggestedPacks = (role: string | null, packs: PackRef[]): string[] 
   return (role ? (SUGGESTED[role] ?? []) : []).filter((s) => have.has(s));
 };
 
-export const STATE_NOTE: Record<HireRole["state"], string | null> = { free: null, taken: "Ya está", no_doc: "Falta su doc" };
+/** The note beside a role that cannot be added. */
+export const stateNote = (state: HireRole["state"], language: Language = getLanguage()): string | null => words(SUMAR_WORDS, language).stateNote[state];
+/** The notes in the language this page loaded with (it is fixed for the life of the page). */
+export const STATE_NOTE: Record<HireRole["state"], string | null> = words(SUMAR_WORDS).stateNote;

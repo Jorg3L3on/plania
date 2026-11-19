@@ -623,7 +623,7 @@ test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued 
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 1 });
   t = await ticket("FR-A1");
   assert.deepEqual([t.status, t.owner, t.lease_until], ["Blocked", null, null]);
-  assert.match(t.blocked_note, /^Jorge: Taller falló dos veces seguidas en este paso \(error_max_turns \(41 turns\)\)/);
+  assert.match(t.blocked_note, /^Owner: Taller falló dos veces seguidas en este paso \(error_max_turns \(41 turns\)\)/);
   assert.deepEqual(await wakes(), []);
   assert.equal((await eventsOf("FR-A1", "claim.released"))[1].reason, "run failed twice");
   const steps = (await raw.query(`select id, spec, satisfied_at from blockers where task_id = $1 and type = 'human_action'`, [t.id])).rows;
@@ -684,7 +684,7 @@ test("PLA-16: the heartbeat tick sweeps the failed run and starts its retry in t
   await endedRunHolding("FR-D1");
   const f = fakes();
   const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
-  assert.deepEqual([counts.retried_after_fail, counts.handed_to_jorge, counts.started_from_queue], [1, 0, 1]);
+  assert.deepEqual([counts.retried_after_fail, counts.handed_to_owner, counts.started_from_queue], [1, 0, 1]);
   assert.equal(f.spawned.length, 1);
   // (PLA-I60-4: the same tick may also queue a retry for an idea an earlier test left in a stage with no run.)
   const running = (await wakes()).filter((x) => x.agent === "taller");

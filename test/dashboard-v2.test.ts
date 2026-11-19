@@ -87,7 +87,7 @@ test("queue order is decide, merge, stalled, step; the brief only repeats what t
   assert.equal(queue[3]!.action, "assign");
   const brief = signals.buildBrief({ queue, finished: 117, previous: 110 });
   assert.deepEqual(brief, [
-    "13 tickets esperan tu revisión: MiCasa 8, Workia 5.",
+    "13 tickets esperan tu revisión: Micasa 8, Workia 5.",
     "ZIG-I1 (Zigzag) lleva 8 días quieta, con trabajo listo y sin agente.",
     "1 decisión te espera: Decisión de ejemplo.",
     "Salieron 117 cosas esta semana, 6 % más que la anterior.",

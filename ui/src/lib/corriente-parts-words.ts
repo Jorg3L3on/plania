@@ -1,0 +1,101 @@
+// PLA-I2-10: the words of La corriente's small pieces, in both languages (lib/i18n.ts): the shared parts
+// (components/corriente/parts.tsx), a row's lever (palanca.tsx) and the strip with the project's bar (strip.tsx).
+// No "@/" imports: tests read lib files with node directly.
+import { defineWords } from "./i18n.js";
+
+export const PARTS = defineWords({
+  es: {
+    notYet: (what: string) => `${what} todavía se ve en el edificio.`,
+    openInBuilding: (what: string) => `Abrir ${what} en el edificio`,
+    readError: (what: string) => `No se pudo leer ${what}. Si la máquina está dormida, intenta al despertar.`,
+    retry: "Reintentar",
+    on: "encendido",
+    off: "apagado",
+  },
+  en: {
+    notYet: (what: string) => `${what} is still shown in the building.`,
+    openInBuilding: (what: string) => `Open ${what} in the building`,
+    readError: (what: string) => `${what} could not be read. If the machine is asleep, try when it wakes.`,
+    retry: "Try again",
+    on: "on",
+    off: "off",
+  },
+});
+
+export const PALANCA = defineWords({
+  es: {
+    decision: { plan: "Ver el plan", question: "Responder", proposal: "Elegir", step: "Hacerlo" } as Record<string, string>,
+    see: "Ver",
+    seeDeliveries: "Ver las entregas",
+    beforeAfter: "Ver antes y después",
+    askTweak: "Pedir ajuste",
+    answer: "Responder",
+    build: "Constrúyelo",
+    wake: "Despertar al PO",
+    waking: "Despertando…",
+    closeInitiative: "Cerrar iniciativa",
+    closing: "Cerrando…",
+    resend: "Reenviar al PO",
+    closeRequest: "Cerrar pedido",
+    publish: "Publicar",
+    stop: "Detener",
+    stopping: "Deteniendo…",
+    first: "Hacer primero",
+    toReady: "Pasar a Lista",
+    moving: "Pasando…",
+  },
+  en: {
+    decision: { plan: "See the plan", question: "Answer", proposal: "Choose", step: "Do it" } as Record<string, string>,
+    see: "See",
+    seeDeliveries: "See the deliveries",
+    beforeAfter: "See before and after",
+    askTweak: "Ask for a tweak",
+    answer: "Answer",
+    build: "Build it",
+    wake: "Wake the PO",
+    waking: "Waking…",
+    closeInitiative: "Close initiative",
+    closing: "Closing…",
+    resend: "Send to the PO again",
+    closeRequest: "Close request",
+    publish: "Publish",
+    stop: "Stop",
+    stopping: "Stopping…",
+    first: "Do first",
+    toReady: "Move to Ready",
+    moving: "Moving…",
+  },
+});
+
+export const STRIP = defineWords({
+  es: {
+    nav: "La corriente, en tira",
+    corriente: "Corriente",
+    waitsOnYou: ", te espera",
+    pedir: "Pedir",
+    empty: "VACÍO",
+    archivoCount: (docs: number, prs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"} · ${prs} ${prs === 1 ? "PR" : "PRS"}`,
+    goal: "Meta",
+    setGoal: "Fijar meta",
+    changeGoal: "Cambiar meta",
+    doorsOf: (title: string) => `Puertas de ${title}`,
+    resume: (title: string) => `Reanudar ${title}`,
+    pause: "Pausar",
+    remove: "Borrar",
+  },
+  en: {
+    nav: "La corriente, as a strip",
+    corriente: "Corriente",
+    waitsOnYou: ", waiting on you",
+    pedir: "Request",
+    empty: "EMPTY",
+    archivoCount: (docs: number, prs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"} · ${prs} ${prs === 1 ? "PR" : "PRS"}`,
+    goal: "Goal",
+    setGoal: "Set goal",
+    changeGoal: "Change goal",
+    doorsOf: (title: string) => `Doors of ${title}`,
+    resume: (title: string) => `Resume ${title}`,
+    pause: "Pause",
+    remove: "Delete",
+  },
+});

@@ -4,6 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { isPackage, readRelease, type ReleaseInfo } from "./release.js";
 
 export const BUILD_STAMP = "build.json";
 
@@ -48,4 +49,25 @@ export function staleReason(build: UiBuild | null, head: { commit: string; dirty
   if (build.dirty) return "build came from uncommitted changes";
   if (build.commit !== head.commit) return `build is ${build.commit?.slice(0, 7) ?? "unknown"}, HEAD is ${head.commit.slice(0, 7)}`;
   return null;
+}
+
+// PLA-I2-17: the start-up decision in one place. A release package (release.json at its root) never rebuilds:
+// it ships dist/ui built and has no dev tools, and it may sit inside some unrelated git repository. Outside a
+// package this is staleReason against the checkout's HEAD (null outside git: serve what is there).
+export function rebuildReason(
+  rootDir: string,
+  distDir: string,
+  deps: { packaged: (dir: string) => boolean; head: (dir: string) => { commit: string; dirty: boolean } | null } = {
+    packaged: isPackage,
+    head: gitState,
+  },
+): string | null {
+  if (deps.packaged(rootDir)) return null;
+  return staleReason(readUiBuild(distDir), deps.head(rootDir), existsSync(path.join(distDir, "index.html")));
+}
+
+// PLA-I2-17: the body of GET /health/ui: the release, the served build's stamp and, in a checkout, its HEAD.
+export function healthUi(rootDir: string, distDir: string): { version: ReleaseInfo; ui: UiBuild | null; head: { commit: string; dirty: boolean } | null } {
+  const packaged = isPackage(rootDir);
+  return { version: readRelease(rootDir), ui: readUiBuild(distDir), head: packaged ? null : gitState(rootDir) };
 }

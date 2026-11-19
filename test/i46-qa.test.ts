@@ -15,6 +15,11 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
 process.env.PLANIA_PROMPTS_PROJECT = "micasa";
+// PLA-I2-13: the rest of Plania's secrets (useTestEnv sets the database, MCP tokens, CI token and session secret)
+// and a Claude key: none may reach an app's command.
+process.env.GITHUB_TOKEN = "ghp-plania-secret";
+process.env.VAPID_PRIVATE_KEY = "vapid-plania-secret";
+process.env.ANTHROPIC_API_KEY = "sk-ant-not-for-apps";
 const { makeDb } = await import("../src/db/client.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
@@ -260,7 +265,9 @@ test("I46-9 #1 #4: a code delivery gets tests, captures, a fresh review and chec
   // The verify commands ran in the delivery's checkout with the shell basics only (never Plania's env).
   assert.deepEqual(execCalls.map((c) => c.command), ["pnpm test", "pnpm typecheck"]);
   assert.equal(execCalls[0]!.cwd, worktreePathFor(ROOT, "zigzag", key));
-  assert.equal(execCalls[0]!.env!.DATABASE_URL, undefined);
+  // PLA-I2-13 #1: none of Plania's secrets, and no Claude sign-in, reach a QA command.
+  for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "MCP_READ_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY", "PLANIA_CI_TOKEN", "ANTHROPIC_API_KEY"]) assert.equal(execCalls[0]!.env![k], undefined, k);
+  assert.deepEqual(Object.keys(execCalls[0]!.env!).filter((k) => k.startsWith("PLANIA_")), []);
   assert.deepEqual([appStarts.at(-1)!.command, appStops], ["pnpm dev --port 4455", 1]);
   assert.equal(await card(key), null, "still QA's turn");
 
@@ -449,7 +456,7 @@ test("I46-9: without a QA teammate a delivery reaches the floor as before; the c
     const four = await app.request(`/api/projects/zigzag/qa/${key}/checklist`, { method: "PUT", headers: jorge(), body: JSON.stringify({ items: ["1", "2", "3", "4"] }) });
     assert.equal(four.status, 400);
     const written = (await raw.query(`select actor from events where type = 'po_checks.set' and task_key = $1 order by created_at desc limit 1`, [key])).rows;
-    assert.equal(written[0].actor.agent, "jorge");
+    assert.equal(written[0].actor.agent, "owner");
     const stored = (await raw.query(`select po_checklist from tasks where key = $1`, [key])).rows[0].po_checklist;
     assert.deepEqual(stored.map((c: Json) => [c.n, c.text, c.done]), [[1, "Uno", false], [2, "Dos", false]], "one storage: tasks.po_checklist");
   } finally {

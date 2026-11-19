@@ -12,14 +12,16 @@ import { RecapYear } from "@/components/progress/recap-year";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { words } from "@/lib/i18n";
 import { monthSpan, parseRange } from "@/lib/progress";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressLog, ProgressRange, ProgressSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const RANGES: { id: ProgressRange; label: string }[] = [
-  { id: "day", label: "Hoy" },
-  { id: "week", label: "Semana" },
-  { id: "year", label: "Año" },
+const RANGES: { id: ProgressRange; label: "today" | "week" | "year" }[] = [
+  { id: "day", label: "today" },
+  { id: "week", label: "week" },
+  { id: "year", label: "year" },
 ];
 
 const isEmpty = (data: ProgressSummary): boolean =>
@@ -33,6 +35,7 @@ const setParam = (params: URLSearchParams, key: string, value: string) => {
 };
 
 export const ProgresoPage = () => {
+  const w = words(PROGRESS_WORDS);
   useProgressScroll();
   const [params, setParams] = useSearchParams();
   const range = parseRange(params.get("range"));
@@ -63,9 +66,9 @@ export const ProgresoPage = () => {
         {summary.isPending && <RecapSkeleton />}
         {summary.isError && (
           <div className="rounded-[26px] border border-white/10 px-5 py-8 text-center">
-            <p className="font-display text-lg font-bold">No se pudo cargar tu progreso</p>
+            <p className="font-display text-lg font-bold">{w.loadFailed}</p>
             <Button variant="outline" className="mt-3" onClick={() => summary.refetch()}>
-              Reintentar
+              {w.retry}
             </Button>
           </div>
         )}
@@ -82,7 +85,7 @@ export const ProgresoPage = () => {
               onClick={handleSeeAll}
               className="flex h-[54px] items-center justify-center rounded-[18px] bg-gradient-to-r from-[#ff7a2e] to-[#ff3d6e] text-[15.5px] font-black text-white shadow-[0_14px_34px_-10px_#ff4d4daa] lg:hidden"
             >
-              Ver todo lo que hice ›
+              {w.seeAll}
             </button>
           </>
         )}
@@ -93,6 +96,7 @@ export const ProgresoPage = () => {
 };
 
 const Bitacora = ({ summary }: { summary: ProgressSummary }) => {
+  const w = words(PROGRESS_WORDS);
   const [params, setParams] = useSearchParams();
   const month = params.get("mes");
   const project = params.get("proyecto") ?? "";
@@ -144,8 +148,8 @@ const Bitacora = ({ summary }: { summary: ProgressSummary }) => {
       {log.isPending && <Skeleton className="h-80 rounded-[26px]" />}
       {log.isError && (
         <div className="rounded-[26px] border border-white/10 px-5 py-8 text-center">
-          <p className="font-display text-lg font-bold">No se pudo cargar la bitácora</p>
-          <Button variant="outline" className="mt-3" onClick={() => log.refetch()}>Reintentar</Button>
+          <p className="font-display text-lg font-bold">{w.logFailed}</p>
+          <Button variant="outline" className="mt-3" onClick={() => log.refetch()}>{w.retry}</Button>
         </div>
       )}
       {view && (
@@ -176,8 +180,10 @@ const Bitacora = ({ summary }: { summary: ProgressSummary }) => {
   );
 };
 
-const RangeSwitch = ({ range, onChange }: { range: ProgressRange; onChange: (range: ProgressRange) => void }) => (
-  <div role="tablist" aria-label="Periodo" className="grid grid-cols-3 rounded-[14px] border border-white/10 bg-white/5 p-[3px]">
+const RangeSwitch = ({ range, onChange }: { range: ProgressRange; onChange: (range: ProgressRange) => void }) => {
+  const w = words(PROGRESS_WORDS);
+  return (
+  <div role="tablist" aria-label={w.rangeLabel} className="grid grid-cols-3 rounded-[14px] border border-white/10 bg-white/5 p-[3px]">
     {RANGES.map((item) => {
       const on = item.id === range;
       return (
@@ -192,12 +198,13 @@ const RangeSwitch = ({ range, onChange }: { range: ProgressRange; onChange: (ran
             on ? "bg-white text-black shadow-[0_4px_14px_#0008]" : "text-[#8e8e98]",
           )}
         >
-          {item.label}
+          {w[item.label]}
         </button>
       );
     })}
   </div>
-);
+  );
+};
 
 const RecapSkeleton = () => (
   <div className="flex flex-col gap-3.5" aria-hidden>

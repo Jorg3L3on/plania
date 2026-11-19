@@ -2,7 +2,36 @@
 // (ui/sw.js shows the message and opens the Bandeja) and tells the server (POST /api/push/subscribe).
 // Push needs a secure origin (the tailnet's HTTPS, or localhost), the production service worker, and on
 // iPhone the app opened from the home-screen icon (iOS 16.4+).
+// PLA-I2-10: the words are in PUSH_WORDS, in both languages; enablePush and pushHint take the language last.
 import { api, ApiError } from "./api";
+import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+
+export const PUSH_WORDS = defineWords({
+  es: {
+    notConfigured: "Push no está configurado en el servidor.",
+    noKey: "No se pudo leer la clave del servidor.",
+    notSaved: "El servidor no guardó la suscripción.",
+    denied: "Bloqueaste los avisos; actívalos en los ajustes del teléfono.",
+    unsupported: {
+      insecure: "Abre Plania por su dirección https del tailnet.",
+      "ios-tab": "Abre Plania desde el icono de la pantalla de inicio.",
+      browser: "Este navegador no admite avisos.",
+      dev: "Solo en la app instalada (build de producción).",
+    },
+  },
+  en: {
+    notConfigured: "Push is not set up on the server.",
+    noKey: "The server's key could not be read.",
+    notSaved: "The server didn't save the subscription.",
+    denied: "You blocked notifications; turn them on in the phone's settings.",
+    unsupported: {
+      insecure: "Open Plania at its tailnet https address.",
+      "ios-tab": "Open Plania from the icon on the home screen.",
+      browser: "This browser doesn't support notifications.",
+      dev: "Only in the installed app (production build).",
+    },
+  },
+});
 
 export type PushStatus =
   | { state: "unsupported"; reason: "insecure" | "ios-tab" | "browser" | "dev" }
@@ -45,7 +74,8 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
 export class PushError extends Error {}
 
 // Call from the tap itself: iOS only shows the permission prompt for a user gesture.
-export async function enablePush(): Promise<PushStatus> {
+export async function enablePush(language: Language = getLanguage()): Promise<PushStatus> {
+  const w = words(PUSH_WORDS, language);
   const no = unsupported();
   if (no) return no;
   const permission = await Notification.requestPermission();
@@ -54,7 +84,7 @@ export async function enablePush(): Promise<PushStatus> {
   try {
     key = (await api.pushPublicKey()).public_key;
   } catch (e) {
-    throw new PushError(e instanceof ApiError && e.code === "PUSH_NOT_CONFIGURED" ? "Push no está configurado en el servidor." : "No se pudo leer la clave del servidor.");
+    throw new PushError(e instanceof ApiError && e.code === "PUSH_NOT_CONFIGURED" ? w.notConfigured : w.noKey);
   }
   const reg = (await registration()) ?? (await navigator.serviceWorker.ready);
   // A subscription made with another key (the pair changed) cannot be reused.
@@ -66,7 +96,7 @@ export async function enablePush(): Promise<PushStatus> {
     await api.pushSubscribe({ endpoint: json.endpoint, keys: json.keys });
   } catch {
     await sub.unsubscribe();
-    throw new PushError("El servidor no guardó la suscripción.");
+    throw new PushError(w.notSaved);
   }
   return { state: "on", endpoint: sub.endpoint };
 }
@@ -80,13 +110,9 @@ export async function disablePush(): Promise<PushStatus> {
   return { state: "off" };
 }
 
-export function pushHint(s: PushStatus): string | null {
-  if (s.state === "denied") return "Bloqueaste los avisos; actívalos en los ajustes del teléfono.";
+export function pushHint(s: PushStatus, language: Language = getLanguage()): string | null {
+  const w = words(PUSH_WORDS, language);
+  if (s.state === "denied") return w.denied;
   if (s.state !== "unsupported") return null;
-  return {
-    insecure: "Abre Plania por su dirección https del tailnet.",
-    "ios-tab": "Abre Plania desde el icono de la pantalla de inicio.",
-    browser: "Este navegador no admite avisos.",
-    dev: "Solo en la app instalada (build de producción).",
-  }[s.reason];
+  return w.unsupported[s.reason];
 }

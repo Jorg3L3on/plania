@@ -3,7 +3,7 @@
 // - PLA-25: guard_override (a screen switch) lets runs go on past the guard; only status "rejected" still stops.
 // - The plan guard: no new run when the last reading is allowed_warning/rejected, or the 5-hour
 //   window is at or over the guard (default 70%). No reading, or a stale one, is unknown = stop.
-// - Company and project switches (runs_paused). Only Jorge's screen session writes any of these.
+// - Company and project switches (runs_paused). Only the owner's screen session writes any of these.
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { planReadings, runnerSettings, type PlanReading, type RunnerSettings } from "../db/schema.js";
@@ -46,7 +46,8 @@ export function roleOf(agent: { slug: string; role: string; capabilities: string
   return null;
 }
 
-export const screenTz = (): string => process.env.PLANIA_TZ || "America/Mexico_City";
+import { screenTz } from "../locale.js"; // PLA-I2-3: one place
+export { screenTz };
 
 export async function loadSettings(db: Q): Promise<RunnerSettings> {
   const [row] = await db.select().from(runnerSettings).where(eq(runnerSettings.id, 1)).limit(1);
@@ -67,7 +68,7 @@ export async function weekBounds(db: Q, now: Date, tz = screenTz()): Promise<{ s
 }
 
 // ---- Usage this week
-// PLA-21: weekly token budgets are gone (Jorge, 2026-11-12). The week's tokens are only shown, never checked.
+// PLA-21: weekly token budgets are gone (the owner, 2026-11-12). The week's tokens are only shown, never checked.
 
 // A project's usage is its team's; Asistente's runs (role asistente) count apart.
 export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" } | { kind: "all" };
@@ -112,7 +113,7 @@ export type PlanView = {
   state: PlanState;
   read_at: string | null;
   source: string | null;
-  // PLA-25: Jorge's screen switch. While on, the percentage, a warning and an unknown reading do not stop a wake.
+  // PLA-25: the owner's screen switch. While on, the percentage, a warning and an unknown reading do not stop a wake.
   override: boolean;
 };
 

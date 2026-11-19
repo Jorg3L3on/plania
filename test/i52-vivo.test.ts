@@ -60,7 +60,7 @@ const get = (url: string, headers: Record<string, string> = {}) =>
   });
 
 describe("the helpers", () => {
-  test("only this Mac's loopback is a peer; the session wins a cookie clash; a redirect to the copy stays on the proxy", () => {
+  test("only this machine's loopback is a peer; the session wins a cookie clash; a redirect to the copy stays on the proxy", () => {
     assert.ok(vivo.isLoopback("127.0.0.1") && vivo.isLoopback("::1") && vivo.isLoopback("::ffff:127.0.0.1"));
     assert.ok(!vivo.isLoopback("192.168.1.20") && !vivo.isLoopback("100.64.0.3") && !vivo.isLoopback(undefined));
     assert.equal(vivo.withSession("a=1; sesion=vieja", [{ name: "sesion", value: "nueva" }]), "a=1; sesion=nueva");

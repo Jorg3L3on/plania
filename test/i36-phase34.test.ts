@@ -1,4 +1,4 @@
-// PLA-I36 phases 3-4: the wheel on the card and anyone at the Mac can drive. Levers (PLA-I36-6), proposals as data
+// PLA-I36 phases 3-4: the wheel on the card and anyone at the machine can drive. Levers (PLA-I36-6), proposals as data
 // (PLA-I36-7), one box with plan approval (PLA-I36-8), see it working (PLA-I36-9; stopping a live process is in
 // test/runner.test.ts), evidence before accepting (PLA-I36-10), plain words and the owner's code (PLA-I36-11).
 // Throwaway DB for the payload and the routes, server-rendered UI with fake data. Fake names and numbers only.
@@ -72,7 +72,7 @@ test("I36-6 #1: a message from the card creates the PO's ticket and shows its wa
   assert.equal(out.woke, null);
   assert.equal(lib.askText(out), "Enviado · el PO lo toma en su turno");
   const scope = (await raw.query(`select scope, origin, status from tasks where key = $1`, [out.key])).rows[0];
-  assert.deepEqual([scope.origin, scope.status], ["jorge", "Ready"]);
+  assert.deepEqual([scope.origin, scope.status], ["owner", "Ready"]);
   assert.match(scope.scope, /\(un cambio\): "Agrega un botón de WhatsApp"/);
   const o = (await card()).orders.find((x: Json) => x.key === out.key);
   assert.deepEqual([o.stage, o.text], ["enviada", "Agrega un botón de WhatsApp"]);
@@ -109,7 +109,9 @@ test("I36-6 #4: Pausar from the card pauses the project; it moves to En pausa", 
   const html = renderCard({ ...(await card("filmia")) });
   assert.ok(html.includes('data-control="pausar"'));
   const sheet = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/components/corriente/hojas.tsx", import.meta.url), "utf8"));
-  assert.ok(sheet.includes("api.setProjectPaused(p.slug, true)") && sheet.includes("Se cierra"));
+  // PLA-I2-10: the sheet's words moved to its wording module.
+  const sheetWords = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/lib/hojas-words.ts", import.meta.url), "utf8"));
+  assert.ok(sheet.includes("api.setProjectPaused(p.slug, true)") && sheetWords.includes("Se cierra"));
   assert.equal((await post("/api/company/projects/filmia/switch", { paused: true })).status, 200);
   const f = await card("filmia");
   assert.deepEqual([f.paused, f.light], [true, "paused"]);
@@ -162,7 +164,7 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
 });
 
 test("I36-7 #5: the protocol is 2.21 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.23");
+  assert.equal(PROTOCOL_VERSION, "2.24");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));
@@ -546,6 +548,6 @@ test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí
   assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
   assert.equal((await act(id, { action: "empezar" })).status, 200);
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/components/corriente/acts.ts", import.meta.url), "utf8");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/lib/acts-words.ts", import.meta.url), "utf8");
   assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
 });

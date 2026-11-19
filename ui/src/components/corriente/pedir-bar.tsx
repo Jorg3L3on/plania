@@ -11,9 +11,14 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link } from "react-router";
 import type { AskResult, OrgProject } from "@/lib/api";
-import { ASK_MAX, MODES, PEDIR_ERROR, PEDIR_MENU, PEDIR_PAST, PEDIR_PICTURE, nextMode, pedirChipAria, pedirHeld, pedirKeyHint, pedirPlaceholder, pedirSendLabel, slashFocuses, type AskInput, type AskMode } from "@/lib/corriente";
+import { ASK_MAX, modesOf, nextMode, pedirChipAria, pedirError, pedirHeld, pedirKeyHint, pedirMenu, pedirPast, pedirPicture, pedirPlaceholder, pedirSendLabel, slashFocuses, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
+import { words } from "@/lib/i18n";
+import { PEDIR } from "@/lib/pedir-words";
 import { Btn, Opt } from "./parts";
+
+// PLA-I2-10: the ask modes in the screen's language (fixed for the page load).
+const MODES = modesOf();
 
 // PLA-67: «Ver la respuesta» opens the question just asked, not the Pedir page in general.
 const withQuestion = (to: string, id: string | undefined): string => (id ? `${to}${to.includes("?") ? "&" : "?"}pregunta=${encodeURIComponent(id)}` : to);
@@ -101,7 +106,7 @@ const ModoChip = ({ mode, onMode, to }: { mode: AskMode; onMode: (m: AskMode) =>
         <Chevron />
       </button>
       {open && (
-        <div className="cor-pedir-menu" role="menu" aria-label={PEDIR_MENU} onKeyDown={onMenuKey} data-pedir-menu>
+        <div className="cor-pedir-menu" role="menu" aria-label={pedirMenu()} onKeyDown={onMenuKey} data-pedir-menu>
           {MODES.map((m) => (
             <button key={m.id} type="button" role="menuitemradio" aria-checked={mode === m.id} tabIndex={-1} className="cor-pedir-mi" onClick={() => pick(m.id)} data-menu-mode={m.id}>
               <b>{m.name}</b>
@@ -111,11 +116,11 @@ const ModoChip = ({ mode, onMode, to }: { mode: AskMode; onMode: (m: AskMode) =>
           <span className="cor-pedir-menu-sep" role="separator" />
           <Link to={to} role="menuitem" tabIndex={-1} className="cor-pedir-mi row" data-menu-picture>
             <Picture />
-            {PEDIR_PICTURE}
+            {pedirPicture()}
           </Link>
           <Link to={to} role="menuitem" tabIndex={-1} className="cor-pedir-mi row" data-menu-past>
             <Clock />
-            {PEDIR_PAST}
+            {pedirPast()}
           </Link>
         </div>
       )}
@@ -127,13 +132,13 @@ const ModoChip = ({ mode, onMode, to }: { mode: AskMode; onMode: (m: AskMode) =>
 const PedirLinks = ({ to, picture = true }: { to: string; picture?: boolean }) => (
   <>
     {picture && (
-      <Link to={to} className="cor-pedir-icon" aria-label={PEDIR_PICTURE} title={PEDIR_PICTURE} data-pedir-picture>
+      <Link to={to} className="cor-pedir-icon" aria-label={pedirPicture()} title={pedirPicture()} data-pedir-picture>
         <Picture />
       </Link>
     )}
     <Link to={to} className="cor-pedir-past" data-pedir-past>
       <Clock />
-      {PEDIR_PAST}
+      {pedirPast()}
     </Link>
   </>
 );
@@ -158,6 +163,7 @@ export const PedirBar = ({
   /** The Pedir page for this project (pictures, past questions, the answer to a question). */
   pedirTo: (slug: string) => string;
 }) => {
+  const w = words(PEDIR);
   const live = fixed ? [fixed] : projects.filter((p) => !p.paused && p.light !== "paused");
   const held = !!fixed && fixed.paused;
   const [slug, setSlug] = useState<string>(initial && live.some((p) => p.slug === initial) ? initial : (live[0]?.slug ?? ""));
@@ -203,11 +209,11 @@ export const PedirBar = ({
     setError(null);
     try {
       const r = await onAsk(project.slug, { text: text.trim().slice(0, ASK_MAX), mode });
-      setSaid(mode === "pregunta" ? { text: `Se lo preguntaste al PO de ${project.title}. Lee el código y contesta.`, to: withQuestion(pedirTo(project.slug), r.consulta) } : { text: askedLine(r, project.title), to: null });
+      setSaid(mode === "pregunta" ? { text: w.askedPo(project.title), to: withQuestion(pedirTo(project.slug), r.consulta) } : { text: askedLine(r, project.title), to: null });
       setText("");
       setMode("forma");
     } catch {
-      setError(PEDIR_ERROR);
+      setError(pedirError());
     } finally {
       setSending(false);
     }
@@ -223,12 +229,12 @@ export const PedirBar = ({
   const shown = !text && (error || said) ? true : false;
   const line = MODES.find((m) => m.id === mode)?.line ?? "";
   return (
-    <form className="cor-pedir" onSubmit={(e) => void submit(e)} aria-label={fixed ? `Pedir a ${fixed.title}` : "Pedir"} data-pedir-bar>
+    <form className="cor-pedir" onSubmit={(e) => void submit(e)} aria-label={fixed ? w.pedirA(fixed.title) : w.pedir} data-pedir-bar>
       <div className={`cor-pedir-shell ${focused ? "focused" : ""}`}>
         {!fixed && (
           <>
             <label className="sr-only" htmlFor="cor-pedir-p">
-              Proyecto
+              {w.project}
             </label>
             <select id="cor-pedir-p" className="cor-select cor-pedir-pick" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={disabled || !live.length}>
               {live.map((p) => (
@@ -239,7 +245,7 @@ export const PedirBar = ({
             </select>
           </>
         )}
-        <span className="cor-pedir-modes" role="group" aria-label="Cómo">
+        <span className="cor-pedir-modes" role="group" aria-label={w.howShort}>
           {MODES.map((m) => (
             <Opt key={m.id} on={mode === m.id} onClick={() => setMode(m.id)} title={m.line} data-mode={m.id}>
               {m.name}
@@ -249,7 +255,7 @@ export const PedirBar = ({
         <ModoChip mode={mode} onMode={setMode} to={pedirTo(project?.slug ?? slug)} />
         <span className="cor-pedir-field">
           <label className="sr-only" htmlFor="cor-pedir-t">
-            Lo que pides
+            {w.whatYouAsk}
           </label>
           <input
             ref={input}
@@ -281,7 +287,7 @@ export const PedirBar = ({
                     <span className="cor-ellipsis">{said.text}</span>
                     {said.to && (
                       <Link to={said.to} className="cor-inline">
-                        Ver la respuesta
+                        {w.seeAnswer}
                       </Link>
                     )}
                   </>

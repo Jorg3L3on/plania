@@ -10,24 +10,12 @@ import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Etapa } from "@/lib/api";
 import type { Tramo } from "@/lib/cosas";
-import {
-  LADO_ABRIR,
-  LADO_ABRIR_CAP,
-  LADO_CLOSE,
-  LADO_ESPERA,
-  LADO_FULL,
-  LADO_INICIATIVA,
-  LADO_KEYS,
-  LADO_NEXT,
-  LADO_PREV,
-  LADO_PRIORIDAD,
-  LADO_SUELTO,
-  ladoMove,
-  ladoOf,
-  prioridadWord,
-} from "@/lib/lado";
+import { ladoMove, ladoOf, ladoWords, prioridadWord } from "@/lib/lado";
 import { tramoTip } from "@/lib/tramo";
 import { Label } from "./parts";
+
+// PLA-I2-10: the panel's words in the screen's language (fixed for the page's life).
+const LW = ladoWords();
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
@@ -114,23 +102,23 @@ export const PasoLado = ({
         <span className="cor-key">{k}</span>
         {l && <span className="cor-label">{l.pos}</span>}
         <span className="cor-lado-nav">
-          <button type="button" className="cor-lado-ic" aria-label={LADO_PREV} aria-disabled={!l?.prev} onClick={() => l?.prev && onMove(l.prev)} data-control="lado-prev">
+          <button type="button" className="cor-lado-ic" aria-label={LW.prev} aria-disabled={!l?.prev} onClick={() => l?.prev && onMove(l.prev)} data-control="lado-prev">
             <Arrow d="M9.5 3.5 5 8l4.5 4.5" />
           </button>
-          <button type="button" className="cor-lado-ic" aria-label={LADO_NEXT} aria-disabled={!l?.next} onClick={() => l?.next && onMove(l.next)} data-control="lado-next">
+          <button type="button" className="cor-lado-ic" aria-label={LW.next} aria-disabled={!l?.next} onClick={() => l?.next && onMove(l.next)} data-control="lado-next">
             <Arrow d="M6.5 3.5 11 8l-4.5 4.5" />
           </button>
-          <Link to={links.full(k)} className="cor-lado-ic" aria-label={LADO_FULL} title={LADO_FULL} data-control="lado-full">
+          <Link to={links.full(k)} className="cor-lado-ic" aria-label={LW.full} title={LW.full} data-control="lado-full">
             <Arrow d="M6 3.5h6.5V10M12.5 3.5 4 12" />
           </Link>
-          <button type="button" className="cor-lado-ic" aria-label={LADO_CLOSE} onClick={onClose} data-control="lado-close">
+          <button type="button" className="cor-lado-ic" aria-label={LW.close} onClick={onClose} data-control="lado-close">
             <Arrow d="M4 4l8 8M12 4l-8 8" />
           </button>
         </span>
       </div>
       <div className="cor-lado-body">
         {tramos.length > 1 && (
-          <div className="cor-lado-strip" role="group" aria-label="Los pasos de la iniciativa">
+          <div className="cor-lado-strip" role="group" aria-label={LW.strip}>
             {tramos.map((s, i) => (
               <button key={s.key} type="button" className={cls("cor-lado-sg", s.tono, s.key === k && "open")} aria-current={s.key === k ? "step" : undefined} aria-label={tramoTip(s, i, tramos.length, now).aria} onClick={() => s.key !== k && onMove(s.key)} data-lado-paso={s.key}>
                 <i aria-hidden />
@@ -151,23 +139,23 @@ export const PasoLado = ({
           <h2 className="cor-h2 cor-lado-t">{t?.title ?? k}</h2>
         )}
         {q.isError ? (
-          <p className="cor-text cor-muted">No se pudo leer el resumen del paso.</p>
+          <p className="cor-text cor-muted">{LW.readFailed}</p>
         ) : !t ? (
-          <div className="cor-skel" style={{ height: 44 }} role="status" aria-busy="true" aria-label="Leyendo el paso" />
+          <div className="cor-skel" style={{ height: 44 }} role="status" aria-busy="true" aria-label={LW.reading} />
         ) : (
           t.summary && <p className="cor-text cor-lado-sum">{t.summary}</p>
         )}
         {l && (
-          <section className="cor-lado-espera" aria-label={LADO_ESPERA}>
+          <section className="cor-lado-espera" aria-label={LW.espera}>
             <Label as="h3" tone={l.tono === "toca" ? "amber" : undefined}>
-              {LADO_ESPERA}
+              {LW.espera}
             </Label>
             <p className="cor-text">{l.espera}</p>
           </section>
         )}
         <dl className="cor-lado-dl">
           <div>
-            <dt className="cor-label">{LADO_INICIATIVA}</dt>
+            <dt className="cor-label">{LW.iniciativa}</dt>
             <dd>
               {iniciativa ? (
                 <Link to={links.iniciativa(iniciativa.key)} className="cor-lado-ini" data-control="lado-iniciativa">
@@ -175,24 +163,24 @@ export const PasoLado = ({
                   <span className="cor-ellipsis">{iniciativa.title}</span>
                 </Link>
               ) : (
-                <span className="cor-muted">{LADO_SUELTO}</span>
+                <span className="cor-muted">{LW.suelto}</span>
               )}
             </dd>
           </div>
           <div>
-            <dt className="cor-label">{LADO_PRIORIDAD}</dt>
+            <dt className="cor-label">{LW.prioridad}</dt>
             <dd>{t ? prioridadWord(t.priority) : "…"}</dd>
           </div>
         </dl>
         <div className="cor-lado-abrir">
           <Link to={links.full(k)} className="cor-btn secondary" data-control="lado-abrir">
-            {LADO_ABRIR}
+            {LW.abrir}
           </Link>
-          <span className="cor-cap">{LADO_ABRIR_CAP}</span>
+          <span className="cor-cap">{LW.abrirCap}</span>
         </div>
       </div>
       <p className="cor-lado-foot cor-cap" aria-hidden>
-        {LADO_KEYS}
+        {LW.keys}
       </p>
     </aside>
   );

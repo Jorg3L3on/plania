@@ -10,7 +10,7 @@ import {
   pausedBannerText,
   pct,
   planBannerText,
-  planUnknownLine,
+  planUnknownText,
   roleInitials,
   roleWord,
   tokens,
@@ -20,6 +20,8 @@ import {
   type Plumbed,
   type Tone,
 } from "@/lib/compania";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { COMPANIA_PARTS } from "@/lib/compania-words";
 
 export const panel = "rounded-[22px] bg-card ring-1 ring-foreground/10";
 export const eyebrow = "text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase";
@@ -45,24 +47,25 @@ export const Dot = ({ tone, live }: { tone: Tone; live?: boolean }) => (
 
 // The 5-hour plan window: a big meter with the guard as a tick.
 export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: string }) => {
+  const w = words(COMPANIA_PARTS);
   const value = plan.five_hour_pct;
   const tone: Tone = plan.state === "stopped" ? "stop" : plan.state === "warn" || plan.state === "unknown" ? "warn" : "ok";
   return (
     <div className="grid gap-1.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-        <span className="text-sm font-semibold">Ventana de 5 h del plan</span>
+        <span className="text-sm font-semibold">{w.planWindow}</span>
         <span className={cn("shrink-0 font-mono text-sm tabular-nums", TONE_INK[tone])}>
-          {value == null ? "desconocido" : `${pct(value)}${plan.resets_at ? ` · se reinicia ${clock(plan.resets_at, timeZone)}` : ""}`}
+          {value == null ? w.unknown : `${pct(value)}${plan.resets_at ? w.resets(clock(plan.resets_at, timeZone)) : ""}`}
         </span>
       </div>
-      <div className="relative h-3 overflow-hidden rounded-full bg-muted" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? 0} aria-label="Ventana de 5 h del plan">
+      <div className="relative h-3 overflow-hidden rounded-full bg-muted" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? 0} aria-label={w.planWindow}>
         <div className={cn("h-full rounded-full", TONE_BAR[tone])} style={{ width: `${Math.min(100, value ?? 0)}%` }} />
         <span aria-hidden className="absolute inset-y-0 w-0.5 bg-foreground/70" style={{ left: `${plan.guard_pct}%` }} />
       </div>
       <p className="text-xs text-muted-foreground">
         {plan.state === "unknown"
-          ? planUnknownLine
-          : `La raya es el guardia (${plan.guard_pct}%): arriba de ella no arranca nada nuevo y te queda plan para ti.`}
+          ? planUnknownText()
+          : w.guardLine(plan.guard_pct)}
       </p>
     </div>
   );
@@ -70,17 +73,20 @@ export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: st
 
 // ---- 5c: one block failed. The others keep their last data.
 
-export const BlockError = ({ what, onRetry }: { what: string; onRetry: () => void }) => (
+export const BlockError = ({ what, onRetry }: { what: string; onRetry: () => void }) => {
+  const w = words(COMPANIA_PARTS);
+  return (
   <div role="alert" className="grid gap-2 rounded-[20px] bg-status-blocked/10 p-4 ring-1 ring-status-blocked/40">
-    <p className="text-sm font-semibold text-ink-blocked">No se pudo cargar {what}.</p>
-    <p className="text-sm text-muted-foreground">Plania no responde. Si la Mac está dormida, nada corre hasta que despierte.</p>
+    <p className="text-sm font-semibold text-ink-blocked">{w.couldNotLoad(what)}</p>
+    <p className="text-sm text-muted-foreground">{w.noAnswer}</p>
     <div>
       <button type="button" className={pillGhost} onClick={onRetry}>
-        Reintentar
+        {w.retry}
       </button>
     </div>
   </div>
-);
+  );
+};
 
 // ---- Banners (5e grey, 5h amber). PLA-21: no budget banner.
 
@@ -99,6 +105,7 @@ export const Banners = ({
   onMoveGuard: () => void;
   onSeeSpend: () => void;
 }) => {
+  const w = words(COMPANIA_PARTS);
   if (banners.length === 0) return null;
   return (
     <div className="grid gap-2.5">
@@ -109,7 +116,7 @@ export const Banners = ({
               <Dot tone="idle" />
               <p className="min-w-0 flex-[1_1_240px] text-sm font-medium">{pausedBannerText(b.since, timeZone)}</p>
               <button type="button" className={pillPrimary} onClick={onResume}>
-                Reanudar
+                {w.resume}
               </button>
             </section>
           );
@@ -120,11 +127,11 @@ export const Banners = ({
             <p className="min-w-0 flex-[1_1_260px] text-sm">{planBannerText(b.plan, timeZone).replace(/^[^·]+· /, "")}</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={pillGhost} onClick={onSeeSpend}>
-                Ver gasto
+                {w.seeSpend}
               </button>
               {canEdit && (
                 <button type="button" className={pillPrimary} onClick={onMoveGuard}>
-                  Mover guardia
+                  {w.moveGuard}
                 </button>
               )}
             </div>
@@ -139,7 +146,9 @@ export const Banners = ({
 
 // ---- En marcha (LIB-0032/33: live dot, short label, running clock)
 
-const RunRow = ({ run, now, queued, projectTitle }: { run: CompanyRun; now: number; queued?: boolean; projectTitle: (slug: string) => string }) => (
+const RunRow = ({ run, now, queued, projectTitle }: { run: CompanyRun; now: number; queued?: boolean; projectTitle: (slug: string) => string }) => {
+  const w = words(COMPANIA_PARTS);
+  return (
   <li className={cn("flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-0", queued && "opacity-60")} data-run={run.status}>
     <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted font-mono text-[11px] font-semibold">{roleInitials(run.role)}</span>
     <span className="grid min-w-0 flex-1 gap-0.5">
@@ -153,7 +162,7 @@ const RunRow = ({ run, now, queued, projectTitle }: { run: CompanyRun; now: numb
         )}
       </span>
       <span className="truncate text-xs text-muted-foreground">
-        {queued ? "En espera · arranca cuando se libere un lugar" : `Turno ${run.turns} · ${tokens(run.tokens)} tokens`}
+        {queued ? w.queued : w.turn(run.turns, tokens(run.tokens))}
       </span>
     </span>
     <span className="flex shrink-0 items-center gap-1.5 font-mono text-sm whitespace-nowrap tabular-nums">
@@ -161,13 +170,14 @@ const RunRow = ({ run, now, queued, projectTitle }: { run: CompanyRun; now: numb
       {queued ? "—" : elapsed(run.started_at, now)}
     </span>
   </li>
-);
+  );
+};
 
 export const EnMarcha = ({ company, now, projectTitle }: { company: Plumbed; now: number; projectTitle: (slug: string) => string }) => (
   <section aria-labelledby="cia-marcha" className={cn(panel, "overflow-hidden")}>
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
       <h2 id="cia-marcha" className={heading}>
-        En marcha <span className="font-mono text-sm font-normal text-muted-foreground">{company.runs.live.length}</span>
+        {words(COMPANIA_PARTS).running} <span className="font-mono text-sm font-normal text-muted-foreground">{company.runs.live.length}</span>
       </h2>
       <span className="text-xs text-muted-foreground">{capLine(company)}</span>
     </div>
@@ -192,17 +202,18 @@ export const EnMarcha = ({ company, now, projectTitle }: { company: Plumbed; now
 // ---- The company kill switch, at the bottom (the header pill is the second way in)
 
 export const KillSwitch = ({ company, onStop, onResume }: { company: Plumbed; onStop: () => void; onResume: () => void }) => {
+  const w = words(COMPANIA_PARTS);
   const live = company.runs.live.length;
   if (company.company.paused) {
     return (
       <section aria-labelledby="cia-switch" className="grid gap-3 rounded-[22px] border-2 border-dashed border-foreground/20 p-5">
         <h2 id="cia-switch" className={heading}>
-          La compañía está detenida
+          {w.companyStopped}
         </h2>
-        <p className="text-sm text-muted-foreground">Nada arranca en ningún proyecto. Un proyecto pausado por su cuenta sigue en pausa al reanudar.</p>
+        <p className="text-sm text-muted-foreground">{w.stoppedLead}</p>
         <div>
           <button type="button" className={pillPrimary} onClick={onResume}>
-            Reanudar la compañía
+            {w.resumeCompany}
           </button>
         </div>
       </section>
@@ -211,14 +222,14 @@ export const KillSwitch = ({ company, onStop, onResume }: { company: Plumbed; on
   return (
     <section aria-labelledby="cia-switch" className="grid gap-3 rounded-[22px] border-2 border-dashed border-status-blocked/50 p-5">
       <h2 id="cia-switch" className={heading}>
-        La compañía está en marcha
+        {w.companyRunning}
       </h2>
       <p className="text-sm text-muted-foreground">
-        Detenerla cierra {live === 1 ? "la corrida" : `las ${live} corridas`} con calma (terminan su paso) y no arranca nada nuevo en ningún proyecto hasta que la reanudes. No borra nada.
+        {w.stopLead(live)}
       </p>
       <div>
         <button type="button" className={pillDanger} onClick={onStop}>
-          Detener la compañía
+          {w.stopCompany}
         </button>
       </div>
     </section>
@@ -242,36 +253,37 @@ export const StopBody = ({
   onCancel: () => void;
   busy?: boolean;
 }) => {
+  const w = words(COMPANIA_PARTS);
   const affected = scope.kind === "company" ? runs : runs.filter((r) => r.project === scope.slug);
-  const name = scope.kind === "company" ? "la compañía" : scope.title;
+  const name = scope.kind === "company" ? w.theCompany : scope.title;
   return (
     <div className="grid gap-4" data-testid="stop-sheet">
       <ul className="grid gap-3 text-sm">
         <li className="grid gap-0.5">
-          <span className="font-semibold">Se cierra</span>
+          <span className="font-semibold">{w.closes}</span>
           <span className="text-muted-foreground">
             {affected.length === 0
-              ? "Nada corre ahora."
-              : affected.map((r) => `${roleWord(r.role)} en ${projectTitle(r.project)}${r.ticket ? ` (${r.ticket})` : ""}`).join(" · ") + ": terminan su paso y se cierran."}
+              ? w.nothingRuns
+              : affected.map((r) => `${w.runIn(roleWord(r.role), projectTitle(r.project))}${r.ticket ? ` (${r.ticket})` : ""}`).join(" · ") + w.finishStep}
           </span>
         </li>
         <li className="grid gap-0.5">
-          <span className="font-semibold">Deja de arrancar</span>
+          <span className="font-semibold">{w.stopsStarting}</span>
           <span className="text-muted-foreground">
-            {scope.kind === "company" ? "Ningún proyecto arranca corridas, ni por evento ni por horario." : `${name} no arranca corridas, ni por evento ni por horario.`}
+            {scope.kind === "company" ? w.noProjectStarts : w.projectStops(name)}
           </span>
         </li>
         <li className="grid gap-0.5">
-          <span className="font-semibold">Se queda</span>
-          <span className="text-muted-foreground">No se borra nada. La Bandeja, los merges y las decisiones siguen funcionando.</span>
+          <span className="font-semibold">{w.stays}</span>
+          <span className="text-muted-foreground">{w.staysLine}</span>
         </li>
       </ul>
       <div className="flex flex-wrap gap-2">
         <button type="button" className={pillDanger} onClick={onConfirm} disabled={busy}>
-          {scope.kind === "company" ? "Detener la compañía" : `Pausar ${scope.title}`}
+          {scope.kind === "company" ? w.stopCompany : w.pauseProject(scope.title)}
         </button>
         <button type="button" className={pillGhost} onClick={onCancel}>
-          Seguir en marcha
+          {w.keepRunning}
         </button>
       </div>
     </div>
@@ -282,6 +294,7 @@ export const StopBody = ({
 
 // PLA-I42-5: "Brief de hoy" when the Morning brief's lines are from today in the screen's zone, else "Último brief".
 const dayIn = (ms: number, timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
-export const briefTitle = (generatedAt: string, now: number, timeZone: string): string =>
-  dayIn(Date.parse(generatedAt), timeZone) === dayIn(now, timeZone) ? "Brief de hoy" : "Último brief";
-export const BRIEF_LINK_LABEL = "Ver el brief completo";
+export const briefTitle = (generatedAt: string, now: number, timeZone: string, language: Language = getLanguage()): string =>
+  dayIn(Date.parse(generatedAt), timeZone) === dayIn(now, timeZone) ? words(COMPANIA_PARTS, language).briefToday : words(COMPANIA_PARTS, language).lastBrief;
+// PLA-I2-10: a constant other files read; the language is fixed for the page load.
+export const BRIEF_LINK_LABEL = words(COMPANIA_PARTS).briefLink;

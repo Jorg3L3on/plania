@@ -1,15 +1,15 @@
 // PLA-I63-2: the delta (PLA-IDEA26, sketch 2). One stream per project, drawn as an SVG curve into «Tú»; its lights are
 // buttons (44px tall): a spark is a new idea, a violet light with its key is what follows, an amber rhombus with its
-// verb is what waits on Jorge, and a blocker is a dam that cuts the stream (dotted after it). What is settled leaves by
+// verb is what waits on the owner, and a blocker is a dam that cuts the stream (dotted after it). What is settled leaves by
 // the green river of Resuelto, whose lights can be picked too. Particles run along each stream and stop at a dam; the
 // picked light pulses to Tú. Only transform and offset-path move; nothing moves with prefers-reduced-motion.
 import { useEffect, useRef, useState } from "react";
 import { CrossMark } from "@/components/plania-mark";
 import { CROSS } from "@/lib/brief";
 import { outPath, tail, type Delta, type Light } from "@/lib/brief-delta";
+import { words } from "@/lib/i18n";
+import { BRIEF_DELTA_WORDS } from "@/lib/brief-delta-words";
 import { Logo } from "./parts";
-
-const WORD: Record<Light["kind"], string> = { idea: "Idea nueva", next: "Sigue", toca: "Te toca", block: "Bloquea" };
 
 /** The main area's size, measured (1440 × 650 until it is). */
 export function useStage(): [React.RefObject<HTMLDivElement | null>, { w: number; h: number }] {
@@ -29,7 +29,8 @@ export function useStage(): [React.RefObject<HTMLDivElement | null>, { w: number
 }
 
 function LightButton({ l, sel, settled, onPick, arrive, flow }: { l: Light; sel: boolean; settled?: boolean; onPick: (id: string) => void; arrive?: boolean; flow?: boolean }) {
-  const label = `${settled ? "Resuelto" : WORD[l.kind]}: ${l.title}`;
+  const w = words(BRIEF_DELTA_WORDS);
+  const label = `${settled ? w.settled : w.kind[l.kind]}: ${l.title}`;
   const off = settled ? 8 : l.kind === "idea" ? 14 : l.kind === "next" ? 12 : 16;
   return (
     <button
@@ -87,8 +88,9 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
   const sel = delta.streams.flatMap((s) => s.lights).find((l) => l.id === selected);
   const selStream = sel ? delta.streams.find((s) => s.lights.includes(sel)) : undefined;
   const free = c.toca === 0;
+  const w = words(BRIEF_DELTA_WORDS);
   return (
-    <div className={`cor-bf-delta${g.scroll ? " scroll" : ""}`} ref={stageRef} role="group" aria-label="El brief de hoy: un cauce por proyecto" data-brief="delta">
+    <div className={`cor-bf-delta${g.scroll ? " scroll" : ""}`} ref={stageRef} role="group" aria-label={w.label} data-brief="delta">
       <div className="cor-bf-stage" style={{ width: g.w, height: g.h }}>
         <svg className="cor-bf-svg" width={g.w} height={g.h} viewBox={`0 0 ${g.w} ${g.h}`} aria-hidden>
           <defs>
@@ -140,13 +142,13 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
         </div>
 
         <span className="cor-bf-band" style={{ left: g.x0 + 16, top: g.y0 - 42 }}>
-          IDEAS<b>{c.ideas}</b>
+          {w.bands.ideas}<b>{c.ideas}</b>
         </span>
         <span className="cor-bf-band" style={{ left: g.x0 + 106, top: g.y0 - 42 }}>
-          SIGUE<b>{c.next}</b>
+          {w.bands.next}<b>{c.next}</b>
         </span>
         <span className={`cor-bf-band${c.toca ? " a" : ""}`} style={{ left: g.x0 + 214, top: g.y0 - 42 }}>
-          TE TOCA<b>{c.toca}</b>
+          {w.bands.toca}<b>{c.toca}</b>
         </span>
 
         {delta.streams.map((s) => (
@@ -155,7 +157,7 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
             type="button"
             className={`cor-bf-who${selStream?.slug === s.slug ? " cur" : ""}`}
             style={{ top: s.y }}
-            aria-label={`${s.name}: ${quiet ? "sin brief" : s.sub}`}
+            aria-label={`${s.name}: ${quiet ? w.noBrief : s.sub}`}
             onClick={() => {
               const first = [...s.lights].sort((a, b) => (a.kind === "block" ? -1 : b.kind === "block" ? 1 : a.kind === "toca" ? -1 : b.kind === "toca" ? 1 : 0))[0];
               if (first) onPick(first.id);
@@ -166,7 +168,7 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
             {s.slug === CROSS ? <CrossMark className="cor-logo" /> : <Logo slug={s.slug} title={s.name} />}
             <span className="cor-bf-who-t">
               <span className="cor-bf-nm">{s.name}</span>
-              <span className={`cor-bf-sub${s.amber && !quiet ? " a" : ""}`}>{quiet ? "sin brief" : s.sub}</span>
+              <span className={`cor-bf-sub${s.amber && !quiet ? " a" : ""}`}>{quiet ? w.noBrief : s.sub}</span>
             </span>
           </button>
         ))}
@@ -178,7 +180,7 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
         {delta.streams.map(
           (s) =>
             s.more && (
-              <button key={`more-${s.slug}`} type="button" className="cor-bf-more" style={{ left: s.more.x - 6, top: s.y }} onClick={() => onPick(s.more!.first)} aria-label={`${s.more.n} más en ${s.name}`} data-more={s.slug}>
+              <button key={`more-${s.slug}`} type="button" className="cor-bf-more" style={{ left: s.more.x - 6, top: s.y }} onClick={() => onPick(s.more!.first)} aria-label={w.more(s.more.n, s.name)} data-more={s.slug}>
                 +{s.more.n}
               </button>
             ),
@@ -186,11 +188,11 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
 
         <span className={`cor-bf-tu${free ? " free" : ""}`} style={{ left: g.gx, top: g.gy }} aria-hidden data-brief="tu" />
         <span className={`cor-bf-gl${free ? " free" : ""}`} style={{ left: g.gx, top: g.gy - 34 }}>
-          TÚ
+          {w.bands.you}
         </span>
 
         <span className="cor-bf-band g" style={{ left: g.riverX, top: g.oy - 7 }} data-brief="resuelto">
-          RESUELTO<b>
+          {w.bands.settled}<b>
             {c.done} / {c.total}
           </b>
         </span>
@@ -212,17 +214,18 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
 export function BriefPhone({ delta, selected, onPick, card }: { delta: Delta; selected: string | null; onPick: (id: string) => void; card: React.ReactNode }) {
   const c = delta.counts;
   const inRiver = delta.river.some((l) => l.id === selected);
+  const w = words(BRIEF_DELTA_WORDS);
   return (
-    <div className="cor-bf-phone" data-brief="delta" role="group" aria-label="El brief de hoy: un cauce por proyecto">
+    <div className="cor-bf-phone" data-brief="delta" role="group" aria-label={w.label}>
       <p className="cor-bf-phone-bands">
         <span>
-          IDEAS<b>{c.ideas}</b>
+          {w.bands.ideas}<b>{c.ideas}</b>
         </span>
         <span>
-          SIGUE<b>{c.next}</b>
+          {w.bands.next}<b>{c.next}</b>
         </span>
         <span className={c.toca ? "a" : undefined}>
-          TE TOCA<b>{c.toca}</b>
+          {w.bands.toca}<b>{c.toca}</b>
         </span>
       </p>
       {delta.streams.map((s) => {
@@ -242,7 +245,7 @@ export function BriefPhone({ delta, selected, onPick, card }: { delta: Delta; se
                   <LightButton key={l.id} l={l} sel={l.id === selected} onPick={onPick} flow />
                 ))}
                 {s.more && (
-                  <button type="button" className="cor-bf-more flow" onClick={() => onPick(s.more!.first)} aria-label={`${s.more.n} más en ${s.name}`} data-more={s.slug}>
+                  <button type="button" className="cor-bf-more flow" onClick={() => onPick(s.more!.first)} aria-label={w.more(s.more.n, s.name)} data-more={s.slug}>
                     +{s.more.n}
                   </button>
                 )}
@@ -252,9 +255,9 @@ export function BriefPhone({ delta, selected, onPick, card }: { delta: Delta; se
           </section>
         );
       })}
-      <section className="cor-bf-pstream river" aria-label={`Resuelto: ${c.done} de ${c.total}`} data-stream="resuelto">
+      <section className="cor-bf-pstream river" aria-label={w.river(c.done, c.total)} data-stream="resuelto">
         <p className="cor-bf-band g flow" data-brief="resuelto">
-          RESUELTO<b>
+          {w.bands.settled}<b>
             {c.done} / {c.total}
           </b>
           {delta.riverMore > 0 && <span> · +{delta.riverMore}</span>}

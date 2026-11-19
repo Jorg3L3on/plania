@@ -135,7 +135,7 @@ test("I40-2 #1: a queued run inside the rest starts on Que empiece ya, is logged
   assert.equal(f.spawned.length, 1);
   const forced = (await raw.query(`select actor, task_key, payload from events where type = 'wake.forced'`)).rows;
   assert.equal(forced.length, 1);
-  assert.deepEqual([forced[0].payload.run_id, forced[0].payload.agent, forced[0].payload.past_guard, forced[0].task_key, forced[0].actor.agent], [runId, "taller-micasa", false, first, "jorge"]);
+  assert.deepEqual([forced[0].payload.run_id, forced[0].payload.agent, forced[0].payload.past_guard, forced[0].task_key, forced[0].actor.agent], [runId, "taller-micasa", false, first, "owner"]);
 
   f.spawned[0]!.child.finish();
   await runner.waitForRun(runId);

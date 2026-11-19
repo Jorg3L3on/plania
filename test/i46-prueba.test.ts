@@ -4,7 +4,7 @@
 // (a tiny node server in a throwaway git repo) and checks the process group is gone after teardown. Test DB only.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
@@ -14,6 +14,11 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const TMP = mkdtempSync(path.join(tmpdir(), "plania-prueba-test-"));
 process.env.PLANIA_CAPTURES_DIR = path.join(TMP, "captures");
+// PLA-I2-13: the rest of Plania's secrets (useTestEnv sets the database, MCP tokens, CI token and session secret)
+// and a Claude key: none may reach an app's command.
+process.env.GITHUB_TOKEN = "ghp-plania-secret";
+process.env.VAPID_PRIVATE_KEY = "vapid-plania-secret";
+process.env.ANTHROPIC_API_KEY = "sk-ant-not-for-apps";
 const WT_ROOT = path.join(TMP, "worktrees");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
@@ -156,6 +161,9 @@ describe("Encenderla", () => {
     assert.equal(c.command, "npm run dev -- --port 3000");
     assert.equal(c.env.PORT, "3000");
     assert.equal(c.env.DATABASE_URL, undefined, "Plania's database never reaches the app");
+    // PLA-I2-13 #1: nor any other Plania secret; the app reads its own env file.
+    for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "MCP_READ_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY", "PLANIA_CI_TOKEN", "ANTHROPIC_API_KEY"]) assert.equal(c.env[k], undefined, k);
+    assert.deepEqual(Object.keys(c.env).filter((k) => k.startsWith("PLANIA_")), []);
     assert.ok(gitCalls.some((g) => g.join(" ") === `fetch origin sandbox @${REPO}`));
     assert.ok(gitCalls.some((g) => g.slice(0, 5).join(" ") === `worktree add --detach ${wt} origin/sandbox`));
     assert.ok(!gitCalls.some((g) => g.includes("main") || g.includes("origin/main")), "never main");
@@ -397,5 +405,72 @@ describe("Encenderla with a real process", () => {
     assert.equal((await liveServers()).filter((x) => x.locator === `port:${port}`).length, 0, "released");
     t.diagnostic(`real copy on :${port}, pid ${pid}, stopped`);
     execFileSync("git", ["worktree", "remove", "--force", wt], { cwd: repo });
+  });
+});
+
+// PLA-I2-9: a test copy of Plania itself (the project's repo is the running server's checkout).
+describe("a test copy of Plania itself", () => {
+  const SELF = path.join(TMP, "self-repo");
+  const LIVE = process.env.DATABASE_URL!;
+  let built: { url: string; name: string; dir: string }[] = [];
+  const selfDeps = (over: Partial<Deps> = {}) =>
+    fakeDeps({ serverRoot: SELF, selfDb: async (url, name, dir) => (built.push({ url, name, dir }), { ok: true }), ...over });
+
+  beforeEach(async () => {
+    built = [];
+    mkdirSync(SELF, { recursive: true });
+    // The owner's own .env, with the live database and jobs on.
+    writeFileSync(path.join(SELF, ".env"), `DATABASE_URL=${LIVE}\nPLANIA_JOBS=1\nSESSION_SECRET=keep-me\n`);
+    await setCapture("zigzag", SETTINGS(3100, { start_command: "pnpm exec tsx scripts/dev.ts --port {port}" }), SELF);
+  });
+  after(async () => setCapture("zigzag", SETTINGS(3000), REPO));
+
+  test("check 4: it starts on its own new database with jobs off, never the live one", async () => {
+    prueba.setPruebaDeps(selfDeps());
+    await post("zigzag", "encender");
+    await until(() => children.length === 1);
+    const c = children[0]!;
+    const wt = path.join(WT_ROOT, "zigzag", "_prueba");
+    const name = `${new URL(LIVE).pathname.slice(1)}_prueba`;
+    assert.equal(built.length, 1, "built by the migrate module");
+    assert.deepEqual([built[0]!.name, built[0]!.dir], [name, path.join(wt, "drizzle", "migrations")]);
+    assert.notEqual(c.env.DATABASE_URL, LIVE);
+    assert.equal(new URL(c.env.DATABASE_URL!).pathname, `/${name}`);
+    assert.deepEqual([c.env.PLANIA_JOBS, c.env.PLANIA_EVENT_WAKES, c.env.PLANIA_RUNNER_TOKEN, c.env.PORT, c.env.PLANIA_PORT], ["0", "0", "", "3100", "3100"]);
+    assert.equal(c.command, "pnpm exec tsx scripts/dev.ts --port 3100");
+    const file = readFileSync(path.join(wt, ".env"), "utf8");
+    assert.equal(file.split(/\r?\n/).includes(`DATABASE_URL=${LIVE}`), false, "the copied env file no longer names the live database");
+    assert.match(file, new RegExp(`^DATABASE_URL=.*/${name}$`, "m"));
+    assert.match(file, /^PLANIA_JOBS=0$/m);
+    assert.match(file, /^SESSION_SECRET=keep-me$/m);
+    // The owner's own file is untouched.
+    assert.match(readFileSync(path.join(SELF, ".env"), "utf8"), /^PLANIA_JOBS=1$/m);
+  });
+
+  test("check 4: refused when it would take the live server's port, or when the live database is unknown", async () => {
+    prueba.setPruebaDeps(selfDeps({ env: { ...process.env, PLANIA_WORKTREES_ROOT: WT_ROOT, PLANIA_PORT: "3100" } }));
+    await post("zigzag", "encender");
+    await until(async () => (await read("zigzag")).prueba.phase === "failed");
+    assert.match((await read("zigzag")).prueba.error, /puerto del Plania que estás usando/);
+    assert.equal(children.length, 0);
+
+    prueba.resetPrueba();
+    built = [];
+    const { DATABASE_URL: _, ...noDb } = process.env;
+    prueba.setPruebaDeps(selfDeps({ env: { ...noDb, PLANIA_WORKTREES_ROOT: WT_ROOT } }));
+    await post("zigzag", "encender");
+    await until(async () => (await read("zigzag")).prueba.phase === "failed");
+    assert.match((await read("zigzag")).prueba.error, /no enciendo la copia/);
+    assert.equal(children.length, 0);
+    assert.equal(built.length, 0);
+  });
+
+  test("any other project keeps its own env file as it was", async () => {
+    prueba.setPruebaDeps(selfDeps({ serverRoot: path.join(TMP, "not-this-one") }));
+    await post("zigzag", "encender");
+    await until(() => children.length === 1);
+    assert.equal(built.length, 0);
+    assert.equal(children[0]!.env.DATABASE_URL, undefined);
+    assert.equal(readFileSync(path.join(WT_ROOT, "zigzag", "_prueba", ".env"), "utf8"), `DATABASE_URL=${LIVE}\nPLANIA_JOBS=1\nSESSION_SECRET=keep-me\n`);
   });
 });
