@@ -137,13 +137,13 @@ test("F7: the home project stays off the lists while it holds no work, and comes
   const home = company.projects.find((p: Json) => p.slug === "plania");
   assert.ok(home, "reads by slug still find it");
   assert.equal(home.quiet_home, true);
-  assert.deepEqual(visibles.listedProjects(company.projects as Json[]), []);
+  assert.deepEqual(visibles.listedProjects(company.projects as { slug: string; quiet_home?: boolean }[]), []);
   assert.equal((await get("/api/projects")).find((p: Json) => p.slug === "plania").quiet_home, true);
   assert.equal((await get("/api/projects?for=stream")).find((p: Json) => p.slug === "plania").quiet_home, true);
 
   // The example project shows; the home project still does not.
   assert.equal((await post("/api/guia/ejemplo")).status, 201);
-  const listed = visibles.listedProjects((await get("/api/company")).projects as Json[]).map((p) => p.slug);
+  const listed = visibles.listedProjects((await get("/api/company")).projects as { slug: string; quiet_home?: boolean }[]).map((p) => p.slug);
   assert.deepEqual(listed, ["ejemplo"]);
 
   // Once the home project holds work it is listed like any other.

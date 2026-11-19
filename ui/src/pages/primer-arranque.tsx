@@ -138,7 +138,7 @@ function FirstStartCard({ state, hashCode }: { state: FirstStartState | undefine
             <Field id="name" label={WORDS.name} hint={WORDS.nameHint} autoComplete="name" autoFocus={!codeField} value={form.name} onChange={set("name")} />
             <Field id="password" label={WORDS.password} hint={WORDS.passwordHint} type="password" autoComplete="new-password" value={form.password} onChange={set("password")} />
             <Field id="repeat" label={WORDS.repeat} type="password" autoComplete="new-password" value={form.repeat} onChange={set("repeat")} />
-            <details className="group grid gap-4 rounded-md border px-3 py-2" open={options} onToggle={(e) => setOptions(e.currentTarget.open)} data-mas-opciones>
+            <details className="rounded-md border px-3 py-2" open={options} onToggle={(e) => setOptions(e.currentTarget.open)} data-mas-opciones>
               <summary className="cursor-pointer text-sm font-medium">{WORDS.moreOptions}</summary>
               <p className="mt-1 text-xs text-muted-foreground">{WORDS.moreOptionsHint}</p>
               <div className="mt-3 grid gap-4 pb-2">
