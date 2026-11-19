@@ -36,7 +36,7 @@ export const SETTINGS = {
   release: {
     tier: "basic",
     control: "ajustes.lanzamiento",
-    default: "a new project ships from the screen (mode merge, start branch → main, env prod); an older one keeps what it has",
+    default: "a project made on the screen ships from the screen (mode merge, start branch → main, env prod); one made by the script or the MCP tool has none, and an older one keeps what it has",
     frase: "La fusión a producción que solo tú haces, desde la pantalla o con un comando.",
   },
   qa: { tier: "basic", control: "ajustes.pruebas", default: "no verify list; the other QA switches off", frase: "Los comandos que QA corre en cada entrega." },

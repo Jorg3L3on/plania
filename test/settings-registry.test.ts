@@ -28,7 +28,7 @@ const reg = await import("../src/mcp/settings-registry.js");
 const { advancedWithoutField, AVANZADO_FIELDS } = await import("../src/api/settings-avanzado.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { READINESS_IDS } = await import("../src/runner/readiness.js");
-const { NEW_PROJECT_RELEASE } = await import("../src/runner/new-project.js");
+const { NEW_PROJECT_RELEASE, createProjectFromTemplate } = await import("../src/runner/new-project.js");
 const { withTable } = await import("../scripts/settings-table.js");
 const listo = await import("../ui/src/lib/listo.js");
 const av = await import("../ui/src/lib/ajustes-avanzado.js");
@@ -215,6 +215,10 @@ test("PLA-I2-6 check 4: a new project with code ships from the screen (mode merg
   assert.deepEqual(cocina.settings.release, NEW_PROJECT_RELEASE);
   assert.equal(cocina.settings.release.mode, "merge");
   assert.equal((await stored("huerto")).settings.release, undefined);
+  // The script and the MCP tool create through the same function without the screen's flag: no release step.
+  const made = await createProjectFromTemplate(db, { name: "Granero", repo_path: "/Users/o/granero" }, { requirePromptDoc: false });
+  assert.ok(!("error" in made), JSON.stringify(made));
+  assert.equal((await stored("granero")).settings.release, undefined);
   const s = await read();
   assert.equal(s.release?.mode, "merge", "Ajustes shows it as shipping from Plania");
   const plan = await app.request(`/api/projects/${SLUG}/release`, { headers: jorge() });

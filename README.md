@@ -1038,8 +1038,9 @@ system themes. Times arrive as UTC and show in the browser's local time.
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
   concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
-  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A new project with code
-  starts with a release step that ships from the screen (mode `merge`). No field takes a secret: a token is named by
+  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A project with code made
+  on the screen starts with a release step that ships from the screen (mode `merge`); `pnpm project:add` and
+  `create_company_project` add none. No field takes a secret: a token is named by
   its variable (`github.token_env`, `vercel.token_env`), and a value shaped like a token is refused (`SECRET_VALUE`).
   Each missing item on the readiness list links to its section. Plomería's «Cada corrida» sets the company's
   `max_turns`, `timeout_minutes` and `cooldown_minutes`.

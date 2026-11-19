@@ -672,7 +672,7 @@ export const setNewProjectRepoCheck = (d: RepoCheckDeps | null): void => {
 companyRoutes.post("/projects", async (c) => {
   const input = await body(c, NewProjectBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck }));
+  const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck, releaseFromScreen: true }));
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);
