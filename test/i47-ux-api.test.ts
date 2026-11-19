@@ -47,11 +47,11 @@ after(async () => {
   await raw?.end();
 });
 
-test("I47-7: a delivery still waiting for QA is not Te toca: no needs_jorge light and no dead «Ver en Te toca» move", async () => {
+test("I47-7: a delivery still waiting for QA is not Te toca: no needs_owner light and no dead «Ver en Te toca» move", async () => {
   const c = await company();
   assert.equal(c.decisions.filter((d: Json) => d.project === "micasa").length, 0, "QA holds it off Te toca");
   const p = c.projects.find((x: Json) => x.slug === "micasa");
-  assert.notEqual(p.light, "needs_jorge");
+  assert.notEqual(p.light, "needs_owner");
   assert.equal(p.next_move?.accion?.href, undefined, "no link move to #te-toca");
 });
 
@@ -64,6 +64,6 @@ test("I47-7: once QA passes, the same delivery is the owner's move again", async
   ]);
   const c = await company();
   const p = c.projects.find((x: Json) => x.slug === "micasa");
-  assert.equal(p.light, "needs_jorge", JSON.stringify({ light: p.light, reason: p.light_reason, d: c.decisions.map((d: Json) => [d.project, d.kind, d.hold]) }));
+  assert.equal(p.light, "needs_owner", JSON.stringify({ light: p.light, reason: p.light_reason, d: c.decisions.map((d: Json) => [d.project, d.kind, d.hold]) }));
   assert.equal(p.next_move.origen.kind, "decision", "the move is the delivery itself, not the light's link");
 });

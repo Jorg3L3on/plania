@@ -12,7 +12,7 @@ const TONE_VAR: Record<StageTone | "idle", string> = {
   blocked: "var(--status-blocked)",
   now: "var(--status-now)",
   review: "var(--status-review)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   done: "var(--status-done)",
 };
 // More than this many at once fold into «y n más».

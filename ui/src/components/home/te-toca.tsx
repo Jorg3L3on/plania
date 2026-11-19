@@ -36,7 +36,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
     if (free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
   };
   return (
-    <article className="grid gap-2.5 rounded-[16px] border border-status-jorge/25 bg-status-jorge/[0.07] px-4 py-3.5">
+    <article className="grid gap-2.5 rounded-[16px] border border-status-owner/25 bg-status-owner/[0.07] px-4 py-3.5">
       <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>
           <ProjectWord slug={item.project} names={names} /> ·{" "}
@@ -62,7 +62,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
               )}
             >
               <span>{o}</span>
-              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
+              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-owner">propuesta</span>}
             </button>
           ))}
         </div>
@@ -79,7 +79,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
         className="bg-background/60 text-base md:text-xs"
       />
       {total > 1 && (
-        <button type="button" onClick={onNext} className="inline-flex min-h-8 w-fit items-center gap-1 justify-self-end text-xs font-semibold text-ink-jorge hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+        <button type="button" onClick={onNext} className="inline-flex min-h-8 w-fit items-center gap-1 justify-self-end text-xs font-semibold text-ink-owner hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           Siguiente pregunta <ArrowRightIcon className="size-3.5" aria-hidden />
         </button>
       )}

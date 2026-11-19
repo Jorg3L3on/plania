@@ -193,7 +193,7 @@ describe("the push job", () => {
     // A human_action and a Jorge: line are two steps.
     await withDb(async (db) => {
       await writes.createTask(db, { project: "zigzag", title: "Con paso", ...T, blocked_by: [{ human_action: { text: "Crear la cuenta de Stripe" } }] }, ctx);
-      await writes.setTask(db, { project: "zigzag", key: "ZIG-01", note: "Jorge: rotar la llave de Vercel" }, ctx);
+      await writes.setTask(db, { project: "zigzag", key: "ZIG-01", note: "Owner: rotar la llave de Vercel" }, ctx);
     });
     const burst = await withDb((db) => runPush(db, new Date(), fake.send));
     assert.equal(burst.new, 2);

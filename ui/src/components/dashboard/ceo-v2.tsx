@@ -99,7 +99,7 @@ export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: str
 
 const KIND_LABEL: Record<QueueKind, string> = { decidir: "Decidir", merge: "Merge", atorado: "Atorado", paso: "Paso" };
 const KIND_TONE: Record<QueueKind, string> = {
-  decidir: "bg-status-jorge/20 text-ink-jorge",
+  decidir: "bg-status-owner/20 text-ink-owner",
   merge: "bg-status-review/20 text-ink-review",
   atorado: "bg-status-blocked/20 text-ink-blocked",
   paso: "bg-status-now/20 text-ink-now",

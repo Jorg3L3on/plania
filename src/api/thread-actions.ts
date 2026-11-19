@@ -19,6 +19,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { queueRetro } from "../runner/retro.js";
 import type { ThreadRef } from "../runner/threads.js";
+import { ownerEs } from "../owner.js";
 
 export const MERGE_BASE = "sandbox";
 const PR = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/;
@@ -162,7 +163,7 @@ async function changes(db: Db, msg: ThreadMessage, ref: ThreadRef, text: string)
   if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket de este hilo.");
   if (["Done", "Won't do", "Merged", "Released"].includes(t.status)) return refuse("TICKET_CLOSED", `${t.key} ya está cerrado (${t.status}).`, { key: t.key, status: t.status });
   const project = await projectOf(db, t);
-  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `Cambios que pide Jorge: ${text}` } as never, { ...webCtx, tool: "screen.thread_changes" });
+  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `Cambios que pide ${ownerEs()}: ${text}` } as never, { ...webCtx, tool: "screen.thread_changes" });
   // Moving to Ready wakes a PO-owned ticket's PO, or Taller for code (the event hook). Any other owner is
   // woken here, unless it already has a run queued or running.
   let wake: string = "event";

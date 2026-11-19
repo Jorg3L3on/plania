@@ -213,7 +213,7 @@ async function threadFacts(db: Q, threadId: string | null, readAt: Date | null, 
   const [unread] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(threadMessages)
-    .where(and(eq(threadMessages.threadId, threadId), sql`${threadMessages.authorAgent} <> 'jorge'`, readAt ? sql`${threadMessages.at} > ${readAt.toISOString()}::timestamptz` : sql`true`));
+    .where(and(eq(threadMessages.threadId, threadId), sql`${threadMessages.authorAgent} <> 'owner'`, readAt ? sql`${threadMessages.at} > ${readAt.toISOString()}::timestamptz` : sql`true`));
   return {
     unread: unread?.n ?? 0,
     messages: rows.reverse().map(({ m, qAnswered }) => ({
@@ -265,7 +265,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     })),
   );
   const blocked = tickets
-    .filter((t) => t.status === "Blocked" || t.status === "Needs Jorge")
+    .filter((t) => t.status === "Blocked" || t.status === "Needs owner")
     .map((t) => ({ handle: handles.task(t.kind, t.key), key: t.key, title: t.title, status: t.status, note: t.blockedNote ? clip(t.blockedNote, 300) : null }));
   const created = all
     .filter((t) => inWindow(t.createdAt, w))

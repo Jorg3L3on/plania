@@ -29,6 +29,7 @@ import {
   type ReadyTicket,
   type Trend,
 } from "./ceo-signals.js";
+import { cleanOwnerName, ownerName } from "../owner.js";
 
 export type DashboardAgent = {
   slug: string;
@@ -122,12 +123,9 @@ export type CeoDashboard = {
 
 const STATUS_RANK: Record<string, number> = { alive: 0, stuck: 1, idle: 2 };
 const WINS = 12;
-const DEFAULT_CEO_NAME = "Jorge";
-
-// Greeting on /ceo. PLANIA_CEO_NAME overrides the default display name. The roster row stays «CEO».
-export function ceoDisplayName(raw = process.env.PLANIA_CEO_NAME): string {
-  const name = (raw ?? "").replace(/[\u0000-\u001f]/g, "").trim().replace(/\s+/g, " ");
-  return name ? name.slice(0, 80) : DEFAULT_CEO_NAME;
+// Greeting on /ceo: the owner's display name (PLA-I2-14: src/owner.ts), or a name passed in. The roster row stays «CEO».
+export function ceoDisplayName(raw?: string): string {
+  return cleanOwnerName(raw) ?? ownerName("es", { capital: true });
 }
 
 // Same ISO week usage_summary stores: IYYY-Www of the screen's calendar day.

@@ -28,12 +28,12 @@ export type LaneTask = {
 };
 
 /**
- * moving: someone is working. jorge: the lane waits on an answer from Jorge (Needs Jorge).
+ * moving: someone is working. owner: the lane waits on an answer from the owner (Needs owner).
  * blocked: only blocked work. waiting: nobody on it. paused: initiative On hold.
  */
-export type LaneState = "moving" | "jorge" | "blocked" | "waiting" | "paused";
+export type LaneState = "moving" | "owner" | "blocked" | "waiting" | "paused";
 
-export type StationTone = "done" | "now" | "review" | "jorge" | "blocked" | "ready" | "pending";
+export type StationTone = "done" | "now" | "review" | "owner" | "blocked" | "ready" | "pending";
 
 export type Station = { task: LaneTask; tone: StationTone; here: boolean };
 
@@ -45,7 +45,7 @@ export type Lane = {
   done: LaneTask[];
   /** Finished, waiting on review or release: In review, Merged, Released. */
   review: LaneTask[];
-  /** In progress, Needs Jorge, and Blocked by something other than tickets. */
+  /** In progress, Needs owner, and Blocked by something other than tickets. */
   now: LaneTask[];
   /** Ready by priority, then tickets queued behind other tickets; if none, the single best Backlog ticket. */
   next: LaneTask[];
@@ -63,10 +63,10 @@ export const LOOSE_LANE_ID = "__loose";
 const CLOSED = new Set(["Done", "Won't do"]);
 const REVIEW = new Set(["In review", "Merged", "Released"]);
 const ACTIVE_WORK = new Set(["In progress", ...REVIEW]);
-const NOW_ORDER: Record<string, number> = { "In progress": 0, "Needs Jorge": 1, Blocked: 2 };
+const NOW_ORDER: Record<string, number> = { "In progress": 0, "Needs owner": 1, Blocked: 2 };
 const REVIEW_ORDER: Record<string, number> = { "In review": 0, Merged: 1, Released: 2 };
 const INITIATIVE_ORDER: Record<string, number> = { Active: 0, Shipping: 0, Planning: 1, "On hold": 2 };
-const STATE_ORDER: Record<LaneState, number> = { moving: 0, jorge: 1, blocked: 2, waiting: 3, paused: 4 };
+const STATE_ORDER: Record<LaneState, number> = { moving: 0, owner: 1, blocked: 2, waiting: 3, paused: 4 };
 
 const priorityRank = (p: string | null) => (p && /^P[0-3]$/.test(p) ? Number(p[1]) : 4);
 const byKey = (a: LaneTask, b: LaneTask) => a.key.localeCompare(b.key, undefined, { numeric: true });
@@ -87,7 +87,7 @@ function stationTone(t: LaneTask, queued: boolean): StationTone {
   if (t.status === "Done") return "done";
   if (t.status === "In progress") return "now";
   if (t.status === "In review" || t.status === "Merged" || t.status === "Released") return "review";
-  if (t.status === "Needs Jorge") return "jorge";
+  if (t.status === "Needs owner") return "owner";
   if (t.status === "Blocked") return "blocked";
   if (t.status === "Ready") return "ready";
   return "pending";
@@ -113,7 +113,7 @@ function buildLane(id: string, initiative: LaneTask | null, tickets: LaneTask[])
   let state: LaneState;
   if (initiative?.status === "On hold") state = "paused";
   else if (review.length > 0 || now.some((t) => ACTIVE_WORK.has(t.status))) state = "moving";
-  else if (now.some(waitsOnJorge)) state = "jorge";
+  else if (now.some(waitsOnOwner)) state = "owner";
   else if (now.length > 0) state = "blocked";
   else state = "waiting";
 
@@ -183,18 +183,18 @@ export function statusCounts(tasks: LaneTask[]) {
     inProgress: count("In progress"),
     inReview: count("In review") + count("Merged") + count("Released"),
     ready: count("Ready"),
-    needsJorge: count("Needs Jorge"),
+    needsOwner: count("Needs owner"),
     blocked: count("Blocked"),
   };
 }
 
-// "Te toca a ti": tickets an agent moved to Needs Jorge with a question (the ask tool).
+// "Te toca a ti": tickets an agent moved to Needs owner with a question (the ask tool).
 export type YourTurnItem = { task: LaneTask; ask: string };
 
-export const waitsOnJorge = (t: LaneTask) => t.kind === "ticket" && t.status === "Needs Jorge";
+export const waitsOnOwner = (t: LaneTask) => t.kind === "ticket" && t.status === "Needs owner";
 
 export function yourTurn(tasks: LaneTask[]): YourTurnItem[] {
-  return tasks.filter(waitsOnJorge).sort(byPriorityThenKey).map((task) => ({ task, ask: task.title }));
+  return tasks.filter(waitsOnOwner).sort(byPriorityThenKey).map((task) => ({ task, ask: task.title }));
 }
 
 export type BranchEdge = { branch: string; base: string; lanes: string[] };

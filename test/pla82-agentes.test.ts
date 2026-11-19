@@ -33,7 +33,7 @@ before(async () => {
   raw = await resetTestDb();
   ({ db } = makeDb());
   await seedOrg(db);
-  secret = (await issueToken(db, { name: "runner", agent: "plania-runner", scopes: ["read", "write"] }, { agent: "jorge", session_id: "web" })).secret;
+  secret = (await issueToken(db, { name: "runner", agent: "plania-runner", scopes: ["read", "write"] }, { agent: "owner", session_id: "web" })).secret;
   const po = (await raw.query(`select id, project_id from agents where slug = 'po-micasa'`)).rows[0];
   await raw.query(`insert into agent_runs (id, agent_id, project_id, role, status, summary, queued_at, work_key) values ($1, $2, $3, 'product-owner', 'running', 's', now(), 'general')`, [RUN, po.id, po.project_id]);
 });

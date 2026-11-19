@@ -45,6 +45,7 @@ import { consume, leaseResource, projectResources, releaseResource } from "./res
 import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
+import { LEGACY, isOwnerAgent, personalize, readOldSpellings } from "../owner.js";
 import { releasePlan } from "./release-plan.js";
 import { answerDelegated } from "./delegate.js";
 import { URGENCIES, answer, ask } from "./questions.js";
@@ -115,9 +116,9 @@ const blockedBy = z
           file: z
             .object({ path: z.string().describe("Path inside the repo, e.g. .env.example"), append: z.string().describe("The exact lines to add, newline-separated") })
             .optional()
-            .describe("Lines your session may not write into a file (e.g. .env.example): Jorge reviews them and Plania commits them to this ticket's PR in one click. Never real secrets: .env and .env.local are refused."),
+            .describe("Lines your session may not write into a file (e.g. .env.example): the owner reviews them and Plania commits them to this ticket's PR in one click. Never real secrets: .env and .env.local are refused."),
         }),
-      }).describe("Something Jorge has to do; shows in his inbox. before_release: true lists it as a step of the project's release. A file you may not write: add file {path, append}"),
+      }).describe("Something the owner has to do; shows in their inbox. before_release: true lists it as a step of the project's release. A file you may not write: add file {path, append}"),
       z.object({ env_flag: z.object({ env: z.string(), flag: z.string(), equals: z.union([z.string(), z.number(), z.boolean()]) }) }).describe("A flag set with set_env"),
       z.object({ time_after: z.string() }).describe("Not before this ISO-8601 time"),
       z.object({ metric_gte: z.object({ name: z.string(), value: z.number() }) }).describe("A metric reported with set_metric or on a result"),
@@ -149,7 +150,7 @@ const verbose = z
 
 type WriteInput = { actor: z.infer<typeof actor>; request_id?: string; verbose?: boolean } & Record<string, unknown>;
 
-// Every write: size limits, the actor ("jorge" is reserved for the screen; an agent token fills
+// Every write: size limits, the actor ("owner" is reserved for the screen; an agent token fills
 // agent and machine and refuses values that disagree) and the idempotency key.
 function writeCtx(tool: string, input: WriteInput, identity: Identity | undefined): Ctx {
   checkSizes(input);
@@ -163,7 +164,7 @@ function writeCtx(tool: string, input: WriteInput, identity: Identity | undefine
     machine = identity.machine ?? machine;
   }
   if (!agent?.trim()) throw new ToolError("ACTOR_REQUIRED");
-  if (agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
+  if (isOwnerAgent(agent)) throw new ToolError("RESERVED_ACTOR");
   const actorOut = { ...input.actor, agent, ...(machine !== undefined ? { machine } : {}) };
   return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId, ...(identity?.runSession ? { runSession: identity.runSession } : {}) };
 }
@@ -180,7 +181,7 @@ const createFields = {
   summary: z.string().optional().describe("The one line shown in lists"),
   parent_key: z.string().nullable().optional().describe("Tickets: initiative key; omit or null for a standalone spec"),
   priority: z.string().optional().describe("Tickets: P0 | P1 | P2 | P3"),
-  origin: z.enum(AGENT_ORIGINS).optional().describe("Tickets only. jorge is the screen's: Jorge's own requests"),
+  origin: z.enum(AGENT_ORIGINS).optional().describe("Tickets only. owner is the screen's: the owner's own requests"),
   blocked_by: blockedBy.optional(),
   status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning. Ideas always start in Open"),
   work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
@@ -233,14 +234,16 @@ const setTaskFields = {
   due_on: z.string().nullable().optional().describe("When it should be done, YYYY-MM-DD; null clears it"),
   cost_note: z.string().optional().describe("Debt only"),
   reason: z.string().optional().describe("Required for Won't do and for reopening a closed task. On screen that is enough"),
-  delegated_by_jorge: z
+  delegated_by_owner: z
     .object({
       message_id: z.string().optional().describe("Id of the owner's chat message, 8 to 200 characters"),
-      quote: z.string().optional().describe("8 to 280 characters of his instruction"),
+      quote: z.string().optional().describe("8 to 280 characters of their instruction"),
     })
     .optional()
     .describe("Required for an agent Won't do or reopen. The screen does not send it"),
-  withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
+  // PLA-I2-14: the old spelling of delegated_by_owner, read until protocol 2.25 with an OLD_SPELLING warning.
+  [LEGACY.field]: z.object({ message_id: z.string().optional(), quote: z.string().optional() }).optional().describe("Old spelling of delegated_by_owner, still read for one protocol version"),
+  withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (OWNER_LINE_PARSED) that asks nothing of the owner: it is removed. Same session or token only; needs no version"),
   no_pr_reason: z.string().optional().describe("Done, Merged or Released on a code ticket without pr_url: why the work had no PR (otherwise TASK_MISSING_PR_URL). Logged as task.no_pr"),
   stage: z.string().optional().describe("Ideas only. One step along idea → research → design → planning → ready. A step back needs a note. Skipping a stage is INVALID_STAGE_MOVE; a move without that stage's doc or headings is STAGE_REQUIREMENTS_MISSING. Nothing else holds a forward move"),
   promoted_to: z.string().nullable().optional().describe("Ideas only: key of the initiative or standalone ticket this idea became. A phase or another idea is PROMOTED_TO_INVALID"),
@@ -324,6 +327,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     { instructions: instructions(!canWrite) },
   );
 
+  // PLA-I2-14: descriptions say "the owner"; they read as the owner's display name when one was given.
+  {
+    const register = server.registerTool.bind(server);
+    server.registerTool = ((name: string, config: { description?: string }, cb: never) =>
+      register(name, (config.description ? { ...config, description: personalize(config.description) } : config) as never, cb)) as typeof server.registerTool;
+  }
+
   // Tools the token may not use are dropped as soon as they are registered, so they never show
   // in tools/list: writes without the write scope, ops tools without the ops scope.
   if (!canWrite || !canOps) {
@@ -350,7 +360,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_resume",
     {
       description: [
-        "Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket,",
+        "Where the project stands, generated from data: live claims (who, until when, where), requests (the owner's open asks from the screen, newest first: read them first), the next claimable ticket,",
         "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness.",
         "readiness is read-only {state, reasons, line}. state is ready, caution, blocked or no_context: no_context wins, then blocked, then caution, else ready.",
         "no_context: no live or expired claim, no ticket In review, no initiative next_action, no next claimable ticket, and no event in 14 days.",
@@ -358,7 +368,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "caution: LEASE_EXPIRED, OWNER_ABSENT (footprint old or missing), CLAIM_QUIET (past PLANIA_QUIET_MIN), WORKTREE_DIRTY, DIRTY_UNKNOWN, ENV_UNKNOWN (missing environment commit or integration head, on a ticket In review), NOTE_STALE, PR_PENDING, PR_UNREADABLE, DECISION_ELSEWHERE, NO_NEXT.",
         "ready: a healthy live claim, a ticket In review with checks passing, or a clear next step, and none of the above. Unknown or missing data (dirty null, a live claim with no footprint, an unreadable PR, a missing environment commit or integration head) is caution, never ready.",
         "Each reason is {code, severity, text, task_key}; text is one short Spanish sentence naming the ticket. line is one sentence.",
-        "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on Jorge, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
+        "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on the owner, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
       ].join(" "),
@@ -374,7 +384,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
-        "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). Agents never merge it.",
+        "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command the owner runs, its mode (command, or merge: the owner ships it from the screen) and merged once they did (null without settings.release). Agents never merge it.",
         "runner: the project's run limits set in Motores (max_concurrent, consulta_slots, max_per_agent, serialize_areas) and what is live now (work, consulta). Read-only: no tool changes them.",
       ].join(" "),
       inputSchema: { project },
@@ -432,11 +442,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       },
       annotations: readOnly,
     },
-    ({ project, parent_key, work_type, updated_since, severity, ...f }) =>
+    ({ project, parent_key, work_type, updated_since, severity, ...raw }) =>
       run(async () => {
         const p = await findProject(db, project);
+        const { input: f, warnings } = readOldSpellings(raw); // PLA-I2-14: status "Needs Jorge" still reads
         return {
           tasks: await listTasks(db, p.id, { ...f, parentKey: parent_key, workType: work_type, severity, updatedSince: updated_since }),
+          ...(warnings.length ? { warnings } : {}),
         };
       }),
   );
@@ -521,14 +533,14 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_next",
     {
       description:
-        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first; within a priority, Jorge's requests (origin jorge) first, then key. requests (present when there are any) lists every open one, newest first: read them first. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
+        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first; within a priority, the owner's requests (origin owner) first, then key. requests (present when there are any) lists every open one, newest first: read them first. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
       inputSchema: { project, initiative_key: z.string().optional() },
       annotations: readOnly,
     },
     ({ project, initiative_key }) =>
       run(async () => {
         const p = await findProject(db, project);
-        // 2.12: Jorge's open requests ride on top (when there are any), newest first; the offer itself
+        // 2.12: the owner's open requests ride on top (when there are any), newest first; the offer itself
         // prefers one at equal priority.
         const requests = await openRequests(db, p.id);
         const next = { ...(requests.length ? { requests } : {}), ...(await nextTask(db, p.id, initiative_key)) };
@@ -565,7 +577,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty),",
-        "ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug.",
+        "ticket counts (open, in_progress, in_review, needs_owner, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug.",
       ].join(" "),
       inputSchema: {},
       annotations: readOnly,
@@ -591,8 +603,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_digest",
     {
       description: [
-        "One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights",
-        "(done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project.",
+        "One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with Spanish summaries and highlights",
+        "(done, to_review, blocked, needs_owner, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on the owner (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project.",
         "Without since, resumes from the cursor this token was last given (since_from: memory); the first time, the last 24 h. Pass since to override. Only an unscoped call (project all) moves that memory; a slug-scoped one reads from since or the last 24 h.",
         `project: all (default) or a slug. max_events_per_project default ${DIGEST_PER_PROJECT_DEFAULT} (the newest; changes_total counts all). truncated: true means more than 2000 events moved: call again.`,
       ].join(" "),
@@ -709,9 +721,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Merged and Released are the pollers' (GitHub merge; deploy, or with no deploy the release branch containing the merge, settings.release_on); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. A released code, bug or debt ticket with every check closed and no open question moves to Done by itself (settings.auto_done, on unless false); get_resume status.released_waiting_done lists the Released tickets something still holds. Under the same setting an initiative whose tickets are all closed closes itself, and one whose tickets are all merged or released gets the next_action that only publishing is left (PLA-82).",
         "Done, Merged or Released on a code ticket needs pr_url (on the ticket or in this call): TASK_MISSING_PR_URL, unless no_pr_reason says why there is none.",
-        "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY unless this call has a reason. On screen the reason is enough. An agent also sends delegated_by_jorge {message_id, quote}. The move is logged. An approval_id is ignored.",
+        "Won't do and reopening a closed task are the owner's: HUMAN_ONLY unless this call has a reason. On screen the reason is enough. An agent also sends delegated_by_owner {message_id, quote}. The move is logged. An approval_id is ignored.",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
-        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming Jorge with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
+        "A line that starts with 'Owner:' (or the owner's name and a colon) in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning OWNER_LINE_PARSED); it reaches their inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming the owner with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
       inputSchema: z.object({ project, actor, request_id, verbose, ...setTaskFields }).loose(),
@@ -880,12 +892,12 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "ask",
     {
       description: [
-        "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
+        "Ask the owner a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
         "human_only: true means only the owner's screen may answer it; bots are refused.",
-        "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
-        "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
-        "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
-        "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here or blocked_by human_action instead.",
+        "A ticket moves to Needs owner (your lease stays; heartbeat to keep it) until every open question on it is answered.",
+        "options are suggested answers; they may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
+        "The reply carries question_id and waits (\"the ticket waits in Needs owner\"): nothing else to write.",
+        "Never only write 'waiting on the owner' in next_action or blocked_note: a line that starts with 'Owner:' becomes a human_action blocker on its own (OWNER_LINE_PARSED), and the audit flags the rest (WAITING_ON_OWNER_FREE_TEXT); ask here or blocked_by human_action instead.",
       ].join(" "),
       inputSchema: z
         .object({
@@ -898,14 +910,14 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           options: z.array(z.string()).optional().describe("Suggested answers"),
           human_only: z.boolean().optional().describe("Only the screen may answer"),
           blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
-          urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
+          urgency: z.enum(URGENCIES).optional().describe("How soon the owner is needed: now | soon | whenever"),
         })
         .loose(),
       annotations: write,
     },
     writeHandler("ask", async (input, ctx) => {
       const out = (await ask(db, input as Parameters<typeof ask>[1], ctx)) as { question_id?: string };
-      // PLA-I32-4: a runner's question also lands in its project thread, where Jorge can answer it in line.
+      // PLA-I32-4: a runner's question also lands in its project thread, where the owner can answer it in line.
       const i = input as { project: string; key: string; question: string };
       if (out.question_id) await questionLine(db, ctx, { project: i.project, key: i.key, question: i.question, questionId: out.question_id }).catch(() => null);
       return out;
@@ -916,7 +928,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "answer",
     {
       description: [
-        "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
+        "Record the owner's answer to a question that is not human_only (they answer those on the screen; otherwise they may tell you in chat and you record it here, quoting them).",
         "A human_only question is HUMAN_ONLY from here, including for actor agent plania-bot: it is answered on the owner's screen. The only bot path is answer_delegated, and only that agent may call it. Never forward an answer.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
@@ -939,10 +951,10 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "answer_delegated",
     {
       description: [
-        "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
-        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his.",
-        "An approval_id is ignored and the reply says so. Won't do and reopening go through set_task, with reason and delegated_by_jorge.",
-        "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Empty or short evidence is DELEGATION_EVIDENCE.",
+        "Record one answer the owner gave actor agent plania-bot in their own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
+        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as theirs.",
+        "An approval_id is ignored and the reply says so. Won't do and reopening go through set_task, with reason and delegated_by_owner.",
+        "delegated_by_owner is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of their instruction. Empty or short evidence is DELEGATION_EVIDENCE.",
         "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, the DELEGATED_ANSWER audit finding, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
         "This tool cannot raise the limit or flip the switch. The answer tool stays HUMAN_ONLY. The screen click is unchanged. Not available on /api, /hooks or /bot/v1.",
       ].join(" "),
@@ -954,10 +966,10 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           verbose,
           question_id: z.string().optional().describe("A human_only question with named options"),
           option: z.string().optional().describe("One of the question's stored options"),
-          delegated_by_jorge: z
+          delegated_by_owner: z
             .object({
               message_id: z.string().optional().describe("Id of the owner's chat message"),
-              quote: z.string().optional().describe("8 to 280 characters of his instruction"),
+              quote: z.string().optional().describe("8 to 280 characters of their instruction"),
             })
             .optional(),
         })
@@ -974,7 +986,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), release_on (env | branch: what Released means; unset, branch when the project has no Vercel and no commit for release_target), auto_done (false keeps released tickets from closing themselves), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
-        "resources ({'port:*': {ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch Jorge ships into another, e.g. sandbox → main for prod; mode command (default: he runs the command) or merge (he presses Lanzar on screen)). capture ({start_command, port, ready_path, pages [{key, path, label, session, follow, full_page}], session {login_path, user (a test address on a reserved domain), user_field, password_field, password_command, after_login_prefix}}: how Plania takes stills of the running app). local ({repo_path, no_code}: the repo folder on the Mac, an absolute path, or no_code true for a project with no code yet; never both). A needs_approval flag on an old settings row is ignored. Never a secret: integrations name env vars.",
+        "resources ({'port:*': {ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch the owner ships into another, e.g. sandbox → main for prod; mode command (default: they run the command) or merge (they press Lanzar on screen)). capture ({start_command, port, ready_path, pages [{key, path, label, session, follow, full_page}], session {login_path, user (a test address on a reserved domain), user_field, password_field, password_command, after_login_prefix}}: how Plania takes stills of the running app). local ({repo_path, no_code}: the repo folder on the Mac, an absolute path, or no_code true for a project with no code yet; never both). A needs_approval flag on an old settings row is ignored. Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -1046,9 +1058,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_inbox",
     {
       description: [
-        "Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
-        "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs him.",
-        "delegated lists answers plania-bot recorded and Won't do or reopen moves an agent logged (quote, message id, time), so he can review them.",
+        "Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
+        "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs them.",
+        "delegated lists answers plania-bot recorded and Won't do or reopen moves an agent logged (quote, message id, time), so they can review them.",
       ].join(" "),
       inputSchema: { project: z.string().min(1).describe("Project slug, or all") },
       annotations: readOnly,
@@ -1061,7 +1073,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_OWNER_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes.",
         "CLAIMABLE_BUT_GATED is the previous name of CLAIMABLE_BUT_WAITING, kept as an alias for one release.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
@@ -1076,7 +1088,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
-        "the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). approvals is always an empty list. UNKNOWN_BRANCH when nothing is on the branch.",
+        "the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). approvals is always an empty list. UNKNOWN_BRANCH when nothing is on the branch.",
       ].join(" "),
       inputSchema: {
         project,
@@ -1179,7 +1191,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "release_footprint",
     {
       description: [
-        "Say a registered footprint is torn down; it leaves the Machine inventory. Only the session that declared it (or Jorge) may: FOOTPRINT_HELD otherwise. A row the job only observed has no holder and anyone in the project may release it.",
+        "Say a registered footprint is torn down; it leaves the Machine inventory. Only the session that declared it (or the owner) may: FOOTPRINT_HELD otherwise. A row the job only observed has no holder and anyone in the project may release it.",
         "Unknown locator: {released: false}. Release it after you ran its teardown; if Plania still sees it running on its next look, it comes back as a new observed row. kind is only needed when the locator fits several.",
       ].join(" "),
       inputSchema: { project, actor, request_id, locator: z.string().min(1), kind: z.enum(FOOTPRINT_KINDS).optional() },

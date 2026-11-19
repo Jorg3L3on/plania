@@ -154,7 +154,7 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
   assert.equal(qs.length, 1);
   assert.equal(qs[0]!.asked_by.agent, "asistente");
   assert.match(qs[0]!.question, /taller falló dos veces seguidas igual en AS-FAIL: fail: error_max_turns \(N turns\)/);
-  assert.equal((await raw.query(`select status from tasks where key = 'AS-FAIL'`)).rows[0].status, "Needs Jorge");
+  assert.equal((await raw.query(`select status from tasks where key = 'AS-FAIL'`)).rows[0].status, "Needs owner");
   assert.equal((await questionsOn("AS-ONCE")).length, 0);
 
   // The next check (another slot) and a third identical failure ask nothing more.

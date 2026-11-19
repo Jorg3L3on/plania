@@ -49,7 +49,7 @@ const STATUS_LABEL: Record<string, string> = {
   Ready: "Lista",
   Backlog: "En espera",
   Blocked: "Bloqueada",
-  "Needs Jorge": "Te toca",
+  "Needs owner": "Te toca",
   Planning: "Planeando",
   Active: "Activa",
   Shipping: "En estreno",

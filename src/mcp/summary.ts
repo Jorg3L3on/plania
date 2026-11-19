@@ -1,5 +1,6 @@
 import { LEGACY_EVENT_PREFIX } from "../db/legacy-names.js";
 import type { Actor } from "../db/schema.js";
+import { ownerEs } from "../owner.js";
 
 // 2.7: one Spanish line per event, for assistants that read the cross-project feed and the digest
 // without knowing every payload shape. Unknown types fall back to "<key> · <type>".
@@ -26,7 +27,7 @@ export function summarize(e: Ev): string {
     case "task.rekeyed":
       return `${str(p.from) || k} ahora es ${str(p.to) || k}`;
     case "task.delegated_move":
-      return p.quote ? `${k} movimiento por encargo de Jorge: ${str(p.quote).slice(0, 140)}` : `${k} movimiento registrado: ${str(p.reason).slice(0, 140)} (${by})`;
+      return p.quote ? `${k} movimiento por encargo ${ownerEs("de")}: ${str(p.quote).slice(0, 140)}` : `${k} movimiento registrado: ${str(p.reason).slice(0, 140)} (${by})`;
     case "task.approved_move":
     case "approval.requested":
     case "approval.granted":
@@ -52,7 +53,7 @@ export function summarize(e: Ev): string {
     case "claim.workspace":
       return `${k} workspace actualizado (${by})`;
     case "question.asked":
-      return `${k} pregunta a Jorge: ${str(p.question).slice(0, 140)}`;
+      return `${k} pregunta ${ownerEs("a")}: ${str(p.question).slice(0, 140)}`;
     case "question.answered":
       return `${k} respondida: ${str(p.answer).slice(0, 140)}`;
     case "pr.opened":
@@ -82,7 +83,7 @@ export function summarize(e: Ev): string {
     case "release.recorded":
       return `${k ? `${k} ` : ""}desplegado en ${str(p.env)}`;
     case "blocker.parsed":
-      return `${k} paso para Jorge: ${str(p.text).slice(0, 140)}`;
+      return `${k} paso para ${ownerEs()}: ${str(p.text).slice(0, 140)}`;
     case "blocker.withdrawn":
       return `${k} paso retirado por ${by}: ${str(p.text).slice(0, 140)}`;
     case "result.added":

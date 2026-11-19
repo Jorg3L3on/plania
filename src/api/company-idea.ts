@@ -35,6 +35,7 @@ import { listFrames, type FrameView } from "../pedidos/frames.js";
 import { projectPo } from "./company-actions.js";
 import { DESPERTAR, RESPUESTA, VISTO, askedText, fichaOf, sectionAll, trailOf, whoOf, type FichaIdea, type TrailItem } from "./company-pedido.js";
 import { PEDIDO_STOPS, pedidoOf, type Pedido, type PedidoStop } from "./company-pedidos.js";
+import { ownerEs } from "../owner.js";
 
 export type IdeaVerdict = "ok" | "deshacer" | "cambios" | "opcion" | "corregir";
 export type IdeaNote = { frame: string; x: number; y: number; text: string };
@@ -284,7 +285,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     let by: string | null = d ? await whoOf(db, d.actor as Actor, cache) : null;
     if (stop === "buzon") {
       at = t.createdAt;
-      by = t.origin === "jorge" ? "jorge" : null;
+      by = t.origin === "owner" ? "owner" : null;
     }
     if (stop === "entendido" && !d && understood) {
       at = understood.at;
@@ -340,7 +341,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     status: t.status,
     stage: t.stage,
     promoted_to: t.promotedTo,
-    pedido: t.origin === "jorge",
+    pedido: t.origin === "owner",
     question_options: q?.options ?? [],
     stops,
     ficha: fichaOf(list),
@@ -363,7 +364,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     quiet_since: base.state === "quieta" && !inLine && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
     queued: inLine?.role ?? null,
     trail: await trailOf(db, t),
-    pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
+    pictures: t.origin === "owner" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
     kind: init ? "initiative" : "idea",
     short: shortOf(t.summary, t.title),
     understood_text: ((): string | null => {
@@ -448,7 +449,7 @@ type AnswerInput = { stop: string; verdict: IdeaVerdict; text?: string; option?:
 
 // The note the stage owner reads: his words, the option, each pinned note with its frame and spot.
 export function answerNote(stop: string, input: AnswerInput, frames: { frame: string; name: string }[]): string {
-  const head = { cambios: `Jorge pide cambios en ${STOP_WORD[stop] ?? stop} (desde Compañía).`, opcion: `Jorge pide la opción ${input.option} de la investigación en lugar de la recomendada (desde Compañía).`, corregir: "Jorge dice que no es eso lo que pidió (desde Compañía)." }[input.verdict as "cambios" | "opcion" | "corregir"];
+  const head = { cambios: `${ownerEs(undefined, { capital: true })} pide cambios en ${STOP_WORD[stop] ?? stop} (desde Compañía).`, opcion: `${ownerEs(undefined, { capital: true })} pide la opción ${input.option} de la investigación en lugar de la recomendada (desde Compañía).`, corregir: `${ownerEs(undefined, { capital: true })} dice que no es eso lo que pidió (desde Compañía).` }[input.verdict as "cambios" | "opcion" | "corregir"];
   const lines = [head];
   if (input.text?.trim()) lines.push(`Sus palabras: «${input.text.trim()}»`);
   (input.notes ?? []).forEach((n, i) => {
@@ -489,7 +490,7 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
   return writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (tx, emit) => {
     await emit(RESPUESTA, ref, payload);
     await emit("note", ref, { text });
-    return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], `Jorge respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota`, RESPUESTA)) };
+    return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], `${ownerEs(undefined, { capital: true })} respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota`, RESPUESTA)) };
   });
 }
 
@@ -519,7 +520,7 @@ const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLower
 // PLA-88: forward is the stage the idea sits on when it is past the idea stage: the decision is carried into that
 // stage instead of sending the idea back to the PO.
 export function decisionNote(question: string, label: string, was: string, changed: boolean, text?: string, forward?: string): string {
-  const lines = [changed ? `Jorge decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».` : `Jorge confirmó (desde Compañía) «${label}» en «${question}».`];
+  const lines = [changed ? `${ownerEs(undefined, { capital: true })} decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».` : `${ownerEs(undefined, { capital: true })} confirmó (desde Compañía) «${label}» en «${question}».`];
   if (text?.trim()) lines.push(`Sus palabras: «${text.trim()}»`);
   if (!changed) lines.push("Nada cambia: sigue con lo que asumiste.");
   else if (forward)
@@ -566,8 +567,8 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
     await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward) });
     const decision = decisionView({ ...s, state: "decided", chosen: pick, at: new Date() }, input.decision - 1);
     if (!changed) return { key, stage: t.stage, changed, decision, wake: "none" as const };
-    if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, `Jorge cambió una decisión del PO: llévala a tu etapa (${STAGE_WORD[forward]}) según su nota`, DECISION)) };
-    return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", "Jorge decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage", DECISION)) };
+    if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, `${ownerEs(undefined, { capital: true })} cambió una decisión del PO: llévala a tu etapa (${STAGE_WORD[forward]}) según su nota`, DECISION)) };
+    return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", `${ownerEs(undefined, { capital: true })} decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage`, DECISION)) };
   });
 }
 
@@ -576,7 +577,7 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
 const DecisionBody = z.object({ decision: z.number().int().min(1).max(6), option: z.number().int().min(1).max(4), question: z.string().max(300).optional(), text: z.string().trim().max(1000).optional() }).strict();
 export const ideaDecisionRoutes = new Hono();
 ideaDecisionRoutes.post("/projects/:slug/ideas/:key/decision", async (c) => {
-  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "FORBIDDEN", hint: "a decision on an idea is Jorge's screen only" }, 403);
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "FORBIDDEN", hint: "a decision on an idea is the owner's screen only" }, 403);
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
   const input = DecisionBody.safeParse(await c.req.json().catch(() => undefined));
@@ -602,7 +603,7 @@ export async function ideaDespertar(db: Db, slug: string, key: string): Promise<
     await emit(DESPERTAR, ref, { stage: t.stage });
     if (!eventWakesEnabled()) return { key, wake: "off" as const };
     const agent = role === "product-owner" ? ((await projectPo(db, p)) ?? (await serviceAgent(tx, role, p))) : await serviceAgent(tx, role, p);
-    const w = await queueWake(tx, p, ref, { agent, taskKey: key, reason: `Jorge la despertó desde Compañía: sigue la etapa ${t.stage ?? "idea"}` }, DESPERTAR);
+    const w = await queueWake(tx, p, ref, { agent, taskKey: key, reason: `${ownerEs(undefined, { capital: true })} la despertó desde Compañía: sigue la etapa ${t.stage ?? "idea"}` }, DESPERTAR);
     return { key, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
   });
 }

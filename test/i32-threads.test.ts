@@ -91,13 +91,13 @@ test("I32-3 #1: Jorge's message in the company thread queues Asistente's wake, e
   const out = (await res.json()) as { message: Message; created: unknown; wake: string };
   assert.equal(out.created, null);
   assert.equal(out.wake, "queued");
-  assert.deepEqual(out.message.author, { agent: "jorge", role: "ceo" });
+  assert.deepEqual(out.message.author, { agent: "owner", role: "ceo" });
   assert.deepEqual(out.message.actions, []);
   assert.deepEqual(await runsOf("asistente"), [{ status: "queued", task_key: null, role: "asistente", project: "zigzag" }]);
   const ev = (await raw.query(`select payload from events where type = 'thread.message'`)).rows.map((r) => r.payload);
   assert.equal(ev.length, 1);
   assert.equal(ev[0].thread_kind, "company");
-  assert.equal(ev[0].author, "jorge");
+  assert.equal(ev[0].author, "owner");
   assert.equal((await raw.query(`select count(*)::int as n from events where type = 'wake.queued' and payload->>'agent' = 'asistente'`)).rows[0].n, 1);
   // "company" works as the thread id too, and a second message coalesces into the queued run.
   assert.equal((await post(`/api/threads/company/messages`, { body: "y también el brief" })).status, 201);
@@ -114,7 +114,7 @@ test("I32-3 #1: Jorge's message in a project thread makes a Ready ticket for its
   assert.equal(out.wake, "queued");
   assert.deepEqual(out.message.links, [{ kind: "ticket", ref: out.created.key, title: "Arma el borrador de precios" }]);
   const t = (await raw.query(`select t.status, t.origin, a.slug as owner from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [out.created.key])).rows[0];
-  assert.deepEqual(t, { status: "Ready", origin: "jorge", owner: "po-micasa" });
+  assert.deepEqual(t, { status: "Ready", origin: "owner", owner: "po-micasa" });
   assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: out.created.key, role: "product-owner", project: "micasa" }]);
 
   // A paused project still gets the ticket; nothing is queued and the reply says why.

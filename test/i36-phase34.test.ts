@@ -72,7 +72,7 @@ test("I36-6 #1: a message from the card creates the PO's ticket and shows its wa
   assert.equal(out.woke, null);
   assert.equal(lib.askText(out), "Enviado · el PO lo toma en su turno");
   const scope = (await raw.query(`select scope, origin, status from tasks where key = $1`, [out.key])).rows[0];
-  assert.deepEqual([scope.origin, scope.status], ["jorge", "Ready"]);
+  assert.deepEqual([scope.origin, scope.status], ["owner", "Ready"]);
   assert.match(scope.scope, /\(un cambio\): "Agrega un botón de WhatsApp"/);
   const o = (await card()).orders.find((x: Json) => x.key === out.key);
   assert.deepEqual([o.stage, o.text], ["enviada", "Agrega un botón de WhatsApp"]);
@@ -162,7 +162,7 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
 });
 
 test("I36-7 #5: the protocol is 2.21 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.23");
+  assert.equal(PROTOCOL_VERSION, "2.24");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));

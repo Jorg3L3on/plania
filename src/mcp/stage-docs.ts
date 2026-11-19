@@ -23,6 +23,7 @@ import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
+import { ownerEs } from "../owner.js";
 
 export const DELIVERED = "stage.delivered";
 export const DECISION = "idea.decision";
@@ -253,9 +254,9 @@ export function decisionLine(n: number, d: StageDecision, chosen: number | null 
   const rec = d.options[d.recommended]!;
   if (chosen === null) {
     const others = d.options.filter((_, i) => i !== d.recommended).map(q);
-    return `${head} Se asume ${q(rec)} hasta que Jorge decida: ${d.why} Otras opciones: ${others.join(", ")}.`;
+    return `${head} Se asume ${q(rec)} hasta que ${ownerEs()} decida: ${d.why} Otras opciones: ${others.join(", ")}.`;
   }
-  return `${head} Decidido por Jorge: ${q(d.options[chosen]!)}.${chosen === d.recommended ? "" : ` El PO recomendaba ${q(rec)}.`}`;
+  return `${head} Decidido ${ownerEs("por")}: ${q(d.options[chosen]!)}.${chosen === d.recommended ? "" : ` El PO recomendaba ${q(rec)}.`}`;
 }
 
 /** The doc with that decision's line as decided. A doc someone rewrote by hand gets the line added under Assumptions. */
@@ -383,7 +384,7 @@ export const registerStageTools = (
     {
       description: [
         "Deliver an idea's stage as data. Plania checks it, writes the stage doc for you (same title and headings as before, so do not also attach_doc it) and keeps the data for the owner's screen. Then move the idea with set_task stage.",
-        "stage idea: data {problem, who, why_now, decisions}. decisions are the open questions you would otherwise ask (0 to 6): each {question, options (2 to 4 short labels), recommended (0-based index), why}. Nothing waits: your recommended option is assumed, the owner can change it on his screen, and a change sends the idea back to you with his note.",
+        "stage idea: data {problem, who, why_now, decisions}. decisions are the open questions you would otherwise ask (0 to 6): each {question, options (2 to 4 short labels), recommended (0-based index), why}. Nothing waits: your recommended option is assumed, the owner can change it on their screen, and a change sends the idea back to you with his note.",
         "stage research: data {learned: [..], options: [{title, text}] (2 to 4), recommendation: {option (0-based index), why}, unknowns: [..] (may be empty)}.",
         "stage design: data {approach, scope: [..], out_of_scope: [at least one thing it will not do]}.",
         `stage planning: data {steps (1 to ${MAX_STEPS}): [{title, done_when, try_it, work_type code|ops|research|bug|debt}], risks: [..], size (optional, one line)}. done_when states something a person can see or check; try_it says what someone can try once that step lands.`,

@@ -1,7 +1,7 @@
 // PLA-I36-7/8 (protocol 2.19): `propose`, a PO's proposal as data in its project thread.
 //   kind choice  2 to 6 options, each with label, effect and cost {tickets, days, tokens, delays}; the recommended
-//                one with recommended_reason; combinable lists the option sets Jorge may pick together ([[1, 2]]).
-//   kind plan    the answer to one of Jorge's orders (order: its key): what the PO understood, the steps (each with
+//                one with recommended_reason; combinable lists the option sets the owner may pick together ([[1, 2]]).
+//   kind plan    the answer to one of the owner's orders (order: its key): what the PO understood, the steps (each with
 //                what done means and its work_type) and the total cost. When the project approves plans
 //                (settings.plan_approval) nothing is made until someone presses "Sí, empiecen" in Te toca; then
 //                Plania makes one Ready ticket per step. Without approval the tickets are made now and the plan
@@ -107,7 +107,7 @@ export function checkProposal(input: ProposeInput, approval: boolean, links: Thr
     return { kind: "choice", title, options, recommended_reason: input.recommended_reason?.trim() || null, combinable, order: null, understood: null, steps: [], cost: input.cost ?? {}, links, needs_approval: false, created: [] };
   }
   if (input.kind !== "plan") throw bad("kind", "choice or plan");
-  if (!input.order?.trim()) throw bad("order", "the key of Jorge's order this plan answers");
+  if (!input.order?.trim()) throw bad("order", "the key of the owner's order this plan answers");
   if (!input.understood?.trim()) throw bad("understood", "what you understood, one line");
   const steps = (input.steps ?? []).map((s) => ({ title: s.title.trim(), done_when: s.done_when.trim(), work_type: s.work_type ?? "code" }));
   const leg = input.leg?.trim() || null;
@@ -214,7 +214,7 @@ export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   const data = checkProposal({ ...input, leg: leg ?? undefined }, !!p.settings.plan_approval, checkLinks(input.links));
   if (data.kind === "plan") {
     const [order] = await db.select({ id: tasks.id, origin: tasks.origin }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
-    if (!order) throw new ToolError("TASK_NOT_FOUND", { key: data.order, hint: "order is the key of Jorge's order in this project" });
+    if (!order) throw new ToolError("TASK_NOT_FOUND", { key: data.order, hint: "order is the key of the owner's order in this project" });
     if (!data.needs_approval) data.created = await makeSteps(db, p.slug, data, ctx);
     if (!data.links.some((l) => l.kind === "ticket" && l.ref === data.order)) data.links.unshift({ kind: "ticket", ref: data.order!, title: data.title.slice(0, 200) });
   }
@@ -237,9 +237,9 @@ export const registerProposalTools = (
     "propose",
     {
       description: [
-        "Post a proposal as data in your project's thread; Jorge decides it in Te toca. Only the project's PO.",
+        "Post a proposal as data in your project's thread; the owner decides it in Te toca. Only the project's PO.",
         "kind choice: title, 2 to 6 options {label, effect (what changes), cost {tickets, days, tokens, delays}, recommended}, recommended_reason, combinable (sets of option numbers that may go together, e.g. [[1, 2]]; omit when they exclude each other). It stays in Te toca until answered, even if you write again.",
-        "kind plan: the answer to one of Jorge's orders. order (the order ticket's key), understood (one line, plain words), steps [{title, done_when, work_type code|ops|research|bug|debt}], cost. When the project approves plans, do not create tickets: Plania makes one Ready ticket per step when someone presses \"Sí, empiecen\". Otherwise the tickets are made now.",
+        "kind plan: the answer to one of the owner's orders. order (the order ticket's key), understood (one line, plain words), steps [{title, done_when, work_type code|ops|research|bug|debt}], cost. When the project approves plans, do not create tickets: Plania makes one Ready ticket per step when someone presses \"Sí, empiecen\". Otherwise the tickets are made now.",
         "Plan for a leg of the route (the order says «Planea «<title>»»): also pass leg (that initiative's key; found from the title when omitted), at most 4 steps, questions (up to 3 closed ones: {text, options 2 to 4 short answers, suggested: index of the one you recommend}) and checklist (exactly 3 short things QA verifies on every step). It always waits for the owner's «Aprobar el plan»; then the steps are made under that initiative. A postponed (On hold) leg is refused: never plan it to start it.",
         "No keys, branch names or the word sandbox in title, labels or understood: anyone at the Mac reads them.",
       ].join(" "),

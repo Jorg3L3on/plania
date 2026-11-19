@@ -37,6 +37,7 @@ import { serviceAgent } from "../runner/events.js";
 import type { HeartbeatDeps } from "../jobs/heartbeat.js";
 import { roleOf } from "../runner/limits.js";
 import type { Target } from "./types.js";
+import { ownerEs } from "../owner.js";
 
 export type Level = "instant" | "confirm" | "wake";
 export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "close_idea", "later", "dismiss", "give_to_po", "start_now", "start_building"] as const;
@@ -83,7 +84,7 @@ async function deliveryMessage(db: Db, projectId: string, key: string): Promise<
   const rows = await db
     .select({ id: threadMessages.id, links: threadMessages.links })
     .from(threadMessages)
-    .where(and(eq(threadMessages.threadId, thread.id), isNull(threadMessages.actionState), sql`${threadMessages.authorAgent} <> 'jorge'`))
+    .where(and(eq(threadMessages.threadId, thread.id), isNull(threadMessages.actionState), sql`${threadMessages.authorAgent} <> 'owner'`))
     .orderBy(desc(threadMessages.at))
     .limit(200);
   return rows.find((m) => m.links.some((l) => (l.kind === "ticket" || l.kind === "idea") && l.ref === key))?.id ?? null;
@@ -414,7 +415,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
-        await setTask(db, { project: t.project, key: row.key, status: "Backlog", version: row.version, note: "Jorge lo aplazó desde el brief." } as never, ctxOf("postpone"));
+        await setTask(db, { project: t.project, key: row.key, status: "Backlog", version: row.version, note: `${ownerEs(undefined, { capital: true })} lo aplazó desde el brief.` } as never, ctxOf("postpone"));
         return { line: OUT[lang].backlog(row.key), undo: { status: "Ready" } };
       }),
   },
@@ -442,7 +443,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
-        await setTask(db, { project: t.project, key: row.key, status: "On hold", version: row.version, note: "Jorge lo puso en espera desde el brief." } as never, ctxOf("hold"));
+        await setTask(db, { project: t.project, key: row.key, status: "On hold", version: row.version, note: `${ownerEs(undefined, { capital: true })} lo puso en espera desde el brief.` } as never, ctxOf("hold"));
         return { line: OUT[lang].hold(row.key), undo: { status: l.kind === "initiative" ? l.status : "Planning" } };
       }),
   },
@@ -505,7 +506,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         if (!p) return { error: "PROJECT_NOT_FOUND", hint: "The row's project is gone." };
         const po = await projectPo(db, p);
         if (!po) return { error: "NO_PO", hint: `${p.title} has no product owner that runs in Claude Code.` };
-        const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? `Nota de Jorge: ${input.note}` : null].filter(Boolean).join("\n");
+        const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? `Nota ${ownerEs("de")}: ${input.note}` : null].filter(Boolean).join("\n");
         // A Ready ticket owned by the PO, origin jorge; the event hook queues the PO's wake in the same write. A
         // busy PO is not lost: when its run ends, wakePoIfWaiting takes its oldest Ready ticket. A paused project
         // keeps the ticket and wakes the PO once when its runs are turned on (project.runs_resumed).
@@ -545,7 +546,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         // Only the first open phase, nothing else: moving it to Ready wakes Taller through the event hook.
         for (const key of l.next_phase.keys) {
           const row = (await taskByKey(db, p.id, key))!;
-          await setTask(db, { project: t.project, key, status: "Ready", version: row.version, note: "Jorge lo empezó desde el brief." } as never, ctxOf("start_building"));
+          await setTask(db, { project: t.project, key, status: "Ready", version: row.version, note: `${ownerEs(undefined, { capital: true })} lo empezó desde el brief.` } as never, ctxOf("start_building"));
         }
         return { line: OUT[lang].building(l.next_phase.keys), result: { keys: l.next_phase.keys, phase: l.next_phase.phase } };
       }),
@@ -624,7 +625,7 @@ export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: 
     if (action === "postpone" || action === "hold") {
       const row = await taskByKey(db, p.id, t.key);
       if (!row) return { error: "TASK_NOT_FOUND", hint: "The ticket is gone." };
-      await setTask(db, { project: t.project, key: row.key, status: String(undo.status), version: row.version, note: "Jorge deshizo el cambio desde el brief." } as never, ctxOf(`undo_${action}`));
+      await setTask(db, { project: t.project, key: row.key, status: String(undo.status), version: row.version, note: `${ownerEs(undefined, { capital: true })} deshizo el cambio desde el brief.` } as never, ctxOf(`undo_${action}`));
       return { line: o.back(row.key, String(undo.status)) };
     }
     return { error: "NOT_UNDOABLE", hint: "This action cannot be undone." };

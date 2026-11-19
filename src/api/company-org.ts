@@ -33,10 +33,10 @@ import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTic
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
 
-export type MemberState = "running" | "idle" | "waiting_jorge" | "paused";
+export type MemberState = "running" | "idle" | "waiting_owner" | "paused";
 // PLA-I36-1: the worst of, in order: something is Jorge's, a run failed, the work is blocked, the plan is
 // late, nothing moved in 48 h; else ok. Paused comes first. PLA-21: no budgets, so no "no_budget".
-export type Light = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
+export type Light = "ok" | "needs_owner" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type LightReason = { text: string; action: { label: string; href: string } | null };
 
 export type TeamMember = {
@@ -223,7 +223,7 @@ async function ticketTitle(db: Db, projectId: string | null, key: string | null)
 async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string>; settings: RunnerSettings }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
-  const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_jorge" : "idle";
+  const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_owner" : "idle";
   return {
     agent: a.slug,
     role: roleOf(a) ?? a.role,
@@ -294,7 +294,7 @@ export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
   };
 }
 
-// PLA-I36-1. paused, then the worst of: Jorge's (an open question, a Needs Jorge ticket, a
+// PLA-I36-1. paused, then the worst of: Jorge's (an open question, a Needs owner ticket, a
 // ceo-owned Ready ticket, a manual step, a release, a message with buttons), a run that failed (a member's
 // last ended run), blocked (readiness blocked), late (the plan's pace), quiet (no event in 48 h); else ok.
 const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
@@ -308,10 +308,10 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
   const open = `/p/${encodeURIComponent(p.slug)}`;
   if (c.paused) return { light: "paused", reason: null };
 
-  const jorge = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_jorge", reason: { text, action: TE_TOCA } });
+  const jorge = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_owner", reason: { text, action: TE_TOCA } });
   const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
   if (q) return jorge("El equipo te hizo una pregunta y espera tu respuesta.");
-  const [nj] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs Jorge"))).limit(1);
+  const [nj] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs owner"))).limit(1);
   if (nj) return jorge(`${quote(nj.title)} espera tu decisión.`);
   if (c.ceoId) {
     const [mine] = await db
@@ -328,7 +328,7 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
     const n = (release.target as { tickets?: unknown[] } | undefined)?.tickets?.length ?? 0;
     // PLA-23: the action publishes from the floor (the plate opens the sheet); Te toca no longer exists.
     return {
-      light: "needs_jorge",
+      light: "needs_owner",
       reason: { text: n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`, action: { label: "Publicar", href: "#publicar" } },
     };
   }
@@ -507,7 +507,7 @@ export async function staleRequestsOf(db: Db, p: Project, now: Date): Promise<St
   const rows = await db.execute<{ key: string; title: string; since: Date | string }>(sql`
     select t.key, t.title, coalesce(t.status_changed_at, t.created_at) as since
     from ${tasks} t
-    where t.project_id = ${p.id} and t.kind = 'ticket' and t.origin = 'jorge' and t.status = 'Ready'
+    where t.project_id = ${p.id} and t.kind = 'ticket' and t.origin = 'owner' and t.status = 'Ready'
       and coalesce(t.status_changed_at, t.created_at) < ${before.toISOString()}::timestamptz
       and not exists (select 1 from ${agentRuns} r where r.project_id = t.project_id and r.task_key = t.key and r.status in ('queued', 'running'))
     order by since limit 5`);
@@ -621,7 +621,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
   // that keeps it off Te toca) is not the owner's turn yet, so the floor must not say it is (it drew a dead button).
   for (const c of cards) {
     const waiting = decisions.some((d) => d.project === c.slug && d.state === null && (d.kind === "pr" || d.kind === "deliverable"));
-    if (c.light === "needs_jorge" && c.light_reason?.text === DELIVERY_WAITS && !waiting) {
+    if (c.light === "needs_owner" && c.light_reason?.text === DELIVERY_WAITS && !waiting) {
       c.light = "ok";
       c.light_reason = null;
     }
@@ -653,7 +653,7 @@ async function asistenteSide(db: Db, settings: Awaited<ReturnType<typeof loadSet
     const { running, ended } = await lastRunOf(db, asis.id);
     if (ended) lastRun = { status: ended.status, at: ended.endedAt!.toISOString(), summary: ended.summary };
     if (running) state = "running";
-    else if (!settings.companyPaused && (await openQuestionsByAgent(db)).has(asis.id)) state = "waiting_jorge";
+    else if (!settings.companyPaused && (await openQuestionsByAgent(db)).has(asis.id)) state = "waiting_owner";
   }
   return { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread };
 }

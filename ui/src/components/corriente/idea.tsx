@@ -15,7 +15,7 @@ export const STOPS: { id: PedidoStop; name: string }[] = [
   { id: "plan", name: "Plan" },
   { id: "lista", name: "Lista" },
 ];
-export const whoName = (who: string | null) => (!who ? "" : who === "jorge" ? "Tú" : seatName(who));
+export const whoName = (who: string | null) => (!who ? "" : who === "owner" ? "Tú" : seatName(who));
 
 /** The stop to open: the newest delivery he has not seen, else where the idea is. */
 export function firstStop(d: Pick<IdeaDetail, "stops" | "stop">): PedidoStop {

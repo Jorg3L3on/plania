@@ -50,7 +50,7 @@ detail. Spanish words are the ones the owner reads on screen; English words are 
 | Proposal | Options, or a plan, that a product owner puts to the owner as something he can answer with a tap. |
 | Question | Something an agent asks the owner about a ticket; the ticket waits until he answers. |
 | Human-only question | A question only the owner's own screen may answer. |
-| Needs Jorge | The state of a ticket that waits on the owner's answer. |
+| Needs owner | The state of a ticket that waits on the owner's answer. |
 | Te toca | Everything that cannot go on until the owner acts, across all projects, one card at a time. |
 | Bandeja | The inbox: the list of what waits on the owner. |
 | Thread | The conversation where a project's agents report and the owner answers. The company thread is the Asistente's. |

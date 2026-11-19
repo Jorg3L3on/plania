@@ -32,7 +32,7 @@ after(async () => {
 test("PLA-71 #1: the owner's note counts only when it is newer than the last delivery", async () => {
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), null, "never sent back");
   await ev("task.status", { from: "In progress", to: "In review" });
-  await ev("note", { text: "Cambios que pide Jorge: No se ve bien: abre una clienta para que se vea Seguimiento." });
+  await ev("note", { text: "Cambios que pide el dueño: No se ve bien: abre una clienta para que se vea Seguimiento." });
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), "No se ve bien: abre una clienta para que se vea Seguimiento.");
   await ev("note", { text: "Una nota cualquiera" });
   assert.equal(await runner.ownerChangesOf(db, project, "PX-1"), "No se ve bien: abre una clienta para que se vea Seguimiento.", "other notes do not hide it");

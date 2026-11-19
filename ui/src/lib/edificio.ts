@@ -1,5 +1,5 @@
 // PLA-I39: the building (/ceo). Pure functions, so test/edificio-*.test.ts loads them with node:test.
-//   windowState  a teammate's window from what the server reported: running is work, waiting_jorge is ask, idle is
+//   windowState  a teammate's window from what the server reported: running is work, waiting_owner is ask, idle is
 //                idle, paused is off. Nothing else lights a window. PLA-21: no budgets, so no "hold".
 //   caption      under a window: the role with its verb, then what it is on (with since when), else the first of
 //                its queue, else its last delivery. Never a ticket key, null or money.
@@ -15,7 +15,7 @@ import { pending, waitingPlan } from "./v2";
 export type WindowState = "work" | "ask" | "idle" | "off" | "back";
 const STATE: Record<OrgMemberState, WindowState> = {
   running: "work",
-  waiting_jorge: "ask",
+  waiting_owner: "ask",
   idle: "idle",
   paused: "off",
 };
@@ -146,7 +146,7 @@ export const windowLabel = (m: OrgMember, project: string, now: number, companyP
 // ---- floors
 
 export const isPaused = (p: OrgProject) => p.paused || p.light === "paused";
-export const waitsOnOwner = (p: OrgProject, decisions: Decision[]) => p.light === "needs_jorge" || decisions.some((d) => d.project === p.slug && pending(d));
+export const waitsOnOwner = (p: OrgProject, decisions: Decision[]) => p.light === "needs_owner" || decisions.some((d) => d.project === p.slug && pending(d));
 /** PLA-32: who works now, by Compañía's reading (a teammate whose run is live), on floors that are not paused. The
  *  Oficina headline counts these, so it says the same as each plate's word (nowLine «work»). */
 /** PLA-32: whether /ceo shows Oficina for this address: ?edificio, or nothing that names a floor (?piso, a La ficha

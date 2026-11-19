@@ -260,8 +260,8 @@ describe("bloqueadoOf", () => {
       initiatives: [{
         key: "ALF-I1",
         waiting_on: [
-          { key: "ALF-1", on: "Jorge: una pregunta" },
-          { key: "ALF-2", on: "Jorge: aprobar done" },
+          { key: "ALF-1", on: "Owner: una pregunta" },
+          { key: "ALF-2", on: "Owner: aprobar done" },
           { key: "ALF-3", on: "beta migration_gte 4" },
           { key: "ALF-4", on: "ALF-9 (In review)" },
         ],

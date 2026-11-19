@@ -25,7 +25,7 @@ type WriteCtx = (
   identity: Identity | undefined,
 ) => Ctx;
 
-export const THREAD_REF = "\"company\" (Asistente's thread with Jorge), a project slug (that project's thread), or a thread id";
+export const THREAD_REF = "\"company\" (Asistente's thread with the owner), a project slug (that project's thread), or a thread id";
 
 export async function threadPost(db: Db, input: { thread: string; body: string; links?: unknown }, ctx: Ctx) {
   const ref = await resolveThread(db, input.thread);
@@ -129,7 +129,7 @@ export const registerThreadTools = (
     "thread_post",
     {
       description: [
-        "Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him.",
+        "Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them.",
         "Asistente may post in every thread; any other agent only in its own project's thread (THREAD_FORBIDDEN otherwise).",
         "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets «Aprobar y pasar a prueba» (with a PR) or «Aprobar y cerrar» (without one) and «Pedir cambios» on screen; a question link gets Responder.",
         "body: plain Spanish, up to 4000 characters. You are the author (your roster slug and role).",
@@ -155,7 +155,7 @@ export const registerThreadTools = (
     {
       description: [
         "Read a thread's messages, oldest first (the last 200, or only those after `after`: an ISO time or a message id).",
-        "Each message has its author {agent, role}, body, links, the actions Jorge can take on it and the one he took (action_state).",
+        "Each message has its author {agent, role}, body, links, the actions the owner can take on it and the one they took (action_state).",
         "Same access as thread_post: Asistente every thread, a team member its own project's.",
       ].join(" "),
       inputSchema: {

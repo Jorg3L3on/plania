@@ -159,7 +159,7 @@ test("check 2: Give to PO creates exactly one Ready PO ticket, origin jorge, and
   assert.ok(key, a.body.state.line);
   assert.equal((await raw.query(`select count(*)::int as n from tasks`)).rows[0].n, before + 1);
   const [t] = (await raw.query(`select t.status, t.origin, t.scope, a.slug as owner from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [key])).rows;
-  assert.deepEqual([t.status, t.origin, t.owner], ["Ready", "jorge", "po-workia"]);
+  assert.deepEqual([t.status, t.origin, t.owner], ["Ready", "owner", "po-workia"]);
   assert.match(t.scope, /Decide the renewal notice[\s\S]*The PO has a draft[\s\S]*Keep it short/);
   const runs = (await runsOf("po-workia")).filter((r) => r.task_key === key);
   assert.equal(runs.length, 1);

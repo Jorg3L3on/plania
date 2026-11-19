@@ -3,6 +3,7 @@ import { questions, tasks, type Task } from "../db/schema.js";
 import { blockerList, type BlockerView } from "./blockers.js";
 import { liveOwner, prOf, type PrShape } from "./queries.js";
 import type { Q } from "./tx.js";
+import { OWNER_LINE_PREFIX, ownerEs } from "../owner.js";
 
 // 2.11 (item 3): where an initiative stands, derived from its tickets, their claims and their
 // blockers, so nobody has to write it. state_note stays beside it as commentary.
@@ -35,7 +36,7 @@ function waitText(b: BlockerView): string {
     case "task":
       return `${b.task} (${b.status})`;
     case "human_action":
-      return `Jorge: ${b.text}`;
+      return `${OWNER_LINE_PREFIX} ${b.text}`;
     case "env":
       return `${b.env} ${b.condition} ${b.value}`;
     case "env_flag":
@@ -59,8 +60,8 @@ export function stateLine(s: Omit<InitiativeState, "line">): string {
   if (s.to_release.length) parts.push(`${s.to_release.length} por lanzar`);
   if (s.to_close?.length) parts.push(`${s.to_close.length} por cerrar`);
   if (s.waiting_on.length) {
-    const jorge = s.waiting_on.filter((w) => w.on.startsWith("Jorge"));
-    parts.push(jorge.length ? `espera a Jorge (${jorge.length})` : `espera ${s.waiting_on[0]!.on}`);
+    const mine = s.waiting_on.filter((w) => w.on.startsWith(OWNER_LINE_PREFIX));
+    parts.push(mine.length ? `espera ${ownerEs("a")} (${mine.length})` : `espera ${s.waiting_on[0]!.on}`);
   }
   return parts.filter(Boolean).join(" · ");
 }
@@ -75,7 +76,7 @@ export async function initiativeState(db: Q, i: Pick<Task, "id" | "key" | "proje
   for (const c of open) {
     if (c.status === "In review") continue;
     for (const b of await blockerList(db, c)) if (!b.satisfied) waiting_on.push({ key: c.key, on: waitText(b) });
-    if (asked.some((q) => q.taskId === c.id)) waiting_on.push({ key: c.key, on: "Jorge: una pregunta" });
+    if (asked.some((q) => q.taskId === c.id)) waiting_on.push({ key: c.key, on: `${OWNER_LINE_PREFIX} una pregunta` });
   }
   const phases = kids.filter((c) => !ADVANCED.includes(c.status) && c.phase !== null).map((c) => c.phase!);
   const base = {

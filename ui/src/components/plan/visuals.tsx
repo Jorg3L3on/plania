@@ -12,7 +12,7 @@ export const TONE_BG: Record<StationTone, string> = {
   now: "bg-status-now",
   review: "bg-status-review",
   blocked: "bg-status-blocked",
-  jorge: "bg-status-jorge",
+  owner: "bg-status-owner",
   ready: "bg-status-ready",
   pending: "bg-status-pending",
 };
@@ -22,7 +22,7 @@ export const TONE_TEXT: Record<StationTone, string> = {
   now: "text-ink-now",
   review: "text-ink-review",
   blocked: "text-ink-blocked",
-  jorge: "text-ink-jorge",
+  owner: "text-ink-owner",
   ready: "text-ink-ready",
   pending: "text-muted-foreground",
 };
@@ -32,7 +32,7 @@ const TONE_VAR: Record<StationTone, string> = {
   now: "var(--status-now)",
   review: "var(--status-review)",
   blocked: "var(--status-blocked)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   ready: "var(--status-ready)",
   pending: "var(--status-pending)",
 };
@@ -42,7 +42,7 @@ export const toneVar = (tone: StationTone) => TONE_VAR[tone];
 
 export const LANE_STATE: Record<LaneState, { word: string; tone: StationTone }> = {
   moving: { word: "en marcha", tone: "now" },
-  jorge: { word: "te espera", tone: "jorge" },
+  owner: { word: "te espera", tone: "owner" },
   blocked: { word: "bloqueada", tone: "blocked" },
   waiting: { word: "esperando", tone: "pending" },
   paused: { word: "en pausa", tone: "pending" },

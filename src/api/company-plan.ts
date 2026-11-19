@@ -1,7 +1,7 @@
 // PLA-I35-1: what a project card says about the business, derived from tables that already exist (no migration).
 //   plan       where the work is (PLA-I36-5: by the calendar, not by an initiative's place in the list).
 //   this_week  what happened in the last 7 days: tickets closed, docs written, PRs merged; last_at = last event.
-//   next       the next milestone and whose it is: Jorge's (a ceo-owned or Needs Jorge ticket) first, then the
+//   next       the next milestone and whose it is: Jorge's (a ceo-owned or Needs owner ticket) first, then the
 //              next Ready ticket, the active initiative's before the rest.
 //   work       what a paused project keeps inside: open tickets, and those In progress.
 // PLA-I36-5. The plan is the project's open initiatives (Planning, Active, Shipping, On hold). Delivery is the
@@ -37,7 +37,7 @@ export type PlanLine = {
   forecast_on: string | null;
 };
 export type ThisWeek = { done: number; docs: number; prs: number; last_at: string | null };
-export type NextOwner = "jorge" | "po" | string;
+export type NextOwner = "owner" | "po" | string;
 export type NextLine = { title: string; key: string; owner: NextOwner; due: string | null };
 export type WorkLine = { open: number; in_progress: number };
 
@@ -232,14 +232,14 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   const open = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Ready", "Needs Jorge"])))
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Ready", "Needs owner"])))
     .orderBy(asc(tasks.phase), asc(tasks.createdAt));
   if (open.length === 0) return { next: null, ready: [], queued: [] };
   const parents = new Map<string, string>();
   const parentIds = [...new Set(open.map((t) => t.parentId).filter((x): x is string => !!x))];
   if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
-  const jorge = (t: Task) => t.status === "Needs Jorge" || (!!ceoId && t.ownerAgent === ceoId);
+  const jorge = (t: Task) => t.status === "Needs owner" || (!!ceoId && t.ownerAgent === ceoId);
   // PLA-I36-6: the ticket Jorge picked goes first after his own.
   const first = (t: Task) => (p.settings.next_first === t.key ? 0 : 1);
   const sorted = [...open].sort((a, b) => Number(!jorge(a)) - Number(!jorge(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
@@ -247,7 +247,7 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   const theirs = sorted.filter((x) => x.status === "Ready" && !jorge(x));
   const ready = theirs.slice(0, 5).map((x) => ({ key: x.key, title: x.title }));
   const queued = theirs.map((x) => ({ key: x.key, title: x.title, owner: x.ownerAgent ?? null, work_type: x.workType ?? "code" }));
-  let owner: NextOwner = jorge(t) ? "jorge" : (t.workType ?? "code") === "code" ? "taller" : "po";
+  let owner: NextOwner = jorge(t) ? "owner" : (t.workType ?? "code") === "code" ? "taller" : "po";
   if (!jorge(t) && t.ownerAgent) {
     const [a] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     const role = a ? roleOf(a) : null;

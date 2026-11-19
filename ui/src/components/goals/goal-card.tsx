@@ -9,7 +9,7 @@ const STEP_BADGE = [
   "bg-status-ready text-background",
   "bg-status-done text-background",
   "bg-status-now text-background",
-  "bg-status-jorge text-background",
+  "bg-status-owner text-background",
   "bg-status-idle text-background",
 ] as const;
 
@@ -18,7 +18,7 @@ const STEP_BAR = [
   "bg-status-ready",
   "bg-status-done",
   "bg-status-now",
-  "bg-status-jorge",
+  "bg-status-owner",
   "bg-status-idle",
 ] as const;
 

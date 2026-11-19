@@ -104,7 +104,7 @@ export function doneToday(projects: HomeProject[], nowMs = Date.now()): number {
 
 // ---- The headline: one sentence in display type, one line in the voice
 
-export type VoicePart = { text: string; tone?: "jorge" };
+export type VoicePart = { text: string; tone?: "owner" };
 export type Headline = { title: string; voice: VoicePart[] };
 
 export function headlineOf(input: {
@@ -139,7 +139,7 @@ export function headlineOf(input: {
       .map(([slug]) => (slug === "machine" ? "la Mac" : titleOf(slug)));
     const shown = slugs.length > 2 ? `${slugs[0]} y ${slugs[1]} y ${slugs.length - 2} más` : joinNames(slugs);
     const verb = slugs.length === 1 ? "te espera" : "te esperan";
-    b = { text: `${shown} ${verb} con ${plural(inbox.count, "cosa", "cosas")}`, tone: "jorge" };
+    b = { text: `${shown} ${verb} con ${plural(inbox.count, "cosa", "cosas")}`, tone: "owner" };
   }
 
   // c) what the Mac carries that nobody owns
@@ -214,7 +214,7 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
   const moving = p.tasks.some((t) => t.kind === "ticket" && (t.claimed_by || t.status === "In review"));
   const state =
     moving ? { word: "en marcha", tone: "now" as Tone, rank: 0 }
-    : waiting > 0 ? { word: "te espera", tone: "jorge" as Tone, rank: 1 }
+    : waiting > 0 ? { word: "te espera", tone: "owner" as Tone, rank: 1 }
     : lanes.length > 0 ? { word: "quieto", tone: "pending" as Tone, rank: 2 }
     : { word: "en pausa", tone: "pending" as Tone, rank: 3 };
   const inits = p.tasks.filter((t) => t.kind === "initiative");

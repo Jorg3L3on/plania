@@ -64,7 +64,7 @@ function ActionRow({ item }: { item: InboxItem }) {
           <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono underline-offset-4 hover:underline">{item.key}</Link>
           <span>{item.title}</span>
           <span>espera {waitText(item.wait_s)}</span>
-          {parsed && <span title="Leído de una línea «Jorge:» del ticket">del texto</span>}
+          {parsed && <span title="Leído de una línea «Owner:» del ticket">del texto</span>}
           {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">PR</a>}
         </span>
       </span>

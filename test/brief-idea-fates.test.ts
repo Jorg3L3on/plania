@@ -89,7 +89,7 @@ test("check 4: Sketch on a paused project waits, and wakes Artist once when runs
   const a = await act(m1.id, "sketch");
   assert.equal(a.body.status, "done", JSON.stringify(a.body));
   const [t] = (await raw.query(`select t.key, t.status, t.origin, a.slug from tasks t join agents a on a.id = t.owner_agent where t.title = $1`, [`Sketch: ${m1.title}`])).rows;
-  assert.deepEqual([t.status, t.origin, t.slug], ["Ready", "jorge", "artist-micasa"]);
+  assert.deepEqual([t.status, t.origin, t.slug], ["Ready", "owner", "artist-micasa"]);
   const ideaKey = a.body.line ? (await raw.query(`select key, stage from tasks where kind = 'idea' and title = $1`, [m1.title])).rows[0] : null;
   assert.equal(ideaKey.stage, "idea", "a sketch does not move the idea's stage");
   assert.equal((await runsOf("artist-micasa")).length, 0, "paused: no wake");

@@ -18,10 +18,11 @@ import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
 import { HELD_TEXT, type HeldCode } from "../runner/admission.js";
+import { ownerEs } from "../owner.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
-export const consultaReason = (id: string) => `${PREGUNTA_MARK} [consulta ${id}] Jorge pregunta algo del proyecto; contesta con answer_consulta`;
+export const consultaReason = (id: string) => `${PREGUNTA_MARK} [consulta ${id}] ${ownerEs(undefined, { capital: true })} pregunta algo del proyecto; contesta con answer_consulta`;
 const RETRY_HOURS = 6;
 
 export type ConsultaWake = "queued" | "busy" | "off";
@@ -72,13 +73,13 @@ export function consultaPrompt(input: {
     ? `You are in a read-only copy of the project at origin/${input.copy.branch} ${input.copy.commit ?? ""}, fetched just now: ${input.cwd}. In answer_consulta, branch is "${input.copy.branch}" and commit is "${input.copy.commit ?? ""}" unless you read another branch. This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`
     : `You are in the project's own checkout: ${input.cwd}.${input.copy?.fallback ? ` A fresh copy could not be made (${input.copy.fallback}), so this checkout may be behind origin; check with git log -1 --format=%cd and say how old it is.` : ""} This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`;
   return [
-    `You are ${input.agent}, the product owner of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to answer one question from Jorge. Nothing else.`,
-    `His question (consulta ${input.consulta.id}):`,
+    `You are ${input.agent}, the product owner of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to answer one question from the owner. Nothing else.`,
+    `Their question (consulta ${input.consulta.id}):`,
     `«${input.consulta.text}»`,
     where,
-    "First see which branch is checked out and its commit (git rev-parse --abbrev-ref HEAD; git rev-parse --short HEAD). If what he asks about is not on that branch, look for it on the open branches (git for-each-ref refs/heads refs/remotes, then git show <branch>:<path>) and say which branch you read.",
-    "Answer in the language of his question, in plain words: one short answer (two sentences at most), then the reasons (up to four, one or two sentences each). Name every file you rely on with its line. Say whether you saw it in the code or are guessing, and that you did not try it live. If knowing for sure needs running the app, say so instead of guessing.",
-    "If there is something to fix, write it as a request he could send to the team (fix: one or two sentences in Spanish, naming the branch when it is not main). Otherwise leave fix out. Never start the fix.",
+    "First see which branch is checked out and its commit (git rev-parse --abbrev-ref HEAD; git rev-parse --short HEAD). If what they ask about is not on that branch, look for it on the open branches (git for-each-ref refs/heads refs/remotes, then git show <branch>:<path>) and say which branch you read.",
+    "Answer in the language of their question, in plain words: one short answer (two sentences at most), then the reasons (up to four, one or two sentences each). Name every file you rely on with its line. Say whether you saw it in the code or are guessing, and that you did not try it live. If knowing for sure needs running the app, say so instead of guessing.",
+    "If there is something to fix, write it as a request they could send to the team (fix: one or two sentences in Spanish, naming the branch when it is not main). Otherwise leave fix out. Never start the fix.",
     `Finish with exactly one call: answer_consulta {project: "${input.project.slug}", id: "${input.consulta.id}", short, why, sources [{path, line}], branch, commit, sure ("seen" or "guess"), fix?} with actor session_id ${input.sessionId}. Paths are relative to the repo root; a file you looked for that does not exist goes in sources with missing true. Then stop.`,
   ].join("\n");
 }

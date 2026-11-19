@@ -55,7 +55,7 @@ test("PLA-104 #1: a Taller run that ends takes its next unblocked Ready ticket, 
   const ran = await ticket("La que corrió", { owner_agent: slug });
   const older = await ticket("Más vieja", { owner_agent: slug });
   const first = await ticket("Hacer primero", { owner_agent: slug });
-  await ticket("Bloqueada", { owner_agent: slug, blocked_by: [{ human_action: { text: "Jorge: algo" } }] });
+  await ticket("Bloqueada", { owner_agent: slug, blocked_by: [{ human_action: { text: "Owner: algo" } }] });
   await ticket("[PRUEBA] no", { owner_agent: slug });
   await raw.query(`delete from agent_runs`);
   await raw.query(`update projects set settings = settings || jsonb_build_object('next_first', $1::text) where slug = 'micasa'`, [first]);

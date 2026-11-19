@@ -22,7 +22,7 @@ export const TONE_VAR: Record<StageTone, string> = {
   blocked: "var(--status-blocked)",
   now: "var(--status-now)",
   review: "var(--status-review)",
-  jorge: "var(--status-jorge)",
+  owner: "var(--status-owner)",
   done: "var(--status-done)",
 };
 // More than this many cards in one cell fold behind «+ n más» (a native disclosure, no state).

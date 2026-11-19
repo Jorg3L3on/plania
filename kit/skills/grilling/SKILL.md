@@ -43,7 +43,7 @@ him: if he does not answer, your recommendation stands and is recorded as an ass
    update the doc or the plan.
 
 Use `ask` instead of an assumption only when no sensible default exists and a wrong guess cannot be
-undone (money spent, data deleted, a message sent to real people). `ask` parks a ticket in Needs Jorge;
+undone (money spent, data deleted, a message sent to real people). `ask` parks a ticket in Needs owner;
 an idea never waits.
 
 ## Writing a closed question

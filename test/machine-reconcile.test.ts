@@ -228,7 +228,7 @@ function fakeRun(root: string, repos: string[], w: World): Run {
       return ok(w.listeners.map((l) => `p${l.pid}\nc${l.cmd}\nf13\nn*:${l.port}\n`).join(""));
     }
     if (cmd === "ps") return ok(w.listeners.map((l) => ` ${l.pid}     1 Fri Oct  9 19:58:33 2026     ${l.ps}\n`).join(""));
-    if (cmd === "brew") return ok(JSON.stringify(w.brew.map((b) => ({ ...b, user: "jorge", file: `/x/${b.name}.plist` }))));
+    if (cmd === "brew") return ok(JSON.stringify(w.brew.map((b) => ({ ...b, user: "owner", file: `/x/${b.name}.plist` }))));
     if (cmd === "du") return ok(`${w.sizeKb}\t${args.at(-1)}\n`);
     if (cmd !== "git") return missing;
     const [, cwd, sub] = args as [string, string, string];

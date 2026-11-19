@@ -80,7 +80,7 @@ export async function marcasText(db: Db, slug: string, key: string, marcas: Marc
           status: "ok",
           file,
           bytes: crop.length,
-          actor: { agent: "jorge", session_id: "screen" },
+          actor: { agent: "owner", session_id: "screen" },
           side: m.side,
           commit: s.commit,
           branch: s.branch,

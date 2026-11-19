@@ -9,7 +9,7 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { parseJorgeLines } = await import("../src/mcp/jorge-lines.js");
+const { parseOwnerLines } = await import("../src/mcp/owner-lines.js");
 const { resolveHumanAction } = await import("../src/mcp/blockers.js");
 const { findProject } = await import("../src/mcp/queries.js");
 const { WEB_ACTOR, webCtx, writeTx } = await import("../src/mcp/tx.js");
@@ -51,68 +51,68 @@ after(async () => {
   await raw?.end();
 });
 
-describe("parseJorgeLines", () => {
+describe("parseOwnerLines", () => {
   test("the seven live findings of 2026-10-15", () => {
     // FIL-I2 next_action
     assert.deepEqual(
-      parseJorgeLines("Jorge: crear el cliente OAuth de Google y poner GOOGLE_CLIENT_ID/SECRET en Vercel producción (hoy googleEnabled:false). Luego un agente prueba FIL-04 (web, PWA iOS, alta nueva → /bienvenida).").map((l) => l.text),
+      parseOwnerLines("Owner: crear el cliente OAuth de Google y poner GOOGLE_CLIENT_ID/SECRET en Vercel producción (hoy googleEnabled:false). Luego un agente prueba FIL-04 (web, PWA iOS, alta nueva → /bienvenida).").map((l) => l.text),
       ["crear el cliente OAuth de Google y poner GOOGLE_CLIENT_ID/SECRET en Vercel producción (hoy googleEnabled:false). Luego un agente prueba FIL-04 (web, PWA iOS, alta nueva → /bienvenida)."],
     );
     // ZIG-I21-1..4 blocked_note: the sentence that says it waits on him.
     for (const what of ["phone capture", "phone test"]) {
-      const lines = parseJorgeLines(`Prod now contains df2f69a (main 09bc321 deployed 2026-10-15 05:47 UTC). Only check 2 is left and it is Jorge's ${what}, so this waits on him as a human action.`);
-      assert.deepEqual(lines.map((l) => l.text), [`Only check 2 is left and it is Jorge's ${what}, so this waits on him as a human action.`]);
+      const lines = parseOwnerLines(`Prod now contains df2f69a (main 09bc321 deployed 2026-10-15 05:47 UTC). Only check 2 is left and it is the owner's ${what}, so this waits on him as a human action.`);
+      assert.deepEqual(lines.map((l) => l.text), [`Only check 2 is left and it is the owner's ${what}, so this waits on him as a human action.`]);
     }
     // ZIG-I21 next_action: two asks in one line.
-    const i21 = parseJorgeLines(
-      "Claim ZIG-I21-6 (Ready): install the Android emulator with Jorge's OK, have him sign in once, run the checklist over adb against prod and record the evidence on I21-1…4 and I21-5. Then Jorge's phone run (human action on I21-5), close the five tickets and mark the initiative Done. ZIG-I21-7 (test aviso button) is optional.",
+    const i21 = parseOwnerLines(
+      "Claim ZIG-I21-6 (Ready): install the Android emulator with the owner's OK, have him sign in once, run the checklist over adb against prod and record the evidence on I21-1…4 and I21-5. Then the owner's phone run (human action on I21-5), close the five tickets and mark the initiative Done. ZIG-I21-7 (test aviso button) is optional.",
     );
     // 2.11 (PLA-01): "human action" is no longer a cue, so the second sentence ("Then Jorge's phone
     // run (human action on I21-5)") is left to the audit; a real ask belongs in blocked_by.
     assert.equal(i21.length, 1);
     assert.match(i21[0]!.text, /^Claim ZIG-I21-6/);
     // ZIG-I22 next_action: "when Jorge says so".
-    const i22 = parseJorgeLines("On hold by Jorge: no phase is to be claimed. The Android SDK and emulator are installed by ZIG-I21-6 (ZIG-I21) so the tooling is ready. When Jorge says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready.");
-    assert.deepEqual(i22.map((l) => l.text), ["When Jorge says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready."]);
+    const i22 = parseOwnerLines("On hold by the owner: no phase is to be claimed. The Android SDK and emulator are installed by ZIG-I21-6 (ZIG-I21) so the tooling is ready. When the owner says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready.");
+    assert.deepEqual(i22.map((l) => l.text), ["When the owner says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready."]);
   });
 
   test("PLA-01: prose that only describes the mechanism is no ask", () => {
     // The FIL-I2 note of 2026-10-15 that made blocker d66358ac.
-    const fil = "Plania 2.10 live: the Jorge line in next_action (Google OAuth client and GOOGLE_CLIENT_ID/SECRET in Vercel production) is now a human action in Pasos.";
-    assert.deepEqual(parseJorgeLines(fil), []);
-    assert.deepEqual(parseJorgeLines(fil, { prefixOnly: true }), []);
+    const fil = "Plania 2.10 live: the Owner line in next_action (Google OAuth client and GOOGLE_CLIENT_ID/SECRET in Vercel production) is now a human action in Pasos.";
+    assert.deepEqual(parseOwnerLines(fil), []);
+    assert.deepEqual(parseOwnerLines(fil, { prefixOnly: true }), []);
     // PLA-01's own first summary, matched twice by 2.10.
     const pla01 =
-      'A set_task note that merely talks about Jorge lines ("the Jorge line in next_action ... is now a human action in Pasos") became a human_action blocker on FIL-I2 (d66358ac). Notes have no resync, so a false positive stays in Pasos until Jorge clicks Hecho.';
-    assert.deepEqual(parseJorgeLines(pla01), []);
-    assert.deepEqual(parseJorgeLines("Esto queda como acción humana de Jorge en Pasos."), []);
+      'A set_task note that merely talks about the owner lines ("the Owner line in next_action ... is now a human action in Pasos") became a human_action blocker on FIL-I2 (d66358ac). Notes have no resync, so a false positive stays in Pasos until the owner clicks Hecho.';
+    assert.deepEqual(parseOwnerLines(pla01), []);
+    assert.deepEqual(parseOwnerLines("Esto queda como acción humana del dueño en Pasos."), []);
     // In a note only the prefix form asks.
-    assert.deepEqual(parseJorgeLines("This waits on Jorge's OK.", { prefixOnly: true }), []);
-    assert.deepEqual(parseJorgeLines("Jorge: rotate the token", { prefixOnly: true }).map((l) => l.text), ["rotate the token"]);
+    assert.deepEqual(parseOwnerLines("This waits on the owner's OK.", { prefixOnly: true }), []);
+    assert.deepEqual(parseOwnerLines("Owner: rotate the token", { prefixOnly: true }).map((l) => l.text), ["rotate the token"]);
   });
 
-  test("conservative: list markers and case, but no reports of what Jorge did", () => {
-    assert.deepEqual(parseJorgeLines("- JORGE: merge sandbox → main\n2. jorge: rotate the key").map((l) => l.text), ["merge sandbox → main", "rotate the key"]);
-    assert.deepEqual(parseJorgeLines("Jorge approved the plan. Jorge decided to drop Vercel."), []);
+  test("conservative: list markers and case, but no reports of what the owner did", () => {
+    assert.deepEqual(parseOwnerLines("- OWNER: merge sandbox → main\n2. owner: rotate the key").map((l) => l.text), ["merge sandbox → main", "rotate the key"]);
+    assert.deepEqual(parseOwnerLines("The owner approved the plan. The owner decided to drop Vercel."), []);
     // Present-tense asks from the live data of 2026-10-15 (MIC-I1, PLA-I3).
-    assert.equal(parseJorgeLines("Jorge releases sandbox → main; then the MIC-I1-4 device check on prod").length, 1);
-    assert.equal(parseJorgeLines("Waits for PLA-I2 (2.9). Jorge sets settings.release per project first").length, 1);
-    assert.deepEqual(parseJorgeLines("Ask the team about it"), []);
-    assert.deepEqual(parseJorgeLines(""), []);
-    const twice = parseJorgeLines("Jorge: merge it\nJorge:  merge   it");
+    assert.equal(parseOwnerLines("The owner releases sandbox → main; then the MIC-I1-4 device check on prod").length, 1);
+    assert.equal(parseOwnerLines("Waits for PLA-I2 (2.9). The owner sets settings.release per project first").length, 1);
+    assert.deepEqual(parseOwnerLines("Ask the team about it"), []);
+    assert.deepEqual(parseOwnerLines(""), []);
+    const twice = parseOwnerLines("Owner: merge it\nowner:  merge   it");
     assert.equal(twice.length, 1, "same line twice, one action");
   });
 });
 
 describe("parsed blockers", () => {
-  test("a Jorge line in next_action becomes a human action, warns, and the initiative keeps its status", async () => {
+  test("an Owner line in next_action becomes a human action, warns, and the initiative keeps its status", async () => {
     await call("create_task", { ...P, kind: "initiative", title: "Release", scope: "s" }); // ZIG-I1
     let i = await get("ZIG-I1");
     let r = await call("set_task", { ...P, key: "ZIG-I1", status: "Active", version: i.version });
     i = await get("ZIG-I1");
-    r = await call("set_task", { ...P, key: "ZIG-I1", next_action: "Jorge: merge sandbox → main\nThen an agent checks prod.", version: i.version });
+    r = await call("set_task", { ...P, key: "ZIG-I1", next_action: "Owner: merge sandbox → main\nThen an agent checks prod.", version: i.version });
     assert.equal(r.status, "Active");
-    const w = r.warnings.find((x: Json) => x.code === "JORGE_LINE_PARSED");
+    const w = r.warnings.find((x: Json) => x.code === "OWNER_LINE_PARSED");
     assert.ok(w, "warns");
     assert.equal(w.field, "next_action");
     assert.equal(w.fix_hint, "use blocked_by human_action next time");
@@ -127,8 +127,8 @@ describe("parsed blockers", () => {
 
   test("resynced per write: an unchanged line stays, a removed one drops, a done one stays as history", async () => {
     let i = await get("ZIG-I1");
-    let r = await call("set_task", { ...P, key: "ZIG-I1", next_action: "Jorge: merge sandbox → main\nJorge: rotate the token", version: i.version });
-    assert.equal(r.warnings.filter((x: Json) => x.code === "JORGE_LINE_PARSED").length, 1, "only the new line warns");
+    let r = await call("set_task", { ...P, key: "ZIG-I1", next_action: "Owner: merge sandbox → main\nOwner: rotate the token", version: i.version });
+    assert.equal(r.warnings.filter((x: Json) => x.code === "OWNER_LINE_PARSED").length, 1, "only the new line warns");
     assert.equal((await humanActions("ZIG-I1")).length, 2);
     const rotate = (await humanActions("ZIG-I1")).find((b: Json) => b.text === "rotate the token");
     const p = await findProject(db, "zigzag");
@@ -139,19 +139,19 @@ describe("parsed blockers", () => {
     assert.deepEqual(left.map((b: Json) => [b.text, b.satisfied]), [["rotate the token", true]]);
     const log = await call("list_events", { ...P, key: "ZIG-I1" });
     const note = log.events.find((e: Json) => e.type === "note" && e.payload.text === "rotated in 1Password");
-    assert.ok(note, "Jorge's note lands in the log");
+    assert.ok(note, "The owner's note lands in the log");
     assert.equal(note.actor.agent, WEB_ACTOR.agent);
   });
 
   test("a parsed line does not hold a Ready ticket; one in blocked_note behaves like any blocker", async () => {
-    await call("create_task", { ...P, title: "Phone check", ...T, parent_key: "ZIG-I1", status: "Ready", summary: "Jorge: run the checklist on his phone" }); // ZIG-I1-1
+    await call("create_task", { ...P, title: "Phone check", ...T, parent_key: "ZIG-I1", status: "Ready", summary: "Owner: run the checklist on his phone" }); // ZIG-I1-1
     let t = await get("ZIG-I1-1");
     assert.equal(t.status, "Ready");
     assert.equal(t.blocked_by[0].gating, false);
     const c = await call("claim", { ...P, key: "ZIG-I1-1" });
     assert.equal(c.status, "In progress", "claimable");
     t = await get("ZIG-I1-1");
-    await call("set_task", { ...P, key: "ZIG-I1-1", status: "Blocked", note: "Only the phone capture is left, so this waits on Jorge.", version: t.version });
+    await call("set_task", { ...P, key: "ZIG-I1-1", status: "Blocked", note: "Only the phone capture is left, so this waits on the owner.", version: t.version });
     t = await get("ZIG-I1-1");
     assert.equal(t.status, "Blocked");
     const gating = t.blocked_by.find((b: Json) => b.field === "blocked_note");
@@ -159,7 +159,7 @@ describe("parsed blockers", () => {
     assert.equal((await call("claim", { ...P, key: "ZIG-I1-1" })).__error, "NOT_CLAIMABLE");
     const p = await findProject(db, "zigzag");
     await writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, gating.id, WEB_ACTOR));
-    assert.equal((await get("ZIG-I1-1")).status, "Ready", "back to Ready once Jorge marks it done");
+    assert.equal((await get("ZIG-I1-1")).status, "Ready", "back to Ready once the owner marks it done");
   });
 
   test("blocked_by keeps parsed blockers and does not duplicate them", async () => {
@@ -171,25 +171,25 @@ describe("parsed blockers", () => {
     assert.equal(after.find((b: Json) => b.type === "human_action" && b.text === summary.text).id, summary.id);
   });
 
-  test("a note with a Jorge line parses too; a headline only warns", async () => {
-    const r = await call("set_task", { ...P, key: "ZIG-I1", note: "Jorge: approve the Play Store listing" });
-    assert.ok(r.warnings.some((w: Json) => w.code === "JORGE_LINE_PARSED" && w.field === "note"));
+  test("a note with an Owner line parses too; a headline only warns", async () => {
+    const r = await call("set_task", { ...P, key: "ZIG-I1", note: "Owner: approve the Play Store listing" });
+    assert.ok(r.warnings.some((w: Json) => w.code === "OWNER_LINE_PARSED" && w.field === "note"));
     const p = await call("get_project", P);
-    const h = await call("set_project", { ...P, headline: "Jorge: ship the release", version: p.version });
-    assert.ok(h.warnings.some((w: Json) => w.code === "JORGE_LINE_PARSED" && w.field === "headline"));
+    const h = await call("set_project", { ...P, headline: "Owner: ship the release", version: p.version });
+    assert.ok(h.warnings.some((w: Json) => w.code === "OWNER_LINE_PARSED" && w.field === "headline"));
     const { rows } = await raw.query("select count(*)::int as n from blockers where spec->>'text' = 'ship the release'");
     assert.equal(rows[0].n, 0);
   });
 
-  test("PLA-01: a note only parses the 'Jorge:' form; its writer may withdraw what it made, nobody else", async () => {
-    const quiet = await call("set_task", { ...P, key: "ZIG-I1", note: "This now waits on Jorge's OK in Pasos." });
-    assert.equal((quiet.warnings ?? []).filter((w: Json) => w.code === "JORGE_LINE_PARSED").length, 0, "sentence form does not count in a note");
-    const r = await call("set_task", { ...P, key: "ZIG-I1", note: "Jorge: the line in next_action is now a step" });
-    const w = r.warnings.find((x: Json) => x.code === "JORGE_LINE_PARSED" && x.field === "note");
+  test("PLA-01: a note only parses the 'Owner:' form; its writer may withdraw what it made, nobody else", async () => {
+    const quiet = await call("set_task", { ...P, key: "ZIG-I1", note: "This now waits on the owner's OK in Pasos." });
+    assert.equal((quiet.warnings ?? []).filter((w: Json) => w.code === "OWNER_LINE_PARSED").length, 0, "sentence form does not count in a note");
+    const r = await call("set_task", { ...P, key: "ZIG-I1", note: "Owner: the line in next_action is now a step" });
+    const w = r.warnings.find((x: Json) => x.code === "OWNER_LINE_PARSED" && x.field === "note");
     assert.ok(w);
     const other = await client.callTool({ name: "set_task", arguments: { ...P, actor: { ...A, session_id: "s2" }, key: "ZIG-I1", withdraw_blocker: w.blocker_id } });
     assert.equal(JSON.parse((other as { content: { text: string }[] }).content[0]!.text).error, "BLOCKER_NOT_WITHDRAWABLE", "another session may not");
-    await call("set_task", { ...P, key: "ZIG-I1", next_action: "Jorge: publish the listing", version: (await get("ZIG-I1")).version });
+    await call("set_task", { ...P, key: "ZIG-I1", next_action: "Owner: publish the listing", version: (await get("ZIG-I1")).version });
     const { rows: fromField } = await raw.query("select b.id::text as id, b.spec->>'field' as field from blockers b join tasks t on t.id = b.task_id where t.key = 'ZIG-I1' and b.spec->>'field' = 'next_action' and b.satisfied_at is null");
     const refused = await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: fromField[0].id });
     assert.equal(refused.__error, "BLOCKER_NOT_WITHDRAWABLE");
@@ -227,13 +227,13 @@ describe("inbox tones", () => {
   test("the audit stays quiet once a write parsed the line, and says so before", async () => {
     await call("create_task", { ...P, kind: "initiative", title: "Later", scope: "s" }); // ZIG-I2
     // As if written before 2.10: straight into the row, no parse.
-    await raw.query("update tasks set next_action = 'When Jorge says so, move it to Active.' where key = 'ZIG-I2'");
+    await raw.query("update tasks set next_action = 'When the owner says so, move it to Active.' where key = 'ZIG-I2'");
     const p = await findProject(db, "zigzag");
-    let f = (await auditProject(db, p)).filter((x) => x.code === "WAITING_ON_JORGE_FREE_TEXT" && x.key === "ZIG-I2");
+    let f = (await auditProject(db, p)).filter((x) => x.code === "WAITING_ON_OWNER_FREE_TEXT" && x.key === "ZIG-I2");
     assert.equal(f.length, 1);
     assert.match(f[0]!.detail, /parser makes it one on the next write/);
     await call("set_task", { ...P, key: "ZIG-I2", note: "touch" });
-    f = (await auditProject(db, p)).filter((x) => x.code === "WAITING_ON_JORGE_FREE_TEXT" && x.key === "ZIG-I2");
+    f = (await auditProject(db, p)).filter((x) => x.code === "WAITING_ON_OWNER_FREE_TEXT" && x.key === "ZIG-I2");
     assert.equal(f.length, 0, "one write of any kind parses it");
   });
 });

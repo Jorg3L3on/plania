@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { useThread } from "@/components/compania/use-thread";
 import type { ThreadAction, ThreadMessage } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
-import { ACTION_EFFECT, actionStateText, visibleMessages, waitsOnJorge } from "@/lib/org";
+import { ACTION_EFFECT, actionStateText, visibleMessages, waitsOnOwner } from "@/lib/org";
 import { plainWords } from "@/lib/plain-words";
 import { Btn, Label, Live, ReadError, You } from "./parts";
 
@@ -19,8 +19,8 @@ const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: Thre
   const [open, setOpen] = useState<ThreadAction | null>(null);
   const [text, setText] = useState("");
   const [full, setFull] = useState(false);
-  const mine = m.author.role === "jorge" || m.author.agent === "jorge";
-  const waiting = !mine && waitsOnJorge(m);
+  const mine = m.author.role === "owner" || m.author.agent === "owner";
+  const waiting = !mine && waitsOnOwner(m);
   const here = busy?.id === m.id;
   const long = m.body.length > 320;
   const work = m.links.filter((l) => l.kind === "ticket" || l.kind === "idea");
@@ -106,7 +106,7 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
   useEffect(() => {
     if (t.send.kind === "done") setText("");
   }, [t.send]);
-  const lastTheirs = [...messages].reverse().find((m) => m.author.role !== "jorge" && m.author.agent !== "jorge")?.id;
+  const lastTheirs = [...messages].reverse().find((m) => m.author.role !== "owner" && m.author.agent !== "owner")?.id;
   return (
     <div className="cor-asist" data-asistente>
       <section className="cor-asist-main" aria-label="Conversación con Asistente">

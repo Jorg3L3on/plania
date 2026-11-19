@@ -33,7 +33,7 @@ export async function statusBlock(db: Q, p: Project) {
 
   const waitingOn = (t: Task): string[] => {
     const why: string[] = [];
-    if (t.status === "Needs Jorge" || openQ.some((q) => q.taskId === t.id)) why.push("question");
+    if (t.status === "Needs owner" || openQ.some((q) => q.taskId === t.id)) why.push("question");
     if (humanActions.some((h) => h.taskId === t.id)) why.push("human_action");
     return why;
   };
@@ -52,7 +52,7 @@ export async function statusBlock(db: Q, p: Project) {
       head_sha: head?.headSha ?? null,
       counts,
       next_claimable: (await nextTask(db, p.id, i.key)).task?.key ?? null,
-      waiting_on_jorge: children.map((c) => ({ key: c.key, why: waitingOn(c) })).filter((w) => w.why.length),
+      waiting_on_owner: children.map((c) => ({ key: c.key, why: waitingOn(c) })).filter((w) => w.why.length),
       in_review: children
         .filter((c) => ["In review", "Merged", "Released"].includes(c.status))
         .map((c) => {
@@ -87,7 +87,7 @@ export async function statusBlock(db: Q, p: Project) {
     pending_approvals: 0,
     human_actions: humanActions.length,
     released_waiting_done: released.map((t) => t.key),
-    standalone_waiting_on_jorge: standaloneWaiting,
+    standalone_waiting_on_owner: standaloneWaiting,
     s1_s2_bugs: bugs.map((t) => ({ key: t.key, severity: t.severity, title: t.title, status: t.status })),
     // 2.10: the release step (settings.release), or null. A merged ticket waits here until Jorge ships it.
     release: await releasePlan(db, p),

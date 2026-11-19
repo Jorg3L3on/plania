@@ -21,6 +21,8 @@ import { agentOfActor, eventWakesEnabled, queueWake } from "../runner/events.js"
 import { projectPo } from "./company-actions.js";
 import { roleOf } from "../runner/limits.js";
 import { CONSTRUIR, GUARDADA, RESTAURADA, pedidoOf, type Pedido } from "./company-pedidos.js";
+import { isOwnerAgent } from "../owner.js";
+import { ownerEs } from "../owner.js";
 
 export type FichaIdea = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type TrailItem = {
@@ -126,17 +128,17 @@ const ASKED = /\(Darle forma\): "([\s\S]*)"\n/;
 export const askedText = (scope: string, title: string) => ASKED.exec(scope)?.[1] ?? title;
 const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
 const SCREEN_NOTE = /^De Compañía:\s*/;
-const BUILD_NOTE = /^Constrúyelo \(orden de Jorge/;
+const BUILD_NOTE = /^Constrúyelo \(orden de/;
 // PLA-I61-4: the note an answer leaves for the stage owner; the answer's own line already tells it.
 // AUDIT-8: the same for the note his pick on a decision leaves (company-idea.ts decisionNote).
-const ANSWER_NOTE = /^Jorge (pide cambios en|pide la opción|dice que no es eso|decidió \(desde Compañía\)|confirmó \(desde Compañía\))/;
+const ANSWER_NOTE = /^[^.:\n]{1,80}? (pide cambios en|pide la opción|dice que no es eso|decidió \(desde Compañía\)|confirmó \(desde Compañía\))/;
 // AUDIT-8: his pick on one of the PO's decisions (event idea.decision, written by company-idea.ts).
 const DECISION = "idea.decision";
 export function decisionLine(p: Record<string, unknown>): string {
   const head = `«${String(p.label ?? "")}» en «${String(p.question ?? "")}»`;
   return p.changed ? `Decidiste ${head} (se asumía «${String(p.was ?? "")}»).` : `Confirmaste ${head}.`;
 }
-const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
+const DROPPED = /^Descartada por [^\n]{1,80}? desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
 // PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-mianovia-idea1-…,
 // research-…, artist-…): the trail names the role, not the runner.
@@ -152,7 +154,7 @@ export const roleOfSession = (sessionId: string | null | undefined): string | nu
 
 export async function whoOf(db: Db, actor: Actor | null | undefined, cache: Map<string, string>): Promise<string> {
   if (!actor) return "plania";
-  if (actor.agent === "jorge") return "jorge";
+  if (isOwnerAgent(actor.agent)) return "owner";
   const id = `${actor.agent}|${actor.session_id}`;
   const hit = cache.get(id);
   if (hit) return hit;
@@ -212,7 +214,7 @@ async function ideaOf(db: Db, slug: string, key: string): Promise<{ project: { i
   const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
-  if (!t || t.kind !== "idea" || t.origin !== "jorge") return { error: "PEDIDO_NOT_FOUND", status: 404, hint: "Ese pedido no está en este proyecto." };
+  if (!t || t.kind !== "idea" || t.origin !== "owner") return { error: "PEDIDO_NOT_FOUND", status: 404, hint: "Ese pedido no está en este proyecto." };
   return { project: p, t };
 }
 const open = (t: Task): Refusal | null => (t.status !== "Open" ? { error: "PEDIDO_CLOSED", status: 409, hint: "Ese pedido ya está cerrado." } : t.promotedTo ? { error: "PEDIDO_PROMOTED", status: 409, hint: `Ya pasó la válvula: es ${t.promotedTo}.` } : null);
@@ -259,7 +261,7 @@ export async function descartarPedido(db: Db, slug: string, key: string, reason?
   if ("error" in found) return found;
   const closed = open(found.t);
   if (closed) return closed;
-  const note = `Descartada por Jorge desde Compañía${reason?.trim() ? `: ${reason.trim()}` : "."}`;
+  const note = `Descartada ${ownerEs("por")} desde Compañía${reason?.trim() ? `: ${reason.trim()}` : "."}`;
   await setTask(db, { project: slug, key, status: "Won't do", reason: note, note, version: found.t.version } as never, { ...webCtx, tool: "company.pedido" });
   return { key, status: "Won't do" };
 }
@@ -275,9 +277,10 @@ export async function openPedido(db: Db, slug: string, key: string): Promise<{ p
 // on an owner's request: writes.ts PEDIDO_SIN_ORDEN) and a note the PO reads; the PO wakes on the idea with the promote
 // instruction. While it runs the capsule says «Pasando la válvula»; once promoted_to is set the idea leaves the tube and
 // its initiative is a track on the board. Nothing else promotes it: an idea at Lista waits for this.
-export const BUILD_NOTE_TEXT =
-  "Constrúyelo (orden de Jorge desde Compañía): termina los docs de las etapas que faltan, luego crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en esta idea con la clave de la iniciativa.";
-export const BUILD_REASON = "Jorge dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea";
+// PLA-I2-14: functions, so the text names the owner as they are called now.
+export const buildNoteText = () =>
+  `Constrúyelo (orden ${ownerEs("de")} desde Compañía): termina los docs de las etapas que faltan, luego crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en esta idea con la clave de la iniciativa.`;
+export const buildReason = () => `${ownerEs(undefined, { capital: true })} dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea`;
 
 export async function construirPedido(db: Db, slug: string, key: string): Promise<{ key: string; state: "valvula"; wake: "queued" | "busy" | "off" } | Refusal> {
   const found = await openPedido(db, slug, key);
@@ -291,9 +294,9 @@ export async function construirPedido(db: Db, slug: string, key: string): Promis
   const t = { id: found.t.id, key: found.t.key };
   return writeTx(db, p, { ...webCtx, tool: "company.pedido" }, async (tx, emit) => {
     await emit(CONSTRUIR, t, { stage: found.t.stage });
-    await emit("note", t, { text: BUILD_NOTE_TEXT });
+    await emit("note", t, { text: buildNoteText() });
     if (!eventWakesEnabled() || !po) return { key, state: "valvula" as const, wake: "off" as const };
-    const w = await queueWake(tx, p, t, { agent: po, taskKey: key, reason: BUILD_REASON }, CONSTRUIR);
+    const w = await queueWake(tx, p, t, { agent: po, taskKey: key, reason: buildReason() }, CONSTRUIR);
     return { key, state: "valvula" as const, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
   });
 }

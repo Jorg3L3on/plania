@@ -72,7 +72,7 @@ test("I36-1 #4: Bien only when nothing waits, the last runs are ok and something
 test("I36-1 #1: a ceo-owned Ready ticket makes Te necesita, with the reason and the way to Te toca", async () => {
   await writes.createTask(db, { project: "mianovia", title: "Kickoff con la boutique", status: "Ready", owner_agent: "ceo", scope: "s", checks: ["c"] } as never, PO("mianovia"));
   const mia = await card("mianovia");
-  assert.equal(mia.light, "needs_jorge");
+  assert.equal(mia.light, "needs_owner");
   assert.equal(mia.light_reason.text, "Lo siguiente es tuyo: «Kickoff con la boutique».");
   assert.deepEqual(mia.light_reason.action, { label: "Ver en Te toca", href: "#te-toca" });
 });
@@ -112,7 +112,7 @@ test("I36-2 #2: a human_action blocker shows as a step row; Hecho resolves it", 
   const step = c.decisions.find((d: Json) => d.kind === "step");
   assert.ok(step, "a step row");
   assert.deepEqual([step.project, step.title, step.actions, step.ref], ["workia", "Crear la cuenta de la tienda", ["hecho"], t.key]);
-  assert.equal(c.projects.find((p: Json) => p.slug === "workia").light, "needs_jorge");
+  assert.equal(c.projects.find((p: Json) => p.slug === "workia").light, "needs_owner");
   const res = await act(step.id, { action: "hecho" });
   assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
   assert.equal((await raw.query(`select count(*)::int as n from blockers where id = $1 and satisfied_at is not null`, [step.id.slice(2)])).rows[0].n, 1);
@@ -164,7 +164,7 @@ test("PLA-23: a release lights the floor with a Publicar action and says how man
   const item = (n: number) => ({ kind: "release", group: "pasos", project: "pubfloor", target: { tickets: Array.from({ length: n }, (_, i) => ({ key: `PUB-${i}` })) } }) as never;
   const ctx = (n: number) => ({ paused: false, threadId: "00000000-0000-4000-8000-000000000000", now: new Date(), ceoId: null, team: [], plan: null, inbox: [item(n)] });
   const two = await lightOf(db, proj, ctx(2));
-  assert.deepEqual(two, { light: "needs_jorge", reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
+  assert.deepEqual(two, { light: "needs_owner", reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
   assert.equal((await lightOf(db, proj, ctx(1))).reason!.text, "1 cambio listo espera que lo publiques.");
 });
 

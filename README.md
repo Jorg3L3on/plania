@@ -166,7 +166,7 @@ Until `0030` runs, an open old row stays out of the inbox and can only be closed
 
 Migration `0032_drop_gates_approvals` copies old approval rows and lettered questions into events, then drops the approval table, the letter column and its check. Take a dump first. The protocol moves to 2.18.
 
-`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
+`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_owner` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
 
 1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0032-$(date +%Y%m%d).sql.gz`.
 2. Apply `drizzle/migrations/0032_drop_gates_approvals.sql` (`psql "$DATABASE_URL" -f …`). It copies those rows into `approval.archived` and `question.archived`, then drops them. A second run copies nothing and drops nothing.
@@ -196,9 +196,9 @@ Questions asked before 2.17 that carried a letter (A, B or C) are history in `qu
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_owner.message_id` (8 to 200 characters) and `delegated_by_owner.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
 
-Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_jorge` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
+Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_owner` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
 
 The answer or decision is stored as the owner's (the screen actor). `delegated_answers` keeps the message id, the quote, the delegating actor and the time. The audit lists each one as `DELEGATED_ANSWER` (warn) for review.
 
@@ -405,20 +405,20 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 <!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness. |
-| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (the owner's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness. |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command the owner runs, its mode (command, or merge: the owner ships it from the screen) and merged once they did (null without settings.release). |
 | `list_tasks` | Initiatives, tickets and ideas without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
 | `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
 | `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
-| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_owner, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
-| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
-| `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
-| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
+| `get_digest` | One call for an assistant that keeps the owner updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_owner, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on the owner (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
+| `get_inbox` | Everything waiting on the owner, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_OWNER_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (the owner's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
@@ -439,9 +439,9 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
-| `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
-| `answer` | Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him). |
-| `answer_delegated` | Record one answer the owner gave actor agent plania-bot in his own chat. |
+| `ask` | Ask the owner a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
+| `answer` | Record the owner's answer to a question that is not human_only (they answer those on the screen; otherwise they may tell you in chat and you record it here, quoting them). |
+| `answer_delegated` | Record one answer the owner gave actor agent plania-bot in their own chat. |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
 | `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
@@ -463,9 +463,9 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `report_tokens` | Record the tokens one agent reports for a task run. |
 | `create_company_project` | Create a project from the company template: paused, plan approval on, its team (product owner, research, artist, taller) and a Playbook doc. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
-| `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
-| `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
-| `propose` | Post a proposal as data in your project's thread; Jorge decides it in Te toca. |
+| `thread_post` | Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them. |
+| `answer_consulta` | Answer a question the owner asked about a project with Pedir's Preguntar mode. |
+| `propose` | Post a proposal as data in your project's thread; the owner decides it in Te toca. |
 | `deliver_stage` | Deliver an idea's stage as data. |
 <!-- mcp-tools:end -->
 
@@ -528,7 +528,7 @@ Rules every write follows:
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
 - **Won't do and reopening.** Jorge's. On screen, `set_task` with a `reason`. An agent sends `reason` and
-  `delegated_by_jorge` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
+  `delegated_by_owner` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
   (`task.delegated_move`) and an agent's quote is listed under delegated in the inbox. `waive_check` is the reason
   alone. `lease_resource` does not wait. `approval_id` is ignored for one release. Old rows stay as history.
   `WONT_DO_WITHOUT_EVIDENCE` flags a Won't do that has neither a screen actor, nor a quote, nor an archived granted row.
@@ -549,11 +549,11 @@ Rules every write follows:
   may add notes and results but not change the task (`NOT_OWNER`). An expired lease is free; the next write in
   the project releases it (`claim.expired`, In progress → Ready).
 - **States.** Tickets: Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released; Blocked (with a note)
-  from any open state; Needs Jorge through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
+  from any open state; Needs owner through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
   Done is the agents' once the work is finished: code, bug and debt tickets from Merged or Released; ops and research
   from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open
   status once its tickets are closed. Elsewhere it is `INVALID_TRANSITION` with `allowed_from`. Won't do and reopening
-  are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_jorge`.
+  are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_owner`.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
@@ -576,7 +576,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
-| `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_jorge.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
+| `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_owner.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
@@ -609,7 +609,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
 | `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
 | `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
-| `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
+| `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
@@ -619,7 +619,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
@@ -662,7 +662,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
-| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
+| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
@@ -773,14 +773,14 @@ system themes. Times arrive as UTC and show in the browser's local time.
 
 - **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
   same five columns: Hecho (Done), En revisión (In review, Merged, Released: one PR per initiative, so phases wait
-  on its branch), En curso (In progress, Needs Jorge, and Blocked by anything but tickets), Siguiente (Ready, then
+  on its branch), En curso (In progress, Needs owner, and Blocked by anything but tickets), Siguiente (Ready, then
   Blocked tickets that only wait on other tickets, shown as "espera F1 · F3"; or else the top Backlog ticket) and
   Después (the rest of the Backlog). A column empty in every lane narrows to a strip. Only lanes with work in motion
   pulse. Task rows carry `waits_on` (unsettled ticket blockers) and `held` (any other open blocker) for this. The
   rules live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
   for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
-  show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
+  show their generated line. A "Te toca a ti" strip lists Needs owner tickets across projects.
 - `/inbox` lists everything waiting on Jorge: open questions, human actions, a release and footprint.
   The header shows the count. `/tokens` issues and revokes agent tokens.
 - `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
@@ -872,7 +872,7 @@ the UI refetches what changed.
 - `create_task` cannot create a Blocked ticket (it takes no note): `BLOCKED_REQUIRES_NOTE`.
 - `set_task` with `parent_key: null` turns a ticket into a standalone spec. Moving a ticket keeps its origin.
 - Leaving Blocked clears `blocked_note`. Leaving Done clears `resolved_at`; re-marking Done keeps the first one.
-- Any move out of In progress releases the lease, except to Needs Jorge. An answered question returns the ticket
+- Any move out of In progress releases the lease, except to Needs owner. An answered question returns the ticket
   to its previous status; In progress whose lease ran out meanwhile returns to Ready.
 - An expired lease stays on the row until the next write in that project; reads already treat it as free.
 - Evidence counts from the current claim: rework after In review needs new results.

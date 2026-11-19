@@ -207,7 +207,7 @@ export type OrdenFinding = {
   id?: string;
   command?: string;
   can_fix: "retire_decision" | "copy" | "mark_deployed" | "open";
-  owner: "jorge" | "agents";
+  owner: "owner" | "agents";
 };
 export type Orden = { project: string; at: string | null; count: number; findings: OrdenFinding[] };
 
@@ -253,13 +253,13 @@ export type DelegatedReview = {
 export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number>; groups: Record<InboxGroup, number>; chores: number; delegated: DelegatedReview[] };
 
 // 2.12 Hoy: get_digest as the screen reads it (GET /api/digest). Only the fields the strip shows.
-export type DigestHighlights = { done: string[]; to_review: string[]; blocked: string[]; needs_jorge: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
+export type DigestHighlights = { done: string[]; to_review: string[]; blocked: string[]; needs_owner: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
 export type Digest = {
   cursor: number;
   since: number;
   since_from: "since" | "memory" | "default";
   truncated: boolean;
-  needs_jorge: { project: string; kind: InboxItem["kind"]; group: InboxGroup; key: string | null; title: string | null; why: string; wait_s: number }[];
+  needs_owner: { project: string; kind: InboxItem["kind"]; group: InboxGroup; key: string | null; title: string | null; why: string; wait_s: number }[];
   projects: { slug: string; title: string; line: string; changes_total: number; highlights: DigestHighlights }[];
   unchanged_projects: string[];
 };
@@ -402,7 +402,7 @@ export type ProjectDetail = { slug: string; title: string; version: number; resu
 export type LiveEvent = { type: "task" | "project" | "decision" | "footprint"; project: string; key?: string };
 
 // Same sets the server validates against (src/db/schema.ts).
-export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
+export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs owner", "Done", "Won't do"] as const;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;

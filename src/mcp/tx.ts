@@ -21,7 +21,7 @@ export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?:
 const REQUEST_TTL = "30 days";
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes
 
-export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
+export const WEB_ACTOR: Actor = { agent: "owner", session_id: "web", machine: "screen" };
 
 // A screen-session answer counts only when this actor stored it. The screen route sets it from the session
 // cookie. human on the context is never inferred from an actor a caller sent.

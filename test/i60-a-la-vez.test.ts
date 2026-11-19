@@ -111,7 +111,7 @@ test("I60-1 #2: the migration backfills work_key, trigger, lane and reason, and 
     const ev = await ins("MIC-1", "ok", "queued: event ticket ready", "2026-11-01T00:00:00Z");
     const dupOld = await ins("MIC-2", "queued", "queued: cap reached", "2026-11-02T00:00:00Z");
     const dupNew = await ins("MIC-2", "queued", "queued: cap reached", "2026-11-03T00:00:00Z");
-    const q = await ins(null, "queued", `queued: event [pregunta] [consulta ${c}] Jorge pregunta`, "2026-11-04T00:00:00Z");
+    const q = await ins(null, "queued", `queued: event [pregunta] [consulta ${c}] El dueño pregunta`, "2026-11-04T00:00:00Z");
     await raw.query(`update consultas set run_id = $1 where id = $2`, [q, c]);
     for (const u of updates) await raw.query(u);
     const get = async (rid: string) => (await raw.query(`select work_key, trigger, lane, reason, status from agent_runs where id = $1`, [rid])).rows[0];

@@ -42,7 +42,7 @@ const ETAPA_COL: Record<string, Column | null> = {
   publicado: null,
   hecho: null,
 };
-const STATUS_COL: Record<string, Column | null> = { Ready: "lista", Blocked: "lista", "In progress": "construccion", "In review": "revision", "Needs Jorge": "revision" };
+const STATUS_COL: Record<string, Column | null> = { Ready: "lista", Blocked: "lista", "In progress": "construccion", "In review": "revision", "Needs owner": "revision" };
 const ROLE_COL: Record<string, Column> = { "product-owner": "plan", research: "investigacion", artist: "diseno", taller: "construccion", qa: "revision" };
 const GREY_ETAPAS = new Set(["en_espera", "bloqueado", "integrado", "en_qa"]);
 export const CLOSED = new Set(["Done", "Released", "Merged", "Won't do", "Cancelled"]);
@@ -145,7 +145,7 @@ export function laneOf(p: OrgProject, summary: StreamSummary | undefined, decisi
       return { decision: d, col, verb: youVerb(d) };
     });
   // Te toca already speaks for a project that waits on the owner.
-  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" && !you.length ? p.light_reason : null;
+  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" && p.light !== "needs_owner" && !you.length ? p.light_reason : null;
   return {
     slug: p.slug,
     title: p.title,

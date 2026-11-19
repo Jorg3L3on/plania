@@ -614,7 +614,7 @@ const Trail = ({ d, now, timeZone, set }: { d: IdeaDetail; now: number; timeZone
       {[...d.trail].reverse().map((x, i) => {
         const st = stopOf(x);
         return (
-          <li key={i} className={x.who === "jorge" ? "me" : ""}>
+          <li key={i} className={x.who === "owner" ? "me" : ""}>
             <time className="cor-cap" dateTime={x.at}>
               {dayHm(x.at, now, timeZone)}
             </time>

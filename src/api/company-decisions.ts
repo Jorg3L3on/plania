@@ -3,7 +3,7 @@
 //   proposal     the PO's latest message in its project thread when it carries numbered options ("1." "2." …)
 //                and Jorge has not written after it. Options parsed with the recommended one ("recomiendo …").
 //                elegir {option: n | [n, m]} posts "Elijo n: <label>" in the project thread as Jorge, through the
-//                same path as his own message (jorgePosts): the PO's Ready ticket is made and the PO wakes.
+//                same path as his own message (ownerPosts): the PO's Ready ticket is made and the PO wakes.
 //                responder {text} posts the text the same way. Either writes action_state on the PO's message.
 //   pr | deliverable  a thread message with Fusionar / Aceptar · Pedir cambios: the thread action, reused.
 //   action       a Ready ticket owned by ceo: hecho moves it to Done, aplazar to Backlog.
@@ -37,15 +37,16 @@ import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { agentOfActor } from "../runner/events.js";
-import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
+import { OWNER_AUTHOR, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
-import { jorgePosts } from "./threads.js";
+import { ownerPosts } from "./threads.js";
 import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
 import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
 import { qaGate } from "../runner/qa.js";
 import { probadorGate, releaseReel, type ReelItem } from "../captures/probador.js";
 import { cleanMarcas, marcasText } from "../captures/preguntas.js";
+import { ownerEs } from "../owner.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
@@ -334,7 +335,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
     const msgs = await db.select().from(threadMessages).where(eq(threadMessages.threadId, th.id)).orderBy(desc(threadMessages.at), desc(threadMessages.id)).limit(40);
     for (const m of msgs) {
       const data = m.proposal;
-      if (!data || m.authorRole === "jorge") continue;
+      if (!data || m.authorRole === "owner") continue;
       if (m.actionState && Date.parse(m.actionState.at) < since.getTime()) continue;
       if (data.kind === "plan" && !data.needs_approval) continue;
       const plan = data.kind === "plan";
@@ -375,7 +376,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
     if (m.proposal) continue;
     const parsed = parseProposal(m.body);
     if (!parsed) continue;
-    if (!m.actionState && msgs.slice(0, idx).some((x) => x.authorAgent === JORGE.agent)) continue;
+    if (!m.actionState && msgs.slice(0, idx).some((x) => x.authorAgent === OWNER_AUTHOR.agent)) continue;
     if (m.actionState && Date.parse(m.actionState.at) < since.getTime()) continue;
     if (!m.actionState && (await actionsFor(db, m, p.id)).length > 0) continue; // a message with buttons is its own row
     out.push({
@@ -401,7 +402,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
 async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, skip: Set<string>): Promise<Decision[]> {
   const out: Decision[] = [];
   const base = and(
-    ne(threadMessages.authorAgent, JORGE.agent),
+    ne(threadMessages.authorAgent, OWNER_AUTHOR.agent),
     isNull(threadMessages.questionId),
     sql`(${threadMessages.links} @> '[{"kind":"ticket"}]'::jsonb or ${threadMessages.links} @> '[{"kind":"idea"}]'::jsonb)`,
   );
@@ -697,7 +698,7 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
       .returning({ id: threadMessages.id });
     if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
     try {
-      const posted = await jorgePosts(db, ref, body);
+      const posted = await ownerPosts(db, ref, body);
       const full = { ...result, message_id: posted.message.id, ticket: posted.created?.key ?? null, wake: posted.wake };
       const state = { action: input.action, at, result: full };
       await db.update(threadMessages).set({ actionState: state as unknown as ActionState }).where(eq(threadMessages.id, m.id));
@@ -743,15 +744,15 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
     if (input.action === "empezar") {
       const created = await makeSteps(db, p.slug, data, ctx);
       await db.update(threadMessages).set({ proposal: { ...data, created } }).where(eq(threadMessages.id, m.id));
-      if (order) await setTask(db, { project: p.slug, key: order.key, note: `Jorge aprobó el plan: ${created.join(", ")}.` } as never, ctx);
-      await postMessage(db, ref, { author: JORGE, body: "Sí, empiecen." }, ctx);
+      if (order) await setTask(db, { project: p.slug, key: order.key, note: `${ownerEs(undefined, { capital: true })} aprobó el plan: ${created.join(", ")}.` } as never, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: "Sí, empiecen." }, ctx);
       result = { created, order: data.order };
     } else {
       const text = order ? orderText(order) : data.title;
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: input.action === "cambiar" ? "Jorge cambia el pedido: vuelve a la caja." : "Jorge canceló el pedido." } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: input.action === "cambiar" ? `${ownerEs(undefined, { capital: true })} cambia el pedido: vuelve a la caja.` : `${ownerEs(undefined, { capital: true })} canceló el pedido.` } as never, ctx);
       }
-      await postMessage(db, ref, { author: JORGE, body: input.action === "cambiar" ? "Cambio el pedido; te lo vuelvo a escribir." : "Cancelo este pedido." }, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: input.action === "cambiar" ? "Cambio el pedido; te lo vuelvo a escribir." : "Cancelo este pedido." }, ctx);
       result = { order: data.order, text };
     }
   } catch (e) {
@@ -834,13 +835,13 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
       if (order && !["Done", "Won't do"].includes(order.status)) {
         await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `Respondido con el plan aceptado: ${created.join(", ")}.` } as never, ctx);
       }
-      await postMessage(db, ref, { author: JORGE, body: "Plan aceptado." }, ctx);
+      await postMessage(db, ref, { author: OWNER_AUTHOR, body: "Plan aceptado." }, ctx);
       result = { created, leg: leg.key, answers, checklist: list };
     } else {
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: "Jorge cambia el plan: va otro pedido al PO." } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `${ownerEs(undefined, { capital: true })} cambia el plan: va otro pedido al PO.` } as never, ctx);
       }
-      const posted = await jorgePosts(db, ref, `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
+      const posted = await ownerPosts(db, ref, `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
       result = { leg: leg.key, change: text, order: posted.created?.key ?? null };
       extra = { created: posted.created, wake: posted.wake };
     }
@@ -855,7 +856,7 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
 }
 
 // The words Jorge typed, from the order's scope (`Pedido de Jorge desde …: "texto"`), else its title.
-export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de Jorge[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
+export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
@@ -872,7 +873,7 @@ async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionIn
       for (const c of open) await setCheck(db, { project: p!.slug, key: t.key, n: c.n, done: true } as never, ctx);
     }
     const [fresh] = await db.select({ version: tasks.version }).from(tasks).where(eq(tasks.id, t.id)).limit(1);
-    await setTask(db, { project: p!.slug, key: t.key, status, version: fresh!.version, ...(input.action === "aplazar" ? { note: "Jorge lo aplazó desde Te toca." } : {}) } as never, ctx);
+    await setTask(db, { project: p!.slug, key: t.key, status, version: fresh!.version, ...(input.action === "aplazar" ? { note: `${ownerEs(undefined, { capital: true })} lo aplazó desde Te toca.` } : {}) } as never, ctx);
   } catch (e) {
     if (e instanceof ToolError) return refuse(e.code, "Plania no dejó moverlo.", 409, e.detail);
     throw e;
