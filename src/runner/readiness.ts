@@ -62,7 +62,8 @@ export type Readiness = { slug: string; title: string; items: ReadinessItem[]; b
 
 export type ReadinessDeps = { env?: NodeJS.ProcessEnv; repoCheck?: RepoCheckDeps; exists?: (p: string) => boolean };
 
-const CONTEXT_IDS: Record<(typeof CONTEXT_DOCS)[number], ReadinessId> = {
+// PLA-I2-20: exported so a test holds the role prompts (kit/roles/) to the same titles.
+export const CONTEXT_IDS: Record<(typeof CONTEXT_DOCS)[number], ReadinessId> = {
   "Context: Glossary": "context.glossary",
   "Context: Commands": "context.commands",
   "Context: Map": "context.map",

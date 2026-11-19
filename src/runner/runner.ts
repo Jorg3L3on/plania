@@ -102,6 +102,7 @@ import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowRead
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
+import { languageLine } from "./owner-language.js";
 
 export type ReadyWork = {
   project: string;
@@ -904,6 +905,7 @@ export function userPrompt(input: {
     company
       ? "Answer Jorge in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
       : `End the run with one line in your project's thread (thread_post, thread ${input.project.slug}): what you did, with a link to it, and what you need.`,
+    languageLine(),
   );
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
