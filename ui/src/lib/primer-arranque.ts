@@ -5,7 +5,10 @@ import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 export const PASSWORD_MIN = 12;
 
-export type FirstStartState = { open: boolean; loopback: boolean };
+// F5: folders, the defaults as this machine writes them (C:Users<user>planiaprojects on Windows); sent only to
+// the browser on this machine while first start is open.
+export type FirstStartFolders = { projects: string; worktrees: string };
+export type FirstStartState = { open: boolean; loopback: boolean; folders?: FirstStartFolders };
 // PLA-I2-3: the two folders come prefilled with the neutral defaults; ~ is the home on this machine.
 export type FirstStartForm = { code: string; name: string; password: string; repeat: string; time_zone: string; projects_root: string; worktrees_root: string };
 export const DEFAULT_PROJECTS_ROOT = "~/plania/projects";
@@ -31,6 +34,8 @@ export const FIRST_START = defineWords({
     machine: "Antes de terminar, revisa qué le falta a esta máquina",
     machineLink: "Ver qué falta",
     paused: "Tu compañía empieza en pausa: nada corre hasta que tú la reanudes.",
+    moreOptions: "Más opciones",
+    moreOptionsHint: "Zona horaria y carpetas. Lo que viene sirve para casi todos.",
     submit: "Empezar",
     submitting: "Preparando todo…",
     notLoopback: "El primer arranque solo se hace desde esta misma máquina: abre Plania en su navegador, en localhost.",
@@ -68,6 +73,8 @@ export const FIRST_START = defineWords({
     machine: "Before you finish, check what this machine is missing",
     machineLink: "See what is missing",
     paused: "Your company starts paused: nothing runs until you resume it.",
+    moreOptions: "More options",
+    moreOptionsHint: "Time zone and folders. What is given suits almost everyone.",
     submit: "Start",
     submitting: "Getting everything ready…",
     notLoopback: "First start only works from this same machine: open Plania in its browser, on localhost.",
@@ -140,3 +147,41 @@ export function waitText(seconds: unknown, language: Language = getLanguage()): 
   const n = typeof seconds === "number" && seconds > 0 ? Math.ceil(seconds) : 60;
   return words(FIRST_START, language).wait(n);
 }
+
+// F4: the install opens /primer-arranque#code=<code>. A fragment never reaches the server or its logs; the page reads
+// it once and takes it out of the address bar.
+/** The one-time code in an address fragment («#code=ABCD-EFGH»), or null when there is none. */
+export function codeFromHash(hash: string): string | null {
+  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!raw) return null;
+  let code: string | null;
+  try {
+    code = new URLSearchParams(raw).get("code");
+  } catch {
+    return null;
+  }
+  const clean = code?.trim() ?? "";
+  return clean && clean.length <= 64 ? clean : null;
+}
+
+/** F5: the form's first values. The folders are the server's, written the way this machine writes paths. */
+export function initialForm(state: Pick<FirstStartState, "folders"> | undefined, timeZone: string, code = ""): FirstStartForm {
+  return {
+    code,
+    name: "",
+    password: "",
+    repeat: "",
+    time_zone: timeZone,
+    projects_root: state?.folders?.projects ?? DEFAULT_PROJECTS_ROOT,
+    worktrees_root: state?.folders?.worktrees ?? DEFAULT_WORKTREES_ROOT,
+  };
+}
+
+/** F5: whether «Más opciones» must open to show what is wrong (the time zone or a folder lives there). */
+export function problemInOptions(f: FirstStartForm, refusedField?: unknown): boolean {
+  if (refusedField === "time_zone" || refusedField === "projects_root" || refusedField === "worktrees_root") return true;
+  return !!f.code.trim() && !!f.name.trim() && [...f.password].length >= PASSWORD_MIN && f.password === f.repeat && (!f.time_zone.trim() || !f.projects_root.trim() || !f.worktrees_root.trim());
+}
+
+/** F4: the code field shows unless the code came in the address; a refused code shows it again to type. */
+export const showCodeField = (fromAddress: boolean, refusedCode: string | null): boolean => !fromAddress || refusedCode === "SETUP_CODE_INVALID";

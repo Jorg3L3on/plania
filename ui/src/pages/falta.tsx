@@ -3,12 +3,12 @@ import { CheckIcon, MinusIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { FALTA, fixParts, machineHeadline, type MachineCheckReading, type MachineItem } from "@/lib/falta";
 import { words } from "@/lib/i18n";
 import { localTime } from "@/lib/time";
+import { revisandoLine } from "@/lib/revisando";
 import { cn } from "@/lib/utils";
 
 // PLA-I2-12: what this machine lacks to run Plania, the same items the install command prints
@@ -85,7 +85,11 @@ export function FaltaPage({ firstStart = false }: { firstStart?: boolean } = {})
       </header>
 
       {check.isPending ? (
-        <Skeleton className="h-96 w-full" />
+        // P3: the Claude test takes about ten seconds; say so instead of an empty card.
+        <Card className="flex-row items-center gap-3 p-4" role="status" aria-busy="true" data-revisando>
+          <RefreshCwIcon className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+          <p className="text-sm text-muted-foreground">{revisandoLine()}</p>
+        </Card>
       ) : check.isError ? (
         <p className="text-sm text-muted-foreground">{w.failed}</p>
       ) : (

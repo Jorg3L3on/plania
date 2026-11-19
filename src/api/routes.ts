@@ -50,6 +50,8 @@ import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
 import { machineCheckRoutes } from "./machine-check.js";
 import { guiaRoutes } from "./guia.js";
+import { markQuietHome, onboardingRoutes, quietHomeSlug } from "./onboarding.js";
+import { offeredFolders } from "../folders.js";
 import { helpReportRoutes } from "./help-report.js";
 import { releaseRoutes } from "./release.js";
 import { limitsRoutes } from "./limits.js";
@@ -134,7 +136,13 @@ api.post("/login", async (c) => {
 const remoteAddress = (c: Context): string | undefined =>
   (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
 
-api.get("/first-start", (c) => c.json({ open: firstStartOpen(), loopback: fromLoopback(remoteAddress(c), c.req.raw) }));
+// F5: the default folders, as this machine writes them, only to the browser on this machine while first start is
+// open (they hold the OS user's name).
+api.get("/first-start", (c) => {
+  const open = firstStartOpen();
+  const loopback = fromLoopback(remoteAddress(c), c.req.raw);
+  return c.json({ open, loopback, ...(open && loopback ? { folders: offeredFolders() } : {}) });
+});
 
 api.post("/first-start", async (c) => {
   const body = await readJson(c, z.object({ code: z.string().max(64), name: z.string().max(200), password: z.string().max(1024), time_zone: z.string().max(64), projects_root: z.string().max(500).optional(), worktrees_root: z.string().max(500).optional(), language: z.string().max(8).optional() }).strict());
@@ -267,7 +275,8 @@ export async function streamRead(db: Db) {
 
 // Every project with its generated line, open question count, and all its tasks without scope.
 api.get("/projects", async (c) => {
-  if (c.req.query("for") === "stream") return c.json(await withDb((db) => streamRead(db)));
+  // F7: the home project, while it holds no work, carries quiet_home; the lists leave it out.
+  if (c.req.query("for") === "stream") return c.json(await withDb(async (db) => markQuietHome(await streamRead(db), await quietHomeSlug(db))));
   const rows = await withDb(async (db) => {
     const all = await db.select().from(projects).orderBy(asc(projects.slug));
     const allTasks = await screenTasks(db);
@@ -315,7 +324,7 @@ api.get("/projects", async (c) => {
       }),
     );
   });
-  return c.json(rows);
+  return c.json(markQuietHome(rows, await withDb((db) => quietHomeSlug(db))));
 });
 
 const UPCOMING_DAYS = 14;
@@ -772,6 +781,8 @@ api.route("/maquinas", tableroRoutes);
 api.route("/machine-check", machineCheckRoutes());
 // PLA-I2-16: the guide to a first delivery on the home screen (src/api/guia.ts).
 api.route("/guia", guiaRoutes());
+// The first-install audit: gh before a project with code (F2), Claude Code's own token (P5).
+api.route("/onboarding", onboardingRoutes());
 // PLA-I2-18: the help report as a file (src/api/help-report.ts).
 api.route("/help-report", helpReportRoutes());
 // PLA-I2-17: the release and its notes (src/api/release.ts).

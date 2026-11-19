@@ -21,7 +21,8 @@ export type GuiaRead = {
   est_pct_per_run: number;
 };
 
-export type Paso = { id: PasoId; titulo: string; texto: string; estado: PasoEstado; href: string; boton: string };
+// accion: the step's button acts in place instead of following href (F6: Reanudar resumes the company and the project).
+export type Paso = { id: PasoId; titulo: string; texto: string; estado: PasoEstado; href: string; boton: string; accion?: "reanudar" };
 
 // PLA-I2-10: the words are in PRIMERA_ENTREGA_WORDS, in both languages. PEDIDO_SUGERIDO, EJEMPLO and WORDS stay the
 // Spanish ones (tests and the server read them); the guide reads primeraEntregaWords() and pedidoSugerido(). The
@@ -60,7 +61,11 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       titulo: "Reanúdalo",
       compania: "La compañía empieza detenida: reanúdala para que el equipo pueda trabajar.",
       proyecto: "Un proyecto nuevo empieza en pausa: nada corre hasta que lo reanudes.",
+      // F6: the company and the first project both start paused; one press resumes the two.
+      ambos: (title: string) => `La compañía y ${title} empiezan en pausa. Reanudar pone a andar las dos con un solo botón.`,
       boton: "Reanudar",
+      reanudando: "Reanudando…",
+      fallo: "No se pudo reanudar. Intenta de nuevo.",
     },
     pedido: {
       titulo: "Pide algo pequeño",
@@ -111,7 +116,10 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       titulo: "Resume it",
       compania: "The company starts stopped: resume it so the team can work.",
       proyecto: "A new project starts paused: nothing runs until you resume it.",
+      ambos: (title: string) => `The company and ${title} start paused. Resume starts both with one button.`,
       boton: "Resume",
+      reanudando: "Resuming…",
+      fallo: "It could not resume. Try again.",
     },
     pedido: {
       titulo: "Ask for something small",
@@ -178,9 +186,10 @@ export function pasosDe(r: GuiaRead, language: Language = getLanguage()): Paso[]
     {
       id: "reanudar",
       titulo: w.reanudar.titulo,
-      texto: r.company_paused ? w.reanudar.compania : w.reanudar.proyecto,
-      href: r.company_paused || !p ? ceo("?hoja=reanudar") : ceo(`?hoja=reanudar:${encodeURIComponent(p.slug)}`),
+      texto: p && r.company_paused && r.project_paused ? w.reanudar.ambos(p.title) : r.company_paused ? w.reanudar.compania : w.reanudar.proyecto,
+      href: p ? ceo(`?proyecto=${encodeURIComponent(p.slug)}&hoja=reanudar:${encodeURIComponent(p.slug)}`) : ceo("?nuevo"),
       boton: w.reanudar.boton,
+      ...(p && pausado ? { accion: "reanudar" as const } : {}),
       hecho: !!p && !pausado,
     },
     {
@@ -212,6 +221,12 @@ export function pasosDe(r: GuiaRead, language: Language = getLanguage()): Paso[]
   // delivery. While it is not done it is «ahora» beside the first open step after it.
   const first = base.findIndex((s, i) => i > 0 && !s.hecho);
   return base.map(({ hecho, ...s }, i) => ({ ...s, estado: hecho ? "hecho" : i === 0 || i === first ? "ahora" : "luego" }));
+}
+
+/** F6: what the guide's Reanudar resumes in one press: the company when it is stopped, and the first project when it is
+ * paused. The project goes first, so a failure in between leaves the company stopped and nothing running. */
+export function aReanudar(r: Pick<GuiaRead, "proyecto" | "company_paused" | "project_paused">): { project: string | null; company: boolean } {
+  return { project: r.proyecto && r.project_paused ? r.proyecto.slug : null, company: r.company_paused };
 }
 
 /** Whether to offer the example project: only while there is no project yet. */

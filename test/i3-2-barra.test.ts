@@ -69,7 +69,8 @@ test("I3-2: paused, Reanudar <project> is the one white button under the sentenc
   assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1, "one white primary");
   assert.ok(!out.includes("Sumar a alguien"), "Reanudar takes the nudge's place");
   // The page passes it only while the project is paused, and keeps the other primaries off then.
-  assert.match(page, /reanudar=\{p\.paused \? \{ title: p\.title, href: hojaHref\("reanudar", p\.slug\) \} : undefined\}/);
+  // F6: with the company stopped too, the banner's one button resumes both, so the head shows no second Reanudar.
+  assert.match(page, /reanudar=\{pausaDe\(paused, p\.paused\) === "proyecto" \? \{ title: p\.title, href: hojaHref\("reanudar", p\.slug\) \} : undefined\}/);
   assert.match(page, /primary=\{!p\.paused && c\.grupo === "toca"/);
   assert.match(page, /primary=\{!p\.paused && !cosas\.grupos\[0\]\?\.cosas\.length\}/);
 });

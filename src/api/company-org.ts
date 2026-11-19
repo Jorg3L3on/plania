@@ -31,6 +31,7 @@ import type { InboxItem } from "../mcp/inbox.js";
 import { projectEtapas, tableroOf, type AhoraItem, type Tablero } from "./etapa.js";
 import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 import { defineWords, say } from "../words.js";
+import { quietHomeSlug } from "./onboarding.js";
 
 // PLA-I2-10: the light's reasons, the holds and the team errors in the install's language; the Spanish is unchanged.
 // A title arrives clipped; each language puts its own quotes around it.
@@ -167,6 +168,8 @@ const QUEUE_MAX = 3;
 export type ThreadLine = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 
 export type ProjectCard = {
+  // F7: the home project while it holds no work; the screen's lists leave it out.
+  quiet_home?: true;
   runner?: RunnerView;
   slug: string;
   title: string;
@@ -714,6 +717,8 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
     if (c.auto_accept.on || c.auto_accept.invisible) c.auto_accept = await t("auto_accept", autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions));
   }));
   for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
+  const quiet = await t("quiet_home", quietHomeSlug(db));
+  for (const c of cards) if (c.slug === quiet) c.quiet_home = true;
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },

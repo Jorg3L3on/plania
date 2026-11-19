@@ -1,9 +1,11 @@
 // PLA-I62-8: the sheets (board A5). Each opens alone over the dimmed screen and says what happens before the click:
 //   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state
-//                   (NEWPROJ-4: the readiness list, and «listo» only when nothing stops a run).
+//                   (NEWPROJ-4: the readiness list, and «listo» only when nothing stops a run). F2: with a repository
+//                   given, whether gh can write to GitHub, and the fix.
 //   Pausar          what closes (the runs live now), what does not start, what stays; Pausar <proyecto>.
 //   Reanudar        a paused project, or the company stopped (that one is resumed from Plomería). NEWPROJ-4: a project
 //                   with no steps is started, not resumed, and the sheet names what will make the first run fail.
+//                   F6: with both paused, its one button resumes the project and the company.
 //   Publicar        what goes out (the release's steps and its reel), what blocks it (open checks, a step of yours
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
@@ -23,6 +25,9 @@ import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
 import { words } from "@/lib/i18n";
 import { HOJAS_WORDS } from "@/lib/hojas-words";
+import { pausaDe, pausasWords } from "@/lib/pausas";
+import { githubAviso, githubAvisoWords, pideGithub } from "@/lib/github-aviso";
+import { CopyCommand } from "@/components/copy-command";
 import { Btn, Key, Label, You } from "./parts";
 
 // NEWPROJ-6: the readiness list's way to the project's Ajustes door (opening it closes the sheet).
@@ -96,6 +101,10 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
   const [carpeta, setCarpeta] = useState("");
   const [repo, setRepo] = useState("");
   const code = codigoBody(codigo, carpeta, repo);
+  // F2: gh is needed only for a project with code; asked once a repository is given.
+  const usaGithub = pideGithub(codigo, repo);
+  const github = useQuery({ queryKey: ["onboarding", "github"], queryFn: api.githubAccess, enabled: usaGithub, staleTime: 30_000, retry: false });
+  const aviso = usaGithub ? githubAviso(github.data?.access) : null;
   const make = useMutation({ mutationFn: (input: { name: string; goal: string } & CodigoBody) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
   const missing = make.error instanceof ApiError && (make.error.status === 404 || make.error.status === 405);
   // NEWPROJ-4: what the new project still lacks. Until it answers, the title says only that it was created.
@@ -171,6 +180,17 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
             </label>
           )}
         </fieldset>
+        {usaGithub && github.isPending && <p className="cor-cap" aria-busy="true">{githubAvisoWords().revisando}</p>}
+        {aviso && (
+          <div className="cor-listo-aviso" role="status" data-github-aviso>
+            <p className="cor-text">
+              <b>{githubAvisoWords().titulo}</b> {aviso.por}.
+            </p>
+            <p className="cor-text">{aviso.arregla}</p>
+            {aviso.comando && <CopyCommand command={aviso.comando} />}
+            <p className="cor-cap">{githubAvisoWords().puedes}</p>
+          </div>
+        )}
         <Rows rows={[[w.key, w.keyRow], [w.po, w.poRow], [w.paused, w.pausedRow]]} />
         {missing && <p className="cor-state bad">{w.noRoute}</p>}
         {make.isError && !missing && <p className="cor-state bad cor-hoja-refusal" role="alert">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
@@ -215,7 +235,16 @@ export const Pausar = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => v
 
 export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p: OrgProject | null; companyPaused: boolean; onClose: () => void; onDone: () => void; plomeriaTo: string }) => {
   const w = words(HOJAS_WORDS);
-  const go = useMutation({ mutationFn: () => api.setProjectPaused(p!.slug, false), onSuccess: () => (toast(w.resumedToast(p!.title)), onDone()), onError: () => toast.error(w.resumeFailed) });
+  // F6: with the company stopped too, the one button resumes both (the project first, then the company).
+  const both = !!p && pausaDe(companyPaused, p.paused) === "ambas";
+  const go = useMutation({
+    mutationFn: async () => {
+      await api.setProjectPaused(p!.slug, false);
+      if (both) await api.setCompanyPaused(false);
+    },
+    onSuccess: () => (toast(both ? pausasWords().ambasHecho(p!.title) : w.resumedToast(p!.title)), onDone()),
+    onError: () => toast.error(w.resumeFailed),
+  });
   // NEWPROJ-4: whether there is anything to take back up, and what will make the first run fail. Resuming stays allowed.
   const listo = useQuery({ queryKey: ["readiness", p?.slug], queryFn: () => api.readiness(p!.slug), enabled: !!p });
   const falla = reanudarFalla(listo.data ?? null);
@@ -238,11 +267,11 @@ export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p:
           <ListoLista r={listo.data} look="cor" ajustes={p && <AjustesLink slug={p.slug} />} />
         </details>
       )}
-      {companyPaused && <p className="cor-state amber">{w.companyStoppedNote}</p>}
+      {companyPaused && <p className="cor-state amber">{both ? pausasWords().ambasNota : w.companyStoppedNote}</p>}
       <div className="cor-acts">
         {p && (
           <Btn kind="primary" disabled={go.isPending} onClick={() => go.mutate()} data-control="reanudar-si">
-            {go.isPending ? w.resuming : w.resumeIt(p.title)}
+            {go.isPending ? w.resuming : both ? pausasWords().ambasBoton(p.title) : w.resumeIt(p.title)}
           </Btn>
         )}
         <Link className="cor-btn secondary" to={plomeriaTo} data-control="ir-plomeria">

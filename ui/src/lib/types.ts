@@ -23,6 +23,8 @@ export type Readiness = {
 
 export type ProjectSummary = {
   slug: string;
+  /** F7: the home project while it holds no work; lists leave it out (lib/proyectos-visibles.ts). */
+  quiet_home?: true;
   title: string;
   /** 2.11: the generated headline. */
   line: string;
@@ -280,7 +282,7 @@ export type AgentToken = {
 
 /** PLA-74: what the stream (/ceo) reads: open ideas and open tickets, and the ticket counts. */
 export type StreamTask = Pick<TaskRow, "key" | "kind" | "title" | "status" | "stage" | "promoted_to">;
-export type StreamSummary = { slug: string; title?: string; prefix?: string; done?: number; revision?: number; tasks: StreamTask[] };
+export type StreamSummary = { slug: string; quiet_home?: true; title?: string; prefix?: string; done?: number; revision?: number; tasks: StreamTask[] };
 
 export type TaskRow = {
   key: string;
