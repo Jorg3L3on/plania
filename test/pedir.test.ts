@@ -139,6 +139,6 @@ describe("agents read requests first", () => {
     const body = (await res.json()) as Json;
     assert.deepEqual(body.resume.requests.map((r: Json) => r.key), ["ZIG-02"]);
     assert.equal(PROTOCOL_VERSION, "2.24");
-    assert.match(instructions(false), /requests \(in start, get_context, get_resume and get_next\) are what Jorge asked for on screen: read them first/);
+    assert.match(instructions(false), /requests \(in start, get_context, get_resume and get_next\) are the owner's asks from the screen: read them first/);
   });
 });
