@@ -156,6 +156,8 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
 export type MaquinasRead = {
   project: string;
   configured: boolean;
+  // NEWPROJ-3: the project said on purpose it has no code yet (settings.local.no_code); nothing to look for.
+  no_code: boolean;
   server: PruebaRead & { command: string | null; commit: string | null; branch: string | null; worktree: string | null; started_by: string | null; frameable: boolean };
   base: BaseRead;
   found: Found | null;
@@ -169,9 +171,11 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
   const { dirs, env, address } = appEnvOf(p);
   const prueba = await pruebaRead(slug, s);
   const info = pruebaInfo(slug);
+  const noCode = !s && p.settings.local?.no_code === true;
   return {
     project: slug,
     configured: !!s,
+    no_code: noCode,
     server: {
       ...prueba,
       command: info?.command ?? (s ? s.start_command.replaceAll("{port}", String(prueba.port ?? s.port)) : null),
@@ -182,7 +186,7 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
       frameable: prueba.phase === "live" || prueba.phase === "running" ? await frameable(prueba.url) : false,
     },
     base: await baseRead(db, p, address, env.file),
-    found: s ? null : findScripts(dirs.prueba ?? dirs.repo),
+    found: s || noCode ? null : findScripts(dirs.prueba ?? dirs.repo),
     pages: s?.pages ?? [],
     test_user: s?.session?.user ?? null,
   };
@@ -192,6 +196,7 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
 export async function configurar(db: Db, slug: string): Promise<MaquinasRead> {
   const p = await projectOf(db, slug);
   if (p.settings.capture) return maquinasRead(db, slug);
+  if (p.settings.local?.no_code) throw new MaquinaError("NOT_CONFIGURED", "el proyecto todavía no tiene código");
   const dirs = appDirs(p.slug, p.settings, menv());
   const found = findScripts(dirs.prueba ?? dirs.repo);
   if (!found.dev) throw new MaquinaError("NOT_CONFIGURED", `no encuentro ${found.missing.join(", ") || "un script dev"}`);

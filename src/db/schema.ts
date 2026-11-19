@@ -785,7 +785,8 @@ export type ProjectSettings = {
   github?: { repo: string; token_env?: string };
   vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string> };
   // Where the project's repo lives on the Mac the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
-  local?: { repo_path?: string };
+  // NEWPROJ-3: no_code says on purpose that the project has no code yet (never together with repo_path).
+  local?: { repo_path?: string; no_code?: boolean };
   // 2.10: the release step only Jorge takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
   release?: ReleaseSettings;
   // PLA-I21: how long since a check-in counts as idle. A live claim past this is stuck. Default 120.

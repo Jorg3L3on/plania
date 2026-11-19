@@ -1,7 +1,9 @@
 // PLA-I62-8: the sheets (board A5). Each opens alone over the dimmed screen and says what happens before the click:
-//   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state.
+//   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state
+//                   (NEWPROJ-4: the readiness list, and «listo» only when nothing stops a run).
 //   Pausar          what closes (the runs live now), what does not start, what stays; Pausar <proyecto>.
-//   Reanudar        a paused project, or the company stopped (that one is resumed from Plomería).
+//   Reanudar        a paused project, or the company stopped (that one is resumed from Plomería). NEWPROJ-4: a project
+//                   with no steps is started, not resumed, and the sheet names what will make the first run fail.
 //   Publicar        what goes out (the release's steps and its reel), what blocks it (open checks, a step of yours
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
@@ -14,14 +16,25 @@ import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
-import { seatName } from "@/lib/corriente";
+import { linkTo, seatName } from "@/lib/corriente";
+import { CODIGO_OPCIONES, META_MAX, NOMBRE_MAX, codigoBody, fondoMouseDown, nuevoProyectoError, nuevoProyectoSinTexto, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
+import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
+import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
+
+// NEWPROJ-6: the readiness list's way to the project's Ajustes door (opening it closes the sheet).
+const AjustesLink = ({ slug }: { slug: string }) => (
+  <Link className="cor-btn secondary cor-listo-ajustes" to={linkTo({ slug, tab: "ajustes" })} data-control="ir-ajustes">
+    Abrir los ajustes del proyecto
+  </Link>
+);
 
 // NEWPROJ-7: borrar is Borrar proyecto (hoja-borrar.tsx).
 export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta" | "borrar";
 
-export const Hoja = ({ label, title, onClose, children, wide }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean }) => {
+// NEWPROJ-8: closeOnBack false keeps the sheet open on a mouse-down on the dimmed background (Esc still closes).
+export const Hoja = ({ label, title, onClose, children, wide, closeOnBack = true }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean; closeOnBack?: boolean }) => {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
@@ -46,7 +59,7 @@ export const Hoja = ({ label, title, onClose, children, wide }: { label: string;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="cor-hoja-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="cor-hoja-back" onMouseDown={fondoMouseDown(closeOnBack, onClose)}>
       <div ref={box} className={`cor-hoja ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="hoja-t">
         <Label>{label}</Label>
         <h2 id="hoja-t" className="cor-h2">
@@ -73,13 +86,27 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
   const client = useQueryClient();
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const make = useMutation({ mutationFn: (input: { name: string; goal: string }) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
+  // NEWPROJ-3: where the code is. Nothing is sent until one of the three is picked and its field is right.
+  const [codigo, setCodigo] = useState<CodigoOpcion | null>(null);
+  const [carpeta, setCarpeta] = useState("");
+  const [repo, setRepo] = useState("");
+  const code = codigoBody(codigo, carpeta, repo);
+  const make = useMutation({ mutationFn: (input: { name: string; goal: string } & CodigoBody) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
   const missing = make.error instanceof ApiError && (make.error.status === 404 || make.error.status === 405);
-  if (make.data)
+  // NEWPROJ-4: what the new project still lacks. Until it answers, the title says only that it was created.
+  const listo = useQuery({ queryKey: ["readiness", make.data?.slug], queryFn: () => api.readiness(make.data!.slug), enabled: !!make.data });
+  if (make.data) {
+    const aviso = listo.data ? listoAviso(listo.data) : null;
     return (
-      <Hoja label="Nuevo proyecto" title={`${name.trim()} está listo`} onClose={onClose}>
+      <Hoja label="Nuevo proyecto" title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
         <Rows rows={[["Clave", <Key key="k">{make.data.key_prefix}</Key>], ["PO", make.data.po], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
         <p className="cor-text">«{goal.trim()}»</p>
+        {aviso && (
+          <p className="cor-listo-aviso" role="status" data-listo-aviso>
+            {aviso}
+          </p>
+        )}
+        {listo.data ? <ListoLista r={listo.data} look="cor" ajustes={<AjustesLink slug={make.data.slug} />} /> : listo.isError ? <p className="cor-cap">No pude revisar qué le falta.</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
         <div className="cor-acts">
           <Btn kind="primary" onClick={() => onOpen(make.data!.slug)} data-control="abrir-proyecto">
             Abrir el proyecto
@@ -90,30 +117,60 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         </div>
       </Hoja>
     );
+  }
   return (
-    <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose}>
+    <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo])}>
       <form
-        className="cor-hoja-form"
+        className="cor-hoja-form cor-hoja-nuevo"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim() && goal.trim()) make.mutate({ name: name.trim(), goal: goal.trim() });
+          if (name.trim() && goal.trim() && code) make.mutate({ name: name.trim(), goal: goal.trim(), ...code });
         }}
       >
         <span className="cor-hoja-two">
           <label>
             <span className="cor-text">Nombre</span>
-            <input className="cor-input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder="Viajia" required />
+            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder="Viajia" required />
           </label>
           <label style={{ flex: 2 }}>
             <span className="cor-text">Meta, en una oración</span>
-            <input className="cor-input" value={goal} maxLength={240} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
+            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
           </label>
         </span>
+        <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>
+          <legend className="cor-text">¿Dónde está su código?</legend>
+          <div className="cor-opts" role="radiogroup" aria-label="Dónde está su código">
+            {CODIGO_OPCIONES.map((o) => (
+              <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => setCodigo(o.key)} data-codigo-opcion={o.key}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {codigo && <p className="cor-text">{CODIGO_OPCIONES.find((o) => o.key === codigo)!.hint}</p>}
+          {codigo === "carpeta" && (
+            <span className="cor-hoja-two">
+              <label style={{ flex: 2 }}>
+                <span className="cor-text">Carpeta en esta Mac</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/Developer/Projects/viajia" autoComplete="off" spellCheck={false} required />
+              </label>
+              <label>
+                <span className="cor-text">En GitHub (si tiene)</span>
+                <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} />
+              </label>
+            </span>
+          )}
+          {codigo === "github" && (
+            <label className="cor-hoja-one">
+              <span className="cor-text">Repositorio en GitHub</span>
+              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} required />
+            </label>
+          )}
+        </fieldset>
         <Rows rows={[["Clave", "Recibe su clave para pasos, sacada del nombre."], ["PO", "Se crea de la plantilla, con su prompt."], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
         {missing && <p className="cor-state bad">Todavía no se pueden crear proyectos desde aquí: el servidor no tiene esa ruta. No se creó nada.</p>}
-        {make.isError && !missing && <p className="cor-state bad">{make.error instanceof ApiError ? `No se pudo crear (${make.error.code}).` : "No se pudo crear el proyecto."}</p>}
+        {make.isError && !missing && <p className="cor-state bad cor-hoja-refusal" role="alert">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
         <div className="cor-acts">
-          <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim()} data-control="crear-proyecto">
+          <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim() || !code} data-control="crear-proyecto">
             {make.isPending ? "Creando…" : "Crear proyecto"}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>
@@ -152,14 +209,28 @@ export const Pausar = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => v
 
 export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p: OrgProject | null; companyPaused: boolean; onClose: () => void; onDone: () => void; plomeriaTo: string }) => {
   const go = useMutation({ mutationFn: () => api.setProjectPaused(p!.slug, false), onSuccess: () => (toast(`${p!.title} reanudado`), onDone()), onError: () => toast.error("No se pudo reanudar.") });
+  // NEWPROJ-4: whether there is anything to take back up, and what will make the first run fail. Resuming stays allowed.
+  const listo = useQuery({ queryKey: ["readiness", p?.slug], queryFn: () => api.readiness(p!.slug), enabled: !!p });
+  const falla = reanudarFalla(listo.data ?? null);
   return (
     <Hoja label="Reanudar · proyecto en pausa o compañía detenida" title={p ? `${p.title} está en pausa` : "La compañía está detenida"} onClose={onClose}>
       <Rows
         rows={[
-          ["Al reanudar", "Su PO despierta y el equipo retoma lo que estaba Lista o a medias. Nada se perdió."],
+          ["Al reanudar", reanudarAlReanudar(listo.data ?? null)],
           ["Si es toda", "Cuando la compañía entera está detenida, un aviso lo dice arriba de cada pantalla. Se reanuda desde Plomería."],
         ]}
       />
+      {falla && (
+        <p className="cor-listo-aviso" role="status" data-reanudar-falla>
+          {falla}
+        </p>
+      )}
+      {listo.data && listo.data.blocking > 0 && (
+        <details className="cor-listo-mas" data-reanudar-lista>
+          <summary className="cor-cap">Ver qué le falta y qué hacer</summary>
+          <ListoLista r={listo.data} look="cor" ajustes={p && <AjustesLink slug={p.slug} />} />
+        </details>
+      )}
       {companyPaused && <p className="cor-state amber">La compañía está detenida: aunque reanudes este proyecto, nada arranca hasta que la reanudes en Plomería.</p>}
       <div className="cor-acts">
         {p && (

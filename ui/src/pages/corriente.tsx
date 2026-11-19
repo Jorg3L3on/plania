@@ -36,6 +36,7 @@ import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
+import { Ajustes } from "@/components/corriente/ajustes";
 import { cosasOf, fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
@@ -412,6 +413,8 @@ export const CorrientePage = () => {
           onPedir={(text) => navigate(hrefOf({ view: "pedir", extra: { p: p.slug, texto: text } }))}
         />
       );
+    // NEWPROJ-6: the project's settings.
+    if (at.tab === "ajustes") return <Ajustes p={p} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 

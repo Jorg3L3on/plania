@@ -1,9 +1,9 @@
-// PLA-I30-3 pieces kept by PLA-I33: the run list, a doc (/ceo?doc=<id>), the new-project dialog (4a/4b) and
+// PLA-I30-3 pieces kept by PLA-I33: the run list, a doc (/ceo?doc=<id>) and
 // the limit editor. The project sheet became the project page and its preview; the Equipo sheet left with
 // the per-role limits. Plain components so tests render them; the page wraps them in a Sheet or Dialog.
-import { useState, type FormEvent } from "react";
+// NEWPROJ-1: the unused new-project dialog left; the sheet «Nuevo proyecto» (corriente/hojas.tsx) is the one door.
+import { useState } from "react";
 import Markdown from "react-markdown";
-import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import {
   ago,
@@ -11,7 +11,6 @@ import {
   tokens,
   ROLE_LABEL,
   RUN_WORD,
-  type NewProjectResult,
   type RunBrief,
   type RunnerRole,
 } from "@/lib/compania";
@@ -69,98 +68,6 @@ export const PromptDocBody = ({ doc }: { doc: { title: string; version: number; 
     </div>
   </div>
 );
-
-// ---- 4a / 4b: a name and a goal sentence. The project starts paused.
-
-export type NewProjectState = { kind: "idle" } | { kind: "busy" } | { kind: "missing" } | { kind: "error"; message: string } | { kind: "done"; result: NewProjectResult; name: string; goal: string };
-
-export const NewProjectForm = ({ state, onSubmit, onCancel }: { state: NewProjectState; onSubmit: (input: { name: string; goal: string }) => void; onCancel: () => void }) => {
-  const [name, setName] = useState("");
-  const [goal, setGoal] = useState("");
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (name.trim() && goal.trim()) onSubmit({ name: name.trim(), goal: goal.trim() });
-  };
-  return (
-    <form className="grid gap-4" onSubmit={submit} data-testid="new-project-form">
-      <label className="grid gap-1.5 text-sm">
-        <span className="font-semibold">Nombre</span>
-        <input
-          className="min-h-11 rounded-xl bg-background px-3 ring-1 ring-foreground/15 outline-none focus:ring-2 focus:ring-foreground/40"
-          value={name}
-          maxLength={60}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Viajia"
-          required
-        />
-      </label>
-      <label className="grid gap-1.5 text-sm">
-        <span className="font-semibold">Meta, en una oración</span>
-        <textarea
-          className="min-h-20 rounded-xl bg-background px-3 py-2 ring-1 ring-foreground/15 outline-none focus:ring-2 focus:ring-foreground/40"
-          value={goal}
-          maxLength={240}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="Que alguien arme su viaje en diez minutos."
-          required
-        />
-        <span className="text-xs text-muted-foreground">Lo que tendría que ser cierto cuando el proyecto vaya bien; el PO la lee en cada corrida.</span>
-      </label>
-      {state.kind === "missing" && (
-        <p role="alert" className="rounded-xl bg-status-now/10 p-3 text-sm text-ink-now ring-1 ring-status-now/40">
-          Todavía no se pueden crear proyectos desde aquí: el servidor no tiene esa ruta (llega con PLA-I31-3). No se creó nada.
-        </p>
-      )}
-      {state.kind === "error" && (
-        <p role="alert" className="rounded-xl bg-status-blocked/10 p-3 text-sm text-ink-blocked ring-1 ring-status-blocked/40">
-          {state.message}
-        </p>
-      )}
-      <p className="text-xs text-muted-foreground">Empieza en pausa. Su PO despierta cuando lo reanudes.</p>
-      <div className="flex flex-wrap gap-2">
-        <button type="submit" className={pillPrimary} disabled={state.kind === "busy" || !name.trim() || !goal.trim()}>
-          {state.kind === "busy" ? "Creando…" : "Crear proyecto"}
-        </button>
-        <button type="button" className={pillGhost} onClick={onCancel}>
-          Cancelar
-        </button>
-      </div>
-    </form>
-  );
-};
-
-export const NewProjectDone = ({ state, onOpen, onClose }: { state: Extract<NewProjectState, { kind: "done" }>; onOpen: (slug: string) => void; onClose: () => void }) => {
-  const promptLink = state.result.prompt_doc_id ? `/ceo?doc=${encodeURIComponent(state.result.prompt_doc_id)}` : null;
-  return (
-    <div className="grid gap-4" data-testid="new-project-done">
-      <p className="font-voice text-lg leading-snug italic">{state.goal}</p>
-      <ul className="grid gap-2 text-sm">
-        <li className="flex items-center gap-2">
-          <Dot tone="ok" /> Proyecto creado · clave <span className="font-mono">{state.result.key_prefix}</span>
-        </li>
-        <li className="flex items-center gap-2">
-          <Dot tone="ok" /> Product owner creado de la plantilla
-          {promptLink && (
-            <Link to={promptLink} className="text-xs font-semibold hover:underline">
-              Prompt ↗
-            </Link>
-          )}
-        </li>
-        <li className="flex items-center gap-2">
-          <Dot tone="idle" /> Empieza en pausa · Su PO despierta cuando lo reanudes
-        </li>
-      </ul>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={pillPrimary} onClick={() => onOpen(state.result.slug)}>
-          Ver {state.name}
-        </button>
-        <button type="button" className={pillGhost} onClick={onClose}>
-          Cerrar
-        </button>
-      </div>
-    </div>
-  );
-};
 
 // ---- Jorge-only number editor: the plan guard.
 

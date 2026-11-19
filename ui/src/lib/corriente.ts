@@ -1,7 +1,7 @@
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
-//   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas)
+//   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
 // The stream is the first screen; inside a project it shrinks to a strip on top.
 
@@ -10,9 +10,10 @@ export type View = (typeof VIEWS)[number];
 
 // PLA-I64-7: inside a project there is one list (todo, the entry) and its doors: Archivo, Hecho, Equipo (with
 // Motores behind it) and Máquinas. The old tabs' addresses still open: each lands on its new place (OLD_TAB).
-export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas"] as const;
+// NEWPROJ-6: Ajustes, the project's settings (where the code is, the release step, QA's list, the context notes).
+export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
-export const DOORS = ["archivo", "equipo", "maquinas"] as const;
+export const DOORS = ["archivo", "equipo", "maquinas", "ajustes"] as const;
 export const TAB_NAME: Record<Tab, string> = {
   todo: "Todo",
   archivo: "Archivo",
@@ -20,6 +21,7 @@ export const TAB_NAME: Record<Tab, string> = {
   equipo: "Equipo",
   motores: "Motores",
   maquinas: "Máquinas",
+  ajustes: "Ajustes",
 };
 /** The retired tabs (PLA-I62) and where each one lives now. */
 export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo" };

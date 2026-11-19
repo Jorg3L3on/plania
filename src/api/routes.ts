@@ -38,7 +38,6 @@ import { progressRoutes } from "./progress.js";
 import { delegationRoutes } from "./delegation.js";
 import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
-import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
 import { pedidoImageRoutes } from "./pedido-images.js";
 import { plumbing } from "./company-org.js";
@@ -702,7 +701,6 @@ api.route("/progress", progressRoutes);
 api.route("/delegation", delegationRoutes);
 api.route("/dashboard", dashboardRoutes);
 api.route("/usage", usageRoutes);
-api.route("/templates", templateRoutes);
 // PLA-I46-6: stills of the running app (src/api/captures.ts).
 api.route("/projects", captureRoutes);
 // PLA-I48: Máquinas, the floor's second level, and the building's tablero (src/api/maquinas.ts).
