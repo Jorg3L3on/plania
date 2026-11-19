@@ -86,23 +86,31 @@ async function programVersion(exec: ExecFn, cmd: string, env: NodeJS.ProcessEnv)
  * account is signed in. A classic token lists its scopes; without `repo` (or `public_repo`) it cannot push or create a
  * repository. A fine-grained token or GH_TOKEN shows no scope line, and is taken as able to write.
  */
-async function ghItem(exec: ExecFn, env: NodeJS.ProcessEnv): Promise<MachineItem> {
+export type GhState = { state: "ok" | "absent" | "signed_out" | "no_write"; version: string | null };
+
+/** PLA-I2-5: gh's state alone, shared with the readiness list's GitHub item (src/runner/readiness.ts). */
+export async function ghState(exec: ExecFn = defaultExec, env: NodeJS.ProcessEnv = process.env): Promise<GhState> {
   const version = await programVersion(exec, "gh", env);
-  if (!version) return machineItem("gh", "absent");
+  if (!version) return { state: "absent", version: null };
   let r: Awaited<ReturnType<ExecFn>>;
   try {
     r = await exec("gh", ["auth", "status", "--hostname", "github.com"], { env, cwd: env.HOME ?? process.cwd(), timeoutMs: 20_000 });
   } catch {
-    return machineItem("gh", "signed_out", { version });
+    return { state: "signed_out", version };
   }
   const text = `${r.stdout}\n${r.stderr}`;
-  if (r.code !== 0 || /not logged in|gh auth login/i.test(text)) return machineItem("gh", "signed_out", { version });
+  if (r.code !== 0 || /not logged in|gh auth login/i.test(text)) return { state: "signed_out", version };
   const scopes = /token scopes:\s*(.*)/i.exec(text)?.[1];
   if (scopes !== undefined) {
     const list = scopes.split(",").map((s) => s.replace(/['"\s]/g, ""));
-    if (!list.includes("repo") && !list.includes("public_repo")) return machineItem("gh", "no_write", { version });
+    if (!list.includes("repo") && !list.includes("public_repo")) return { state: "no_write", version };
   }
-  return machineItem("gh", "ok", { version });
+  return { state: "ok", version };
+}
+
+async function ghItem(exec: ExecFn, env: NodeJS.ProcessEnv): Promise<MachineItem> {
+  const g = await ghState(exec, env);
+  return machineItem("gh", g.state, g.version ? { version: g.version } : {});
 }
 
 export async function machineCheck(deps: MachineCheckDeps = {}): Promise<MachineItem[]> {

@@ -3,7 +3,7 @@
 // sends the version it read (GET/PUT /api/company/projects/:slug/settings…, src/api/project-settings.ts); the preview
 // and plan approval keep the options route. After a save the readiness list and the floor read again.
 // Wording and checks: @/lib/ajustes. Token fields are never shown here: they stay MCP-only, as variable names.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
@@ -24,11 +24,13 @@ import {
 } from "@/lib/ajustes";
 import { CODIGO_OPCIONES, codigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { Btn, ReadError, Switch } from "./parts";
+import { Arranque, Avanzado } from "./ajustes-avanzado";
+import { PrepararCodigo } from "./preparar-codigo";
 
 const errorOf = (e: unknown) => (e instanceof ApiError ? ajustesError(e.code, e.detail) : ajustesError(null));
 
 /** One save of the view: the answer becomes the read, the readiness list and the floor read again. */
-function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unknown>) {
+export function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unknown>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: fn,
@@ -42,7 +44,7 @@ function useGuardar<I>(slug: string, fn: (input: I) => Promise<AjustesRead | unk
   });
 }
 
-const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; texto: string; children: ReactNode }) => (
+export const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; texto: string; children: ReactNode }) => (
   <section className="cor-card cor-ajustes-sec" aria-labelledby={`ajustes-${id}`} data-ajustes={id}>
     <h3 id={`ajustes-${id}`} className="cor-ajustes-h">
       {titulo}
@@ -52,7 +54,7 @@ const Seccion = ({ id, titulo, texto, children }: { id: string; titulo: string; 
   </section>
 );
 
-const Falla = ({ error }: { error: unknown }) =>
+export const Falla = ({ error }: { error: unknown }) =>
   error ? (
     <p className="cor-state bad cor-ajustes-falla" role="alert">
       {errorOf(error)}
@@ -104,12 +106,14 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
           </Btn>
         </div>
       </form>
+      {/* PLA-I2-5: Plania prepares the code and the working branch (./preparar-codigo.tsx). */}
+      <PrepararCodigo a={a} />
     </Seccion>
   );
 };
 
 const Lanzamiento = ({ a }: { a: AjustesRead }) => {
-  const [form, setForm] = useState({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release?.mode === "merge" });
+  const [form, setForm] = useState({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release ? a.release.mode === "merge" : true });
   const save = useGuardar(a.slug, (release: ReturnType<typeof lanzamientoBody>) => api.ajustesLanzamiento(a.slug, { version: a.version, release }));
   const body = lanzamientoBody(form);
   const field = (k: "from" | "into" | "env") => (
@@ -149,7 +153,7 @@ const Lanzamiento = ({ a }: { a: AjustesRead }) => {
               disabled={save.isPending}
               onClick={() => {
                 save.mutate(null);
-                setForm({ from: "", into: "", env: "", merge: false });
+                setForm({ from: "", into: "", env: "", merge: true });
               }}
               data-control="quitar-lanzamiento"
             >
@@ -271,6 +275,12 @@ const Nota = ({ a, c }: { a: AjustesRead; c: AjustesContexto }) => {
 
 export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
   const q = useQuery({ queryKey: ["ajustes", p.slug], queryFn: () => api.ajustes(p.slug) });
+  // PLA-I2-6: the readiness list links to a section (#ajustes-<id>); scroll there once the view has loaded.
+  const loaded = !!q.data;
+  useEffect(() => {
+    if (!loaded || !window.location.hash.startsWith("#ajustes-")) return;
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [loaded]);
   if (q.isError && !q.data) return <ReadError what="los ajustes" onRetry={() => void q.refetch()} />;
   const a = q.data;
   return (
@@ -287,6 +297,7 @@ export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
           <Pruebas a={a} />
           <Lanzamiento a={a} />
           <Vista a={a} />
+          <Arranque a={a} />
           <Seccion id="contexto" titulo={SECCIONES.contexto.titulo} texto={SECCIONES.contexto.texto}>
             <ul className="cor-ajustes-notas">
               {a.context.map((c) => (
@@ -294,6 +305,7 @@ export const Ajustes = ({ p }: { p: { slug: string; title: string } }) => {
               ))}
             </ul>
           </Seccion>
+          <Avanzado a={a} />
         </div>
       )}
     </div>

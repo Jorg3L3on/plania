@@ -105,7 +105,8 @@ test("NEWPROJ-1: the sheet, the MCP tool and the script leave the same project",
 
   // The script still keeps the repo fields; the sheet's goal is its project's only goal.
   const charlie = (await raw.query(`select settings from projects where slug = 'charlie'`)).rows[0].settings;
-  assert.deepEqual(charlie, { plan_approval: true, github: { repo: "o/charlie" }, local: { repo_path: "/tmp/charlie" } });
+  // PLA-I2-6: a new project with code ships from the screen.
+  assert.deepEqual(charlie, { plan_approval: true, github: { repo: "o/charlie" }, local: { repo_path: "/tmp/charlie" }, release: { from: "sandbox", into: "main", env: "prod", mode: "merge" } });
   const goals = (await raw.query(`select p.slug, g.title from goals g join projects p on p.id = g.project_id where p.slug in ('alfa','bravo','charlie')`)).rows;
   assert.deepEqual(goals, [{ slug: "alfa", title: "Una meta." }]);
 });

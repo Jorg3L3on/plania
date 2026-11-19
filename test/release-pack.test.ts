@@ -93,6 +93,10 @@ describe("release package", () => {
       "scripts/migrate.ts",
       "scripts/service.ts",
       "scripts/restart.ts",
+      "scripts/update.ts",
+      "scripts/restore.ts",
+      "scripts/seed-org.ts",
+      "scripts/kit.ts",
       "package.json",
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
@@ -116,7 +120,7 @@ describe("release package", () => {
     const shipped = JSON.parse(readFileSync(path.join(r.dir, "package.json"), "utf8"));
     assert.deepEqual(shipped.dependencies, pkg.dependencies);
     assert.ok(shipped.dependencies.tsx, "tsx runs the server, so it is a production dependency");
-    for (const s of ["start", "plania:install", "db:migrate", "service:install", "service:uninstall", "server:restart", "machine:check"]) assert.ok(shipped.scripts[s], s);
+    for (const s of ["start", "plania:install", "db:migrate", "service:install", "service:uninstall", "server:restart", "machine:check", "update:plania", "restore:plania", "help:report", "uninstall:plania"]) assert.ok(shipped.scripts[s], s);
     for (const s of ["dev", "dev:api", "dev:ui", "build", "test", "seed", "release:pack", "mcp-table", "db:generate", "notices"]) assert.equal(shipped.scripts[s], undefined, s);
     for (const cmd of Object.values(shipped.scripts) as string[]) {
       for (const m of cmd.matchAll(/scripts\/([\w.-]+\.ts)/g)) assert.ok(has(`scripts/${m[1]}`), `${cmd} needs scripts/${m[1]}`);
@@ -163,7 +167,7 @@ describe("version", () => {
     const dir = tmp("rel");
     writeFileSync(path.join(dir, "release.json"), JSON.stringify({ format: 1, version: "1.2.3", commit: "abc", built_at: "2026-11-18T12:00:00Z" }));
     writeFileSync(path.join(dir, "CHANGELOG.md"), "# Novedades\n\n## 1.2.3\n\n- Algo nuevo.\n");
-    const body = (await (await releaseRoutes(dir).request("/")).json()) as Record<string, unknown>;
+    const body = (await (await releaseRoutes(dir, async () => null).request("/")).json()) as Record<string, unknown>;
     assert.equal(body.version, "1.2.3");
     assert.equal(body.packaged, true);
     assert.match(String(body.notes), /Algo nuevo/);
@@ -290,7 +294,8 @@ describe("service", () => {
       "systemctl --user restart plania.service",
       "loginctl enable-linger",
     ]);
-    assert.match(plan.lines.join("\n"), /journalctl --user -u plania/);
+    assert.match(unit, /^StandardOutput=append:\/home\/ana\/\.local\/state\/plania\/server\.log$/m);
+    assert.match(plan.lines.join("\n"), /\.local\/state\/plania\/server\.log/);
     const { log, io: fake } = io();
     applyPlan(uninstallPlan(linux), fake);
     assert.deepEqual(log, ["systemctl --user disable --now plania.service", "rm /home/ana/.config/systemd/user/plania.service", "systemctl --user daemon-reload"]);

@@ -48,6 +48,17 @@ export function wakesOn(env: NodeJS.ProcessEnv = process.env): boolean {
   return !!cached?.firstStartAt;
 }
 
+/**
+ * PLA-I2-5: GitHub through gh's own login (`gh auth token`, or gh with no GH_TOKEN) when no token file or variable
+ * is set. PLANIA_GH_FALLBACK=1 turns it on, any other value off; unset is on only for an install made by first start,
+ * so the owner's hand-configured install keeps needing its token files. Token files always win when they hold one.
+ */
+export function ghLoginOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.PLANIA_GH_FALLBACK === "1") return true;
+  if (env.PLANIA_GH_FALLBACK !== undefined && env.PLANIA_GH_FALLBACK !== "") return false;
+  return !!cached?.firstStartAt;
+}
+
 /** Called once when wakes turn on while the process runs (first start finished): the jobs add the heartbeat. */
 export function onWakesOn(fn: () => void): () => void {
   wakeListeners.push(fn);

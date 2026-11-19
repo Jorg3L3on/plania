@@ -12,8 +12,11 @@ import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx, type Ctx } from "../mcp/tx.js";
 import { promptNote, rolePrompts } from "./prompts.js";
+import { checkGithubRepo, type GithubCheckCode } from "./repo-setup.js";
+import { DEFAULT_START_BRANCH } from "./start-branch.js";
 import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheck, type RepoCheckCode, type RepoCheckDeps } from "./repo-check.js";
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
+import { ALLOWED_BASE } from "./worktree.js";
 
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
 // NEWPROJ-8: the name and goal limits. The route's body schema uses them; the sheet's inputs keep their own copy
@@ -21,11 +24,14 @@ const PROJECT_BODY = "Company project. The plan lives in Plania.";
 export const NEW_PROJECT_NAME_MAX = 40;
 export const NEW_PROJECT_GOAL_MAX = 280;
 
+// PLA-I2-6: the release step a new project with code starts with: the start branch into main, shipped from the screen.
+export const NEW_PROJECT_RELEASE = { from: ALLOWED_BASE, into: "main", env: "prod", mode: "merge" } as const satisfies NonNullable<ProjectSettings["release"]>;
+
 export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
 // NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
 // NEWPROJ-3: a folder that fails its check is refused with the check's code, the folder and every check's result.
 export type NewProjectError = {
-  error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN" | RepoCheckCode;
+  error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN" | RepoCheckCode | GithubCheckCode;
   status: 400 | 409;
   field?: string;
   slug?: string;
@@ -122,6 +128,12 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
     const check = await checkRepoFolder(repoPath, opts.repoCheck);
     if (check.failed) return { error: check.failed, status: 400, field: "repo_path", path: repoPath, branch: check.branch, checks: check.checks };
   }
+  // PLA-I2-5: the GitHub choice runs the same kind of check (the repository exists, this login can write, the
+  // working branch is there). A new project has the default working branch.
+  if (githubRepo && opts.repoCheck?.gh) {
+    const gh = await checkGithubRepo(githubRepo, DEFAULT_START_BRANCH, opts.repoCheck.gh, process.cwd());
+    if (gh.failed) return { error: gh.failed, status: 400, field: "github_repo", branch: gh.branch };
+  }
 
   const taken = new Set((await db.select({ p: projects.keyPrefix }).from(projects)).map((r) => r.p));
   if (input.key_prefix !== undefined && taken.has(input.key_prefix)) return { error: "KEY_PREFIX_TAKEN", status: 409, field: "key_prefix" };
@@ -131,6 +143,8 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
     plan_approval: true,
     ...(githubRepo ? { github: { repo: githubRepo } } : {}),
     ...(repoPath ? { local: { repo_path: repoPath } } : input.no_code ? { local: { no_code: true } } : {}),
+    // PLA-I2-6: a project with code ships from the screen (Lanzar), with no command to paste. Older projects keep theirs.
+    ...(input.no_code ? {} : { release: NEW_PROJECT_RELEASE }),
   };
   const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db

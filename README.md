@@ -55,7 +55,7 @@ The other settings in `.env` are optional:
 | `PLANIA_PASSWORD_HASH` | The screen's password, as the output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. Wins over the one made at first start; when set, first start never opens. |
 | `MCP_READ_TOKEN` | A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Token for `/hooks/*` only; it cannot use `/mcp`. |
-| `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
+| `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default: the zone chosen at first start, else `UTC`. |
 | `PLANIA_PG_BIN` | Directory of the `pg_dump` and `psql` Plania uses. Default: the one for the server's major version (Homebrew, `/usr/lib/postgresql/<N>/bin`, `/usr/pgsql-<N>/bin`), else the one on `PATH`. |
 | `PLANIA_OWNER_SECRET_FILE` | Where the owner's code lives off macOS's keychain (Linux, or a Mac without `security`). Default `~/.config/plania/owner-secret`, mode `0600`. |
 | `PLANIA_BACKUP_DIR` | Where the nightly dumps go. Default `~/plania-backups`. |
@@ -107,7 +107,7 @@ pnpm project:add <slug> --title "<Title>" [--prefix <PFX>] [--repo owner/name] [
 pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
-`--path` is the repo on this machine (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
+`--path` is the repo on this machine (default `PLANIA_PROJECTS_ROOT/<slug>`, else the folder chosen at first start, else `~/plania/projects/<slug>`).
 `--repo` is its GitHub `owner/name`. Both are safe to rerun.
 
 Projects come from first start, the screen or `pnpm project:add`; nothing is preloaded.
@@ -329,7 +329,8 @@ committed (`--allow-dirty` packs anyway, and the manifest then names no commit).
 What a package holds: the built screen (`dist/ui`), the server's TypeScript sources (`src/`, and `ui/src/lib/` whose
 words and pure logic the server imports) run through `tsx`, which is a production dependency for that reason;
 `drizzle/migrations/`, `kit/`, `prompts/`, `config/`, `docs/templates/`; the scripts a buyer runs (start, install,
-migrate, service, restart, machine check, password and VAPID tools, project registration, kit, brief); `package.json`
+migrate, service, restart, update, restore, machine check, help report, uninstall, password and VAPID tools,
+project registration, kit, brief, and `seed-org.ts`, which the first start imports); `package.json`
 with only those scripts, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `.env.example`, `README.md`,
 `CHANGELOG.md`, `LICENSE`, a fresh `THIRD_PARTY_NOTICES`, `VERSION` and `release.json`. Never: tests, `spike/`,
 `replay/`, the screen's other sources, build configs, `.env`, `node_modules`.
@@ -361,6 +362,7 @@ The update command (PLA-I2-8) reads this file; its format is a contract. `VERSIO
 | `built_at` | ISO time the package was made. |
 | `node` | The `engines.node` range it needs. |
 | `migrations` | The last migration file it carries, e.g. `0062_owner_neutral.sql`, so an update can tell whether it brings new ones. |
+| `kit` | `{ "<path under kit/>": "<sha256>" }` of every kit file as shipped (line endings normalised). The update tells the buyer's edits from the release's with it; a manifest without it makes the update keep every kit file that differs. |
 
 `GET /health/ui` (no auth) returns `{ version: { version, commit, built_at, packaged }, ui, head }`; in a checkout
 `version` comes from `package.json` and the HEAD commit, with `packaged: false`. `GET /api/release` (session) adds
@@ -382,7 +384,7 @@ or switching Node versions. `pnpm service:uninstall` stops it and removes the se
 | | macOS | Linux (and WSL with systemd) |
 |---|---|---|
 | Service | launchd agent `com.plania.server`, `~/Library/LaunchAgents/com.plania.server.plist` | systemd user unit `~/.config/systemd/user/plania.service` |
-| Logs | `~/Library/Logs/plania/server.log` | the user journal: `journalctl --user -u plania -f` |
+| Logs | `~/Library/Logs/plania/server.log` | `~/.local/state/plania/server.log`, and the user journal (`journalctl --user -u plania -f`) |
 | Starts | at login | at login; `--at-boot` also runs `loginctl enable-linger` so it starts at boot |
 | Restart by hand | `launchctl kickstart -k gui/$(id -u)/com.plania.server` | `systemctl --user restart plania.service` |
 | Stop | `launchctl bootout gui/$(id -u)/com.plania.server` | `systemctl --user stop plania.service` |
@@ -395,6 +397,19 @@ supported.
 is in flight (`--check` lists them, `--force` restarts anyway). In a checkout the restart is the deploy: the server
 rebuilds `dist/ui` at start when its stamp is not HEAD.
 
+PLA-I2-9: the live server changes only when you restart it. After a restart, `pnpm server:restart` waits up to two
+minutes for `/health/ui` to report the commit (or version) the folder holds. If it never does, it checks out the last
+commit that started well (detached) and restarts again, and says so; your checkout is then on that commit with no
+branch. The service records a good start in `~/.config/plania/last-good.json` (`PLANIA_LAST_GOOD_FILE`) once it has
+been up for 30 seconds; dev servers and test copies (`PLANIA_JOBS=0`) never do. A release package cannot go back by
+itself: the restart names the last version that started.
+
+When a project's repo is this server's own checkout (Plania working on Plania, `src/self/plania-self.ts`): its test
+copies get a new database of their own (`<live>_prueba`, `<live>_entrega`, built from the copy's migrations), a
+rewritten env file with `PLANIA_JOBS=0`, and never the live port; its runs carry extra deny rules (no live database,
+no migrations, no restart) and do not start when their folder points at the live database. Migrations agents wrote in
+its deliveries are listed on its Máquinas page, for you to apply with `pnpm db:migrate`.
+
 On the owner's Mac: local Postgres 14 (Homebrew service), database `plania`; the MCP clients point at
 `http://localhost:3737/mcp` with the Bearer from `.env`: Claude Code (user scope), Cursor (`~/.cursor/mcp.json`),
 Codex (`~/.codex/config.toml`).
@@ -405,14 +420,55 @@ Owner: create a read-only fine-grained token for the plania repo and save it wit
 
 Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
 `~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
-page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
-
-```bash
-createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
-```
+page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To bring one back,
+see "Restoring a backup".
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
+
+## Updating
+
+A new version arrives as a package file (`plania-<version>.tar.gz`, with its `.sha256` beside it). Plania never
+fetches it: download it, then from the installed folder:
+
+```bash
+pnpm update:plania ~/Downloads/plania-0.2.0.tar.gz
+```
+
+Each step says one sentence (PLA-I2-8, `src/update/index.ts`):
+
+1. Refuses while a run, a QA check or a test copy's pass is in flight, as `pnpm server:restart` does.
+2. Opens the package beside the install, checks its `.sha256` when present and its `release.json`, and refuses a
+   version that is not newer.
+3. Installs its production dependencies there (`pnpm install --prod --frozen-lockfile`). Nothing is built.
+4. Backs up the database into the backup folder as `plania-pre-update-<from>-to-<to>-<time>.sql.gz`, which the
+   nightly pruning never removes.
+5. Stops the service. Without one, stop Plania yourself and pass `--no-service`.
+6. Swaps the program files: the install folder becomes `<folder>.previous-<from>` (only the latest is kept) and the
+   new release takes its place. `.env` comes across. Kit files you edited are never overwritten: yours go into the new
+   files, and when the release changed the same file its version is put in `kit.new/` for you to compare.
+7. Checks that a backup from today exists, then applies the new migrations in one transaction.
+8. Role prompts nobody edited in Plania take the release's text (`kit:sync` without `--force`); ones you edited in
+   Plania stay and are reported.
+9. Starts the service and points at the release notes, `http://localhost:3737/novedades`. That page also lists what
+   the update kept of your kit and what to do; Plomería shows a hint while something waits.
+
+A failure before step 5 changes nothing. A failure at step 6 or 7 puts the previous folder back, starts it, and names
+the backup and the restore command. The migration is all or nothing, so the database is as it was and the old
+version passes its start-up check. To go back by hand after a successful update: stop the service, swap the folder
+with `<folder>.previous-<from>`, restore the pre-update backup, start the service.
+
+## Restoring a backup
+
+```bash
+pnpm restore:plania ~/plania-backups/plania-20261016.sql.gz --database plania_restore
+pnpm restore:plania <file> --database plania --overwrite --confirm plania
+```
+
+It creates the named database when it does not exist and loads the dump with `psql` (`ON_ERROR_STOP`; the `psql` of
+the server's major version, `PLANIA_PG_BIN` first). A database that already holds tables is replaced only when asked
+twice, `--overwrite` and its name again in `--confirm`; it is then dropped and made again. Stop Plania before
+replacing the database it uses. `--url` names another server.
 
 ## Morning brief
 
@@ -459,7 +515,7 @@ included project's product owner and the home project (both for Send to Plania);
 "Setup check" at the bottom of the brief's settings sheet (Ajustes) (`GET /api/brief/doctor`).
 
 First-run defaults (change them in the brief's Ajustes): on, 07:00, time zone `PLANIA_TZ` (else
-`America/Mexico_City`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
+the zone chosen at first start, else `UTC`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
 project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
 A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
 `settings.github.repo`. Send to Plania needs a product-owner agent per project (`po-<slug>`, made by
@@ -742,10 +798,19 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
+| `REPO_FOLDER_NOT_EMPTY` | 400 | prepare the code: the folder has files and is not this project's git repository; Plania never initialises or overwrites it |
+| `REPO_GIT_FAILED` | 400 | prepare the code: a git step failed (detail: step) |
+| `REPO_GITHUB_FAILED` | 400 | GitHub: gh failed (detail: step) |
+| `REPO_GITHUB_NO_GH` | 400 | GitHub: gh is not installed on this machine |
+| `REPO_GITHUB_NO_WRITE` | 400 | GitHub: this gh login cannot write to the repository |
+| `REPO_GITHUB_NOT_FOUND` | 400 | GitHub: no repository with that owner/name for this gh login |
+| `REPO_GITHUB_SIGNED_OUT` | 400 | GitHub: gh is not signed in on this machine |
+| `REPO_NO_IDENTITY` | 400 | prepare the code: git has no name and email on this machine and the GitHub login could not give one |
 | `REPO_NO_ORIGIN` | 400 | new project: the folder's git repository has no remote named origin |
-| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
+| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (the project's start_branch, default sandbox; detail: branch) |
 | `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
 | `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
+| `REPO_PUSH_FAILED` | 400 | prepare the code: pushing to origin was refused (access or network) |
 | `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
@@ -970,9 +1035,36 @@ system themes. Times arrive as UTC and show in the browser's local time.
   (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
-  concurrent change is refused, not overwritten. Token fields are not on screen. Still MCP-only (`set_project`):
-  `vercel`, `resources`, `quotas`, `branch_pattern`, `claim_from`, `release_target`, `release_on`, `auto_done`,
-  `capture` beyond Máquinas' minimal one, `maquinas`, and the runner's areas.
+  concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
+  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A new project with code
+  starts with a release step that ships from the screen (mode `merge`). No field takes a secret: a token is named by
+  its variable (`github.token_env`, `vercel.token_env`), and a value shaped like a token is refused (`SECRET_VALUE`).
+  Each missing item on the readiness list links to its section. Plomería's «Cada corrida» sets the company's
+  `max_turns`, `timeout_minutes` and `cooldown_minutes`.
+
+#### Project settings
+
+One list, `src/mcp/settings-registry.ts`, holds every key of `projects.settings`: its default, whether it is basic or
+advanced, its control on screen and its plain sentence. `set_project` accepts exactly those keys, and the screen writes
+no other (`test/settings-registry.test.ts`). The advanced ones can be left alone; this table is generated from the list
+(`pnpm exec tsx scripts/settings-table.ts`):
+
+<!-- settings-advanced:start -->
+| Setting | Default | Why it can be left alone |
+|---|---|---|
+| `start_branch` | sandbox | The default works once the repository has that branch; «Crear la rama de trabajo» makes it. |
+| `release_target` | prod | Only matters with more than one deploy target; prod fits a project with one. |
+| `release_on` | env with Vercel or a recorded commit, else branch | Plania picks it from what the project has; set it only when the guess is wrong. |
+| `auto_done` | on | On is what a new owner wants; off keeps every closing by hand. |
+| `branch_pattern` | none: any branch name | The runner already names its branches; a pattern only binds outside clients. |
+| `claim_from` | backlog | The PO decides what is Ready; the default suits a team the PO leads. |
+| `resources` | none: leases with the server's limits | Leases work without it; it only caps how long one may be held. |
+| `quotas` | none | Only for a project that calls an outside service with a daily cap. |
+| `vercel` | none: deploys are not read | Only for a project deployed on Vercel. |
+| `maquinas` | found in the repo: the env file, the migrate and seed scripts, the migrations folder | Plania finds them in package.json and the repo; set them only when it cannot. |
+| `identity` | by slug, alphabetically | Alphabetical order works until there are enough projects to care. |
+| `team` | idle after 120 minutes | Two hours suits runs of any length the runner starts. |
+<!-- settings-advanced:end -->
 - **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.

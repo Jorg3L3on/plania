@@ -15,9 +15,11 @@ import { tableroView } from "@/lib/maquinas";
 import { logWords } from "@/lib/calidad";
 import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { NOVEDADES, versionLine } from "@/lib/version";
+import { ACTUALIZAR, pendingKit } from "@/lib/actualizar";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
 import { LOCALE } from "@/lib/locale";
+import { LimitesCorrida } from "./limites-corrida";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -92,6 +94,12 @@ export const ReleaseLine = () => {
       <BtnLink kind="link" to="/novedades" data-control="novedades">
         {NOVEDADES.link}
       </BtnLink>
+      {/* PLA-I2-8: after an update, the owner's kit edits that the release also changed wait on Novedades. */}
+      {pendingKit(release.data.last_update) > 0 && (
+        <span className="cor-amber" data-kit-pending>
+          {" "}· {ACTUALIZAR.hint(pendingKit(release.data.last_update))}
+        </span>
+      )}
     </span>
   );
 };
@@ -262,6 +270,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
             </span>
           </label>
         </section>
+        <LimitesCorrida settings={plumbing.settings} canEdit={canEdit} onSaved={refresh} />
         <section aria-label="Proyectos, agentes y app en tu máquina" data-block="proyectos">
           <div className="cor-side-head">
             <Label as="h2">Proyectos · agentes y app en tu máquina</Label>

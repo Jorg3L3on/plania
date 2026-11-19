@@ -14,6 +14,8 @@ import { ToolError } from "../mcp/errors.js";
 import { entregaEnv, entregaRead } from "./prueba.js";
 import { sessionCookies } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
+import { findOnPath } from "../lib/claude-bin.js";
+import { commandPath } from "../jobs/machine/run.js";
 
 export type VivoRead = {
   url: string | null; // what «Pruébala en vivo» opens (the tailnet address when there is one, else localhost)
@@ -128,9 +130,10 @@ function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
 }
 
 // The machine's Tailscale CLI, when there is one: `tailscale serve --bg --https=<port> <to>`, and its DNS name.
-function tailscaleBin(env: NodeJS.ProcessEnv = process.env): string | null {
-  for (const p of [env.PLANIA_TAILSCALE_BIN, "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"]) if (p && existsSync(p)) return p;
-  return null;
+// PLA-I2-19: then the one on PATH (Linux packages put it in /usr/bin), with the usual folders added.
+export function tailscaleBin(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
+  for (const p of [env.PLANIA_TAILSCALE_BIN, "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"]) if (p && exists(p)) return p;
+  return findOnPath("tailscale", { ...env, PATH: commandPath(env.PATH ?? "") }, exists);
 }
 const run = (bin: string, args: string[]) =>
   new Promise<{ code: number; out: string }>((resolve) =>

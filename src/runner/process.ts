@@ -4,6 +4,7 @@ import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { Readable } from "node:stream";
+import { processCommand } from "../lib/proc-command.js";
 import { runEnv } from "./run-env.js";
 
 export type ChildLike = {
@@ -42,13 +43,8 @@ export const defaultKill: KillFn = (pid, signal) => {
 // True when pid is alive and its command line looks like claude (guards against a reused pid).
 export type ProbePid = (pid: number) => Promise<boolean>;
 
-export const defaultProbePid: ProbePid = (pid) =>
-  new Promise((resolve) => {
-    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => {
-      if (err) return resolve(false);
-      resolve(/\bclaude\b/.test(stdout));
-    });
-  });
+// PLA-I2-19: /proc on Linux, portable ps elsewhere (src/lib/proc-command.ts).
+export const defaultProbePid: ProbePid = async (pid) => /\bclaude\b/.test((await processCommand(pid)) ?? "");
 
 // PLA-I2-13: the child env is an allow-list (src/runner/run-env.ts): system basics, Claude Code's own variables
 // untouched, the run's own values (extra) and the names the project asks for. Nothing of Plania's own.
@@ -273,10 +269,7 @@ export function attachDetached(input: { pid: number | null; logPath: string; tim
 }
 
 // True when pid is a wrapper for this run (guards against a reused pid after a reboot).
-export const isWrapperOf = (pid: number, runId: string): Promise<boolean> =>
-  new Promise((resolve) => {
-    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => {
-      if (err) return resolve(false);
-      resolve(stdout.includes("wrapper.mjs") && stdout.includes(runId));
-    });
-  });
+export const isWrapperOf = async (pid: number, runId: string): Promise<boolean> => {
+  const cmd = (await processCommand(pid)) ?? "";
+  return cmd.includes("wrapper.mjs") && cmd.includes(runId);
+};

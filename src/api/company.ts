@@ -46,7 +46,9 @@ import { deleteProject } from "../runner/delete-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
-import { CONTEXT_DOC_IDS, putContextDoc, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
+import { repoSetupRoutes } from "./repo-setup.js";
+import { CONTEXT_DOC_IDS, putContextDoc, setAdvanced, setCapture, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
+import { AVANZADO_FIELDS } from "./settings-avanzado.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
@@ -160,6 +162,9 @@ const ReleaseBody = z
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
 
+// PLA-I2-5: preparing the code and the working branch (src/api/repo-setup.ts), behind the same guard.
+companyRoutes.route("/", repoSetupRoutes);
+
 companyRoutes.put("/projects/:slug/settings/code", async (c) => {
   const input = await body(c, CodeBody);
   if (input instanceof Response) return input;
@@ -191,6 +196,52 @@ companyRoutes.put("/projects/:slug/settings/verify", async (c) => {
   if (input instanceof Response) return input;
   try {
     return c.json(await withDb((db) => setVerifyList(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I2-6: how the app starts, and one «Avanzado» field. A refusal (a secret, a value that is not a variable's name)
+// writes nothing.
+const CaptureBody = z
+  .object({
+    version: Version,
+    capture: z
+      .object({
+        start_command: z.string().max(300),
+        port: z.number().int(),
+        install_command: z.string().max(300).nullable(),
+        ready_path: z.string().max(300).nullable(),
+        pages: z.array(z.object({ path: z.string().max(300), label: z.string().max(60) }).strict()).max(12),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+const AdvancedBody = z.object({ version: Version, field: z.enum(AVANZADO_FIELDS), value: z.unknown() }).strict();
+const refusalOr = <T extends object>(c: Context, out: T) => {
+  if ("error" in out && "status" in out) {
+    const { status, ...rest } = out as { status: 400 | 404 | 409 };
+    return c.json(rest, status);
+  }
+  return c.json(out);
+};
+
+companyRoutes.put("/projects/:slug/settings/capture", async (c) => {
+  const input = await body(c, CaptureBody);
+  if (input instanceof Response) return input;
+  try {
+    return refusalOr(c, await withDb((db) => setCapture(db, c.req.param("slug"), input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.put("/projects/:slug/settings/advanced", async (c) => {
+  const input = await body(c, AdvancedBody);
+  if (input instanceof Response) return input;
+  try {
+    return refusalOr(c, await withDb((db) => setAdvanced(db, c.req.param("slug"), { version: input.version, field: input.field, value: input.value ?? null })));
   } catch (e) {
     return fail(c, e);
   }

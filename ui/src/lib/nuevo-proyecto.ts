@@ -18,12 +18,28 @@ export function nuevoProyectoError(code: string | null, detail: Record<string, u
   if (code === "KEY_PREFIX_TAKEN") return "No se creó nada: esa clave ya es de otro proyecto.";
   // NEWPROJ-3: the folder's checks, one sentence each, saying what to fix.
   const folder = typeof detail.path === "string" && detail.path ? `la carpeta ${detail.path}` : "esa carpeta";
-  const branch = typeof detail.branch === "string" && detail.branch ? detail.branch : "sandbox";
-  if (code === "REPO_FOLDER_MISSING") return `No se creó nada: ${folder} no existe en esta máquina. Revisa la ruta o elige otra opción.`;
-  if (code === "REPO_NOT_GIT") return `No se creó nada: ${folder} no es un repositorio de git. Ábrela en la terminal y corre git init, o elige la carpeta correcta.`;
-  if (code === "REPO_NO_ORIGIN") return `No se creó nada: ${folder} no está conectada a GitHub (no tiene origin). Agrégale el repositorio remoto y vuelve a intentar.`;
-  if (code === "REPO_ORIGIN_UNREACHABLE") return `No se creó nada: no pude leer el repositorio remoto de ${folder}. Revisa la conexión, la dirección del remoto o tu acceso a GitHub.`;
-  if (code === "REPO_NO_START_BRANCH") return `No se creó nada: el repositorio remoto de ${folder} no tiene la rama ${branch}, de donde parte el equipo. Créala y súbela, y vuelve a intentar.`;
+  // PLA-I2-5: no terminal and no branch name: what has no button here is done after creating, from Ajustes
+  // («Preparar el código», «Crear la rama de trabajo»), choosing «Todavía no hay código» for now.
+  const despues = "Elige «Todavía no hay código» y prepáralo después desde Ajustes.";
+  if (code === "REPO_FOLDER_MISSING") return `No se creó nada: ${folder} no existe en esta máquina. Revisa la ruta, o ${despues.charAt(0).toLowerCase()}${despues.slice(1)}`;
+  if (code === "REPO_NOT_GIT") return `No se creó nada: ${folder} tiene archivos pero no es un repositorio. Elige la carpeta del código, o ${despues.charAt(0).toLowerCase()}${despues.slice(1)}`;
+  if (code === "REPO_NO_ORIGIN") return `No se creó nada: ${folder} no está conectada a GitHub. ${despues}`;
+  if (code === "REPO_ORIGIN_UNREACHABLE") return `No se creó nada: no pude leer el repositorio en GitHub de ${folder}. Revisa en «Qué le falta» (en Máquina) que GitHub tenga la sesión iniciada.`;
+  if (code === "REPO_NO_START_BRANCH") return `No se creó nada: el repositorio en GitHub no tiene la rama de trabajo. ${despues}`;
+  return githubWords(code, "No se creó nada") ?? restOf(code, detail);
+}
+
+/** PLA-I2-5: the GitHub choice's check, the same sentences in the sheet and in Ajustes. Null for another code. */
+export function githubWords(code: string | null, lead = "No se guardó"): string | null {
+  if (code === "REPO_GITHUB_NO_GH") return `${lead}: GitHub no está instalado en esta máquina. «Qué le falta» (en Máquina) dice cómo instalarlo.`;
+  if (code === "REPO_GITHUB_SIGNED_OUT") return `${lead}: GitHub no tiene la sesión iniciada en esta máquina. «Qué le falta» (en Máquina) dice cómo entrar.`;
+  if (code === "REPO_GITHUB_NOT_FOUND") return `${lead}: tu cuenta de GitHub no encuentra ese repositorio. Revisa el dueño y el nombre.`;
+  if (code === "REPO_GITHUB_NO_WRITE") return `${lead}: tu cuenta de GitHub no puede escribir en ese repositorio. Pide acceso de escritura o usa otro.`;
+  if (code === "REPO_GITHUB_FAILED") return `${lead}: GitHub no respondió. Vuelve a intentar en un momento.`;
+  return null;
+}
+
+function restOf(code: string | null, detail: Record<string, unknown>): string {
   if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo ana/mi-proyecto.";
   if (code === "INVALID_BODY" && detail.field === "repo_path") return "No se creó nada: la carpeta va con su ruta completa, empezando con / o con ~/.";
   if (code === "INVALID_BODY" && detail.field === "no_code") return "No se creó nada: elige solo una opción para el código.";

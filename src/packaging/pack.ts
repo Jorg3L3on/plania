@@ -14,7 +14,7 @@
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { CHANGELOG, MANIFEST, MANIFEST_FORMAT, VERSION_FILE, type Manifest } from "../release.js";
+import { CHANGELOG, MANIFEST, MANIFEST_FORMAT, VERSION_FILE, kitHashes, type Manifest } from "../release.js";
 
 // Folders copied whole. ui/src/lib holds the wording and pure logic the server imports (falta.ts, plain-words.ts…).
 export const PACK_DIRS = ["src", "ui/src/lib", "drizzle/migrations", "kit", "prompts", "config", "docs/templates"];
@@ -37,6 +37,14 @@ export const BUYER_SCRIPTS = [
   "kit.ts",
   "brief-run.ts",
   "brief-doctor.ts",
+  // PLA-I2-2: src/auth/first-start.ts imports ORG from here, so the server does not start without it.
+  "seed-org.ts",
+  // PLA-I2-18: the help report and leaving.
+  "help-report.ts",
+  "uninstall.ts",
+  // PLA-I2-8: updating and restoring.
+  "update.ts",
+  "restore.ts",
 ];
 
 // Never copied, even inside a folder that ships (a stray .env in kit/, an editor's backup).
@@ -134,6 +142,8 @@ export function pack(opts: PackOptions): PackResult {
     built_at: opts.now.toISOString(),
     node: pkg.engines?.node ?? "",
     migrations: lastMigration(path.join(root, "drizzle/migrations")),
+    // PLA-I2-8: what every kit file was when shipped, so an update can tell the buyer's edits from ours.
+    kit: kitHashes(path.join(dir, "kit")),
   };
   writeFileSync(path.join(dir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
   writeFileSync(path.join(dir, VERSION_FILE), version + "\n");

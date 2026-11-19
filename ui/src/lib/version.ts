@@ -1,5 +1,6 @@
 // PLA-I2-17: the words for which release of Plania this is (GET /api/release): the small line in Plomería and the
 // Novedades page, which shows the release notes (CHANGELOG.md, written by the owner). No commit or branch names.
+import type { UpdateReport } from "./actualizar.js";
 
 export type ReleaseReading = {
   version: string;
@@ -8,6 +9,8 @@ export type ReleaseReading = {
   // true when the server runs from a release package, false in a working copy of the code.
   packaged: boolean;
   notes: string;
+  // PLA-I2-8: what the update to this version kept of the owner's kit; null when it was not updated.
+  last_update: UpdateReport | null;
 };
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];

@@ -6,6 +6,7 @@
 import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import path from "node:path";
+import { defaultRepoSetupDeps, type GhFn } from "./repo-setup.js";
 import { ALLOWED_BASE, expandHome, type GitFn } from "./worktree.js";
 
 export type RepoCheckKey = "exists" | "git" | "origin" | "start_branch";
@@ -14,7 +15,8 @@ export type RepoCheckCode = "REPO_FOLDER_MISSING" | "REPO_NOT_GIT" | "REPO_NO_OR
 export type RepoCheckItem = { key: RepoCheckKey; state: "ok" | "failed" | "skipped"; code: RepoCheckCode | null };
 export type RepoCheck = { ok: boolean; path: string; branch: string; checks: RepoCheckItem[]; failed: RepoCheckCode | null };
 
-export type RepoCheckDeps = { git: GitFn; isDir: (p: string) => boolean };
+// PLA-I2-5: gh runs the GitHub choice's check (checkGithubRepo in ./repo-setup.ts). Absent, that check is skipped.
+export type RepoCheckDeps = { git: GitFn; isDir: (p: string) => boolean; gh?: GhFn };
 
 // No prompt for credentials and a short timeout: the sheet waits on this.
 const checkGit: GitFn = (args, cwd) =>
@@ -33,7 +35,7 @@ const isDir = (p: string): boolean => {
   }
 };
 
-export const defaultRepoCheckDeps: RepoCheckDeps = { git: checkGit, isDir };
+export const defaultRepoCheckDeps: RepoCheckDeps = { git: checkGit, isDir, gh: defaultRepoSetupDeps.gh };
 
 export async function checkRepoFolder(folder: string, deps: RepoCheckDeps = defaultRepoCheckDeps, branch: string = ALLOWED_BASE): Promise<RepoCheck> {
   const dir = path.resolve(expandHome(folder));

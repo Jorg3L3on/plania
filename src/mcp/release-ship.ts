@@ -2,6 +2,7 @@ import type { Db } from "../db/client.js";
 import { runInGroup } from "../jobs/gh-process.js";
 import { githubReleaseTokenFilePath, githubTokenFilePath, readTokenFile } from "../jobs/gh-token.js";
 import { commandPath } from "../jobs/machine/run.js";
+import { ghLoginOn } from "../install-state.js";
 import { ToolError, findProject } from "./queries.js";
 import { releasePlan, type ReleasePlan } from "./release-plan.js";
 import { writeTx, type Ctx } from "./tx.js";
@@ -15,7 +16,7 @@ import { writeTx, type Ctx } from "./tx.js";
 
 // gh through runInGroup (no shell, its own process group, the group killed on timeout). GH_TOKEN
 // comes from ~/.config/plania/github-release-token, or ~/.config/plania/github-token when that
-// file has no token, and GH_PROMPT_DISABLED=1. With no token and PLANIA_GH_FALLBACK off, the call
+// file has no token, and GH_PROMPT_DISABLED=1. With no token and gh's login off (ghLoginOn), the call
 // throws before any process. Tests replace releaseGh.run so no real gh ever runs against a repo.
 export type GhRun = (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
@@ -45,11 +46,16 @@ function ghChildEnv(token: string | null, base: NodeJS.ProcessEnv): NodeJS.Proce
   return env;
 }
 
-export async function runReleaseGh(args: string[], opts?: { timeoutMs?: number }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  const env = process.env;
+// PLA-I2-5: with no token file, gh's own login (ghLoginOn: an install made by first start, or PLANIA_GH_FALLBACK=1)
+// does the merge: gh runs with no GH_TOKEN. env and group are test seams (a fake gh, a fake home).
+export async function runReleaseGh(
+  args: string[],
+  opts?: { timeoutMs?: number; env?: NodeJS.ProcessEnv; group?: typeof runInGroup },
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const env = opts?.env ?? process.env;
   const token = releaseToken(env);
-  if (!token && env.PLANIA_GH_FALLBACK !== "1") throw new ToolError("RELEASE_MERGE_FAILED", { step: "token", output: MISSING_RELEASE_TOKEN });
-  const result = await runInGroup("gh", args, {
+  if (!token && !ghLoginOn(env)) throw new ToolError("RELEASE_MERGE_FAILED", { step: "token", output: MISSING_RELEASE_TOKEN });
+  const result = await (opts?.group ?? runInGroup)("gh", args, {
     timeoutMs: opts?.timeoutMs ?? RELEASE_GH_TIMEOUT_MS,
     env: ghChildEnv(token, env),
     maxBuffer: RELEASE_GH_MAX_BUFFER,

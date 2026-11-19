@@ -2,7 +2,9 @@
 // Two looks: "cor" inside Compañía's sheets (corriente.css), "page" on the project page (Tailwind).
 // ajustes is the place for the link to the project's settings view (NEWPROJ-6: the Ajustes door).
 import type { ReactNode } from "react";
-import { listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
+import { Link } from "react-router";
+import { linkTo } from "@/lib/corriente";
+import { LISTO_IR, listoAjuste, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
 import { cn } from "@/lib/utils";
 
 const DOT: Record<"cor" | "page", (l: ListoLinea) => string> = {
@@ -28,6 +30,12 @@ export const ListoLista = ({ r, look, ajustes }: { r: Listo; look: "cor" | "page
                     {l.para && <span className={cor ? "cor-listo-para" : "ml-2 text-xs font-normal text-destructive"}>impide arrancar</span>}
                   </b>
                   <span className={cor ? undefined : "break-words text-muted-foreground"}>{l.texto}</span>
+                  {/* PLA-I2-6: a missing item links to its control in the project's Ajustes. */}
+                  {l.estado === "missing" && listoAjuste(l.id) && (
+                    <Link to={`${linkTo({ slug: r.slug, tab: "ajustes" })}#ajustes-${listoAjuste(l.id)}`} className={cor ? "cor-btn link small" : "text-sm font-medium underline underline-offset-2"} data-listo-ir={listoAjuste(l.id)}>
+                      {LISTO_IR}
+                    </Link>
+                  )}
                 </span>
               </li>
             ))}

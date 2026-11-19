@@ -102,6 +102,9 @@ export const shellExec: Exec = (command, { cwd, stdin, timeoutMs = 120_000, env 
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
+    // PLA-I2-19: a command that exits without reading its stdin closes the pipe first; on Linux the write then fails
+    // with EPIPE, which must not escape as an uncaught error. The exit code still says how the command ended.
+    child.stdin.on("error", () => undefined);
     child.stdin.end(stdin ?? "");
   });
 

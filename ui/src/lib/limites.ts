@@ -41,6 +41,11 @@ export const GROUP_WORDS: Record<string, { title: string; lead: string; extra?: 
     lead: "Cuando le preguntas algo a un proyecto, el agente lee la carpeta del proyecto mismo, así que tampoco cambia archivos ni corre las herramientas de la app. Solo contesta.",
     extra: "Además de todo lo anterior y de lo de quien revisa, cuando contesta una pregunta tuya.",
   },
+  "plania-self": {
+    title: "Quien trabaja en Plania no toca el Plania que está corriendo",
+    lead: "Cuando el proyecto es Plania mismo, el agente trabaja en su propia copia y nunca se conecta a la base de datos del Plania que usas, ni aplica migraciones, ni reinicia Plania: eso lo haces tú.",
+    extra: "Además de todo lo anterior, cuando el proyecto es Plania mismo.",
+  },
 };
 
 /** One sentence per thing a rule stops (DenyRule.does). */
@@ -71,6 +76,9 @@ export const DOES_WORDS: Record<string, string> = {
   "run-tooling": "Correr las herramientas de la app: instalar, compilar o probar.",
   "git-sync": "Traer cambios de GitHub o crear ramas y copias.",
   "plan-writes": "Escribir en el plan: preguntas, tareas, documentos o imágenes.",
+  "live-database": "Conectarse a la base de datos del Plania que estás usando.",
+  "apply-migrations": "Aplicar migraciones a una base de datos.",
+  "restart-live": "Reiniciar el Plania que estás usando.",
 };
 
 /** One name and sentence per destination (OUTBOUND ids, src/outbound.ts). */

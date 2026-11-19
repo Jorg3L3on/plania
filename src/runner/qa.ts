@@ -59,6 +59,7 @@ import { loadSettings } from "./limits.js";
 import { modelFor, type QaSettings } from "./qa-settings.js";
 import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
+import { startBranchOf } from "./start-branch.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 
 export const QA_WORK = new Set(["code", "bug", "debt"]);
@@ -476,7 +477,8 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   const s: QaSettings | undefined = p.settings.qa;
   const repo = repoPathOf(p.slug, p.settings, env);
   const branch = lane.branch ?? t.branch ?? branchFor(t.key);
-  const made = await ensureWorktree({ repo, root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch }, git);
+  const start = startBranchOf(p.settings);
+  const made = await ensureWorktree({ repo, root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch, base: start }, git);
   if (!made.ok) return endLane(db, lane, "error", `Sin copia de trabajo (${made.summary.replace(/^fail:\s*/, "")})`);
   const cwd = made.path;
   const rev = async () => {
@@ -492,7 +494,7 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   }
   if (!head) return endLane(db, lane, "error", "No se pudo leer el commit de la entrega");
   if (lane.commit && !sameCommit(head, lane.commit)) return endLane(db, lane, "error", `La copia de trabajo no llega al commit del PR (${short(lane.commit)})`);
-  const stat = await git(["diff", "--shortstat", `origin/${ALLOWED_BASE}...HEAD`], cwd);
+  const stat = await git(["diff", "--shortstat", `origin/${start}...HEAD`], cwd);
   const diffLines = stat.code === 0 ? [...stat.stdout.matchAll(/(\d+) (?:insertion|deletion)/g)].reduce((a, m) => a + Number(m[1]), 0) : null;
 
   const verify: QaVerifyItem[] = [];
@@ -646,7 +648,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   // HEAD after the lane: QA never moves the delivery's branch.
   const env = deps.env ?? process.env;
   const git = deps.git ?? defaultGit;
-  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key) }, git);
+  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key), base: startBranchOf(p.settings) }, git);
   const after = made.ok ? (await git(["rev-parse", "HEAD"], made.path)).stdout.trim() || null : null;
 
   await db.update(qaLanes).set({ review, marks, notes, status, headAfter: after, endedAt: new Date(), hold: null }).where(eq(qaLanes.id, lane.id));
@@ -877,7 +879,7 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<
     `You are the QA reviewer for project ${p.slug} (${p.title}), woken by the Plania runner on the delivery of ${t.key}: ${t.title}.`,
     `Delivery: commit ${short(lane.commit)} on branch ${lane.branch ?? "?"}${lane.prUrl ? `, PR ${lane.prUrl}` : ""}. Workspace: ${cwd} (read-only for you).`,
     "You have not seen how it was built, on purpose. Do not read the project thread, the ticket's notes or its log before your review: judge the change on its own.",
-    `Read the ticket's scope and Done when with get_task (project ${p.slug}, key ${t.key}, fields ["title", "scope", "checks"]). Then read the change: git diff origin/${ALLOWED_BASE}...HEAD and the files it touches.`,
+    `Read the ticket's scope and Done when with get_task (project ${p.slug}, key ${t.key}, fields ["title", "scope", "checks"]). Then read the change: git diff origin/${startBranchOf(p.settings)}...HEAD and the files it touches.`,
     `Already run by Plania on this commit: ${verify}${lane.verify.length ? ` (tests ${tests.pass} of ${tests.total})` : ""}. Captures: ${lane.capture ? `${lane.capture.ok} taken${lane.capture.error ? `, ${lane.capture.error}` : ""}` : "none configured"}.`,
     items.length
       ? `Check list del PO (mark every item pass or fail; run the tests or read the code to check it):\n${items.map((c) => `${c.n}. ${c.text}`).join("\n")}`

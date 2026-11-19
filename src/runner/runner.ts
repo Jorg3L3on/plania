@@ -40,7 +40,8 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
+import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
@@ -101,6 +102,7 @@ import {
   type SpawnFn,
   type Supervised,
 } from "./process.js";
+import { DEFAULT_START_BRANCH, startBranchOf } from "./start-branch.js";
 import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
@@ -120,6 +122,8 @@ export type ReadyWork = {
 };
 
 export type RunnerDeps = {
+  // PLA-I2-9: the running server's own checkout, to tell a run of Plania itself (src/self/plania-self.ts). Tests set it.
+  serverRoot?: string;
   spawn?: SpawnFn;
   kill?: KillFn;
   git?: GitFn;
@@ -323,7 +327,9 @@ async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, o
   if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
-    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null);
+    // PLA-I2-5: the project's start branch is the only base (settings.start_branch, never a protected one).
+    const start = startBranchOf(project.settings);
+    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null, start);
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
@@ -869,7 +875,8 @@ export async function ownerChangesOf(db: Db, projectId: string, taskKey: string)
 export function userPrompt(input: {
   agent: string;
   role: string;
-  project: { slug: string; title: string };
+  // PLA-I2-5: startBranch is settings.start_branch through startBranchOf; absent reads as the default.
+  project: { slug: string; title: string; startBranch?: string };
   goal: { title: string; why: string } | null;
   task: { key: string; title: string } | null;
   workspace: { path: string; branch: string | null } | null;
@@ -889,6 +896,7 @@ export function userPrompt(input: {
   changes?: string | null;
 }): string {
   const company = input.role === "asistente";
+  const startBranch = input.project.startBranch ?? DEFAULT_START_BRANCH;
   const lines = [
     company
       ? `You are ${input.agent} (asistente), the company's chief of staff, woken by the Plania runner. Your runs are recorded in project ${input.project.slug}.`
@@ -912,7 +920,7 @@ export function userPrompt(input: {
     languageLine(),
   );
   if (input.workspace) {
-    lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
+    lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base ${startBranch}.`);
   }
   lines.push(...packLines(input.packs ?? []));
   lines.push(...kitLines(input.kit ?? []));
@@ -937,7 +945,7 @@ export function userPrompt(input: {
     idea
       ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, deliver your stage with deliver_stage (key ${input.task!.key}; it checks the content and writes the stage doc), then move its stage with set_task.`
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
-    "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only the owner can decide (ask).",
+    `Never main: commit on your branch, open PRs into ${startBranch} only, never merge. Stop when the ticket is In review or when only the owner can decide (ask).`,
   );
   // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
   if (idea && input.role === "artist") {
@@ -1130,7 +1138,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
-    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted }, carefulGit(deps.git ?? defaultGit)));
+    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
       if (made.summary === "fail: no repo" && role !== "taller") {
         cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
@@ -1158,7 +1166,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   } else if (consulta && existsSync(repoPathOf(project.slug, project.settings, env))) {
     // PLA-66: a fresh read-only copy at origin/sandbox; the owner's checkout only if that copy cannot be made.
     const repo = repoPathOf(project.slug, project.settings, env);
-    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug }, carefulGit(deps.git ?? defaultGit)));
+    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
     if (copy.ok) {
       cwd = copy.path;
       readCopy = { branch: copy.branch, commit: copy.commit };
@@ -1218,7 +1226,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const readOnly = !!consulta || role === "qa" || asks;
   // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
-  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
+  // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
+  const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
+  const laneRules = consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
+  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
@@ -1241,7 +1252,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
-    project: { slug: project.slug, title: project.title },
+    project: { slug: project.slug, title: project.title, startBranch: startBranchOf(project.settings) },
     goal,
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
@@ -1288,13 +1299,17 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const onStdout = liveFlusher(db, run.id, reader, deps.liveFlushMs ?? 5_000);
   // PLA-I60-3: the real runner starts the run through wrapper.mjs, detached, so it outlives a server restart. Tests
   // that inject spawn keep the piped child.
+  // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
+  // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
+  const runEnvValue = childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
+  const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
+  if (selfProblem) return fail(`fail: ${selfProblem}`);
   const supervised = {
     command,
     args,
     cwd,
-    // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
-    // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings)),
+    env: runEnvValue,
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
@@ -1445,7 +1460,7 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
 
   // PLA-I46-12: a skill pack never reaches the app repo. One in the branch diff (or staged) fails the run.
   const consultaRun = run.lane === "consulta";
-  const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
+  const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit, startBranchOf(project.settings)).catch(() => [] as string[]);
   if (leaked.length > 0) {
     status = "fail";
     summary = `fail: pack file in the diff (${leaked.slice(0, 3).join(", ")}${leaked.length > 3 ? ", …" : ""})`;

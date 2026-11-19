@@ -51,6 +51,7 @@ import { machineCheckRoutes } from "./machine-check.js";
 import { helpReportRoutes } from "./help-report.js";
 import { releaseRoutes } from "./release.js";
 import { limitsRoutes } from "./limits.js";
+import { selfMigrationRoutes } from "./self-migrations.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
@@ -762,6 +763,8 @@ api.route("/help-report", helpReportRoutes());
 api.route("/release", releaseRoutes());
 // PLA-I2-7: what the team may never do, from the real rules (src/api/limits.ts).
 api.route("/limits", limitsRoutes());
+// PLA-I2-9: migrations agents wrote in deliveries of Plania itself, not applied (src/api/self-migrations.ts).
+api.route("/projects", selfMigrationRoutes);
 // PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).

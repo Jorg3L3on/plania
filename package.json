@@ -33,6 +33,8 @@
     "notices": "tsx scripts/notices.ts",
     "service:install": "tsx scripts/service.ts install",
     "service:uninstall": "tsx scripts/service.ts uninstall",
+    "update:plania": "tsx --env-file=.env scripts/update.ts",
+    "restore:plania": "tsx --env-file-if-exists=.env scripts/restore.ts",
     "machine:check": "tsx --env-file-if-exists=.env scripts/machine-check.ts",
     "help:report": "tsx --env-file-if-exists=.env scripts/help-report.ts",
     "uninstall:plania": "tsx --env-file-if-exists=.env scripts/uninstall.ts",

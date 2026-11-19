@@ -18,10 +18,12 @@ import { SYSTEM_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { queueRetro } from "../runner/retro.js";
+import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import type { ThreadRef } from "../runner/threads.js";
 import { ownerEs } from "../owner.js";
 
-export const MERGE_BASE = "sandbox";
+// PLA-I2-5: the default; a project's own is startBranchOf(project.settings), the only base Aceptar merges into.
+export const MERGE_BASE = DEFAULT_START_BRANCH;
 const PR = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/;
 const CODE = new Set(["code", "bug", "debt"]);
 
@@ -55,6 +57,7 @@ export type AcceptBy = "screen" | "auto";
 
 async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: AcceptBy = "screen"): Promise<ActionDone | ActionRefusal> {
   const [, repo, number] = PR.exec(url)!;
+  const base = startBranchOf((await projectOf(db, t)).settings);
   const gh = async (step: string, args: string[]) => {
     const r = await releaseGh.run(args);
     if (!r.ok) throw new ToolError("RELEASE_MERGE_FAILED", { step, output: r.stderr.slice(0, 500) });
@@ -68,13 +71,13 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
       url: string;
     };
     // Never main, never anything but sandbox: the runner's deny rules hold for the screen too.
-    if (view.baseRefName !== MERGE_BASE) return refuse("BASE_NOT_SANDBOX", `El PR apunta a ${view.baseRefName}; desde aquí solo se fusiona a ${MERGE_BASE}.`, { base: view.baseRefName });
+    if (view.baseRefName !== base) return refuse("BASE_NOT_SANDBOX", "El PR no apunta a la rama de trabajo: desde aquí solo se fusiona ahí.", { base: view.baseRefName });
     // Already merged into sandbox (another card or GitHub, before the poller caught up): that is the accept the
     // owner asked for. This message records it; pr.merged is not written twice (the merge already has its event
     // or the poller writes it).
     if (view.state === "MERGED") {
       const done = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null };
-      return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, already: true, pr: url, base: MERGE_BASE, sha: done.mergeCommit?.oid ?? null, ticket: t.key } });
+      return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, already: true, pr: url, base, sha: done.mergeCommit?.oid ?? null, ticket: t.key } });
     }
     if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", `El PR #${number} está cerrado sin fusionar: pide cambios o abre otro.`, { state: view.state });
     // PLA-108 (guided test PLA-86): MIA-I10-5 conflicted with sandbox after MIA-40 was accepted, and Aceptar only said
@@ -101,10 +104,10 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     const [pass] = auto ? await db.select({ id: results.id }).from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt)).limit(1) : [];
     const ctx = auto ? { actor: SYSTEM_ACTOR, system: true, tool: "auto.accept" } : { ...webCtx, tool: "screen.thread_merge" };
     await writeTx(db, project, ctx, async (_tx, emit) => {
-      await emit("pr.merged", { id: t.id, key: t.key }, { number: Number(number), url: after.url || view.url, base: MERGE_BASE, merge_sha: sha, by, message_id: msg.id, ...(auto ? { evidence_id: pass?.id ?? null } : {}) });
+      await emit("pr.merged", { id: t.id, key: t.key }, { number: Number(number), url: after.url || view.url, base, merge_sha: sha, by, message_id: msg.id, ...(auto ? { evidence_id: pass?.id ?? null } : {}) });
     });
     await mergedNow(db, project, t, { repo: repo!, number: Number(number), url: after.url || view.url, sha });
-    return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base: MERGE_BASE, sha, ticket: t.key, ...(auto ? { by: "auto" } : {}) } });
+    return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base, sha, ticket: t.key, ...(auto ? { by: "auto" } : {}) } });
   } catch (e) {
     if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", "No se pudo fusionar el PR.", e.detail);
     throw e;
@@ -114,14 +117,16 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
 // PLA-108: the delivery's PR conflicts with sandbox. The ticket goes back to Ready with a note saying why, and its owner
 // (Taller) gets one wake whose reason is the instruction; a wake already queued for it takes the reason too.
 const NOT_MERGEABLE = /not mergeable|cannot be cleanly created|merge conflict/i;
-export const CONFLICT_WAKE = `The PR conflicts with ${MERGE_BASE} (work accepted after this branch was cut). Merge origin/${MERGE_BASE} into the branch, resolve the conflict keeping both changes, run the tests, push and finish again with the same muestra.`;
+export const conflictWake = (base: string) =>
+  `The PR conflicts with ${base} (work accepted after this branch was cut). Merge origin/${base} into the branch, resolve the conflict keeping both changes, run the tests, push and finish again with the same muestra.`;
 async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Promise<ActionRefusal> {
   const project = await projectOf(db, t);
+  const base = startBranchOf(project.settings);
   const ctx = by === "auto" ? { actor: SYSTEM_ACTOR, system: true, tool: "auto.accept" } : { ...webCtx, tool: "screen.thread_merge" };
-  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `El PR #${number} choca con ${MERGE_BASE}: vuelve a Taller para ponerlo al día con lo último aceptado.` } as never, ctx);
+  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `El PR #${number} choca con la rama de trabajo: vuelve a Taller para ponerlo al día con lo último aceptado.` } as never, ctx);
   if (t.ownerAgent) {
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
-    if (owner) await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: CONFLICT_WAKE, appendReason: true }).catch(() => undefined);
+    if (owner) await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: conflictWake(base), appendReason: true }).catch(() => undefined);
   }
   return refuse("MERGE_CONFLICT", "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.", { key: t.key, pr: number });
 }
@@ -132,14 +137,14 @@ async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Prom
 async function mergedNow(db: Db, project: typeof projects.$inferSelect, t: Task, pr: { repo: string; number: number; url: string; sha: string }): Promise<void> {
   await db
     .update(pullRequests)
-    .set({ state: "merged", mergeSha: pr.sha, mergedAt: new Date(), baseBranch: MERGE_BASE })
+    .set({ state: "merged", mergeSha: pr.sha, mergedAt: new Date(), baseBranch: startBranchOf(project.settings) })
     .where(and(eq(pullRequests.projectId, project.id), eq(pullRequests.repo, pr.repo), eq(pullRequests.number, pr.number)));
   const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.prUrl, pr.url), eq(tasks.status, "In review")));
   const moving = [t, ...sharing.filter((x) => x.id !== t.id)];
   for (const m of moving) {
     await setTask(
       db,
-      { project: project.slug, key: m.key, status: "Merged", note: `PR #${pr.number} merged into ${MERGE_BASE} (${pr.sha.slice(0, 7)})` } as never,
+      { project: project.slug, key: m.key, status: "Merged", note: `PR #${pr.number} merged into ${startBranchOf(project.settings)} (${pr.sha.slice(0, 7)})` } as never,
       { actor: SYSTEM_ACTOR, system: true, requestId: `accept:${pr.repo}#${pr.number}:merged:${pr.sha}:${m.key}`, tool: "screen.thread_merge" },
     ).catch((e) => console.log(`[accept] ${m.key} stays for the poller: ${e instanceof Error ? e.message : String(e)}`));
   }

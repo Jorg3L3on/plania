@@ -57,7 +57,7 @@ function localParts(now: Date, tz: string): { day: string; hour: number } {
 
 // PLANIA_PG_BIN (a directory or the binary itself), else Homebrew's pg_dump for the server's major
 // version (a newer pg_dump writes SET lines an older server rejects on restore), else Homebrew's default.
-async function findPgDump(db: Q): Promise<string> {
+export async function findPgDump(db: Q): Promise<string> {
   const major = await db
     .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
     .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
@@ -87,7 +87,8 @@ async function saveState(db: Q, value: BackupState): Promise<void> {
 }
 
 // pg_dump's stdout through gzip into `file`. Rejects with pg_dump's stderr when it fails.
-function dumpTo(pgDump: string, url: string, file: string): Promise<void> {
+// PLA-I2-8: exported for the update's backup (src/update/).
+export function dumpTo(pgDump: string, url: string, file: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(pgDump, ["--no-owner", url], { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
