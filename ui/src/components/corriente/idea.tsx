@@ -4,18 +4,20 @@
 import type { ReactNode } from "react";
 import type { Decision, IdeaDetail, IdeaStop, OrgProject, PedidoStop } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
+import { words } from "@/lib/i18n";
+import { IDEA_WORDS } from "@/lib/idea-words";
 import type { CorrienteActs } from "./acts";
 import { Ficha, type FichaLinks } from "./ficha";
 
-export const STOPS: { id: PedidoStop; name: string }[] = [
-  { id: "buzon", name: "Buzón" },
-  { id: "entendido", name: "Entendido" },
-  { id: "investigacion", name: "Investigación" },
-  { id: "diseno", name: "Diseño" },
-  { id: "plan", name: "Plan" },
-  { id: "lista", name: "Lista" },
-];
-export const whoName = (who: string | null) => (!who ? "" : who === "owner" ? "Tú" : seatName(who));
+const STOP_IDS: PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
+/** The stops in order, each named in the screen's language when read. */
+export const STOPS: { readonly id: PedidoStop; readonly name: string }[] = STOP_IDS.map((id) => ({
+  id,
+  get name() {
+    return words(IDEA_WORDS).stops[id];
+  },
+}));
+export const whoName = (who: string | null) => (!who ? "" : who === "owner" ? words(IDEA_WORDS).you : seatName(who));
 
 /** The stop to open: the newest delivery he has not seen, else where the idea is. */
 export function firstStop(d: Pick<IdeaDetail, "stops" | "stop">): PedidoStop {
@@ -25,21 +27,22 @@ export function firstStop(d: Pick<IdeaDetail, "stops" | "stop">): PedidoStop {
 
 /** The line under a stop, in the kit's words. */
 export function stopLine(s: IdeaStop, d: Pick<IdeaDetail, "quiet_since" | "state" | "queued">): { text: string; tone: "you" | "live" | "new" | "ok" | "" } {
+  const w = words(IDEA_WORDS);
   const who = whoName(s.by);
-  if (s.stop === "buzon") return { text: `Tú${s.at ? "" : ""}`, tone: "" };
+  if (s.stop === "buzon") return { text: w.you, tone: "" };
   if (s.state === "here") {
-    if (d.state === "trabajando") return { text: `${who || "Alguien"} la trabaja`, tone: "live" };
-    if (d.queued) return { text: `En la fila de ${whoName(d.queued)}`, tone: "live" };
-    if (d.state === "espera") return { text: "Te pregunta", tone: "you" };
-    if (s.stop === "lista") return { text: "Espera «Constrúyelo»", tone: "you" };
-    if (!s.delivered) return { text: d.quiet_since ? "Quieta" : "Por hacer", tone: "" };
+    if (d.state === "trabajando") return { text: w.works(who), tone: "live" };
+    if (d.queued) return { text: w.inQueue(whoName(d.queued)), tone: "live" };
+    if (d.state === "espera") return { text: w.asksYou, tone: "you" };
+    if (s.stop === "lista") return { text: w.waitsBuild, tone: "you" };
+    if (!s.delivered) return { text: d.quiet_since ? w.quiet : w.todo, tone: "" };
   }
-  if (!s.delivered) return { text: s.state === "todo" ? "Todavía no" : "—", tone: "" };
-  if (s.state === "todo") return { text: "Se rehace", tone: "" };
-  if (s.answer?.verdict === "ok") return { text: `${who} · ${s.stop === "entendido" ? "así es" : "te gustó"}`, tone: "ok" };
-  if (s.answer) return { text: `${who} · pediste cambios`, tone: "live" };
-  if (!s.seen) return { text: `${who} · sin ver`, tone: "new" };
-  return { text: `${who} · visto`, tone: "" };
+  if (!s.delivered) return { text: s.state === "todo" ? w.notYet : "—", tone: "" };
+  if (s.state === "todo") return { text: w.redone, tone: "" };
+  if (s.answer?.verdict === "ok") return { text: w.ok(who, s.stop === "entendido"), tone: "ok" };
+  if (s.answer) return { text: w.changes(who), tone: "live" };
+  if (!s.seen) return { text: w.unseen(who), tone: "new" };
+  return { text: w.seen(who), tone: "" };
 }
 
 /** The address ver=idea:<key> (and ver=iniciativa:<key>): the ficha alone, Cerrar goes back to the list. */

@@ -47,6 +47,9 @@ export function texts(src: string): Finding[] {
   const readString = (q: string) => {
     const at = line;
     let s = "";
+    // A module path (`from "@/lib/nuevo-proyecto"`, `import("…")`) or a data-* attribute's value is code, not words.
+    const before = src.slice(Math.max(0, i - 40), i);
+    const code = /(?:\bfrom\s*|\bimport\s*\(?\s*|\bdata-[\w-]+=)$/.test(before);
     i++;
     while (i < n && src[i] !== q) {
       if (src[i] === "\\") {
@@ -59,7 +62,7 @@ export function texts(src: string): Finding[] {
       i++;
     }
     i++;
-    push(s, at);
+    if (!code) push(s, at);
   };
   const readTemplate = (s = "", at = line) => {
     // i is just after ` or after the } that closes a ${

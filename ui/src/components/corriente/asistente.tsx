@@ -11,12 +11,14 @@ import { ACTION_EFFECT, actionStateText, visibleMessages, waitsOnOwner } from "@
 import { plainWords } from "@/lib/plain-words";
 import { Btn, Label, Live, ReadError, You } from "./parts";
 import { LOCALE } from "@/lib/locale";
+import { words } from "@/lib/i18n";
+import { ASISTENTE_WORDS } from "@/lib/asistente-words";
 
-const LABEL: Record<ThreadAction, string> = { aceptar: "Aceptar", fusionar: "Aceptar", cambios: "Pedir ajuste", responder: "Responder" };
 const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
 const clockOf = (iso: string, timeZone?: string) => new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(new Date(iso)).toUpperCase();
 
 const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: ThreadMessage; timeZone?: string; busy: { id: string; action: ThreadAction } | null; error: string | null; onAction: (m: ThreadMessage, a: ThreadAction, text?: string) => void; workTo: (kind: string, ref: string) => string | null; last: boolean }) => {
+  const w = words(ASISTENTE_WORDS);
   const [open, setOpen] = useState<ThreadAction | null>(null);
   const [text, setText] = useState("");
   const [full, setFull] = useState(false);
@@ -36,26 +38,26 @@ const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: Thre
   return (
     <li className={`cor-msg ${mine ? "mine" : ""} ${waiting ? "you" : ""}`} data-message={m.id} data-waiting={waiting || undefined}>
       <div className="cor-msg-head">
-        <b>{mine ? "Tú" : seatName(m.author.role)}</b>
-        {waiting && last ? <span className="cor-state amber">Sin leer · te pregunta</span> : <time className="cor-cap">{clockOf(m.at, timeZone)}</time>}
+        <b>{mine ? w.you : seatName(m.author.role)}</b>
+        {waiting && last ? <span className="cor-state amber">{w.unreadAsks}</span> : <time className="cor-cap">{clockOf(m.at, timeZone)}</time>}
       </div>
       <p className={`cor-msg-body ${long && !full ? "cor-clamp4" : ""}`}>{mine ? m.body : plainWords(m.body)}</p>
       {long && (
         <Btn kind="link" onClick={() => setFull((x) => !x)}>
-          {full ? "Ver menos" : "Ver todo"}
+          {full ? w.seeLess : w.seeAll}
         </Btn>
       )}
       {work.map((l) => {
         const to = workTo(l.kind, l.ref);
         return (
           <div key={`${l.kind}-${l.ref}`} className="cor-msg-work" data-work={l.ref}>
-            <span className="cor-label">Lo volvió trabajo</span>
+            <span className="cor-label">{w.madeWork}</span>
             <span className="cor-ellipsis">
               <span className="cor-key">{l.ref}</span> {l.title}
             </span>
             {to && (
               <Link className="cor-btn link" to={to}>
-                {l.kind === "idea" ? "Ver el pedido" : "Ver el paso"}
+                {l.kind === "idea" ? w.seeRequest : w.seeStep}
               </Link>
             )}
           </div>
@@ -71,16 +73,16 @@ const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: Thre
             <div className="cor-acts" data-actions={m.actions.join(" ")}>
               {m.actions.map((a) => (
                 <Btn key={a} kind={a === "aceptar" || a === "fusionar" ? "primary" : "secondary"} disabled={here} aria-expanded={needsText(a) ? open === a : undefined} onClick={() => (needsText(a) ? setOpen(open === a ? null : a) : onAction(m, a))} data-action={a}>
-                  {here && busy?.action === a ? "…" : LABEL[a]}
+                  {here && busy?.action === a ? "…" : w.actions[a]}
                 </Btn>
               ))}
             </div>
             {effect && <p className="cor-cap">{effect}</p>}
             {open && (
               <form className="cor-ajuste-row" onSubmit={submit}>
-                <input className="cor-input" value={text} maxLength={4000} aria-label={open === "responder" ? "Tu respuesta" : "Qué cambiar"} placeholder={open === "responder" ? "Tu respuesta" : "Qué cambiar, en una frase"} onChange={(e) => setText(e.target.value)} autoFocus />
+                <input className="cor-input" value={text} maxLength={4000} aria-label={open === "responder" ? w.yourAnswer : w.whatToChange} placeholder={open === "responder" ? w.yourAnswer : w.whatToChangeHint} onChange={(e) => setText(e.target.value)} autoFocus />
                 <Btn kind="secondary" type="submit" disabled={text.trim().length < 2}>
-                  Enviar
+                  {w.send}
                 </Btn>
               </form>
             )}
@@ -97,6 +99,7 @@ const Message = ({ m, timeZone, busy, error, onAction, workTo, last }: { m: Thre
 };
 
 export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo, invalidate }: { threadId: string; unread: number; waiting: boolean; timeZone?: string; workTo: (kind: string, ref: string) => string | null; pedirTo: string; invalidate: string[][] }) => {
+  const w = words(ASISTENTE_WORDS);
   const t = useThread(threadId, { who: "Asistente", invalidate });
   const [text, setText] = useState("");
   const list = useRef<HTMLOListElement>(null);
@@ -110,31 +113,31 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
   const lastTheirs = [...messages].reverse().find((m) => m.author.role !== "owner" && m.author.agent !== "owner")?.id;
   return (
     <div className="cor-asist" data-asistente>
-      <section className="cor-asist-main" aria-label="Conversación con Asistente">
+      <section className="cor-asist-main" aria-label={w.conversation}>
         <div className="cor-asist-head">
           <h1 className="cor-h2">
             <Live /> Asistente
           </h1>
           {(unread > 0 || waiting) && (
             <span className="cor-label amber" data-unread={unread}>
-              <You flat /> {unread === 1 ? "1 mensaje sin leer" : unread > 1 ? `${unread} mensajes sin leer` : "Te espera"}
-              {unread > 0 && waiting ? " · te espera" : ""}
+              <You flat /> {unread > 0 ? w.unread(unread) : w.waits}
+              {unread > 0 && waiting ? w.alsoWaits : ""}
             </span>
           )}
         </div>
         {t.error && !t.thread ? (
-          <ReadError what="la conversación" onRetry={t.onRetry} />
+          <ReadError what={w.theConversation} onRetry={t.onRetry} />
         ) : (
-          <ol className="cor-msgs" ref={list} aria-busy={t.loading || undefined} tabIndex={0} aria-label="Mensajes">
+          <ol className="cor-msgs" ref={list} aria-busy={t.loading || undefined} tabIndex={0} aria-label={w.messages}>
             {hidden > 0 && (
               <li>
                 <Btn kind="link" onClick={t.onMore}>
-                  {`Ver ${hidden === 1 ? "el anterior" : `los ${hidden} anteriores`}`}
+                  {w.earlier(hidden)}
                 </Btn>
               </li>
             )}
             {t.loading && <li className="cor-skel" style={{ height: 120 }} />}
-            {!t.loading && messages.length === 0 && <li className="cor-text">Todavía no le has escrito. Dile qué necesitas: él lo reparte al PO correcto.</li>}
+            {!t.loading && messages.length === 0 && <li className="cor-text">{w.empty}</li>}
             {messages.map((m) => (
               <Message key={m.id} m={m} timeZone={timeZone} busy={t.busy} error={t.actionError?.id === m.id ? t.actionError.message : null} onAction={t.onAction} workTo={workTo} last={m.id === lastTheirs} />
             ))}
@@ -149,7 +152,7 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
           }}
         >
           <label className="cor-label" htmlFor="asist-texto">
-            Tu mensaje
+            {w.yourMessage}
           </label>
           <textarea
             id="asist-texto"
@@ -157,7 +160,7 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
             rows={2}
             value={text}
             maxLength={4000}
-            placeholder="Dile a Asistente…"
+            placeholder={w.placeholder}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -169,42 +172,42 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
           />
           <div className="cor-composer-foot">
             <span className="cor-cap" role="status" aria-live="polite" data-send={t.send.kind}>
-              {t.send.kind === "done" ? `✓ ${t.send.text}` : t.send.kind === "error" ? <span className="cor-state bad">{t.send.message}</span> : "Un enlace suelto se guarda en la biblioteca de diseño."}
+              {t.send.kind === "done" ? `✓ ${t.send.text}` : t.send.kind === "error" ? <span className="cor-state bad">{t.send.message}</span> : w.linkHint}
             </span>
             <Btn kind="primary" type="submit" disabled={!text.trim() || t.send.kind === "busy"} data-control="enviar-asistente">
-              {t.send.kind === "busy" ? "Enviando…" : "Enviar"}
+              {t.send.kind === "busy" ? w.sending : w.send}
             </Btn>
           </div>
         </form>
       </section>
       <aside className="cor-tetoca-side">
-        <section aria-label="Para qué sirve">
-          <Label as="h2">Para qué sirve</Label>
+        <section aria-label={w.whatFor}>
+          <Label as="h2">{w.whatFor}</Label>
           <ul className="cor-brief">
             <li>
               <span>
-                <b>Vuelve trabajo lo que escribes.</b> Si no sabes de qué proyecto es, él lo reparte al PO correcto.
+                <b>{w.work}</b> {w.workHint}
               </span>
             </li>
             <li>
               <span>
-                <b>Firma el Brief de hoy.</b> Lo que cambió y lo que te espera, cada mañana.
+                <b>{w.brief}</b> {w.briefHint}
               </span>
             </li>
             <li>
               <span>
-                <b>Guarda enlaces.</b> Un enlace suelto va a la biblioteca de diseño.
+                <b>{w.links}</b> {w.linksHint}
               </span>
             </li>
           </ul>
         </section>
-        <section aria-label="Si ya sabes el proyecto">
-          <Label as="h2">Si ya sabes el proyecto</Label>
+        <section aria-label={w.knowProject}>
+          <Label as="h2">{w.knowProject}</Label>
           <p className="cor-text" style={{ padding: "10px 0" }}>
-            Pedir va directo a su PO y te deja elegir si le da forma, lo hace ya o solo contesta.
+            {w.askHint}
           </p>
           <Link className="cor-btn secondary" to={pedirTo} data-control="abrir-pedir">
-            Abrir Pedir
+            {w.openAsk}
           </Link>
         </section>
       </aside>

@@ -232,7 +232,7 @@ test("PLA-108: a PR that conflicts with sandbox is not merged; the delivery goes
   assert.equal(run.length, 1, "one run for Taller");
   assert.match(run[0].reason, /Merge origin\/sandbox into the branch/);
   // The screen's words for it.
-  for (const f of ["../ui/src/components/corriente/acts.ts", "../ui/src/components/compania/use-thread.ts"]) {
+  for (const f of ["../ui/src/lib/acts-words.ts", "../ui/src/components/compania/use-thread.ts"]) {
     assert.match(await readFile(new URL(f, import.meta.url), "utf8"), /MERGE_CONFLICT: "Choca con lo último que aceptaste/);
   }
 });

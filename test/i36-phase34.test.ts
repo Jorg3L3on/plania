@@ -109,7 +109,9 @@ test("I36-6 #4: Pausar from the card pauses the project; it moves to En pausa", 
   const html = renderCard({ ...(await card("filmia")) });
   assert.ok(html.includes('data-control="pausar"'));
   const sheet = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/components/corriente/hojas.tsx", import.meta.url), "utf8"));
-  assert.ok(sheet.includes("api.setProjectPaused(p.slug, true)") && sheet.includes("Se cierra"));
+  // PLA-I2-10: the sheet's words moved to its wording module.
+  const sheetWords = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/lib/hojas-words.ts", import.meta.url), "utf8"));
+  assert.ok(sheet.includes("api.setProjectPaused(p.slug, true)") && sheetWords.includes("Se cierra"));
   assert.equal((await post("/api/company/projects/filmia/switch", { paused: true })).status, 200);
   const f = await card("filmia");
   assert.deepEqual([f.paused, f.light], [true, "paused"]);
@@ -546,6 +548,6 @@ test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí
   assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
   assert.equal((await act(id, { action: "empezar" })).status, 200);
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/components/corriente/acts.ts", import.meta.url), "utf8");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/lib/acts-words.ts", import.meta.url), "utf8");
   assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
 });

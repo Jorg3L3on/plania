@@ -21,12 +21,14 @@ import { CODIGO_OPCIONES, META_MAX, NOMBRE_MAX, codigoBody, fondoMouseDown, nuev
 import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
 import { ListoLista } from "@/components/listo";
 import type { GoalWrite } from "@/components/goals/model";
+import { words } from "@/lib/i18n";
+import { HOJAS_WORDS } from "@/lib/hojas-words";
 import { Btn, Key, Label, You } from "./parts";
 
 // NEWPROJ-6: the readiness list's way to the project's Ajustes door (opening it closes the sheet).
 const AjustesLink = ({ slug }: { slug: string }) => (
   <Link className="cor-btn secondary cor-listo-ajustes" to={linkTo({ slug, tab: "ajustes" })} data-control="ir-ajustes">
-    Abrir los ajustes del proyecto
+    {words(HOJAS_WORDS).openSettings}
   </Link>
 );
 
@@ -83,6 +85,7 @@ const Rows = ({ rows }: { rows: [string, ReactNode][] }) => (
 );
 
 export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen: (slug: string) => void }) => {
+  const w = words(HOJAS_WORDS);
   const client = useQueryClient();
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
@@ -98,28 +101,28 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
   if (make.data) {
     const aviso = listo.data ? listoAviso(listo.data) : null;
     return (
-      <Hoja label="Nuevo proyecto" title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
-        <Rows rows={[["Clave", <Key key="k">{make.data.key_prefix}</Key>], ["PO", make.data.po], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
-        <p className="cor-text">«{goal.trim()}»</p>
+      <Hoja label={w.newProject} title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
+        <Rows rows={[[w.key, <Key key="k">{make.data.key_prefix}</Key>], [w.po, make.data.po], [w.paused, w.pausedRow]]} />
+        <p className="cor-text">{w.quoted(goal.trim())}</p>
         {aviso && (
           <p className="cor-listo-aviso" role="status" data-listo-aviso>
             {aviso}
           </p>
         )}
-        {listo.data ? <ListoLista r={listo.data} look="cor" ajustes={<AjustesLink slug={make.data.slug} />} /> : listo.isError ? <p className="cor-cap">No pude revisar qué le falta.</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
+        {listo.data ? <ListoLista r={listo.data} look="cor" ajustes={<AjustesLink slug={make.data.slug} />} /> : listo.isError ? <p className="cor-cap">{w.readinessFailed}</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
         <div className="cor-acts">
           <Btn kind="primary" onClick={() => onOpen(make.data!.slug)} data-control="abrir-proyecto">
-            Abrir el proyecto
+            {w.openProject}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>
-            Cerrar
+            {w.close}
           </Btn>
         </div>
       </Hoja>
     );
   }
   return (
-    <Hoja label="Nuevo proyecto" title="¿Qué vas a construir?" onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo])}>
+    <Hoja label={w.newProject} title={w.whatBuild} onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo])}>
       <form
         className="cor-hoja-form cor-hoja-nuevo"
         onSubmit={(e) => {
@@ -129,17 +132,17 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
       >
         <span className="cor-hoja-two">
           <label>
-            <span className="cor-text">Nombre</span>
-            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder="Mi proyecto" required />
+            <span className="cor-text">{w.name}</span>
+            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder={w.namePlaceholder} required />
           </label>
           <label style={{ flex: 2 }}>
-            <span className="cor-text">Meta, en una oración</span>
-            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
+            <span className="cor-text">{w.goal}</span>
+            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder={w.goalPlaceholder} required />
           </label>
         </span>
         <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>
-          <legend className="cor-text">¿Dónde está su código?</legend>
-          <div className="cor-opts" role="radiogroup" aria-label="Dónde está su código">
+          <legend className="cor-text">{w.whereCode}</legend>
+          <div className="cor-opts" role="radiogroup" aria-label={w.whereCodeLabel}>
             {CODIGO_OPCIONES.map((o) => (
               <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => setCodigo(o.key)} data-codigo-opcion={o.key}>
                 {o.label}
@@ -150,31 +153,31 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
           {codigo === "carpeta" && (
             <span className="cor-hoja-two">
               <label style={{ flex: 2 }}>
-                <span className="cor-text">Carpeta en esta máquina</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/plania/projects/mi-proyecto" autoComplete="off" spellCheck={false} required />
+                <span className="cor-text">{w.folder}</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder={w.folderPlaceholder} autoComplete="off" spellCheck={false} required />
               </label>
               <label>
-                <span className="cor-text">En GitHub (si tiene)</span>
-                <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} />
+                <span className="cor-text">{w.githubIfAny}</span>
+                <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} />
               </label>
             </span>
           )}
           {codigo === "github" && (
             <label className="cor-hoja-one">
-              <span className="cor-text">Repositorio en GitHub</span>
-              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} required />
+              <span className="cor-text">{w.githubRepo}</span>
+              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} required />
             </label>
           )}
         </fieldset>
-        <Rows rows={[["Clave", "Recibe su clave para pasos, sacada del nombre."], ["PO", "Se crea de la plantilla, con su prompt."], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
-        {missing && <p className="cor-state bad">Todavía no se pueden crear proyectos desde aquí: el servidor no tiene esa ruta. No se creó nada.</p>}
+        <Rows rows={[[w.key, w.keyRow], [w.po, w.poRow], [w.paused, w.pausedRow]]} />
+        {missing && <p className="cor-state bad">{w.noRoute}</p>}
         {make.isError && !missing && <p className="cor-state bad cor-hoja-refusal" role="alert">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
         <div className="cor-acts">
           <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim() || !code} data-control="crear-proyecto">
-            {make.isPending ? "Creando…" : "Crear proyecto"}
+            {make.isPending ? w.creating : w.create}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>
-            Cancelar
+            {w.cancel}
           </Btn>
         </div>
       </form>
@@ -183,24 +186,25 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
 };
 
 export const Pausar = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => void; onDone: () => void }) => {
+  const w = words(HOJAS_WORDS);
   const live = p.team.filter((m) => m.state === "running");
-  const pause = useMutation({ mutationFn: () => api.setProjectPaused(p.slug, true), onSuccess: () => (toast(`${p.title} en pausa`), onDone()), onError: () => toast.error("No se pudo pausar.") });
+  const pause = useMutation({ mutationFn: () => api.setProjectPaused(p.slug, true), onSuccess: () => (toast(w.pausedToast(p.title)), onDone()), onError: () => toast.error(w.pauseFailed) });
   return (
-    <Hoja label="Pausar" title={`¿Pausar ${p.title}?`} onClose={onClose}>
+    <Hoja label={w.pause} title={w.pauseQ(p.title)} onClose={onClose}>
       <Rows
         rows={[
-          ["Se cierra", live.length ? live.map((m) => `${seatName(m.role)}${m.now?.ticket ? ` (${m.now.ticket})` : ""}`).join(", ") + " termina su paso y se cierra." : "Nada está corriendo ahora."],
-          ["No arranca", `Nada nuevo en ${p.title} hasta que lo reanudes. Los otros proyectos siguen.`],
-          ["Se queda", "No se borra nada. Te toca, las fusiones y las decisiones siguen funcionando."],
+          [w.closes, live.length ? w.closesLive(live.map((m) => `${seatName(m.role)}${m.now?.ticket ? ` (${m.now.ticket})` : ""}`).join(", ")) : w.nothingRunning],
+          [w.noStart, w.noStartRow(p.title)],
+          [w.stays, w.staysRow],
         ]}
       />
-      <p className="cor-cap">Se puede deshacer: reanudas cuando quieras.</p>
+      <p className="cor-cap">{w.undo}</p>
       <div className="cor-acts">
         <Btn kind="primary" disabled={pause.isPending} onClick={() => pause.mutate()} data-control="pausar-si">
-          {pause.isPending ? "Pausando…" : `Pausar ${p.title}`}
+          {pause.isPending ? w.pausing : w.pauseIt(p.title)}
         </Btn>
         <Btn kind="quiet" onClick={onClose}>
-          Cancelar
+          {w.cancel}
         </Btn>
       </div>
     </Hoja>
@@ -208,16 +212,17 @@ export const Pausar = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => v
 };
 
 export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p: OrgProject | null; companyPaused: boolean; onClose: () => void; onDone: () => void; plomeriaTo: string }) => {
-  const go = useMutation({ mutationFn: () => api.setProjectPaused(p!.slug, false), onSuccess: () => (toast(`${p!.title} reanudado`), onDone()), onError: () => toast.error("No se pudo reanudar.") });
+  const w = words(HOJAS_WORDS);
+  const go = useMutation({ mutationFn: () => api.setProjectPaused(p!.slug, false), onSuccess: () => (toast(w.resumedToast(p!.title)), onDone()), onError: () => toast.error(w.resumeFailed) });
   // NEWPROJ-4: whether there is anything to take back up, and what will make the first run fail. Resuming stays allowed.
   const listo = useQuery({ queryKey: ["readiness", p?.slug], queryFn: () => api.readiness(p!.slug), enabled: !!p });
   const falla = reanudarFalla(listo.data ?? null);
   return (
-    <Hoja label="Reanudar · proyecto en pausa o compañía detenida" title={p ? `${p.title} está en pausa` : "La compañía está detenida"} onClose={onClose}>
+    <Hoja label={w.resumeLabel} title={p ? w.isPaused(p.title) : w.companyStopped} onClose={onClose}>
       <Rows
         rows={[
-          ["Al reanudar", reanudarAlReanudar(listo.data ?? null)],
-          ["Si es toda", "Cuando la compañía entera está detenida, un aviso lo dice arriba de cada pantalla. Se reanuda desde Plomería."],
+          [w.onResume, reanudarAlReanudar(listo.data ?? null)],
+          [w.ifAll, w.ifAllRow],
         ]}
       />
       {falla && (
@@ -227,22 +232,22 @@ export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p:
       )}
       {listo.data && listo.data.blocking > 0 && (
         <details className="cor-listo-mas" data-reanudar-lista>
-          <summary className="cor-cap">Ver qué le falta y qué hacer</summary>
+          <summary className="cor-cap">{w.whatLacks}</summary>
           <ListoLista r={listo.data} look="cor" ajustes={p && <AjustesLink slug={p.slug} />} />
         </details>
       )}
-      {companyPaused && <p className="cor-state amber">La compañía está detenida: aunque reanudes este proyecto, nada arranca hasta que la reanudes en Plomería.</p>}
+      {companyPaused && <p className="cor-state amber">{w.companyStoppedNote}</p>}
       <div className="cor-acts">
         {p && (
           <Btn kind="primary" disabled={go.isPending} onClick={() => go.mutate()} data-control="reanudar-si">
-            {go.isPending ? "Reanudando…" : `Reanudar ${p.title}`}
+            {go.isPending ? w.resuming : w.resumeIt(p.title)}
           </Btn>
         )}
         <Link className="cor-btn secondary" to={plomeriaTo} data-control="ir-plomeria">
-          Ir a Plomería
+          {w.goPlomeria}
         </Link>
         <Btn kind="quiet" onClick={onClose}>
-          Cerrar
+          {w.close}
         </Btn>
       </div>
     </Hoja>
@@ -250,19 +255,21 @@ export const Reanudar = ({ p, companyPaused, onClose, onDone, plomeriaTo }: { p:
 };
 
 const publishError = (code: string, detail: Record<string, unknown> = {}): string => {
+  const w = words(HOJAS_WORDS);
   if (code === "RELEASE_NOT_READY") {
     const why = String(detail.reason ?? "");
-    if (why === "open_checks") return "Todavía hay puntos abiertos en esos cambios; ciérralos primero.";
-    if (why === "before_steps") return "Antes hay un paso tuyo pendiente; hazlo primero.";
-    if (why === "merged" || why === "nothing_to_ship") return "Ya no hay nada por publicar: estos cambios ya están en la versión principal.";
-    if (why === "mode_command") return "Este proyecto se publica con un comando, no desde aquí. Está en Bandeja.";
-    return "Ya no se puede publicar desde aquí; míralo en Bandeja.";
+    if (why === "open_checks") return w.openChecks;
+    if (why === "before_steps") return w.beforeSteps;
+    if (why === "merged" || why === "nothing_to_ship") return w.alreadyMerged;
+    if (why === "mode_command") return w.byCommand;
+    return w.notHere;
   }
-  if (code === "RELEASE_MERGE_FAILED") return `GitHub no aceptó la publicación${detail.output ? `: ${String(detail.output)}` : "."}`;
-  return `No se pudo publicar (${code}).`;
+  if (code === "RELEASE_MERGE_FAILED") return w.githubRefused(detail.output ? String(detail.output) : null);
+  return w.publishFailed(code);
 };
 
 export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProject; release: Decision | null; first: Decision | null; firstTo: string | null; onClose: () => void }) => {
+  const w = words(HOJAS_WORDS);
   const client = useQueryClient();
   const [kept] = useState(release);
   const [since, setSince] = useState<number | null>(null);
@@ -275,7 +282,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
   const ship = useMutation({
     mutationFn: () => api.shipRelease(p.slug),
     onMutate: () => setSince(Date.now()),
-    onSuccess: () => toast.success(`${p.title}: publicado. Ya está en la versión principal.`),
+    onSuccess: () => toast.success(w.publishedToast(p.title)),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["inbox"] });
@@ -284,13 +291,13 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
   const r = (release ?? kept)?.release ?? null;
   if (!r)
     return (
-      <Hoja label="Publicar" title={`Publicar ${p.title}`} onClose={onClose}>
+      <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose}>
         <p className="cor-text" data-publish-empty>
-          Ya no hay nada por publicar en {p.title}.
+          {w.nothingToPublish(p.title)}
         </p>
         <div className="cor-acts">
           <Btn kind="secondary" onClick={onClose}>
-            Cerrar
+            {w.close}
           </Btn>
         </div>
       </Hoja>
@@ -299,10 +306,10 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
   const blocked = r.open_checks > 0 || r.before > 0;
   const done = ship.isSuccess ? ship.data : null;
   return (
-    <Hoja label="Publicar" title={`Publicar ${p.title}`} onClose={onClose} wide>
+    <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose} wide>
       <div className="cor-card cor-hoja-what">
-        <Label>{`Lo que verá quien usa ${p.title}`}</Label>
-        <p className="cor-text">{`${n === 1 ? "1 cambio terminado pasa" : `${n} cambios terminados pasan`} de la copia de prueba a la versión principal (${r.from} → ${r.into}${r.ahead != null ? `, ${r.ahead} commits` : ""}).`}</p>
+        <Label>{w.whatUsersSee(p.title)}</Label>
+        <p className="cor-text">{w.changesGo(n, r.from, r.into, r.ahead ?? null)}</p>
       </div>
       <ul className="cor-hoja-list" data-publish-list={n}>
         {r.tickets.slice(0, 4).map((x) => (
@@ -311,7 +318,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
             <span className="cor-ellipsis">{x.title}</span>
           </li>
         ))}
-        {n > 4 && <li className="cor-cap">{`y ${n - 4} más`}</li>}
+        {n > 4 && <li className="cor-cap">{w.andMore(n - 4)}</li>}
       </ul>
       {!!r.migrations?.length && (
         <p className="cor-text" data-publish-migrations={r.migrate ?? ""}>
@@ -323,7 +330,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
           {r.reel.slice(0, 3).map((x) => (
             <figure key={x.key}>
               <img src={x.image_url} alt={`${x.title}: ${x.label}`} loading="lazy" />
-              <figcaption className="cor-cap">{`${x.kind === "nueva" ? "NUEVA" : "CAMBIÓ"} · ${x.label}`}</figcaption>
+              <figcaption className="cor-cap">{`${x.kind === "nueva" ? w.reelNew : w.reelChanged} · ${x.label}`}</figcaption>
             </figure>
           ))}
         </div>
@@ -331,41 +338,41 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       {blocked && !done && (
         <p className="cor-hoja-block" data-publish-blocked>
           <You small flat />
-          {r.open_checks > 0 ? `${r.open_checks === 1 ? "Hay 1 punto abierto" : `Hay ${r.open_checks} puntos abiertos`} en estos cambios: GitHub lo rechazará hasta que se resuelva.` : first ? `Antes hay un paso tuyo: ${first.kind === "deliverable" || first.kind === "pr" ? `aceptar ${first.ref ?? "una entrega"}` : first.title}.` : `${r.before === 1 ? "Hay 1 paso tuyo" : `Hay ${r.before} pasos tuyos`} antes de publicar.`}
+          {r.open_checks > 0 ? w.openPoints(r.open_checks) : first ? w.yourStepFirst(first.kind === "deliverable" || first.kind === "pr" ? w.acceptRef(first.ref ?? null) : first.title) : w.yourSteps(r.before)}
           {firstTo && (
             <Link className="cor-inline" to={firstTo}>
-              Hazlo primero
+              {w.doItFirst}
             </Link>
           )}
         </p>
       )}
       {ship.isPending && since !== null && (
         <p className="cor-text" role="status" data-publish-working>
-          Publicando en GitHub… <span className="cor-mono">{`${Math.floor((t - since) / 60000)}:${String(Math.floor(((t - since) / 1000) % 60)).padStart(2, "0")}`}</span> Se abre la propuesta {r.from} → {r.into} y se fusiona.
+          {w.publishingGithub} <span className="cor-mono">{`${Math.floor((t - since) / 60000)}:${String(Math.floor(((t - since) / 1000) % 60)).padStart(2, "0")}`}</span> {w.proposalOpens(r.from, r.into)}
         </p>
       )}
       {done && (
         <p className="cor-state ok" role="status" data-publish-done>
-          {`✓ Publicado. ${n === 1 ? "1 cambio ya está" : `${n} cambios ya están`} en la versión principal (${done.merge_sha.slice(0, 7)}).`}
-          {done.migrate === "auto" ? " Plania respalda y migra la base de la app ahora; si algo falla, te lo dice en el hilo." : done.migrate === "manual" ? " Falta migrar la base de la app." : ""}{" "}
+          {w.published(n, done.merge_sha.slice(0, 7))}
+          {done.migrate === "auto" ? w.migrateAuto : done.migrate === "manual" ? w.migrateManual : ""}{" "}
           <a className="cor-inline" href={done.pr.url} target="_blank" rel="noreferrer">
-            Ver en GitHub
+            {w.seeGithub}
           </a>
         </p>
       )}
-      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : "No se pudo. Si la máquina está dormida, intenta al despertar."}</p>}
+      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>}
       <div className="cor-acts">
         {done ? (
           <Btn kind="primary" onClick={onClose} data-control="publicar-listo">
-            Listo
+            {w.done}
           </Btn>
         ) : (
           <>
             <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">
-              {ship.isPending ? "Publicando…" : "Publicar cambios"}
+              {ship.isPending ? w.publishing : w.publishChanges}
             </Btn>
             <Btn kind="quiet" disabled={ship.isPending} onClick={onClose}>
-              Cerrar
+              {w.close}
             </Btn>
           </>
         )}
@@ -375,6 +382,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
 };
 
 export const Meta = ({ p, onClose }: { p: OrgProject; onClose: () => void }) => {
+  const w = words(HOJAS_WORDS);
   const client = useQueryClient();
   const goalId = p.rumbo?.goal_id ?? null;
   const [title, setTitle] = useState(p.rumbo?.goal ?? "");
@@ -382,15 +390,15 @@ export const Meta = ({ p, onClose }: { p: OrgProject; onClose: () => void }) => 
   const save = useMutation({
     mutationFn: (body: GoalWrite) => (goalId ? api.patchGoal(goalId, body) : api.createGoal({ ...body, project: p.slug })),
     onSuccess: () => {
-      toast(goalId ? "Meta actualizada" : "Meta creada");
+      toast(goalId ? w.goalUpdated : w.goalCreated);
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["goals"] });
       onClose();
     },
-    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo guardar la meta (${e.code}).` : "No se pudo guardar la meta."),
+    onError: (e) => toast.error(e instanceof ApiError ? w.goalFailedCode(e.code) : w.goalFailed),
   });
   return (
-    <Hoja label="Meta · fijar o cambiar" title={`¿A dónde va ${p.title}?`} onClose={onClose} wide>
+    <Hoja label={w.goalLabel} title={w.whereGoes(p.title)} onClose={onClose} wide>
       <form
         className="cor-hoja-form"
         onSubmit={(e) => {
@@ -400,21 +408,21 @@ export const Meta = ({ p, onClose }: { p: OrgProject; onClose: () => void }) => 
       >
         <span className="cor-hoja-two">
           <label style={{ flex: 3 }}>
-            <span className="cor-text">Meta, en una oración</span>
+            <span className="cor-text">{w.goal}</span>
             <input className="cor-input" value={title} maxLength={240} onChange={(e) => setTitle(e.target.value)} required data-control="meta-titulo" />
           </label>
           <label>
-            <span className="cor-text">Fecha</span>
+            <span className="cor-text">{w.date}</span>
             <input type="date" className="cor-input" value={date} onChange={(e) => setDate(e.target.value)} data-control="meta-fecha" />
           </label>
         </span>
-        <p className="cor-cap">El PO la lee en cada corrida y no propone trabajo sin ella. Con la fecha se calcula el pronóstico que ves en Ahora.</p>
+        <p className="cor-cap">{w.goalHint}</p>
         <div className="cor-acts">
           <Btn kind="primary" type="submit" disabled={save.isPending || !title.trim()} data-control="guardar-meta">
-            {save.isPending ? "Guardando…" : "Guardar meta"}
+            {save.isPending ? w.saving : w.saveGoal}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>
-            Cancelar
+            {w.cancel}
           </Btn>
         </div>
       </form>
@@ -424,11 +432,12 @@ export const Meta = ({ p, onClose }: { p: OrgProject; onClose: () => void }) => 
 
 /** A doc linked from a message or a role (?doc=<id>, the address lib/org.ts gives company docs). */
 export const DocHoja = ({ id, onClose }: { id: string; onClose: () => void }) => {
+  const w = words(HOJAS_WORDS);
   const q = useQuery({ queryKey: ["prompt-doc", id], queryFn: () => api.promptDoc(id) });
   return (
     <Hoja label={q.data ? `Doc · v${q.data.version}` : "Doc"} title={q.data?.title ?? "Doc"} onClose={onClose} wide>
       {q.isError ? (
-        <p className="cor-state bad">No se pudo leer el doc.</p>
+        <p className="cor-state bad">{w.docFailed}</p>
       ) : q.data ? (
         <div className="cor-md cor-hoja-doc" tabIndex={0} role="region" aria-label={q.data.title}>
           <Markdown remarkPlugins={[remarkGfm]}>{q.data.markdown}</Markdown>
@@ -438,7 +447,7 @@ export const DocHoja = ({ id, onClose }: { id: string; onClose: () => void }) =>
       )}
       <div className="cor-acts">
         <Btn kind="secondary" onClick={onClose}>
-          Cerrar
+          {w.close}
         </Btn>
       </div>
     </Hoja>

@@ -5,11 +5,14 @@ import type { Decision, Marca } from "@/lib/api";
 import { NOTE_MAX, RETURN_REASONS, returnText } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Btn, Label } from "./parts";
+import { words } from "@/lib/i18n";
+import { AJUSTE_WORDS } from "@/lib/ajuste-words";
 
 export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: CorrienteActs; onDone: () => void; marcas?: Marca[] }) => {
   const [reason, setReason] = useState<string>(RETURN_REASONS[0]);
   const [line, setLine] = useState("");
   const busy = acts.decisions.busy?.id === d.id;
+  const w = words(AJUSTE_WORDS);
   return (
     <form
       className="cor-ajuste"
@@ -21,7 +24,7 @@ export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: Co
       }}
     >
       <Label as="p" id={`aj-${d.id}`}>
-        Pedir ajuste a Taller
+        {w.title}
       </Label>
       <div className="cor-seg" role="radiogroup" aria-labelledby={`aj-${d.id}`}>
         {RETURN_REASONS.map((x) => (
@@ -32,7 +35,7 @@ export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: Co
       </div>
       {marcas.length > 0 && (
         <p className="cor-cap" data-marcas={marcas.length}>
-          Van tus {marcas.length} {marcas.length === 1 ? "marca" : "marcas"}, cada una con su foto.
+          {w.marks(marcas.length)}
         </p>
       )}
       <div className="cor-ajuste-row">
@@ -41,8 +44,8 @@ export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: Co
           value={line}
           maxLength={NOTE_MAX}
           rows={3}
-          placeholder="Qué cambiarías, para Taller (opcional)"
-          aria-label="Nota para Taller"
+          placeholder={w.placeholder}
+          aria-label={w.noteLabel}
           aria-describedby={line.length > NOTE_MAX * 0.9 ? `aj-n-${d.id}` : undefined}
           onChange={(e) => setLine(e.target.value)}
           disabled={busy}
@@ -53,10 +56,10 @@ export const Ajuste = ({ d, acts, onDone, marcas = [] }: { d: Decision; acts: Co
           </span>
         )}
         <Btn kind="secondary" type="submit" disabled={busy} data-control="enviar-ajuste">
-          Enviar a Taller
+          {w.send}
         </Btn>
         <Btn kind="quiet" onClick={onDone}>
-          Cancelar
+          {w.cancel}
         </Btn>
       </div>
     </form>

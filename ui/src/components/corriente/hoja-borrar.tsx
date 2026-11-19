@@ -5,11 +5,13 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, type OrgProject } from "@/lib/api";
-import { BORRAR_UNDO, borrarButton, borrarDone, borrarError, borrarRows, borrarTitle, canBorrar, nameHint } from "@/lib/borrar";
+import { BORRAR_WORDS, borrarButton, borrarDone, borrarError, borrarRows, borrarTitle, borrarUndo, canBorrar, nameHint } from "@/lib/borrar";
+import { words } from "@/lib/i18n";
 import { Hoja } from "./hojas";
 import { Btn } from "./parts";
 
 export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose: () => void; onDone: () => void }) => {
+  const w = words(BORRAR_WORDS);
   const client = useQueryClient();
   const [typed, setTyped] = useState("");
   const [code, setCode] = useState("");
@@ -25,7 +27,7 @@ export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose:
   });
   const ready = canBorrar(typed, p.title, code) && !del.isPending;
   return (
-    <Hoja label="Borrar proyecto" title={borrarTitle(p.title)} onClose={onClose}>
+    <Hoja label={w.sheet} title={borrarTitle(p.title)} onClose={onClose}>
       <dl className="cor-hoja-rows">
         {borrarRows(p.title, running).map(([k, v]) => (
           <div key={k}>
@@ -34,7 +36,7 @@ export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose:
           </div>
         ))}
       </dl>
-      <p className="cor-cap">{BORRAR_UNDO}</p>
+      <p className="cor-cap">{borrarUndo()}</p>
       <form
         className="cor-hoja-form"
         onSubmit={(e) => {
@@ -48,7 +50,7 @@ export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose:
             <input className="cor-input" value={typed} maxLength={80} autoComplete="off" onChange={(e) => setTyped(e.target.value)} data-control="borrar-nombre" />
           </label>
           <label>
-            <span className="cor-text">Código del dueño</span>
+            <span className="cor-text">{w.code}</span>
             <input
               className="cor-input"
               inputMode="numeric"
@@ -57,7 +59,7 @@ export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose:
               placeholder="000000"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              aria-label="Código del dueño"
+              aria-label={w.code}
               data-control="borrar-codigo"
             />
           </label>
@@ -68,7 +70,7 @@ export const BorrarProyecto = ({ p, onClose, onDone }: { p: OrgProject; onClose:
             {borrarButton(p.title, del.isPending)}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>
-            Cancelar
+            {w.cancel}
           </Btn>
         </div>
       </form>

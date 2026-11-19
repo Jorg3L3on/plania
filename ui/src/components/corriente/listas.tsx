@@ -11,6 +11,8 @@ import { api, type Decision, type OrgFicha, type OrgProject } from "@/lib/api";
 import { deliveryFor } from "@/lib/etapas";
 import { Btn, Key, Label, ReadError, You } from "./parts";
 import { LOCALE } from "@/lib/locale";
+import { words } from "@/lib/i18n";
+import { LISTAS_WORDS } from "@/lib/listas-words";
 
 const dayOf = (iso: string | null) => (iso ? new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "short" }).format(new Date(iso)).replace(".", "") : "");
 
@@ -20,9 +22,10 @@ export function useFicha(slug: string, all = false) {
 }
 
 export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: Decision[]; open: number | null; links: { pr: (n: number) => string; paso: (key: string) => string; entrega: (d: Decision) => string } }) => {
+  const w = words(LISTAS_WORDS);
   const f = useFicha(p.slug, true);
-  if (f.isError) return <ReadError what="los PRs" onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo los PRs" />;
+  if (f.isError) return <ReadError what={w.thePrs} onRetry={() => void f.refetch()} />;
+  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label={w.readingPrs} />;
   const prs = f.data.prs;
   const sel = prs.find((x) => x.number === open) ?? prs[0] ?? null;
   const openOnes = prs.filter((x) => x.state === "open" || (!x.merged_at && x.state !== "closed"));
@@ -38,10 +41,10 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
           <span className="cor-cap">{x.task_key ?? "—"}</span>
           {d ? (
             <span className="cor-amber cor-prstate">
-              <You small flat /> Te toca aceptarla
+              <You small flat /> {w.yourTurnAccept}
             </span>
           ) : (
-            <span className="cor-prstate cor-body">{x.merged_at ? `Fusionado · ${dayOf(x.merged_at)}` : x.state === "closed" ? "Cerrado" : "Abierto"}</span>
+            <span className="cor-prstate cor-body">{x.merged_at ? w.mergedOn(dayOf(x.merged_at)) : x.state === "closed" ? w.closed : w.open}</span>
           )}
         </Link>
       </li>
@@ -53,25 +56,25 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
       <div className="cor-prs-list">
         <div className="cor-prrow head" aria-hidden>
           <span className="cor-label">PR</span>
-          <span className="cor-label">Título</span>
-          <span className="cor-label">Paso</span>
-          <span className="cor-label">Estado</span>
+          <span className="cor-label">{w.colTitle}</span>
+          <span className="cor-label">{w.colStep}</span>
+          <span className="cor-label">{w.colState}</span>
         </div>
         {prs.length === 0 ? (
           <p className="cor-empty cor-text" data-sin-prs>
-            Todavía no hay PRs en este proyecto.
+            {w.noPrs}
           </p>
         ) : (
           <>
             {openOnes.length > 0 && (
-              <section aria-label="Abiertos">
-                <Label as="h2">Abiertos</Label>
+              <section aria-label={w.openOnes}>
+                <Label as="h2">{w.openOnes}</Label>
                 <ul>{openOnes.slice(0, 6).map(row)}</ul>
               </section>
             )}
             {merged.length > 0 && (
-              <section aria-label="Fusionados">
-                <Label as="h2">Fusionados</Label>
+              <section aria-label={w.mergedOnes}>
+                <Label as="h2">{w.mergedOnes}</Label>
                 <ul>{merged.slice(0, openOnes.length ? 4 : 8).map(row)}</ul>
               </section>
             )}
@@ -80,22 +83,22 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
       </div>
       {sel && (
         <aside className="cor-card cor-prdetail" aria-label={`PR #${sel.number}`} data-pr-detail={sel.number}>
-          <Label>{`PR #${sel.number} · ${sel.merged_at ? "fusionado" : sel.state === "closed" ? "cerrado" : "abierto"}`}</Label>
+          <Label>{w.prHead(sel.number, sel.merged_at ? "merged" : sel.state === "closed" ? "closed" : "open")}</Label>
           <h2 className="cor-h3">{sel.title}</h2>
           {d && (
             <p className="cor-amber">
-              <You small flat /> Te toca aceptar la entrega de {sel.task_key}.
+              <You small flat /> {w.yourTurnAcceptOf(sel.task_key ?? "")}
             </p>
           )}
           <dl className="cor-ev">
             <div>
-              <dt>Paso</dt>
+              <dt>{w.step}</dt>
               <dd style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {sel.task_key ? (
                   <>
                     <Key>{sel.task_key}</Key>
                     <Link className="cor-btn link" to={links.paso(sel.task_key)} style={{ marginLeft: "auto" }} data-control="ver-paso">
-                      Ver el paso ›
+                      {w.seeStep}
                     </Link>
                   </>
                 ) : (
@@ -104,22 +107,22 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
               </dd>
             </div>
             <div>
-              <dt>Rama</dt>
+              <dt>{w.branch}</dt>
               <dd className="cor-mono">{sel.head_branch ?? "—"}</dd>
             </div>
             <div>
-              <dt>Fusionado</dt>
-              <dd>{sel.merged_at ? dayOf(sel.merged_at) : "Todavía no"}</dd>
+              <dt>{w.merged}</dt>
+              <dd>{sel.merged_at ? dayOf(sel.merged_at) : w.notYet}</dd>
             </div>
           </dl>
           <div className="cor-acts">
             {d && (
               <Link className="cor-btn primary" to={links.entrega(d)} data-control="ver-entrega">
-                Ver la entrega
+                {w.seeDelivery}
               </Link>
             )}
             <a className="cor-btn secondary" href={sel.url} target="_blank" rel="noreferrer" data-control="github">
-              Abrir en GitHub ↗
+              {w.openGithub}
             </a>
           </div>
         </aside>
@@ -129,13 +132,14 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
 };
 
 export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; links: { doc: (id: string) => string; iniciativa: (key: string) => string } }) => {
+  const w = words(LISTAS_WORDS);
   const f = useFicha(p.slug, true);
   const docs = f.data?.docs ?? [];
   const sel = docs.find((x) => x.id === open) ?? docs[0] ?? null;
   const body = useQuery({ queryKey: ["ficha-doc", p.slug, sel?.id], queryFn: () => api.projectDoc(p.slug, sel!.id), enabled: !!sel });
   const [others, setOthers] = useState(false);
-  if (f.isError) return <ReadError what="los docs" onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo los docs" />;
+  if (f.isError) return <ReadError what={w.theDocs} onRetry={() => void f.refetch()} />;
+  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label={w.readingDocs} />;
   // Grouped by initiative: the open one's first, then the project's own docs.
   const groups = new Map<string, typeof docs>();
   for (const d of docs) groups.set(d.task_key ?? "", [...(groups.get(d.task_key ?? "") ?? []), d]);
@@ -143,15 +147,15 @@ export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; l
   const shownKeys = others ? keys : keys.slice(0, 2);
   return (
     <div className="cor-docs" data-docs={docs.length}>
-      <nav className="cor-docs-list" aria-label="Docs del proyecto">
+      <nav className="cor-docs-list" aria-label={w.projectDocs}>
         {docs.length === 0 && (
           <p className="cor-text" data-sin-docs>
-            Todavía no hay docs.
+            {w.noDocs}
           </p>
         )}
         {shownKeys.map((k) => (
           <section key={k || "proyecto"}>
-            <Label as="h2">{k ? `De ${k}` : "Del proyecto"}</Label>
+            <Label as="h2">{k ? w.ofKey(k) : w.ofProject}</Label>
             <ul>
               {groups
                 .get(k)!
@@ -160,7 +164,7 @@ export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; l
                   <li key={d.id}>
                     <Link className="cor-docrow" to={links.doc(d.id)} aria-current={sel?.id === d.id ? "true" : undefined} data-doc={d.id}>
                       <b className="cor-ellipsis">{d.title}</b>
-                      <span className="cor-cap">{`${k || "del proyecto"} · ${dayOf(d.updated_at)}`.toUpperCase()}</span>
+                      <span className="cor-cap">{`${k || w.ofProjectLower} · ${dayOf(d.updated_at)}`.toUpperCase()}</span>
                     </Link>
                   </li>
                 ))}
@@ -169,7 +173,7 @@ export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; l
         ))}
         {keys.length > 2 && (
           <Btn kind="link" onClick={() => setOthers((x) => !x)}>
-            {others ? "Ver menos" : "Ver los de otras iniciativas"}
+            {others ? w.seeLess : w.seeOthers}
           </Btn>
         )}
       </nav>
@@ -177,17 +181,17 @@ export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; l
         <article className="cor-card cor-docview" aria-label={sel.title} data-doc-open={sel.id}>
           <div className="cor-docview-head">
             <span>
-              <Label>{`Doc${sel.task_key ? ` de ${sel.task_key}` : ""}${body.data ? ` · v${body.data.version}` : ""} · ${dayOf(sel.updated_at)}`}</Label>
+              <Label>{w.docHead(sel.task_key, body.data ? body.data.version : null, dayOf(sel.updated_at))}</Label>
               <h2 className="cor-h2">{sel.title}</h2>
             </span>
             {sel.task_key && (
               <Link className="cor-btn secondary" to={links.iniciativa(sel.task_key)} data-control="ver-iniciativa">
-                Ver la iniciativa ›
+                {w.seeInitiative}
               </Link>
             )}
           </div>
-          <div className="cor-md cor-docbody" data-doc-body tabIndex={0} role="region" aria-label={`Texto de ${sel.title}`}>
-            {body.isError ? <ReadError what="el doc" onRetry={() => void body.refetch()} /> : body.data ? <Markdown remarkPlugins={[remarkGfm]}>{body.data.markdown}</Markdown> : <div className="cor-skel" style={{ height: 200 }} />}
+          <div className="cor-md cor-docbody" data-doc-body tabIndex={0} role="region" aria-label={w.textOf(sel.title)}>
+            {body.isError ? <ReadError what={w.theDoc} onRetry={() => void body.refetch()} /> : body.data ? <Markdown remarkPlugins={[remarkGfm]}>{body.data.markdown}</Markdown> : <div className="cor-skel" style={{ height: 200 }} />}
           </div>
         </article>
       )}
