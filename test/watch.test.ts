@@ -235,7 +235,8 @@ describe("get_digest", () => {
       assert.deepEqual(r, { created: true, slug: "plania" });
       assert.deepEqual(await registerProject(db, { slug: "plania", title: "Plania", prefix: "PLA" }), { created: false, slug: "plania" });
       const p = await findProject(db, "plania");
-      assert.deepEqual(p.settings, { github: { repo: "Jorg3L3on/plania" }, local: { repo_path: "/Users/jorgeleon/Developer/Projects/plania" } });
+      // NEWPROJ-1: the script goes through the shared creation function, so plan approval is on.
+      assert.deepEqual(p.settings, { plan_approval: true, github: { repo: "Jorg3L3on/plania" }, local: { repo_path: "/Users/jorgeleon/Developer/Projects/plania" } });
     } finally {
       await close();
     }

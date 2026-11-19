@@ -17,6 +17,12 @@ export const ERRORS = {
   DEPLOY_SOURCE_REQUIRED: [400, "set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from"],
   SECRET_LIKE_VALUE: [400, "an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value"],
   INVALID_FILTER: [400, "a list filter is malformed (detail: field), e.g. updated_since is not an ISO-8601 time"],
+  // NEWPROJ-3: a new project's folder (src/runner/repo-check.ts), checked before anything is created.
+  REPO_FOLDER_MISSING: [400, "new project: the folder given as repo_path does not exist on this machine"],
+  REPO_NOT_GIT: [400, "new project: the folder given as repo_path is not a git repository"],
+  REPO_NO_ORIGIN: [400, "new project: the folder's git repository has no remote named origin"],
+  REPO_ORIGIN_UNREACHABLE: [400, "new project: origin could not be read (network, credentials or a wrong address)"],
+  REPO_NO_START_BRANCH: [400, "new project: origin has no branch to start from (sandbox; detail: branch)"],
   INVALID_GOAL: [400, "a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal"],
   INVALID_PHASE: [400, "phase is not an integer 0..999"],
   INVALID_PRIORITY: [400, "priority is not P0, P1, P2 or P3"],

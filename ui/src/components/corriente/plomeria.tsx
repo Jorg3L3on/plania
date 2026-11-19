@@ -11,6 +11,7 @@ import { ApiError, api, type MachinePlumbing } from "@/lib/api";
 import { tokens, type CompanyProjectRow, type RunBrief } from "@/lib/compania";
 import { seatName, thousands } from "@/lib/corriente";
 import { tableroView } from "@/lib/maquinas";
+import { logWords } from "@/lib/calidad";
 import { Btn, Key, Label, Switch } from "./parts";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
@@ -313,8 +314,8 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
                   <b>{seatName(x.role)}</b> · {titles.get(x.project) ?? x.project}
                 </span>
                 {x.ticket ? <Key>{x.ticket}</Key> : <span />}
-                <span className="cor-ellipsis" style={{ flex: 1 }} title={x.summary}>
-                  <span className={`cor-state ${tone ?? ""}`}>{word}</span> · {x.summary}
+                <span className="cor-ellipsis" style={{ flex: 1 }} title={logWords(x.summary)}>
+                  <span className={`cor-state ${tone ?? ""}`}>{word}</span> · {logWords(x.summary)}
                 </span>
                 <span className="cor-cap">{`HOY ${hm(x.ended_at ?? x.started_at, tz)}${m ? ` · ${m} MIN` : ""}`}</span>
               </li>

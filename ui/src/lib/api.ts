@@ -4,6 +4,8 @@ import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
+import type { Listo } from "@/lib/listo";
+import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
@@ -165,6 +167,17 @@ export const api = {
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
   // PLA-I64-6: what landed day by day (a window of 14 days ending on hasta).
   hecho: (slug: string, hasta?: string | null) => request<Hecho>("GET", `/company/projects/${encodeURIComponent(slug)}/hecho${hasta ? `?hasta=${encodeURIComponent(hasta)}` : ""}`),
+  // NEWPROJ-4: what a run needs, ready / missing / not_needed. Reads only.
+  readiness: (slug: string) => request<Listo>("GET", `/company/projects/${encodeURIComponent(slug)}/readiness`),
+  // NEWPROJ-6: the Ajustes view. Each save sends the version it read and answers with the view read again.
+  ajustes: (slug: string) => request<Ajustes>("GET", `/company/projects/${encodeURIComponent(slug)}/settings`),
+  ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),
+  ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge" } | null }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
+  ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
+  ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
+    request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
@@ -188,6 +201,9 @@ export const api = {
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
+  // NEWPROJ-7: Borrar proyecto, with the owner's code. Refusals: OWNER_CODE_UNSET 409, OWNER_CODE_REQUIRED / OWNER_CODE_INVALID 403.
+  deleteProject: (slug: string, code: string) =>
+    request<{ deleted: string; stopped: number; worktrees: number; agents: string[] }>("DELETE", `/company/projects/${encodeURIComponent(slug)}`, { code }),
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   // PLA-I40-2: Que empiece ya for one teammate.
@@ -224,9 +240,7 @@ export const api = {
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
-  createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
-  // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
-  createCompany: (input: { slug: string; name: string; owner_bot_name: string }) => request<CompanyProject>("POST", "/templates/company", input),
+  createCompanyProject: (input: { name: string; goal: string; repo_path?: string; github_repo?: string; no_code?: true }) => request<NewProjectResult>("POST", "/company/projects", input),
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
@@ -480,7 +494,8 @@ export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: E
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
 // PLA-I53-6: zonas, what part of the app a ticket touches (from its areas); none when it has no areas.
 export type Zona = "pantalla" | "servidor" | "datos" | "docs";
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[] };
+// NEWPROJ-5: arranque, when the step's newest run failed before it started (its summary, when). Optional for older servers.
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null };
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
 // An older server sends none of the three (then landed counts as closed, and there is no Cerrar).
@@ -705,14 +720,6 @@ export type MachinePlumbing = {
   viewer?: { can_edit_limits: boolean };
 };
 export type MachineWithPlumbing = Machine & { plumbing?: MachinePlumbing };
-
-export type CompanyProject = {
-  created: boolean;
-  project: string;
-  name: string;
-  owner: { slug: string; name: string; role: string } | null;
-  playbook: { title: string; version: number } | null;
-};
 
 export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number; cache_read?: number; cache_create?: number };
 export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };

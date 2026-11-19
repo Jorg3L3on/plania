@@ -33,6 +33,24 @@ Fill `.env`:
 | `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
 | `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
 
+### A first project on a new install
+
+No SQL by hand and no `plania` project needed:
+
+1. Create an empty database, apply the migrations (see Database) and fill `.env` as above.
+2. Check the role prompts. The four seats a project starts with (product owner, Research, Artist, Taller) each
+   need one. They come with the repo in `kit/roles/<role>.md` (`product-owner.md`, `research.md`, `artist.md`,
+   `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
+   A project-level doc `Prompt: <Role>` in the project named by `PLANIA_PROMPTS_PROJECT` (default `plania`)
+   replaces the file for that role when it exists; neither the project nor the doc has to exist.
+3. Start the server (`pnpm dev`, or the service) and sign in on the screen.
+4. Press «+ Nuevo proyecto», give it a name and a one-sentence goal. The project is created paused, with its team;
+   resume it to wake its product owner. If a seat has no prompt, the sheet names it and nothing is created: add
+   its file to `kit/roles/` (or its doc) and try again.
+
+`pnpm project:add` (see Database) creates the same project from the shell and does not check the prompts; a seat
+without one fails its first run with `no prompt doc`.
+
 ## Database
 
 Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
@@ -41,10 +59,11 @@ Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in orde
 for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
 ```
 
-Then add your own projects, and give each one its team (product owner, Research, Artist, Taller):
+Then add your own projects. Each one comes with its team (product owner, Research, Artist, Taller), starts
+paused with plan approval on, and gets a key prefix from its slug unless `--prefix` names one:
 
 ```bash
-pnpm project:add <slug> --title "<Title>" --prefix <PFX> [--repo owner/name] [--path /abs/repo]
+pnpm project:add <slug> --title "<Title>" [--prefix <PFX>] [--repo owner/name] [--path /abs/repo]
 pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
@@ -114,7 +133,7 @@ Restart with `pnpm server:restart`: it lists what a restart would cut (a running
 
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
 next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
-`settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
+`settings.release` (on screen in the project's Ajustes, «Fusionar desde Plania», or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
 `settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
 `~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
 the release row keeps the command to copy.
@@ -442,7 +461,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `assign` | Set a task's owner_agent to another roster agent and count the hop. |
 | `record_routine_run` | Record one run of a roster agent's routine. |
 | `report_tokens` | Record the tokens one agent reports for a task run. |
-| `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
+| `create_company_project` | Create a project from the company template: paused, plan approval on, its team (product owner, research, artist, taller) and a Playbook doc. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
 | `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
@@ -585,6 +604,11 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
+| `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
+| `REPO_NO_ORIGIN` | 400 | new project: the folder's git repository has no remote named origin |
+| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
+| `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
+| `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
@@ -774,6 +798,15 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - Clicking any ticket opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
   blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
+- **Ajustes** (NEWPROJ-6): a project's settings, a door beside Archivo, Equipo and Máquinas in Compañía
+  (`/ceo?proyecto=<slug>&t=ajustes`), also linked from the readiness list and from `/p/<slug>`. It sets where the code
+  is (a folder on this Mac, checked with git before it is saved; a GitHub repo; or no code yet), the release step
+  (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
+  and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
+  `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
+  concurrent change is refused, not overwritten. Token fields are not on screen. Still MCP-only (`set_project`):
+  `vercel`, `resources`, `quotas`, `branch_pattern`, `claim_from`, `release_target`, `release_on`, `auto_done`,
+  `capture` beyond Máquinas' minimal one, `maquinas`, and the runner's areas.
 - **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.

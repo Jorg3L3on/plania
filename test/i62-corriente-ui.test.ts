@@ -331,7 +331,9 @@ test("I62-8: the sheets open from the address; Plomería's headline says how the
   assert.deepEqual(page.hojaOf("?hoja=pausar:filmia"), { kind: "pausar", slug: "filmia" });
   assert.deepEqual(page.hojaOf("?proyecto=filmia&hoja=meta"), { kind: "meta", slug: "filmia" });
   assert.deepEqual(page.hojaOf("?nuevo"), { kind: "nuevo", slug: null });
-  assert.equal(page.hojaOf("?hoja=borrar:filmia"), null);
+  // NEWPROJ-7: borrar is a sheet now (Borrar proyecto); an unknown kind still opens nothing.
+  assert.deepEqual(page.hojaOf("?hoja=borrar:filmia"), { kind: "borrar", slug: "filmia" });
+  assert.equal(page.hojaOf("?hoja=quemar:filmia"), null);
   const pl = (over: Record<string, unknown> = {}) => ({ company: { paused: false, paused_at: null }, plan: { five_hour_pct: 20, guard_pct: 70, override: false }, usage: { asistente: { used: 0 }, projects: [{ slug: "a", title: "A", paused: false, usage: { used: 0 } }, { slug: "b", title: "B", paused: true, usage: { used: 0 } }] }, ...over });
   assert.equal(plomeria.plumbingHead(pl()).title, "La compañía está en marcha.");
   assert.equal(plomeria.plumbingHead(pl({ company: { paused: true, paused_at: null } })).tone, "stop");

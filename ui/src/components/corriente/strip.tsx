@@ -61,6 +61,7 @@ export const ProjectBar = ({
   team,
   paused,
   pauseHref,
+  deleteHref,
 }: {
   slug: string;
   title: string;
@@ -72,6 +73,8 @@ export const ProjectBar = ({
   team?: string;
   paused: boolean;
   pauseHref: string;
+  /** NEWPROJ-7: Borrar proyecto's sheet. */
+  deleteHref?: string;
 }) => {
   const on = (t: Tab) => tab === t || (t === "equipo" && tab === "motores");
   return (
@@ -112,6 +115,11 @@ export const ProjectBar = ({
         ) : (
           <Link className="cor-door" to={pauseHref} data-control="pausar">
             Pausar
+          </Link>
+        )}
+        {deleteHref && (
+          <Link className="cor-door" to={deleteHref} data-control="borrar">
+            Borrar
           </Link>
         )}
       </nav>

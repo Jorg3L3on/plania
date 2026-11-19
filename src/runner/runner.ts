@@ -13,6 +13,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { makeDb, type Db } from "../db/client.js";
+import { bus } from "../events.js";
 import {
   agentRuns,
   agentSessions,
@@ -37,7 +38,8 @@ import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings } from "./deny.js";
-import { kitLines, roleFile, sha, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
+import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
+import { rolePrompt } from "./prompts.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
 import { runSession } from "./run-session.js";
@@ -219,7 +221,8 @@ const tmpDirOf = (deps: RunnerDeps) => deps.tmpDir ?? path.join(tmpdir(), "plani
 const rootOf = (deps: RunnerDeps, env: NodeJS.ProcessEnv) => deps.worktreeRoot ?? worktreeRoot(env);
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 
-function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
+// NEWPROJ-4: exported for the readiness list (./readiness.ts), which looks for the same binary without running it.
+export function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): string {
   const named = config?.command_env;
   if (typeof named === "string" && ENV_NAME.test(named) && env[named]?.trim()) return env[named]!.trim();
   if (env.CLAUDE_CODE_BIN?.trim()) return env.CLAUDE_CODE_BIN.trim();
@@ -942,16 +945,9 @@ export function userPrompt(input: {
 // AUDIT-2: the role prompt and its version, "<doc version>:<first 12 of its sha256>". The Plania doc is the live copy;
 // with no doc the repo's kit/roles/<role>.md is used and the version reads "git:<sha>".
 export async function promptDoc(db: Db, role: RunnerRole, env: NodeJS.ProcessEnv): Promise<{ markdown: string; version: string } | null> {
-  const slug = env.PLANIA_PROMPTS_PROJECT || "plania";
-  const rows = await db
-    .select({ markdown: docs.markdown, version: docs.version })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, slug), isNull(docs.taskId), eq(docs.title, PROMPT_DOCS[role])))
-    .limit(1);
-  if (rows[0]?.markdown) return { markdown: rows[0].markdown, version: `${rows[0].version}:${sha(rows[0].markdown, 12)}` };
-  const file = roleFile(role, env);
-  return file ? { markdown: file, version: `git:${sha(file, 12)}` } : null;
+  // NEWPROJ-2: the lookup is shared with project creation and the hire sheet (src/runner/prompts.ts).
+  const prompt = await rolePrompt(db, role, env);
+  return prompt ? { markdown: prompt.markdown, version: prompt.version } : null;
 }
 
 // AUDIT-9: what the owner keeps about a project that cannot be found by reading its repo: three project docs,
@@ -1104,6 +1100,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const taskKey = run.taskKey;
   const fail = async (summary: string): Promise<WakeOutcome> => {
     await endWithoutProcess(db, run, "fail", summary, new Date());
+    // NEWPROJ-5: a run that never started writes no event, so open screens kept showing the step as about to
+    // start until their next poll. Tell them now.
+    bus.publish({ type: "task", project: project.slug, ...(taskKey ? { key: taskKey } : {}) });
     return { kind: "fail", summary, taskKey, recorded: true };
   };
 
@@ -1538,6 +1537,19 @@ export function stopRun(runId: string, reason = "detenido desde Compañía"): bo
   run.stopReason = reason;
   run.proc.stop(reason);
   return true;
+}
+
+// NEWPROJ-7: deleting a project stops every run of it this process supervises (the asistente's too) and waits
+// until each has exited and written its end, so the rows go only after the processes are gone. A run that ignores
+// SIGINT gets SIGTERM and SIGKILL from its supervisor; waitMs caps the wait. Returns how many were signalled.
+export async function stopProjectRuns(projectId: string, reason: string, waitMs = 30_000): Promise<number> {
+  const runs = [...live.values()].filter((run) => run.projectId === projectId);
+  const n = stopLive((run) => run.projectId === projectId, reason);
+  if (runs.length === 0) return n;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([Promise.all(runs.map((run) => run.finished)), new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)))]);
+  clearTimeout(timer);
+  return n;
 }
 
 // Each tick: switches off stop the live runs in their scope. No token budgets (PLA-21).

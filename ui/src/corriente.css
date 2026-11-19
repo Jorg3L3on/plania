@@ -858,6 +858,33 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-hoja-form { display: flex; flex-direction: column; gap: 12px; }
 .cor-hoja-two { display: flex; gap: 12px; }
 .cor-hoja-two > label { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+/* NEWPROJ-8: the creation sheet's name and goal row stacks at phone width; its inputs never push the sheet sideways. */
+.cor-hoja-nuevo .cor-hoja-two > label { min-width: 0; }
+@media (max-width: 639px) { .cor-hoja-nuevo .cor-hoja-two { flex-direction: column; } }
+/* NEWPROJ-7: the same for every sheet with a two-field row (Borrar's code field ran past the sheet's edge). */
+.cor-hoja-two > label { min-width: 0; }
+.cor-hoja-two > label > .cor-input { min-width: 0; width: 100%; }
+@media (max-width: 639px) { .cor-hoja-two { flex-direction: column; } }
+/* NEWPROJ-3: «¿Dónde está su código?» in the sheet Nuevo proyecto. */
+.cor-hoja-codigo { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cor-hoja-codigo legend { padding: 0; margin-bottom: 6px; }
+.cor-hoja-one { display: flex; flex-direction: column; gap: 6px; }
+/* The refusal names a folder and what to fix: it wraps, and a path keeps its case. */
+.cor-hoja-refusal { white-space: normal; text-transform: none; letter-spacing: normal; font-size: 12.5px; overflow-wrap: anywhere; }
+@media (max-width: 639px) { .cor-hoja-codigo .cor-hoja-two { flex-direction: column; } .cor-hoja-codigo .cor-opt { flex: 1 1 100%; justify-content: flex-start; } }
+/* NEWPROJ-4: the readiness list (components/listo.tsx). */
+.cor-listo { display: flex; flex-direction: column; gap: 12px; }
+.cor-listo-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.cor-listo-item { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--cor-line); font-size: 13px; color: var(--cor-body); }
+.cor-listo-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.cor-listo-body b { color: var(--cor-text); font-weight: 500; }
+.cor-listo-para { margin-left: 8px; font-family: var(--cor-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cor-red); }
+.cor-listo-dot { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--cor-muted); opacity: 0.5; }
+.cor-listo-dot.ok { background: var(--cor-green); opacity: 1; }
+.cor-listo-dot.amber { background: var(--cor-amber); opacity: 1; }
+.cor-listo-dot.bad { background: var(--cor-red); opacity: 1; }
+.cor-listo-aviso { font-size: 13.5px; color: var(--cor-amber); }
+.cor-listo-mas > summary { cursor: pointer; margin-bottom: 8px; }
 .cor-hoja-what { padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .cor-hoja-list .cor-row { gap: 14px; font-size: 13.5px; }
 .cor-hoja-list .cor-key { width: 90px; flex: none; }
@@ -1197,3 +1224,32 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-tab.none { cursor: default; }
 /* PLA-63: on a thread with no idea part, the moving light runs over the construction only. */
 .cor-hilo.born.flow::after { left: calc((100% - 26px) * 6 / 9.3 + 26px); }
+/* NEWPROJ-6: the Ajustes door (components/corriente/ajustes.tsx). Cards in two columns on a wide screen, one on a phone. */
+.cor-ajustes-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; max-width: 1180px; }
+.cor-ajustes-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px 20px; }
+.cor-ajustes-sec[data-ajustes="contexto"] { grid-column: 1 / -1; }
+.cor-ajustes-h { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.cor-ajustes-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cor-ajustes-form > label { display: flex; flex-direction: column; gap: 6px; }
+.cor-ajustes-form .cor-input, .cor-ajustes-area { width: 100%; min-width: 0; }
+.cor-ajustes-three > label { min-width: 0; }
+.cor-ajustes-row { display: flex; gap: 8px; }
+.cor-ajustes-row .cor-input { flex: 1; }
+.cor-ajustes-switch { display: flex; flex-direction: column; gap: 2px; }
+.cor-ajustes .cor-mono { font-family: var(--cor-mono); }
+.cor-ajustes-area { font-size: 12.5px; }
+.cor-ajustes-area.tall { min-height: 320px; }
+.cor-ajustes-falla { white-space: normal; text-transform: none; letter-spacing: normal; font-size: 12.5px; overflow-wrap: anywhere; }
+.cor-ajustes-notas { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+.cor-ajustes-nota { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-top: 1px solid var(--cor-line); }
+.cor-ajustes-nota-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cor-ajustes-nota-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cor-ajustes-nota-tx b { font-weight: 500; color: var(--cor-text); }
+.cor-listo-ajustes { align-self: flex-start; }
+@media (max-width: 1100px) { .cor-ajustes-cols { grid-template-columns: 1fr; } }
+@media (max-width: 639px) {
+  .cor-ajustes-sec { padding: 14px; }
+  .cor-ajustes .cor-hoja-two { flex-direction: column; }
+  .cor-ajustes .cor-opt { flex: 1 1 100%; justify-content: flex-start; }
+  .cor-ajustes-nota-head { flex-direction: column; align-items: stretch; }
+}

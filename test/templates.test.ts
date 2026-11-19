@@ -1,11 +1,12 @@
 // PLA-I25-2: a company template creates a project, a product owner and a Playbook.
-// The same slug again is a no-op.
+// The same slug again is a no-op. NEWPROJ-1: the project and its team come from the shared creation
+// function, so the PO is a team member on the runner config and points at the prompt doc.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestDb, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -60,7 +61,7 @@ after(async () => {
 });
 
 test("create_company_project adds a project, a product owner and a Playbook", async () => {
-  const { skills, playbook } = readProductOwnerTemplate();
+  const { playbook } = readProductOwnerTemplate();
   const created = await call("create_company_project", {
     actor: A,
     slug: "northwind",
@@ -75,12 +76,18 @@ test("create_company_project adds a project, a product owner and a Playbook", as
   assert.deepEqual(created.playbook, { title: "Playbook", version: 1 });
 
   const owner = await raw.query(
-    `select a.note, a.kind, a.capabilities, p.slug as reports_to
+    `select a.note, a.kind, a.capabilities, a.role_template, a.adapter_config, p.slug as reports_to
      from agents a left join agents p on p.id = a.reports_to where a.slug = 'po-northwind'`,
   );
-  assert.equal(owner.rows[0].note, skills);
+  assert.match(owner.rows[0].note, /Prompt: doc «Prompt: Product owner»/);
   assert.equal(owner.rows[0].kind, "bot");
-  assert.deepEqual(owner.rows[0].capabilities, ["product-owner"]);
+  assert.deepEqual(owner.rows[0].capabilities, ["northwind"]);
+  assert.equal(owner.rows[0].role_template, "product-owner");
+  assert.deepEqual(owner.rows[0].adapter_config, { command_env: "CLAUDE_CODE_BIN", args_env: "CLAUDE_CODE_ARGS" });
+  const team = await raw.query(
+    `select a.slug from agents a join projects p on p.id = a.project_id where p.slug = 'northwind' order by a.slug`,
+  );
+  assert.deepEqual(team.rows.map((r) => r.slug), ["artist-northwind", "po-northwind", "research-northwind", "taller-northwind"]);
   // PLA-I30-1 removed the COO «plania»; the new-project template (PLA-I31-3) points the PO at ceo.
   assert.ok(owner.rows[0].reports_to === null || owner.rows[0].reports_to === "ceo");
 
@@ -130,34 +137,14 @@ test("an existing project slug is left untouched", async () => {
   assert.equal((await raw.query("select count(*)::int as n from agents where slug = 'po-micasa'")).rows[0].n, 0);
 });
 
-test("the screen route creates once and refuses a bearer", async () => {
-  const missing = await app.request("/api/templates/company", {
+test("the home page's company route is gone, and a bad slug is refused (NEWPROJ-1)", async () => {
+  const gone = await app.request("/api/templates/company", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Cookie: cookie() },
     body: JSON.stringify({ slug: "southwind", name: "Southwind", owner_bot_name: "South Bot" }),
   });
-  assert.equal(missing.status, 401);
-  const bearer = await app.request("/api/templates/company", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TEST_BEARER}` },
-    body: JSON.stringify({ slug: "southwind", name: "Southwind", owner_bot_name: "South Bot" }),
-  });
-  assert.equal(bearer.status, 401);
-
-  const headers = { "Content-Type": "application/json", Cookie: cookie() };
-  const body = JSON.stringify({ slug: "southwind", name: "Southwind", owner_bot_name: "South Bot" });
-  const created = await app.request("/api/templates/company", { method: "POST", headers, body });
-  assert.equal(created.status, 201);
-  const first = (await created.json()) as { created: boolean; project: string; owner: { slug: string } };
-  assert.equal(first.created, true);
-  assert.equal(first.owner.slug, "po-southwind");
-
-  const again = await app.request("/api/templates/company", { method: "POST", headers, body });
-  assert.equal(again.status, 200);
-  const second = (await again.json()) as { created: boolean; name: string };
-  assert.equal(second.created, false);
-  assert.equal(second.name, "Southwind");
-  assert.equal((await raw.query("select count(*)::int as n from projects where slug = 'southwind'")).rows[0].n, 1);
+  assert.equal(gone.status, 404);
+  assert.equal((await raw.query("select count(*)::int as n from projects where slug = 'southwind'")).rows[0].n, 0);
 
   const bad = await call("create_company_project", { actor: A, slug: "bad_slug", name: "Nope", owner_bot_name: "Owner Bot" });
   assert.equal(bad.__error, "INVALID_FILTER");

@@ -313,7 +313,8 @@ export const STAGES: { id: OrderStage; word: string }[] = [
 // How many of the four stages are reached (0 = sent, nothing understood yet).
 export const stageReached = (stage: OrderStage | undefined) => (stage ? STAGES.findIndex((s) => s.id === stage) + 1 : 0);
 
-const WOKE: Record<string, string> = { queued: "en cola: el PO arranca en cuanto haya lugar", busy: "el PO termina lo que corre y sigue con esto", idle: "el PO no tenía trabajo listo" };
+// NEWPROJ-5: starting, the ask answered before the PO's run started (src/api/company-actions.ts askPo).
+const WOKE: Record<string, string> = { starting: "el PO arranca ahora", queued: "en cola: el PO arranca en cuanto haya lugar", busy: "el PO termina lo que corre y sigue con esto", idle: "el PO no tenía trabajo listo" };
 export function askText(r: AskResult): string {
   if (r.woke) return r.woke.woke ? "Enviado · el PO ya está en ello" : `Enviado · ${WOKE[r.woke.reason] ?? r.woke.summary ?? r.woke.reason}`;
   return r.wake === "queued" ? "Enviado · el PO lo toma en su turno" : r.wake === "busy" ? "Enviado · el PO lo toma al terminar lo que corre" : "Enviado · el PO lo ve en su próximo turno";

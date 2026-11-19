@@ -127,8 +127,22 @@ export async function askPo(db: Db, slug: string, text: string, opts: { kind?: O
     return { key: made.key, title: made.title, po: g.po.slug, mode: "forma", wake: made.wake, woke: null };
   }
   const made = await createPoTicket(db, g.project, g.po, text, "Compañía", opts.kind ?? null);
-  const woke = opts.now || opts.mode === "ya" ? await wakePo(db, slug, deps) : null;
-  return { key: made.key, title: made.title, po: g.po.slug, mode: "ya", wake: made.wake, woke: woke && !("error" in woke) ? woke : null };
+  // NEWPROJ-5: the answer leaves as soon as the ticket exists. Starting the PO's run (a worktree, the prompt, the
+  // process) took eleven seconds in the new-project trial, and a run that cannot start ends on its own run row, which
+  // the step's row on the project page reads. The wake itself is the same call as before, only not awaited here.
+  const woke: WakeOutcome | null = opts.now || opts.mode === "ya" ? { woke: false, reason: "starting", ticket: made.key, summary: "" } : null;
+  if (woke) wakeInBackground(wakePo(db, slug, deps), slug);
+  return { key: made.key, title: made.title, po: g.po.slug, mode: "ya", wake: made.wake, woke };
+}
+
+// NEWPROJ-5: the wakes askPo started and did not wait for. Tests wait on them before they read the run rows.
+const askWakes = new Set<Promise<unknown>>();
+function wakeInBackground(p: Promise<unknown>, slug: string): void {
+  const w = p.catch((e) => console.log(`[ask] ${slug}: the PO's wake failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`)).finally(() => askWakes.delete(w));
+  askWakes.add(w);
+}
+export async function waitForAskWakes(): Promise<void> {
+  while (askWakes.size) await Promise.all([...askWakes]);
 }
 
 // PLA-I36-6: Cambiar lo siguiente. The ticket must be Ready in this project.

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { coalesce } from "./coalesce";
 import type { LiveEvent } from "./types";
 
 // One EventSource per tab. Each change invalidates the affected queries, and rows changed
@@ -9,6 +10,7 @@ import type { LiveEvent } from "./types";
 
 const HIGHLIGHT_MS = 2500;
 const LOCAL_ECHO_MS = 3000;
+const COMPANY_REFRESH_MS = 800;
 
 type LiveState = {
   connected: boolean;
@@ -41,6 +43,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const local = useRef(new Map<string, number>());
 
   useEffect(() => {
+    // NEWPROJ-5: La corriente reads the company query, which only polled (every 20 s), so a step that could not
+    // start kept saying it was about to. A change now refreshes it, once per burst of changes.
+    const refreshCompany = coalesce(() => void queryClient.invalidateQueries({ queryKey: ["company"] }), COMPANY_REFRESH_MS);
     function open() {
       const source = new EventSource("/api/events");
       source.addEventListener("ready", () => {
@@ -54,6 +59,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ["goals"] });
         void queryClient.invalidateQueries({ queryKey: ["project", event.project] });
         void queryClient.invalidateQueries({ queryKey: ["inbox"] });
+        refreshCompany();
         // 2.12: Inicio's Hoy strip reads the digest since this device's cursor.
         void queryClient.invalidateQueries({ queryKey: ["digest"] });
         // The machine job and register/release_footprint tell every screen the inventory changed.
@@ -84,6 +90,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", reopen);
       window.removeEventListener("pageshow", reopen);
       window.removeEventListener("online", reopen);
+      refreshCompany.cancel();
       source.close();
     };
   }, [queryClient]);

@@ -7,6 +7,7 @@ import { checkReleaseSettings } from "./release-plan.js";
 import { parseCaptureSettings } from "../captures/settings.js";
 import { parseQaSettings } from "../runner/qa-settings.js";
 import { parseMaquinasSettings } from "../maquinas/settings.js";
+import { parseLocalSettings } from "../runner/repo-check.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -15,7 +16,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "release_on", "auto_done", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas"] as const;
+const SETTING_KEYS = ["release_target", "release_on", "auto_done", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas", "local"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -54,6 +55,12 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     const m = parseMaquinasSettings(next.maquinas);
     if (!m.ok) throw new ToolError("INVALID_FILTER", { field: m.field, hint: m.hint });
     next.maquinas = m.settings;
+  }
+  // NEWPROJ-3: where the code is on this machine (repo_path) or that there is none yet (no_code). Shape only.
+  if (next.local !== undefined) {
+    const l = parseLocalSettings(next.local);
+    if (!l.ok) throw new ToolError("INVALID_FILTER", { field: l.field, hint: l.hint });
+    next.local = l.settings;
   }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };
