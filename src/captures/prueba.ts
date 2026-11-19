@@ -30,6 +30,7 @@ import { supported } from "../lib/system-support.js";
 import { isSelfProject, serverRoot } from "../self/plania-self.js";
 import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
 import { processCommand } from "../lib/proc-command.js";
+import { killTree, shellCommand } from "../lib/proc-tree.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: why a copy did not start, its footprints' purposes and its refusals, in the install's language; the
@@ -151,9 +152,9 @@ export type ChildLike = {
 
 export type PruebaDeps = {
   git?: GitFn;
-  // sh -c command, detached in its own process group (so the whole tree stops together).
+  // sh -c command (cmd.exe on Windows), detached in its own process group (so the whole tree stops together).
   spawn?: (command: string, opts: { cwd: string; env: NodeJS.ProcessEnv }) => ChildLike;
-  kill?: (pid: number, signal: NodeJS.Signals) => void; // pid is the group leader: signals -pid
+  kill?: (pid: number, signal: NodeJS.Signals) => void; // pid is the group leader: signals -pid (taskkill /T on Windows)
   alive?: (pid: number) => boolean;
   exec?: Exec; // the install command
   up?: (url: string) => Promise<boolean>; // the app answers below 500
@@ -233,19 +234,12 @@ const env = () => deps.env ?? process.env;
 const git = () => deps.git ?? defaultGit;
 const ctx = (): Ctx => ({ actor: { agent: "plania", session_id: SESSION, machine: hostname() }, system: true, tool: "prueba" });
 
-const defaultSpawn: NonNullable<PruebaDeps["spawn"]> = (command, { cwd, env: e }) =>
-  nodeSpawn("/bin/sh", ["-c", command], { cwd, env: e, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-const defaultKill: NonNullable<PruebaDeps["kill"]> = (pid, signal) => {
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // already gone
-    }
-  }
+// PLA-I2-19 (audit B5): sh -c on macOS and Linux, cmd.exe on Windows (src/lib/proc-tree.ts); the tree stops together.
+const defaultSpawn: NonNullable<PruebaDeps["spawn"]> = (command, { cwd, env: e }) => {
+  const sh = shellCommand(command, process.platform, e);
+  return nodeSpawn(sh.file, sh.args, { ...sh.options, cwd, env: e, detached: true, stdio: ["ignore", "pipe", "pipe"] });
 };
+const defaultKill: NonNullable<PruebaDeps["kill"]> = (pid, signal) => killTree(pid, signal);
 const defaultAlive = (pid: number) => {
   try {
     process.kill(pid, 0);

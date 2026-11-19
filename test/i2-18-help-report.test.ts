@@ -354,6 +354,45 @@ describe("leaving", () => {
     assert.deepEqual(await uninstallMod.defaultFindProcesses(ctx), [101, 201]);
   });
 
+  // PLA-I2-19 (audit B5): native Windows.
+  test("#3 Windows: the supervisor is asked to stop, the Scheduled Task deleted and its files removed", async () => {
+    // machine()'s home is /home/ana; Windows joins it with backslashes.
+    const task = "\\home\\ana\\.config\\plania\\plania-task.xml";
+    const config = "\\home\\ana\\.config\\plania\\service.json";
+    const m = machine({ os: "win32", files: [task, config], running: [[300], []] });
+    m.deps.env.LOCALAPPDATA = "C:\\Users\\ana\\AppData\\Local";
+    const r = await uninstallMod.uninstall({ deleteData: false }, m.deps);
+    assert.deepEqual(m.calls, [`${process.execPath} --import tsx \\opt\\plania\\scripts\\service-win.ts stop`, "schtasks /Delete /TN Plania /F"]);
+    assert.deepEqual(m.removed, [task, config]);
+    assert.equal(r.service.length, 1);
+    assert.ok(r.service[0]!.includes("Plania"));
+    assert.deepEqual(m.killed, ["300 SIGTERM"]);
+  });
+
+  test("Windows: the process finder keeps this folder's server, supervisor and wrappers, by command line", async () => {
+    const root = "C:\\Users\\ana\\plania";
+    const stdout = [
+      "101\t\"C:\\Program Files\\nodejs\\node.exe\" --env-file=C:\\Users\\ana\\plania\\.env --import tsx C:\\Users\\ana\\plania\\scripts\\dev.ts --port 3737",
+      "102\t\"C:\\Program Files\\nodejs\\node.exe\" --import file:///C:/Users/ana/plania/node_modules/tsx/dist/loader.mjs scripts/dev.ts",
+      "103\tnode C:\\Users\\ana\\other\\scripts\\dev.ts",
+      "104\tnode --import tsx C:\\Users\\ana\\plania\\scripts\\service-win.ts run",
+      "105\tnode C:\\Users\\ana\\plania\\src\\runner\\wrapper.mjs run-1 log exit -- claude",
+      "106\tnode C:\\Users\\ana\\plania\\scripts\\uninstall.ts",
+      "",
+    ].join("\r\n");
+    const seen: string[] = [];
+    const exec: ExecFn = async (cmd) => (seen.push(cmd), { code: 0, stdout, stderr: "" });
+    const ctx = { os: "win32", home: "C:\\Users\\ana", uid: null, root, env: {}, exec, exists: () => false, remove: () => undefined };
+    assert.deepEqual(await uninstallMod.defaultFindProcesses(ctx), [101, 102, 104, 105]);
+    assert.deepEqual(seen, ["powershell.exe"]);
+  });
+
+  test("Windows: Plania's own folders include %LOCALAPPDATA%\\plania; the backups stay", () => {
+    const f = uninstallMod.dataFolders("C:\\Users\\ana", "win32", { LOCALAPPDATA: "D:\\Local" });
+    assert.deepEqual(f.remove, ["C:\\Users\\ana\\.config\\plania", "C:\\Users\\ana\\plania-captures", "D:\\Local\\plania"]);
+    assert.deepEqual(f.keep, ["C:\\Users\\ana\\plania-backups"]);
+  });
+
   test("the database's name comes from DATABASE_URL", () => {
     assert.equal(uninstallMod.databaseName("postgres://a:b@localhost:5432/plania_casa"), "plania_casa");
     assert.equal(uninstallMod.databaseName(undefined), null);

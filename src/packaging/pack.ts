@@ -30,6 +30,8 @@ export const BUYER_SCRIPTS = [
   "migrate.ts",
   "restart.ts",
   "service.ts",
+  // PLA-I2-19: the Windows service's supervisor (the Scheduled Task runs it).
+  "service-win.ts",
   "machine-check.ts",
   "hash-password.ts",
   "vapid.ts",

@@ -9,7 +9,7 @@ export const SISTEMA = defineWords({
     unavailable: "No disponible en este sistema",
     // The sub-line for each part, under unavailable.
     by: {
-      test_copy: "La copia de prueba necesita macOS o Linux.",
+      test_copy: "La copia de prueba necesita /bin/sh, que esta máquina no tiene.",
       stills: "Las capturas necesitan Chrome o Chromium en esta máquina.",
       base_lever: "Encender y apagar la base necesita brew o systemd en esta máquina.",
     },
@@ -17,7 +17,7 @@ export const SISTEMA = defineWords({
   en: {
     unavailable: "Not available on this system",
     by: {
-      test_copy: "The test copy needs macOS or Linux.",
+      test_copy: "The test copy needs /bin/sh, which this machine does not have.",
       stills: "Stills need Chrome or Chromium on this machine.",
       base_lever: "Turning the database on and off needs brew or systemd on this machine.",
     },

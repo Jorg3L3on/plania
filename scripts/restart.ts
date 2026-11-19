@@ -1,7 +1,7 @@
 // PLA-53: pnpm server:restart — restarts the Plania server only when nothing it would kill is in flight. --check lists
 // and exits (1 when something is in flight); --force restarts anyway.
 // PLA-I2-17: the service is launchd's com.plania.server on macOS or the systemd user unit plania.service on Linux
-// (src/packaging/service.ts restartCommand).
+// (src/packaging/service.ts restartCommand). PLA-I2-19: on Windows, the Scheduled Task «Plania»'s supervisor.
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { parseArgs } from "node:util";
@@ -23,7 +23,8 @@ if (found.length && !values.force) {
   console.log("No se reinició: un reinicio corta ese trabajo. Espera a que termine, o usa --force.");
   process.exit(1);
 }
-const restart = restartCommand({ platform: process.platform, uid: userInfo().uid, ...detectSystem() });
+// PLA-I2-19: on Windows the supervisor's restart request runs with this Node and package.
+const restart = restartCommand({ platform: process.platform, uid: userInfo().uid, ...detectSystem(), node: process.execPath, root: ROOT_DIR });
 if (!restart) {
   console.log("Plania no corre como servicio en esta máquina: deténla y vuelve a encenderla con pnpm start.");
   process.exit(1);
@@ -33,7 +34,7 @@ if (!restart) {
 const port = Number(process.env.PLANIA_PORT) || 3737;
 const git = (args: string[]) => execFileSync("git", args, { cwd: ROOT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const out = await restartWithFallback({
-  restart: () => execFileSync(restart.cmd, restart.args, { stdio: "inherit" }),
+  restart: () => execFileSync(restart.cmd, restart.args, { stdio: "inherit", cwd: ROOT_DIR }),
   health: async () => {
     const r = await fetch(`http://127.0.0.1:${port}/health/ui`, { signal: AbortSignal.timeout(3_000) }).catch(() => null);
     if (!r?.ok) return null;
