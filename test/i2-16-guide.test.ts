@@ -77,7 +77,8 @@ test("I2-16 #2: after first start the guide shows six steps, none done, the mach
   assert.equal(r.maquina, "sin_revisar");
   assert.equal(r.company_paused, true);
   assert.equal(r.est_pct_per_run, 3);
-  assert.deepEqual(estados(r), { maquina: "ahora", proyecto: "luego", reanudar: "luego", pedido: "luego", plan: "luego", entrega: "luego" });
+  // The machine step is current beside the first project: a machine check that finds something does not block the rest.
+  assert.deepEqual(estados(r), { maquina: "ahora", proyecto: "ahora", reanudar: "luego", pedido: "luego", plan: "luego", entrega: "luego" });
   assert.equal(ui.ofreceEjemplo(r as never), true);
   const pasos = ui.pasosDe(r as never);
   assert.equal(pasos[0]!.href, "/machine/falta");
@@ -89,6 +90,7 @@ test("I2-16 #2: each step ticks from data as the owner goes, and the guide goes 
   // Machine: the newest reading any page took.
   setLatestMachineReading({ items: [], ready: false, checked_at: new Date().toISOString() });
   assert.equal((await guia()).maquina, "falta");
+  assert.equal(estados(await guia()).maquina, "ahora");
   setLatestMachineReading({ items: [], ready: true, checked_at: new Date().toISOString() });
   assert.deepEqual(estados(await guia()), { maquina: "hecho", proyecto: "ahora", reanudar: "luego", pedido: "luego", plan: "luego", entrega: "luego" });
 

@@ -115,8 +115,10 @@ export function pasosDe(r: GuiaRead): Paso[] {
       hecho: r.entrega === "aceptada",
     },
   ];
-  const first = base.findIndex((s) => !s.hecho);
-  return base.map(({ hecho, ...s }, i) => ({ ...s, estado: hecho ? "hecho" : i === first ? "ahora" : "luego" }));
+  // The machine step never holds the rest back: something optional or slow to fix (backups) must not stop a first
+  // delivery. While it is not done it is «ahora» beside the first open step after it.
+  const first = base.findIndex((s, i) => i > 0 && !s.hecho);
+  return base.map(({ hecho, ...s }, i) => ({ ...s, estado: hecho ? "hecho" : i === 0 || i === first ? "ahora" : "luego" }));
 }
 
 /** Whether to offer the example project: only while there is no project yet. */
