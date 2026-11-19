@@ -12,6 +12,8 @@ import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx, type Ctx } from "../mcp/tx.js";
 import { promptNote, rolePrompts } from "./prompts.js";
+import { checkGithubRepo, type GithubCheckCode } from "./repo-setup.js";
+import { DEFAULT_START_BRANCH } from "./start-branch.js";
 import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheck, type RepoCheckCode, type RepoCheckDeps } from "./repo-check.js";
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
 import { ALLOWED_BASE } from "./worktree.js";
@@ -29,7 +31,7 @@ export type NewProject = { slug: string; key_prefix: string; paused: true; po: s
 // NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
 // NEWPROJ-3: a folder that fails its check is refused with the check's code, the folder and every check's result.
 export type NewProjectError = {
-  error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN" | RepoCheckCode;
+  error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN" | RepoCheckCode | GithubCheckCode;
   status: 400 | 409;
   field?: string;
   slug?: string;
@@ -125,6 +127,12 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
   if (repoPath && opts.repoCheck) {
     const check = await checkRepoFolder(repoPath, opts.repoCheck);
     if (check.failed) return { error: check.failed, status: 400, field: "repo_path", path: repoPath, branch: check.branch, checks: check.checks };
+  }
+  // PLA-I2-5: the GitHub choice runs the same kind of check (the repository exists, this login can write, the
+  // working branch is there). A new project has the default working branch.
+  if (githubRepo && opts.repoCheck?.gh) {
+    const gh = await checkGithubRepo(githubRepo, DEFAULT_START_BRANCH, opts.repoCheck.gh, process.cwd());
+    if (gh.failed) return { error: gh.failed, status: 400, field: "github_repo", branch: gh.branch };
   }
 
   const taken = new Set((await db.select({ p: projects.keyPrefix }).from(projects)).map((r) => r.p));

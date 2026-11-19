@@ -1,7 +1,7 @@
 // PLA-I2-6: two sections of a project's Ajustes. «Cómo arranca la app» edits settings.capture when Máquinas' guess is
 // wrong (PUT …/settings/capture). «Avanzado» is closed: one row per advanced setting from the server's one list
 // (src/mcp/settings-registry.ts), each saved alone (PUT …/settings/advanced); empty puts the default back. A token
-// field takes a variable's name, never the token. The slot for the working branch is kept for its own ticket.
+// field takes a variable's name, never the token. The first field is the working branch (PLA-I2-5's setting).
 // Wording and checks: @/lib/ajustes-avanzado.
 import { useState } from "react";
 import { api } from "@/lib/api";
@@ -128,13 +128,6 @@ export const Avanzado = ({ a }: { a: AjustesRead }) => (
     <summary className="cor-ajustes-h">{AVANZADO_SECCION.titulo}</summary>
     <p className="cor-text">{AVANZADO_SECCION.texto}</p>
     <ul className="cor-ajustes-notas">
-      {/* PLA-I2-5: the working-branch setting goes in this slot. */}
-      <li className="cor-ajustes-nota" data-avanzado="rama" data-slot="rama-de-trabajo">
-        <span className="cor-ajustes-nota-tx">
-          <b>{AVANZADO_SECCION.ramaSlot.label}</b>
-          <span className="cor-cap">{AVANZADO_SECCION.ramaSlot.texto}</span>
-        </span>
-      </li>
       {a.avanzado.map((f) => (
         <Campo key={`${f.field}:${a.version}`} a={a} f={f} />
       ))}

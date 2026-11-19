@@ -186,7 +186,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   let antesError: string | null = null;
   if (sb?.phase === "live" && sb.port) {
     const info = pruebaInfo(slug);
-    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
+    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: info?.branch ?? BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
       (err) => (antesError = `Antes: ${short(err)}`),
     );
   } else antesError = "Sin antes: la copia de prueba no arrancó";

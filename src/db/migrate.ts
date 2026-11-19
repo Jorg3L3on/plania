@@ -113,6 +113,10 @@ export type MigrateOptions = {
   // record may then be bootstrapped, as long as it has no tables.
   named?: boolean;
   log?: (line: string) => void;
+  // PLA-I2-8: every pending file in one transaction, so a failure anywhere leaves the database exactly as it was
+  // (the update relies on it to leave the previous version startable). Off by default: install and db:migrate keep
+  // what applied before a failure.
+  atomic?: boolean;
 };
 
 // Applies every unrecorded file in order, each in its own transaction with its record. Stops at the first failure.
@@ -134,21 +138,23 @@ export async function migrate(c: pg.Client, opts: MigrateOptions = {}): Promise<
     const done = await recorded(c);
     const changed = files.filter((f) => done.has(f.name) && done.get(f.name) !== f.checksum).map((f) => f.name);
     const applied: string[] = [];
+    if (opts.atomic) await c.query("begin");
     for (const f of files) {
       if (done.has(f.name)) continue;
-      await c.query("begin");
+      if (!opts.atomic) await c.query("begin");
       try {
         await c.query(f.sql);
         await c.query(`insert into ${MIGRATIONS_TABLE} (name, checksum) values ($1, $2)`, [f.name, f.checksum]);
-        await c.query("commit");
+        if (!opts.atomic) await c.query("commit");
       } catch (e) {
         await c.query("rollback").catch(() => {});
         const why = e instanceof Error ? e.message : String(e);
         throw new MigrateError("MIGRATION_FAILED", `${f.name} failed: ${why}`, f.name);
       }
       applied.push(f.name);
-      log(f.name);
     }
+    if (opts.atomic) await c.query("commit");
+    for (const f of applied) log(f);
     return { applied, changed, bootstrapped };
   });
 }

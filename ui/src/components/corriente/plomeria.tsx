@@ -15,6 +15,7 @@ import { tableroView } from "@/lib/maquinas";
 import { logWords } from "@/lib/calidad";
 import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { NOVEDADES, versionLine } from "@/lib/version";
+import { ACTUALIZAR, pendingKit } from "@/lib/actualizar";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
 import { LimitesCorrida } from "./limites-corrida";
@@ -92,6 +93,12 @@ export const ReleaseLine = () => {
       <BtnLink kind="link" to="/novedades" data-control="novedades">
         {NOVEDADES.link}
       </BtnLink>
+      {/* PLA-I2-8: after an update, the owner's kit edits that the release also changed wait on Novedades. */}
+      {pendingKit(release.data.last_update) > 0 && (
+        <span className="cor-amber" data-kit-pending>
+          {" "}· {ACTUALIZAR.hint(pendingKit(release.data.last_update))}
+        </span>
+      )}
     </span>
   );
 };

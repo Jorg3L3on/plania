@@ -53,11 +53,12 @@ export const PALABRAS: Record<string, Palabras> = {
     listo: (i) => `${carpeta(i)} está lista: existe, tiene git y está conectada a GitHub.`,
     falta: (i) => {
       const c = carpeta(i);
-      if (i.why === "REPO_FOLDER_MISSING") return `${c} no existe en esta Mac, así que Taller no puede trabajar. Crea la carpeta o corrige la ruta.`;
-      if (i.why === "REPO_NOT_GIT") return `${c} no es un repositorio de git, así que Taller no puede trabajar. Ábrela en la terminal y corre git init.`;
-      if (i.why === "REPO_NO_ORIGIN") return `${c} no está conectada a GitHub (no tiene origin), así que Taller no puede trabajar. Agrégale el repositorio remoto.`;
-      if (i.why === "REPO_ORIGIN_UNREACHABLE") return `No pude leer el repositorio remoto de ${c.toLowerCase()}. Revisa la conexión o tu acceso a GitHub.`;
-      if (i.why === "REPO_NO_START_BRANCH") return `El repositorio remoto de ${c.toLowerCase()} no tiene la rama de donde parte el equipo, así que Taller no puede empezar. Créala y súbela.`;
+      // PLA-I2-5: each fix is a button in Ajustes («Dónde está el código»), never a terminal.
+      if (i.why === "REPO_FOLDER_MISSING") return `${c} no existe en esta máquina, así que Taller no puede trabajar. En Ajustes, «Preparar el código» la crea con su repositorio, o corrige la ruta.`;
+      if (i.why === "REPO_NOT_GIT") return `${c} tiene archivos pero no es un repositorio, así que Taller no puede trabajar. Plania no toca una carpeta con archivos: en Ajustes elige la carpeta del código o una vacía.`;
+      if (i.why === "REPO_NO_ORIGIN") return `${c} no está conectada a GitHub, así que Taller no puede trabajar. En Ajustes, «Preparar el código» crea su repositorio en GitHub con tu cuenta.`;
+      if (i.why === "REPO_ORIGIN_UNREACHABLE") return `No pude leer el repositorio en GitHub de ${c.toLowerCase()}. Revisa en «Qué le falta» (en Máquina) que GitHub tenga la sesión iniciada y pulsa «Revisar de nuevo».`;
+      if (i.why === "REPO_NO_START_BRANCH") return `El repositorio en GitHub de ${c.toLowerCase()} no tiene la rama de trabajo, así que Taller no puede empezar. En Ajustes, «Crear la rama de trabajo» la crea desde la rama principal.`;
       return `${c} no está lista, así que Taller no puede trabajar.`;
     },
     noHaceFalta: "Todavía no hay código: el equipo trabaja sin carpeta hasta que la tenga.",
@@ -66,7 +67,14 @@ export const PALABRAS: Record<string, Palabras> = {
     titulo: () => "Repositorio en GitHub",
     nombre: () => "el repositorio de GitHub",
     listo: () => "Plania sabe cuál es su repositorio.",
-    falta: () => "Sin repositorio de GitHub, Plania no ve las propuestas de cambio ni sus pruebas.",
+    falta: (i) => {
+      // PLA-I2-5: gh's state, the same as the machine check's (ui/src/lib/falta.ts), with the fix on that page.
+      if (i.why === "gh_absent") return "GitHub no está instalado en esta máquina, así que Plania no puede fusionar ni ver las propuestas de cambio. «Qué le falta» (en Máquina) dice cómo instalarlo.";
+      if (i.why === "gh_signed_out") return "GitHub no tiene la sesión iniciada en esta máquina, así que Plania no puede fusionar ni ver las propuestas de cambio. «Qué le falta» (en Máquina) dice cómo entrar.";
+      if (i.why === "gh_no_write") return "Tu cuenta de GitHub en esta máquina no puede escribir en el repositorio, así que Plania no puede fusionar. «Qué le falta» (en Máquina) dice cómo darle permiso.";
+      if (i.why === "no_token") return "Plania no tiene acceso a GitHub para fusionar en esta instalación. «Qué le falta» (en Máquina) dice cómo dárselo.";
+      return "Sin repositorio de GitHub, Plania no ve las propuestas de cambio ni sus pruebas.";
+    },
     noHaceFalta: SIN_CODIGO,
   },
   capture: {

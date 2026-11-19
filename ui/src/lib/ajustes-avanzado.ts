@@ -21,12 +21,11 @@ export const ARRANQUE = {
 export const AVANZADO_SECCION = {
   titulo: "Avanzado",
   texto: "Lo que casi nunca hace falta tocar. Cada ajuste dice qué pasa si lo dejas como está.",
-  // PLA-I2-5 adds the working-branch setting; this slot keeps its place in the section.
-  ramaSlot: { label: "Rama de trabajo", texto: "De qué rama parte el equipo. Pronto se podrá cambiar aquí; hoy es la rama de prueba." },
 } as const;
 
 /** The label for each «Avanzado» field. A field the server sends with no label here shows its key. */
 export const AVANZADO_ETIQUETAS: Record<string, string> = {
+  start_branch: "Rama de trabajo",
   branch_pattern: "Forma de los nombres de rama",
   claim_from: "De dónde toman trabajo los agentes",
   release_target: "Entorno de producción",

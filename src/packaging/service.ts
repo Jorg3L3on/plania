@@ -1,7 +1,7 @@
 // PLA-I2-17: Plania as a service on the buyer's machine, started at login and restarted when it crashes.
 //   macOS: a launchd agent, ~/Library/LaunchAgents/com.plania.server.plist, logs in ~/Library/Logs/plania/.
 //   Linux: a systemd user unit, ~/.config/systemd/user/plania.service, logs in the user journal
-//          (journalctl --user -u plania). WSL counts as Linux when systemd is on there; when it is off the
+//          (journalctl --user -u plania) and ~/.local/state/plania/server.log. WSL counts as Linux when systemd is on there; when it is off the
 //          command says how to turn it on and changes nothing.
 //   Windows outside WSL is not supported: the command says so and changes nothing.
 // Every outside call (the commands, the file writes, the platform) is injected; scripts/service.ts passes the real
@@ -57,6 +57,8 @@ export const launchdPaths = (home: string) => ({
   log: path.posix.join(home, "Library/Logs/plania/server.log"),
 });
 export const systemdPath = (home: string) => path.posix.join(home, ".config/systemd/user", SYSTEMD_UNIT);
+// PLA-I2-8 (with PLA-I2-18): the Linux service also writes a log file where the help report reads it.
+export const systemdLog = (home: string) => path.posix.join(home, ".local/state/plania/server.log");
 
 // node --env-file=<root>/.env --import tsx <root>/scripts/dev.ts --port <port>, run from <root> so `tsx` resolves
 // from the package's node_modules.
@@ -121,6 +123,8 @@ ExecStart=${serverArgs(env).map(sdQuote).join(" ")}
 Environment=${sdQuote(`PATH=${env.path}`)}
 Restart=on-failure
 RestartSec=10
+StandardOutput=append:${systemdLog(env.home)}
+StandardError=append:${systemdLog(env.home)}
 # A restart lets the requests in flight finish (scripts/dev.ts drains on SIGTERM).
 KillSignal=SIGTERM
 TimeoutStopSec=30
@@ -173,12 +177,12 @@ export function installPlan(env: ServiceEnv, opts: { atBoot?: boolean } = {}): S
     if (opts.atBoot) commands.push({ cmd: "loginctl", args: ["enable-linger"], ignoreFailure: true });
     return {
       ...base,
-      dirs: [path.posix.dirname(unit)],
+      dirs: [path.posix.dirname(unit), path.posix.dirname(systemdLog(env.home))],
       files: [{ path: unit, content: systemdUnit(env) }],
       commands,
       lines: [
         `Plania quedó como servicio: arranca al entrar a tu sesión${opts.atBoot ? " (y al encender la máquina)" : ""} y se reinicia si se cae.`,
-        `Abre http://localhost:${env.port}. Para ver lo que escribe: journalctl --user -u plania -f`,
+        `Abre http://localhost:${env.port}. Lo que escribe queda en ${systemdLog(env.home)}.`,
       ],
     };
   }
@@ -214,6 +218,27 @@ export function restartCommand(env: Pick<ServiceEnv, "platform" | "systemd" | "w
   if (platform === "darwin") return { cmd: "launchctl", args: ["kickstart", "-k", `gui/${env.uid}/${LAUNCHD_LABEL}`] };
   if (platform === "linux") return { cmd: "systemctl", args: ["--user", "restart", SYSTEMD_UNIT] };
   return null;
+}
+
+// PLA-I2-8: the update stops the service before it swaps the files and starts it after. Null where there is none.
+export function stopCommand(env: Pick<ServiceEnv, "platform" | "systemd" | "wsl" | "uid">): Command | null {
+  const platform = servicePlatform(env);
+  if (platform === "darwin") return { cmd: "launchctl", args: ["bootout", `gui/${env.uid}/${LAUNCHD_LABEL}`] };
+  if (platform === "linux") return { cmd: "systemctl", args: ["--user", "stop", SYSTEMD_UNIT] };
+  return null;
+}
+export function startCommand(env: Pick<ServiceEnv, "platform" | "systemd" | "wsl" | "uid" | "home">): Command | null {
+  const platform = servicePlatform(env);
+  if (platform === "darwin") return { cmd: "launchctl", args: ["bootstrap", `gui/${env.uid}`, launchdPaths(env.home).plist] };
+  if (platform === "linux") return { cmd: "systemctl", args: ["--user", "start", SYSTEMD_UNIT] };
+  return null;
+}
+// Whether `pnpm service:install` left a service here (its plist or unit file exists).
+export function serviceInstalled(env: Pick<ServiceEnv, "platform" | "systemd" | "wsl" | "home">, exists: (p: string) => boolean = existsSync): boolean {
+  const platform = servicePlatform(env);
+  if (platform === "darwin") return exists(launchdPaths(env.home).plist);
+  if (platform === "linux") return exists(systemdPath(env.home));
+  return false;
 }
 
 export type ServiceIo = {

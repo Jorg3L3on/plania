@@ -44,6 +44,15 @@ export const SETTINGS = {
   auto_accept_invisible: { tier: "basic", control: "ajustes.vista", default: "off", frase: "Solo lo que no cambia la pantalla entra sin esperarte." },
   runner: { tier: "basic", control: "motores", default: "the company's limits", frase: "Cuántos agentes y preguntas trabajan a la vez en este proyecto." },
   next_first: { tier: "basic", control: "piso.siguiente", default: "none: the board's order", frase: "El paso listo que va primero." },
+  // PLA-I2-5: the working branch every worktree is cut from (src/runner/start-branch.ts).
+  start_branch: {
+    tier: "advanced",
+    defecto: "la rama de prueba de siempre.",
+    control: "ajustes.avanzado",
+    default: "sandbox",
+    frase: "La rama de donde parte el equipo y a la que entra lo que aceptas. Nunca la rama publicada.",
+    reason: "The default works once the repository has that branch; «Crear la rama de trabajo» makes it.",
+  },
   release_target: {
     tier: "advanced",
     defecto: "el entorno «prod».",

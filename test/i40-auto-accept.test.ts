@@ -126,7 +126,7 @@ test("I40-7 #1: each condition holds it back and says why: an open check, a waiv
     ["Prueba vieja", { commit: "b".repeat(40) }, /último commit/],
     ["PR en rojo", { ci: "failure" }, /Las pruebas fallan/],
     ["PR corriendo", { ci: "pending" }, /siguen corriendo/],
-    ["PR a main", { base: "main" }, /va a main/],
+    ["PR a main", { base: "main" }, /no va a la rama de trabajo/],
     ["De otro", { author: "taller-workia" }, /No la entregó alguien del equipo/],
   ];
   for (const [title, patch, why] of cases) {
@@ -148,7 +148,7 @@ test("I40-7 #1: each condition holds it back and says why: an open check, a waiv
   ghBase = "main";
   const out = await sweepAutoAccept(db);
   assert.deepEqual(out.accepted, []);
-  assert.match(out.held[0]!.reason, /solo se fusiona a sandbox/);
+  assert.match(out.held[0]!.reason, /no apunta a la rama de trabajo/);
   assert.equal((await mergedEvents(sneaky.key)).length, 0);
   assert.equal(merges.length, 0);
 });

@@ -46,6 +46,7 @@ import { deleteProject } from "../runner/delete-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
+import { repoSetupRoutes } from "./repo-setup.js";
 import { CONTEXT_DOC_IDS, putContextDoc, setAdvanced, setCapture, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
 import { AVANZADO_FIELDS } from "./settings-avanzado.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
@@ -160,6 +161,9 @@ const ReleaseBody = z
   .strict();
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
+
+// PLA-I2-5: preparing the code and the working branch (src/api/repo-setup.ts), behind the same guard.
+companyRoutes.route("/", repoSetupRoutes);
 
 companyRoutes.put("/projects/:slug/settings/code", async (c) => {
   const input = await body(c, CodeBody);

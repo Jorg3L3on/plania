@@ -7,7 +7,7 @@ export const NO_DISPONIBLE = "No disponible en este sistema";
 export const NO_DISPONIBLE_POR = {
   test_copy: "La copia de prueba necesita macOS o Linux.",
   stills: "Las capturas necesitan Chrome o Chromium en esta máquina.",
-  base_lever: "Encender y apagar la base necesita brew en esta máquina.",
+  base_lever: "Encender y apagar la base necesita brew o systemd en esta máquina.",
 } as const;
 
 export type SystemFeature = keyof typeof NO_DISPONIBLE_POR;

@@ -1,7 +1,7 @@
 // NEWPROJ-6: what the project's Ajustes view says and checks before sending (GET/PUT /api/company/projects/:slug/settings,
 // src/api/project-settings.ts). Plain Spanish, pure, tested without a browser (test/newproj-6-settings.test.ts).
 // The server checks everything again; these only keep a button off while a field cannot be right.
-import type { CodigoOpcion } from "./nuevo-proyecto.js";
+import { githubWords, type CodigoOpcion } from "./nuevo-proyecto.js";
 import { avanzadoError, type ArranqueRead, type AvanzadoRead } from "./ajustes-avanzado.js";
 
 export type AjustesCodigo = { repo_path: string | null; github_repo: string | null; no_code: boolean };
@@ -110,16 +110,23 @@ export function ajustesError(code: string | null, detail: Record<string, unknown
   const nuevo = avanzadoError(code, detail);
   if (nuevo) return nuevo;
   switch (code) {
+    // PLA-I2-5: the fix is «Preparar el código» or «Crear la rama de trabajo», just below in the same block.
     case "REPO_FOLDER_MISSING":
-      return `No se guardó: ${folder} no existe en esta Mac. Revisa la ruta.`;
+      return `No se guardó: ${folder} no existe en esta máquina. Revisa la ruta, o créala con «Preparar el código».`;
     case "REPO_NOT_GIT":
-      return `No se guardó: ${folder} no es un repositorio de git. Ábrela en la terminal y corre git init, o elige la carpeta correcta.`;
+      return `No se guardó: ${folder} tiene archivos pero no es un repositorio. Plania no toca una carpeta con archivos: elige la carpeta del código o una vacía.`;
     case "REPO_NO_ORIGIN":
-      return `No se guardó: ${folder} no está conectada a GitHub (no tiene origin). Agrégale el repositorio remoto y vuelve a intentar.`;
+      return `No se guardó: ${folder} no está conectada a GitHub. «Preparar el código» crea su repositorio en GitHub con tu cuenta.`;
     case "REPO_ORIGIN_UNREACHABLE":
-      return `No se guardó: no pude leer el repositorio remoto de ${folder}. Revisa la conexión, la dirección del remoto o tu acceso a GitHub.`;
+      return `No se guardó: no pude leer el repositorio en GitHub de ${folder}. Revisa en «Qué le falta» (en Máquina) que GitHub tenga la sesión iniciada.`;
     case "REPO_NO_START_BRANCH":
-      return `No se guardó: el repositorio remoto de ${folder} no tiene la rama de donde parte el equipo. Créala y súbela, y vuelve a intentar.`;
+      return "No se guardó: el repositorio en GitHub no tiene la rama de trabajo. «Crear la rama de trabajo» la crea desde la rama principal.";
+    case "REPO_GITHUB_NO_GH":
+    case "REPO_GITHUB_SIGNED_OUT":
+    case "REPO_GITHUB_NOT_FOUND":
+    case "REPO_GITHUB_NO_WRITE":
+    case "REPO_GITHUB_FAILED":
+      return githubWords(code)!;
     case "STALE_VERSION":
       return "No se guardó: esto cambió mientras lo editabas. Recarga para ver lo último y vuelve a hacer tu cambio.";
     case "DOC_EXISTS":

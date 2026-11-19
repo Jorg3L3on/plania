@@ -25,6 +25,7 @@ import {
 import { CODIGO_OPCIONES, codigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import { Btn, ReadError, Switch } from "./parts";
 import { Arranque, Avanzado } from "./ajustes-avanzado";
+import { PrepararCodigo } from "./preparar-codigo";
 
 const errorOf = (e: unknown) => (e instanceof ApiError ? ajustesError(e.code, e.detail) : ajustesError(null));
 
@@ -105,6 +106,8 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
           </Btn>
         </div>
       </form>
+      {/* PLA-I2-5: Plania prepares the code and the working branch (./preparar-codigo.tsx). */}
+      <PrepararCodigo a={a} />
     </Seccion>
   );
 };

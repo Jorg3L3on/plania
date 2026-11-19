@@ -64,7 +64,8 @@ before(async () => {
   raw = await resetTestDb();
   ({ db, close: closeDb } = makeDb() as { db: Db; close: () => Promise<void> });
   setNewProjectRepoCheck(fakeGit());
-  setReadinessDeps({ repoCheck: fakeGit(), env: { ...process.env, PLANIA_RUNNER_TOKEN: "x" }, exists: () => true });
+  // PLA-I2-5: readiness asks gh whether the repository can be reached; injected, never the real gh.
+  setReadinessDeps({ repoCheck: fakeGit(), env: { ...process.env, PLANIA_RUNNER_TOKEN: "x" }, exists: () => true, githubAccess: async () => "ok" as const });
   for (const body of [
     { name: "Cocina", goal: "Recetas en un minuto.", repo_path: "/Users/o/cocina" },
     { name: "Huerto", goal: "Un huerto en casa.", no_code: true },
@@ -204,6 +205,12 @@ test("PLA-I2-6: «Avanzado» fields save through set_project, and empty puts the
     s = (await res.json()) as SettingsRead;
   };
   await save("claim_from", "ready");
+  // PLA-I2-5's working branch lives here: a name is taken, a protected branch is refused, empty is the default.
+  await save("start_branch", "pruebas");
+  assert.equal((await stored()).settings.start_branch, "pruebas");
+  assert.notEqual((await put("/advanced", { version: s.version, field: "start_branch", value: "main" })).status, 200);
+  await save("start_branch", null);
+  assert.equal((await stored()).settings.start_branch, undefined);
   await save("team", 30);
   await save("auto_done", false);
   // QA's other switches keep the verify list.

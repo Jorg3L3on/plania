@@ -265,6 +265,8 @@ const tickAt = (db: ReturnType<typeof makeDb>["db"], fx: ReturnType<typeof fixtu
     machine: "test-mac",
     projectsRoot: fx.root,
     launchAgentsDir: fx.agents,
+    platform: "darwin" as const,
+    systemdUserDir: path.join(fx.root, "no-systemd"),
     selfPid: 777,
     selfPorts: [3737],
     state: { lastRun: {}, brewNames: [] },

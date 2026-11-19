@@ -7,6 +7,7 @@ import type { ProjectSettings } from "../db/schema.js";
 import { ADVANCED_KEYS, SETTINGS, type SettingKey } from "../mcp/settings-registry.js";
 
 export const AVANZADO_FIELDS = [
+  "start_branch",
   "branch_pattern",
   "claim_from",
   "release_target",
@@ -24,6 +25,7 @@ export type AvanzadoField = (typeof AVANZADO_FIELDS)[number];
 export type AvanzadoEditor = "text" | "select" | "switch" | "number" | "env" | "json";
 
 export const AVANZADO: Record<AvanzadoField, { key: SettingKey; editor: AvanzadoEditor; options?: string[] }> = {
+  start_branch: { key: "start_branch", editor: "text" },
   branch_pattern: { key: "branch_pattern", editor: "text" },
   claim_from: { key: "claim_from", editor: "select", options: ["backlog", "ready"] },
   release_target: { key: "release_target", editor: "text" },

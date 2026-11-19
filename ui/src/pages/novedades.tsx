@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { NOVEDADES, versionLine, type ReleaseReading } from "@/lib/version";
+import { ACTUALIZAR, kitFileLine, kitRoleLine, type UpdateReport } from "@/lib/actualizar";
 
 // PLA-I2-17: the release notes in the owner's words (CHANGELOG.md, GET /api/release), under the version line.
 
@@ -33,6 +34,7 @@ export function NovedadesView({ release }: { release: ReleaseReading }) {
       <p className="text-muted-foreground" data-version-line>
         {versionLine(release)}
       </p>
+      {release.last_update && <LastUpdate report={release.last_update} />}
       {release.notes.trim() ? (
         <div className="prose prose-sm max-w-none dark:prose-invert">
           <ReactMarkdown>{release.notes}</ReactMarkdown>
@@ -40,6 +42,29 @@ export function NovedadesView({ release }: { release: ReleaseReading }) {
       ) : (
         <p className="text-sm text-muted-foreground">{NOVEDADES.empty}</p>
       )}
+    </section>
+  );
+}
+
+// PLA-I2-8: what the update to this version kept of the owner's own kit, and what to do about it.
+function LastUpdate({ report }: { report: UpdateReport }) {
+  const lines = [...report.kit_files.map((k) => ({ key: k.file, text: kitFileLine(k), todo: k.kind === "both" })), ...report.kit_roles.map((r) => ({ key: r.role, text: kitRoleLine(r), todo: true }))];
+  return (
+    <section className="grid gap-2 rounded-lg border p-4" data-last-update={report.to}>
+      <h2 className="font-semibold">{ACTUALIZAR.title}</h2>
+      <p className="text-sm text-muted-foreground">{ACTUALIZAR.headline(report)}</p>
+      {lines.length === 0 ? (
+        <p className="text-sm">{ACTUALIZAR.nothingKept}</p>
+      ) : (
+        <ul className="grid gap-1 text-sm">
+          {lines.map((l) => (
+            <li key={l.key} data-kit-todo={l.todo ? "1" : "0"}>
+              {l.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-muted-foreground">{ACTUALIZAR.backup(report.backup)}</p>
     </section>
   );
 }

@@ -332,7 +332,7 @@ describe("parts this system cannot run say so (check 7)", () => {
     assert.equal(support.missingFor("test_copy", { platform: "linux", exists: () => true }), null);
     assert.equal(support.missingFor("stills", { chrome: () => null }), "Chrome or Chromium");
     assert.equal(support.missingFor("stills", { chrome: () => "/usr/bin/chromium" }), null);
-    assert.equal(support.missingFor("base_lever", { platform: "linux", env: { PATH: "" }, exists: () => false }), "brew");
+    assert.equal(support.missingFor("base_lever", { platform: "linux", env: { PATH: "" }, exists: () => false }), "brew or systemctl");
     assert.equal(support.missingFor("base_lever", { platform: "linux", env: { PATH: "" }, exists: (p) => p === path.join("/home/linuxbrew/.linuxbrew/bin", "brew") }), null);
   });
 

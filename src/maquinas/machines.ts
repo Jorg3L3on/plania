@@ -111,6 +111,8 @@ export type BaseRead = {
   databases: { name: string; size_bytes: number | null; app: boolean }[]; // app: the one the app's env names
   size_bytes: number | null;
   service: string | null; // the brew service that runs this server
+  // PLA-I2-19: who starts it: brew services (macOS, Linuxbrew) or a systemd user unit (Linux).
+  manager?: "brew" | "systemd" | null;
   shared_with: string[]; // other floors with a database on this server
   lever: { can: boolean; reason: string | null };
   env_file: string | null; // which file the address came from (name only)
@@ -137,7 +139,11 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
   // The brew service whose data directory this server runs from (postgresql@17 → /opt/homebrew/var/postgresql@17).
   const dataDir = String(server?.details.data_dir ?? "");
   const services = rows.filter((r) => r.kind === "service" && r.locator.startsWith("brew:")).map((r) => r.locator.slice(5));
-  const service = (dataDir && services.find((s) => dataDir.split("/").includes(s))) || null;
+  const brewService = (dataDir && services.find((s) => dataDir.split("/").includes(s))) || null;
+  // PLA-I2-19: on Linux, the systemd user unit the machine job linked to this server (its ExecStart names the data dir).
+  const unit = typeof server?.details.systemd_unit === "string" ? server.details.systemd_unit : null;
+  const service = brewService ?? unit;
+  const manager = brewService ? "brew" : unit ? "systemd" : null;
   const projectIds = [...new Set(dbs.filter((r) => portOf(r) === port && r.projectId && r.projectId !== p.id).map((r) => r.projectId!))];
   const others = projectIds.length ? await db.select({ slug: projects.slug }).from(projects).where(inArray(projects.id, projectIds)) : [];
   const local = LOOPBACK.has(host);
@@ -150,11 +156,11 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
     : planiaPorts().has(port)
       ? "Es el Postgres de Plania; no se apaga desde un piso"
       : !service
-        ? "No es un servicio de brew en esta Mac"
+        ? "No es un servicio de brew ni de systemd del usuario; Plania no la enciende ni la apaga"
         : null;
   const version = String(onPort[0]?.details.version ?? server?.details.version ?? "") || null;
   const size = databases.reduce<number | null>((a, d) => (d.size_bytes === null ? a : (a ?? 0) + d.size_bytes), null);
-  return { state: on ? "on" : "off", engine: "postgres", version, host, port, databases, size_bytes: size, service, shared_with: others.map((o) => o.slug).sort(), lever: { can: !reason, reason }, env_file: envFile };
+  return { state: on ? "on" : "off", engine: "postgres", version, host, port, databases, size_bytes: size, service, manager, shared_with: others.map((o) => o.slug).sort(), lever: { can: !reason, reason }, env_file: envFile };
 }
 
 export type MaquinasRead = {
@@ -217,8 +223,11 @@ export async function baseLever(db: Db, slug: string, want: "encender" | "apagar
   const b = await baseRead(db, p, address, env.file);
   if (b.state === "none" || !b.lever.can || !b.service || !b.port) throw new MaquinaError("BASE_LEVER_REFUSED", b.lever.reason ?? "no hay base");
   if (!/^[a-z0-9@._+-]+$/i.test(b.service)) throw new MaquinaError("BASE_LEVER_REFUSED", "nombre de servicio inválido");
-  const r = await (deps.exec ?? shellExec)(`brew services ${want === "encender" ? "start" : "stop"} ${b.service}`, { cwd: "/", timeoutMs: 60_000, env: checkoutEnv() });
-  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", `brew no pudo ${want === "encender" ? "encenderla" : "apagarla"}`);
+  // PLA-I2-19: a systemd user unit is started and stopped with systemctl --user.
+  const verb = want === "encender" ? "start" : "stop";
+  const command = b.manager === "systemd" ? `systemctl --user ${verb} ${b.service}` : `brew services ${verb} ${b.service}`;
+  const r = await (deps.exec ?? shellExec)(command, { cwd: "/", timeoutMs: 60_000, env: checkoutEnv() });
+  if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", `${b.manager === "systemd" ? "systemd" : "brew"} no pudo ${want === "encender" ? "encenderla" : "apagarla"}`);
   // Wait a little for the port to follow.
   for (let i = 0; i < 20; i++) {
     if ((await portBusy(b.port)) === (want === "encender")) break;

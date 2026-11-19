@@ -8,6 +8,7 @@ import { parseCaptureSettings } from "../captures/settings.js";
 import { parseQaSettings } from "../runner/qa-settings.js";
 import { parseMaquinasSettings } from "../maquinas/settings.js";
 import { parseLocalSettings } from "../runner/repo-check.js";
+import { startBranchProblem } from "../runner/start-branch.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { ENV_NAME, SETTING_KEYS } from "./settings-registry.js";
 import { findProject } from "./queries.js";
@@ -77,6 +78,11 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     const l = parseLocalSettings(next.local);
     if (!l.ok) throw new ToolError("INVALID_FILTER", { field: l.field, hint: l.hint });
     next.local = l.settings;
+  }
+  // PLA-I2-5: the start branch (src/runner/start-branch.ts): a valid branch name, never a protected one.
+  if (next.start_branch !== undefined) {
+    const problem = startBranchProblem(next.start_branch);
+    if (problem) throw new ToolError("INVALID_FILTER", { field: "settings.start_branch", hint: problem });
   }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };
