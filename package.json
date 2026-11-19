@@ -30,6 +30,7 @@
     "capture": "tsx --env-file=.env scripts/capture.ts",
     "brief:run": "tsx --env-file=.env scripts/brief-run.ts",
     "brief:doctor": "tsx --env-file=.env scripts/brief-doctor.ts",
+    "machine:check": "tsx --env-file-if-exists=.env scripts/machine-check.ts",
     "kit:status": "tsx --env-file=.env scripts/kit.ts status",
     "kit:export": "tsx --env-file=.env scripts/kit.ts export",
     "kit:sync": "tsx --env-file=.env scripts/kit.ts sync",

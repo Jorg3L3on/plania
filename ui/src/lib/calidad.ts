@@ -118,6 +118,8 @@ const REASON_WORD: Record<string, string> = {
   error_during_execution: "Error durante la ejecución",
   timeout: "Se acabó el tiempo",
   "no result": "Terminó sin dar resultado",
+  // PLA-I2-12: Claude Code signed out on this machine; the machine check page has the fix.
+  "signed out": "Sin sesión de Claude en esta máquina",
   start: "No pudo arrancar",
   "start lost": "Se perdió al arrancar",
   orphaned: "Quedó a medias al reiniciar Plania",

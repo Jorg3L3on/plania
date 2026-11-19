@@ -206,8 +206,9 @@ export type PassOutcome<T> =
   | { ok: true; data: T; attempts: number; turns: number; tokens: PassTokens; models: ModelTokens[]; logPath: string }
   | { ok: false; reason: PassFailure; summary: string; attempts: number; plan?: PlanView; logPath: string | null };
 
-/** Claude's own sign-in failures ("Failed to authenticate", "OAuth session expired", "Please run /login"). */
-export const SIGN_IN = /authenticat|oauth|\/login|log ?in|not signed in|credential|invalid api key|\b401\b/i;
+// PLA-I2-12: one sign-in test for the brief, the runner and the machine check.
+import { SIGN_IN } from "../runner/signed-out.js";
+export { SIGN_IN };
 
 /** One clipped line of a result's text with home paths and token-like strings taken out. */
 export function plainResultText(raw: unknown): string {

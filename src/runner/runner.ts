@@ -98,6 +98,7 @@ import {
   type SpawnFn,
   type Supervised,
 } from "./process.js";
+import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
@@ -1386,13 +1387,18 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       tokens.cacheCreate += m.cacheCreate;
     }
     // A result with turns but no modelUsage spent tokens nobody can count: unknown, which blocks.
-    usageKnown = result.hasModelUsage || result.numTurns === 0;
+    // PLA-I2-12: a signed-out Claude spent nothing; its missing usage must not block the next run.
+    const signedOut = isSignedOut(result);
+    usageKnown = result.hasModelUsage || result.numTurns === 0 || signedOut;
     if (!usageKnown) tokens = reader.liveTokens;
     turns = result.numTurns;
     const sid = result.sessionId ? `, session ${result.sessionId.slice(0, 8)}` : "";
     if (stopped) {
       status = "stopped";
       summary = `stopped: ${stopped} (${result.subtype}, ${turns} turns${sid})`;
+    } else if (signedOut) {
+      status = "fail";
+      summary = `fail: signed out (${turns} turns${sid})`;
     } else if (result.isError || result.subtype !== "success") {
       status = "fail";
       summary = `fail: ${result.subtype} (${turns} turns${sid})`;
