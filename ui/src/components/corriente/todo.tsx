@@ -412,7 +412,8 @@ export const FraseView = ({ f }: { f: Frase }) => (
       )}
       {f.sub && <span className="sub">{f.sub}</span>}
     </h2>
-    <p className="cor-frase-falta">{f.falta}</p>
+    {/* PLA-I3-2: paused, the same line sits beside Reanudar; it is not said twice. */}
+    {f.falta !== REANUDAR_LINE && <p className="cor-frase-falta">{f.falta}</p>}
   </div>
 );
 
