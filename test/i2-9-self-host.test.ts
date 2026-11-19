@@ -38,8 +38,9 @@ test("isSelfProject compares repos on disk, not slugs: same folder, a worktree o
   assert.equal(isSelfProject(other, root), false);
   assert.equal(isSelfProject(path.join(TMP, "missing"), root), false);
   assert.equal(isSelfProject(null, root), false);
-  // Case only matters on Linux.
-  assert.equal(isSelfProject(root.toUpperCase(), root, "darwin"), true);
+  // Case only matters on Linux. The upper-case spelling exists as a path only where the file system folds case, so
+  // the check runs there (macOS, Windows); on Linux the folder would not be found at all.
+  if (process.platform !== "linux") assert.equal(isSelfProject(root.toUpperCase(), root, "darwin"), true);
 });
 
 // ---- the live database
