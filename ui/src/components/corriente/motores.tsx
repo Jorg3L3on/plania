@@ -7,32 +7,42 @@ import { Link } from "react-router";
 import type { MotoresSave, OrgProject } from "@/lib/api";
 import { MAX, countsOf, pendingCounts, previewAdmission, seatCap, withCounts, type Counts } from "@/lib/a-la-vez";
 import { seatName, thousands } from "@/lib/corriente";
+import { words } from "@/lib/i18n";
 import { EFFORTS, EFFORT_WORD, MODELS, PRESETS, applyPreset, clearStrip, draftOf, isOwn, motorLine, pendingOf, saveOf, setEffort, setModel, shownOf, type Draft, type Strip } from "@/lib/motores";
+import { MOTORES } from "@/lib/motores-words";
 import { byRole } from "@/lib/org";
 import { Btn, Label, Opt } from "./parts";
 
-const Stepper = ({ value, min = 1, max, onChange, label }: { value: number; min?: number; max: number; onChange: (v: number) => void; label: string }) => (
-  <span className="cor-stepper" role="group" aria-label={label}>
-    <Btn kind="quiet" small aria-label={`Menos: ${label}`} disabled={value <= min} onClick={() => onChange(value - 1)}>
-      −
-    </Btn>
-    <b className="cor-mono" aria-live="polite">
-      {value}
-    </b>
-    <Btn kind="quiet" small aria-label={`Más: ${label}`} disabled={value >= max} onClick={() => onChange(value + 1)}>
-      +
-    </Btn>
-  </span>
-);
+const Stepper = ({ value, min = 1, max, onChange, label }: { value: number; min?: number; max: number; onChange: (v: number) => void; label: string }) => {
+  const w = words(MOTORES);
+  return (
+    <span className="cor-stepper" role="group" aria-label={label}>
+      <Btn kind="quiet" small aria-label={w.less(label)} disabled={value <= min} onClick={() => onChange(value - 1)}>
+        −
+      </Btn>
+      <b className="cor-mono" aria-live="polite">
+        {value}
+      </b>
+      <Btn kind="quiet" small aria-label={w.more(label)} disabled={value >= max} onClick={() => onChange(value + 1)}>
+        +
+      </Btn>
+    </span>
+  );
+};
 
+// PLA-I2-10: own says the seat has its own motor (it was a comparison with the word «propio»).
 const lineOf = (d: Draft, s: Strip) => {
+  const w = words(MOTORES);
   const v = shownOf(d, s);
-  const word = v.model || v.effort ? motorLine(v.model, v.effort) : "Auto";
-  const from = v.fromCompany.model && v.fromCompany.effort ? (s.sub ? "sigue al PO" : "sigue a la compañía") : isOwn(s) ? "propio" : "sigue al PO";
-  return { word, from };
+  const word = v.model || v.effort ? motorLine(v.model, v.effort) : w.auto;
+  const inherited = !!(v.fromCompany.model && v.fromCompany.effort);
+  const own = !inherited && isOwn(s);
+  const from = inherited ? (s.sub ? w.followsPo : w.followsCompany) : own ? w.own : w.followsPo;
+  return { word, from, own };
 };
 
 export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def?: { model: string | null; effort: string | null }; signIn?: string; onSave: (s: MotoresSave) => Promise<unknown>; planTo: string }) => {
+  const w = words(MOTORES);
   const team = useMemo(() => [...p.team].sort(byRole), [p.team]);
   const saved = useMemo(() => draftOf(team, def), [team, def]);
   const savedCounts = useMemo(() => countsOf(p.runner, team), [p.runner, team]);
@@ -55,18 +65,18 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
     setMsg(null);
     try {
       await onSave(withCounts(saveOf(p.slug, saved, draft), savedCounts, counts));
-      setMsg({ ok: true, text: `Guardado: ${n} ${n === 1 ? "cambio" : "cambios"}. Corre así desde su próximo arranque.` });
+      setMsg({ ok: true, text: w.saved(n) });
     } catch {
-      setMsg({ ok: false, text: "No se pudo guardar. Nada cambió; intenta otra vez." });
+      setMsg({ ok: false, text: w.saveFailed });
     } finally {
       setBusy(false);
     }
   };
   const changeWords = () => {
     const first = pend.strips[0] ? draft.strips.find((s) => s.key === pend.strips[0]) : null;
-    if (first) return `${seatName(first.role)}${first.sub ? " al contestar Preguntar" : ""} pasa a ${lineOf(draft, first).word} desde su próximo paso; lo que corre ahora no cambia.`;
-    if (pend.company) return `La compañía pasa a ${motorLine(draft.company.model, draft.company.effort)}.`;
-    return "Cambia cuánto trabajo va a la vez.";
+    if (first) return w.seatChange(seatName(first.role), !!first.sub, lineOf(draft, first).word);
+    if (pend.company) return w.companyChange(motorLine(draft.company.model, draft.company.effort));
+    return w.countsChange;
   };
   const row = (s: Strip) => {
     const m = team.find((x) => x.agent === s.agent);
@@ -80,24 +90,24 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
         <div className="cor-mrow-line">
           <span className="cor-mrow-who">
             {live && <i className="cor-live" aria-hidden />}
-            <b>{s.sub ? "al contestar Preguntar" : seatName(s.role)}</b>
+            <b>{s.sub ? w.whenAnswering : seatName(s.role)}</b>
           </span>
           <span className="cor-mrow-motor">
             {l.word}
-            <span className={`cor-state ${dirty ? "amber" : l.from === "propio" ? "live" : ""}`}>{dirty ? `${l.from} · sin guardar` : l.from}</span>
+            <span className={`cor-state ${dirty ? "amber" : l.own ? "live" : ""}`}>{dirty ? w.unsavedAfter(l.from) : l.from}</span>
           </span>
           <span className="cor-cap">{tokens}</span>
           <Btn kind="quiet" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : s.key)} data-control="motor-cambiar">
-            {isOpen ? "Cerrar" : "Cambiar"}
+            {isOpen ? w.close : w.change}
           </Btn>
         </div>
         {isOpen && (
           <div className="cor-mrow-edit">
             <div>
-              <Label as="p">Modelo</Label>
-              <span className="cor-seg" role="radiogroup" aria-label={`Modelo de ${seatName(s.role)}`}>
+              <Label as="p">{w.model}</Label>
+              <span className="cor-seg" role="radiogroup" aria-label={w.modelOf(seatName(s.role))}>
                 <button type="button" role="radio" aria-checked={!s.ownModel} className="cor-opt" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? setModel(x, null) : x)) })}>
-                  Auto
+                  {w.auto}
                 </button>
                 {MODELS.map((mo) => (
                   <button key={mo.id} type="button" role="radio" aria-checked={s.ownModel && s.model === mo.id} className="cor-opt" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? setModel(x, mo.id) : x)) })} data-model={mo.id}>
@@ -107,10 +117,10 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
               </span>
             </div>
             <div>
-              <Label as="p">Esfuerzo</Label>
-              <span className="cor-seg" role="radiogroup" aria-label={`Esfuerzo de ${seatName(s.role)}`}>
+              <Label as="p">{w.effort}</Label>
+              <span className="cor-seg" role="radiogroup" aria-label={w.effortOf(seatName(s.role))}>
                 <button type="button" role="radio" aria-checked={!s.ownEffort} className="cor-opt" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? setEffort(x, null) : x)) })}>
-                  Auto
+                  {w.auto}
                 </button>
                 {EFFORTS.map((e) => (
                   <button key={e} type="button" role="radio" aria-checked={s.ownEffort && s.effort === e} className="cor-opt" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? setEffort(x, e) : x)) })} data-effort={e}>
@@ -121,12 +131,12 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
             </div>
             {!s.sub && counts && r && (
               <div>
-                <Label as="p">Pasos a la vez</Label>
-                <Stepper value={seatCap(counts, s.agent)} max={MAX.seat} onChange={(v) => setCounts({ ...counts, seats: { ...counts.seats, [s.agent]: v } })} label={`Pasos a la vez de ${seatName(s.role)}`} />
+                <Label as="p">{w.steps}</Label>
+                <Stepper value={seatCap(counts, s.agent)} max={MAX.seat} onChange={(v) => setCounts({ ...counts, seats: { ...counts.seats, [s.agent]: v } })} label={w.stepsOf(seatName(s.role))} />
               </div>
             )}
             <Btn kind="quiet" onClick={() => set({ ...draft, strips: draft.strips.map((x) => (x.key === s.key ? clearStrip(x) : x)) })} data-control="motor-auto">
-              Volver a Auto
+              {w.backToAuto}
             </Btn>
           </div>
         )}
@@ -141,17 +151,17 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
         <div className="cor-pedidos-head" style={{ borderBottom: 0, paddingBottom: 0 }}>
           <span>
             <h2 className="cor-h3" style={{ fontSize: 22 }}>
-              Con qué trabaja cada puesto
+              {w.title}
             </h2>
-            <span className="cor-text">Auto sigue a la compañía. Más esfuerzo gasta más plan.</span>
+            <span className="cor-text">{w.lead}</span>
             {signIn && (
               <span className="cor-cap" data-motores-sign-in style={{ display: "block" }}>
                 {signIn}
               </span>
             )}
           </span>
-          <span className="cor-acts" style={{ marginTop: 0 }} role="group" aria-label="Poner a todos en">
-            <Label>Poner a todos en</Label>
+          <span className="cor-acts" style={{ marginTop: 0 }} role="group" aria-label={w.setAll}>
+            <Label>{w.setAll}</Label>
             {PRESETS.map((x) => (
               <Btn key={x.id} kind={x.id === "compania" ? "quiet" : "secondary"} onClick={() => set(applyPreset(draft, x.id))} data-control={`motor-preajuste-${x.id}`}>
                 {x.label}
@@ -160,34 +170,34 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
           </span>
         </div>
         <div className="cor-mhead" aria-hidden>
-          <span className="cor-label">Puesto</span>
-          <span className="cor-label">Motor</span>
-          <span className="cor-label">Tokens / semana</span>
+          <span className="cor-label">{w.seat}</span>
+          <span className="cor-label">{w.motor}</span>
+          <span className="cor-label">{w.tokens}</span>
           <span />
         </div>
         <ul className="cor-mlist">
           <li className={`cor-mrow ${companyOpen ? "open" : ""}`} data-strip="compania">
             <div className="cor-mrow-line">
               <span className="cor-mrow-who">
-                <b>Compañía</b>
-                <span className="cor-cap">la heredan todos</span>
+                <b>{w.company}</b>
+                <span className="cor-cap">{w.inherited}</span>
               </span>
               <span className="cor-mrow-motor">
-                {draft.company.model || draft.company.effort ? motorLine(draft.company.model, draft.company.effort) : "Sin fijar · usa el modelo que traiga Claude Code"}
-                {pend.company && <span className="cor-state amber">sin guardar</span>}
+                {draft.company.model || draft.company.effort ? motorLine(draft.company.model, draft.company.effort) : w.companyUnset}
+                {pend.company && <span className="cor-state amber">{w.unsaved}</span>}
               </span>
               <span className="cor-cap">—</span>
               <Btn kind="quiet" aria-expanded={companyOpen} onClick={() => setOpen(companyOpen ? null : "compania")} data-control="motor-cambiar">
-                {companyOpen ? "Cerrar" : "Cambiar"}
+                {companyOpen ? w.close : w.change}
               </Btn>
             </div>
             {companyOpen && (
               <div className="cor-mrow-edit">
                 <div>
-                  <Label as="p">Modelo</Label>
-                  <span className="cor-seg" role="radiogroup" aria-label="Modelo de la compañía">
+                  <Label as="p">{w.model}</Label>
+                  <span className="cor-seg" role="radiogroup" aria-label={w.companyModel}>
                     <Opt on={!draft.company.model} onClick={() => set({ ...draft, company: { ...draft.company, model: null } })}>
-                      Del CLI
+                      {w.fromCli}
                     </Opt>
                     {MODELS.map((mo) => (
                       <Opt key={mo.id} on={draft.company.model === mo.id} onClick={() => set({ ...draft, company: { ...draft.company, model: mo.id } })}>
@@ -197,10 +207,10 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
                   </span>
                 </div>
                 <div>
-                  <Label as="p">Esfuerzo</Label>
-                  <span className="cor-seg" role="radiogroup" aria-label="Esfuerzo de la compañía">
+                  <Label as="p">{w.effort}</Label>
+                  <span className="cor-seg" role="radiogroup" aria-label={w.companyEffort}>
                     <Opt on={!draft.company.effort} onClick={() => set({ ...draft, company: { ...draft.company, effort: null } })}>
-                      Del CLI
+                      {w.fromCli}
                     </Opt>
                     {EFFORTS.map((e) => (
                       <Opt key={e} on={draft.company.effort === e} onClick={() => set({ ...draft, company: { ...draft.company, effort: e } })}>
@@ -215,15 +225,15 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
           {draft.strips.map(row)}
         </ul>
         {(n > 0 || msg) && (
-          <div className="cor-savebar" data-pending={n} role="region" aria-label="Cambios sin guardar">
-            <p className="cor-text">{n > 0 ? <><b>{n === 1 ? "1 cambio sin guardar." : `${n} cambios sin guardar.`}</b> {changeWords()}</> : <span className={`cor-state ${msg!.ok ? "ok" : "bad"}`}>{msg!.text}</span>}</p>
+          <div className="cor-savebar" data-pending={n} role="region" aria-label={w.unsavedRegion}>
+            <p className="cor-text">{n > 0 ? <><b>{w.unsavedCount(n)}</b> {changeWords()}</> : <span className={`cor-state ${msg!.ok ? "ok" : "bad"}`}>{msg!.text}</span>}</p>
             {n > 0 && (
               <>
                 <Btn kind="quiet" onClick={() => setState(null)} disabled={busy} data-control="motor-descartar">
-                  Descartar
+                  {w.discard}
                 </Btn>
                 <Btn kind="primary" onClick={() => void save()} disabled={busy} data-control="motor-guardar">
-                  {busy ? "Guardando…" : "Guardar"}
+                  {busy ? w.saving : w.save}
                 </Btn>
               </>
             )}
@@ -232,56 +242,58 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
       </div>
       {r && counts && (
         <aside className="cor-motores-side">
-          <section aria-label="Uso del plan">
-            <Label as="h2">Uso del plan en las últimas 5 horas</Label>
+          <section aria-label={w.planUse}>
+            <Label as="h2">{w.planUseHead}</Label>
             <div className="cor-planline">
               <span className="cor-figure">{planPct === null ? "—" : `${Math.round(planPct)}%`}</span>
-              <span className="cor-cap">{`FRENO EN ${r.plan.guard}%${r.plan.override ? " · SIN FRENO" : ""}`}</span>
+              <span className="cor-cap">{w.brake(r.plan.guard, r.plan.override)}</span>
             </div>
             <span className="cor-meter" aria-hidden>
               <i style={{ width: `${Math.min(100, planPct ?? 0)}%` }} />
               <u style={{ left: `${r.plan.guard}%` }} />
             </span>
             <p className="cor-text">
-              Arriba del freno no arranca nada nuevo. Se mueve en{" "}
+              {w.brakeLine}{" "}
               <Link className="cor-inline" to={planTo}>
-                Plomería
+                {w.plomeria}
               </Link>
               .
             </p>
           </section>
-          <section aria-label="Cuánto trabajo a la vez">
-            <Label as="h2">Cuánto trabajo a la vez</Label>
+          <section aria-label={w.atOnce}>
+            <Label as="h2">{w.atOnce}</Label>
             <ul>
               <li className="cor-krow">
                 <span>
-                  Agentes en {p.title}
-                  <span className="cor-cap">{`${r.live.work} trabajando ahora`}</span>
+                  {w.agentsIn(p.title)}
+                  <span className="cor-cap">{w.workingNow(r.live.work)}</span>
                 </span>
-                <Stepper value={counts.floor.max_concurrent} max={MAX.floor} onChange={(v) => setCounts({ ...counts, floor: { ...counts.floor, max_concurrent: v } })} label={`Agentes en ${p.title}`} />
+                <Stepper value={counts.floor.max_concurrent} max={MAX.floor} onChange={(v) => setCounts({ ...counts, floor: { ...counts.floor, max_concurrent: v } })} label={w.agentsIn(p.title)} />
               </li>
               <li className="cor-krow">
                 <span>
-                  Pasos por agente<span className="cor-cap">lo hereda cada puesto</span>
+                  {w.perAgent}
+                  <span className="cor-cap">{w.perAgentHint}</span>
                 </span>
-                <Stepper value={counts.floor.max_per_agent} max={MAX.perAgent} onChange={(v) => setCounts({ ...counts, floor: { ...counts.floor, max_per_agent: v } })} label="Pasos por agente" />
+                <Stepper value={counts.floor.max_per_agent} max={MAX.perAgent} onChange={(v) => setCounts({ ...counts, floor: { ...counts.floor, max_per_agent: v } })} label={w.perAgent} />
               </li>
               <li className="cor-krow">
                 <span>
-                  Tope de la máquina<span className="cor-cap">todos los proyectos juntos</span>
+                  {w.ceiling}
+                  <span className="cor-cap">{w.ceilingHint}</span>
                 </span>
-                <Stepper value={counts.ceiling} max={MAX.ceiling} onChange={(v) => setCounts({ ...counts, ceiling: v })} label="Tope de la máquina" />
+                <Stepper value={counts.ceiling} max={MAX.ceiling} onChange={(v) => setCounts({ ...counts, ceiling: v })} label={w.ceiling} />
               </li>
             </ul>
           </section>
-          <section aria-label="En cola">
-            <Label as="h2">En cola</Label>
+          <section aria-label={w.queue}>
+            <Label as="h2">{w.queue}</Label>
             {preview && preview.verdicts.length ? (
               <ul className="cor-brief">
                 {preview.verdicts.slice(0, 3).map((v) => (
                   <li key={v.run.run_id}>
                     <span>
-                      <b>{v.run.title ?? v.run.ticket ?? "Un paso"}</b> · {v.starts ? "arranca al guardar" : v.text}
+                      <b>{v.run.title ?? v.run.ticket ?? w.aStep}</b> · {v.starts ? w.startsOnSave : v.text}
                       {v.fix && (
                         <>
                           {" "}
@@ -296,7 +308,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
               </ul>
             ) : (
               <p className="cor-text" style={{ paddingTop: 8 }}>
-                Nada espera turno.
+                {w.nothingWaits}
               </p>
             )}
           </section>

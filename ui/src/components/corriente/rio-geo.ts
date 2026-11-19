@@ -5,9 +5,12 @@
 // deliveries, each channel is a real step, its colour is that step's state.
 // Coordinates are logical: 1374 wide (the ficha in the sketch, PLA-IDEA27 pass 3); the component scales them.
 import type { EtapaId, IdeaDetail, PedidoStop } from "@/lib/api";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { RIO_WORDS } from "@/lib/rio-words";
 
 export const STOP_IDS: PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
-export const STOP_NAMES = ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista"];
+// PLA-I2-10: the stops' names come from lib/rio-words.ts (the same in both languages).
+export const STOP_NAMES: string[] = words(RIO_WORDS).stops;
 
 /** done: landed; you: waits on the owner; live: someone builds it now; todo: ahead; fin: published. */
 export type Chan = "done" | "you" | "live" | "todo" | "fin";
@@ -144,14 +147,13 @@ export function rioOf(d: Thing): RioModel {
   return { here, delivered, dam: here === 5 && !d.guardada ? "wait" : "closed", ...(d.state === "valvula" ? { valve: true } : {}), front, chans, per, steps: { done: 0, total: n } };
 }
 
-const STATE_WORD: Record<RioModel["front"], string> = { you: "te toca", live: "alguien la trabaja", quiet: "nadie la trabaja ahora" };
-
 /** What the drawing says, for role="img" (the canvas is never the only source of the state). */
-export function rioLabel(m: RioModel): string {
-  const where = m.here <= 5 ? `parada ${STOP_NAMES[m.here]}` : m.here === 6 ? "en construcción" : "publicada";
-  const dam = m.dam === "wait" ? (m.valve ? "; dijiste «Constrúyelo» y pasa al tablero" : "; la presa «Constrúyelo» espera tu sí") : "";
-  const steps = m.here >= 6 ? `; ${m.steps.done} de ${m.steps.total} pasos hechos` : m.steps.total ? `; ${m.steps.total} pasos en el plan` : "";
-  return `Corriente: ${where}, ${m.here === 7 ? "nada pendiente" : STATE_WORD[m.front]}${dam}${steps}.`;
+export function rioLabel(m: RioModel, language: Language = getLanguage()): string {
+  const w = words(RIO_WORDS, language);
+  const where = m.here <= 5 ? w.atStop(w.stops[m.here]!) : m.here === 6 ? w.building : w.published;
+  const dam = m.dam === "wait" ? (m.valve ? w.valve : w.damWaits) : "";
+  const steps = m.here >= 6 ? w.stepsDone(m.steps.done, m.steps.total) : m.steps.total ? w.planSteps(m.steps.total) : "";
+  return w.label(where, m.here === 7 ? w.nothingPending : w.front[m.front], dam, steps);
 }
 
 /** Whether anything moves: work in progress somewhere (never on a quiet or published thing). */

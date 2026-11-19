@@ -10,32 +10,18 @@ import { Link } from "react-router";
 import { api, uploadPedidoImages, type AskResult, type ConsultaView, type OrgProject } from "@/lib/api";
 import { ASK_MAX, MODES, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
+import { words } from "@/lib/i18n";
+import { PEDIR } from "@/lib/pedir-words";
 import { Images } from "./images";
 import { Btn, Label, Logo } from "./parts";
 
-const NEXT: Record<AskMode, [string, string][]> = {
-  forma: [
-    ["Entra como idea.", "La ves en Pedidos, en Buzón."],
-    ["El PO la trabaja.", "La entiende, te pregunta si le falta algo y la avanza: Entendido, Investigación, Diseño, Plan, Lista."],
-    ["Tú dices «Constrúyelo».", "Hasta entonces nadie escribe código."],
-  ],
-  ya: [
-    ["Sube directo al tablero.", "Como un paso listo para Taller."],
-    ["El equipo empieza.", "El PO lo despierta si hay lugar."],
-    ["Te llega como entrega.", "La aceptas o pides ajuste."],
-  ],
-  pregunta: [
-    ["El PO lee el código.", "Ves lo que va leyendo."],
-    ["Te contesta aquí.", "Corto, con el porqué y dónde lo vio."],
-    ["No crea nada.", "Si hay algo que arreglar, «Pedirlo» lo vuelve pedido."],
-  ],
-};
-const WHERE: Record<AskMode, string> = { forma: "Entra a Pedidos, en Buzón", ya: "Paso en el tablero", pregunta: "Respuesta aquí, nada se crea" };
+// PLA-I2-10: the words live in lib/pedir-words.ts.
 const pendingQ = (c: ConsultaView) => c.state === "cola" || c.state === "leyendo";
 
 const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: string; onPedirlo: (fix: string, m: AskMode) => void; onMore: (q: string) => void; busy: boolean }) => {
   const [trail, setTrail] = useState(false);
   const [more, setMore] = useState("");
+  const w = words(PEDIR);
   const a = c.answer;
   const reading = pendingQ(c);
   return (
@@ -43,11 +29,11 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
       <p className="cor-thread-me">{c.text}</p>
       <p className="cor-cap">
         {po} ·{" "}
-        {c.state === "cola" ? (c.held ? `en cola: ${c.held.charAt(0).toLowerCase()}${c.held.slice(1)}` : "le llegó tu pregunta; empieza en cuanto termine lo que corre") : c.state === "leyendo" ? "lee el código…" : c.state === "sin_respuesta" ? "su corrida terminó sin contestar" : `leyó ${a?.branch ?? "el código"}`}
+        {c.state === "cola" ? (c.held ? w.queued(c.held) : w.arrived) : c.state === "leyendo" ? w.reading : c.state === "sin_respuesta" ? w.noAnswer : w.read(a?.branch ?? null)}
       </p>
       {a && c.trail.length > 0 && (
         <Btn kind="link" onClick={() => setTrail((x) => !x)} data-control="consulta-rastro">
-          {trail ? "Ocultar lo que leyó" : `Ver lo que leyó · ${c.trail.length} pasos`}
+          {trail ? w.hideTrail : w.showTrail(c.trail.length)}
         </Btn>
       )}
       {(reading || trail) && c.trail.length > 0 && (
@@ -59,7 +45,7 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
       )}
       {c.state === "sin_respuesta" && (
         <Btn kind="secondary" disabled={busy} onClick={() => onMore(c.text)} data-control="consulta-otra-vez">
-          Preguntar otra vez
+          {w.askAgain}
         </Btn>
       )}
       {a && (
@@ -67,22 +53,22 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
           <p className="cor-thread-short">{a.short}</p>
           {a.why.length > 0 && (
             <p className="cor-text">
-              <span className="cor-label">Por qué</span> {a.why.join(" ")}
+              <span className="cor-label">{w.why}</span> {a.why.join(" ")}
             </p>
           )}
           {a.sources.length > 0 && (
             <p className="cor-cap">
-              DÓNDE LO VIO {a.sources.map((s) => `${s.path}${s.line ? `:${s.line}` : ""}${s.missing ? " (no existe)" : ""}`).join(" · ")}
+              {w.whereSeen} {a.sources.map((s) => `${s.path}${s.line ? `:${s.line}` : ""}${s.missing ? w.missing : ""}`).join(" · ")}
             </p>
           )}
-          <p className="cor-cap">{a.sure === "seen" ? "Lo vio en el código" : "Lo supone"} · no lo probó en vivo</p>
+          <p className="cor-cap">{a.sure === "seen" ? w.seen : w.guessed} · {w.notLive}</p>
           {a.fix && (
             <div className="cor-acts">
               <Btn kind="secondary" onClick={() => onPedirlo(a.fix!, "ya")} data-control="pedirlo-ya">
-                Pedirlo · Hacerlo ya
+                {w.pedirloYa}
               </Btn>
               <Btn kind="quiet" onClick={() => onPedirlo(a.fix!, "forma")} data-control="pedirlo-forma">
-                Pedirlo · Darle forma
+                {w.pedirloForma}
               </Btn>
             </div>
           )}
@@ -91,13 +77,13 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
             onSubmit={(e) => {
               e.preventDefault();
               if (more.trim().length < 3 || busy) return;
-              onMore(`Sobre «${c.text.slice(0, 200)}»: ${more.trim()}`);
+              onMore(w.about(c.text.slice(0, 200), more.trim()));
               setMore("");
             }}
           >
-            <input className="cor-input" value={more} maxLength={400} placeholder="Pregúntale algo más…" aria-label="Pregúntale algo más" onChange={(e) => setMore(e.target.value)} />
+            <input className="cor-input" value={more} maxLength={400} placeholder={w.askMorePlaceholder} aria-label={w.askMore} onChange={(e) => setMore(e.target.value)} />
             <Btn kind="secondary" type="submit" disabled={busy || more.trim().length < 3}>
-              Preguntar
+              {w.ask}
             </Btn>
           </form>
         </>
@@ -129,6 +115,7 @@ export const Pedir = ({
   asistenteTo: string;
   pedidosTo: (slug: string) => string;
 }) => {
+  const w = words(PEDIR);
   const live = projects.filter((p) => !p.paused && p.light !== "paused");
   const [slug, setSlug] = useState(initial && live.some((p) => p.slug === initial) ? initial : (live[0]?.slug ?? ""));
   const p = live.find((x) => x.slug === slug) ?? null;
@@ -175,16 +162,16 @@ export const Pedir = ({
       let lost: string | null = null;
       if (files.length && r.key) {
         const up = await uploadPedidoImages(p.slug, r.key, files);
-        if (up.error) lost = typeof up.error.detail.message === "string" ? up.error.detail.message : "inténtalo desde el pedido abierto.";
+        if (up.error) lost = typeof up.error.detail.message === "string" ? up.error.detail.message : w.tryFromRequest;
         onPictures();
       }
-      setSent({ text: askedLine(r, p.title) + (withAnswer.consulta ? " La respuesta va adjunta." : "") + (lost ? ` Pero ${files.length > 1 ? "no todas las imágenes subieron" : "la imagen no subió"}: ${lost}` : ""), key: input.mode === "forma" ? r.key : null });
+      setSent({ text: askedLine(r, p.title) + (withAnswer.consulta ? w.answerAttached : "") + (lost ? w.picturesLost(files.length, lost) : ""), key: input.mode === "forma" ? r.key : null });
       setText("");
       setFiles([]);
       setMode("forma");
       setFromAnswer(null);
     } catch {
-      setError("No se pudo enviar. Si la máquina está dormida, intenta al despertar.");
+      setError(w.sendFailed);
     } finally {
       setSending(false);
     }
@@ -200,12 +187,12 @@ export const Pedir = ({
         }}
       >
         <div>
-          <Label>Pedir</Label>
-          <h1 className="cor-pedir-h">¿Qué necesitas?</h1>
+          <Label>{w.pedir}</Label>
+          <h1 className="cor-pedir-h">{w.heading}</h1>
         </div>
         <div>
           <Label as="p" id="pedir-para">
-            Para
+            {w.para}
           </Label>
           <div className="cor-seg" role="radiogroup" aria-labelledby="pedir-para" data-projects>
             {live.map((x) => (
@@ -218,7 +205,7 @@ export const Pedir = ({
         </div>
         <div className="cor-pedir-box">
           <label className="cor-label" htmlFor="pedir-texto">
-            Tu pedido
+            {w.yourRequest}
           </label>
           <textarea
             id="pedir-texto"
@@ -226,7 +213,7 @@ export const Pedir = ({
             className="cor-pedir-area"
             value={text}
             maxLength={ASK_MAX}
-            placeholder={p ? `Pide algo para ${p.title}…` : "Pide algo…"}
+            placeholder={p ? w.placeholderFor(p.title) : w.placeholder}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -241,15 +228,15 @@ export const Pedir = ({
             <Images files={files} onChange={setFiles} textarea={area} count={`${text.length} / ${ASK_MAX}`} disabled={disabled || sending} />
           ) : (
             <div className="cor-images">
-              <span className="cor-images-hint">Una pregunta no lleva imágenes.</span>
+              <span className="cor-images-hint">{w.noPictures}</span>
               <span className="cor-cap">{`${text.length} / ${ASK_MAX}`}</span>
             </div>
           )}
         </div>
-        {fromAnswer && mode !== "pregunta" && <p className="cor-cap">Lleva adjunta la respuesta del PO.</p>}
+        {fromAnswer && mode !== "pregunta" && <p className="cor-cap">{w.carriesAnswer}</p>}
         <div>
           <Label as="p" id="pedir-como">
-            Cómo lo quieres
+            {w.how}
           </Label>
           <div className="cor-modes" role="radiogroup" aria-labelledby="pedir-como">
             {MODES.map((m) => (
@@ -259,14 +246,14 @@ export const Pedir = ({
                   {m.name}
                 </span>
                 <span className="cor-text">{m.line}</span>
-                <span className="cor-cap">→ {WHERE[m.id].toUpperCase()}</span>
+                <span className="cor-cap">→ {w.where[m.id].toUpperCase()}</span>
               </button>
             ))}
           </div>
         </div>
         <div className="cor-acts">
           <Btn kind="primary" type="submit" disabled={!can} data-pedir-send>
-            {sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir"}
+            {sending ? w.sending : mode === "pregunta" ? w.ask : w.pedir}
           </Btn>
           <span className="cor-cap">⌘ ↵</span>
           <span className="cor-text" role="status" aria-live="polite" data-pedir-said={error ? "error" : sent ? "ok" : undefined}>
@@ -277,14 +264,14 @@ export const Pedir = ({
                 ✓ {sent.text}{" "}
                 {sent.key && p && (
                   <Link to={pedidosTo(p.slug)} className="cor-inline">
-                    Ver en Pedidos
+                    {w.seeInPedidos}
                   </Link>
                 )}
               </>
             ) : p ? (
-              `Lo recibe el PO de ${p.title}.`
+              w.receivedBy(p.title)
             ) : (
-              "No hay proyectos encendidos."
+              w.noProjects
             )}
           </span>
         </div>
@@ -293,14 +280,14 @@ export const Pedir = ({
         {current && p ? (
           <>
             <div className="cor-side-head">
-              <Label as="h2">Tu pregunta · {p.title}</Label>
+              <Label as="h2">{w.yourQuestion(p.title)}</Label>
               <Btn kind="link" onClick={() => setOpenQ(null)}>
-                Volver
+                {w.back}
               </Btn>
             </div>
             <Thread
               c={current}
-              po={`PO de ${p.title}`}
+              po={w.poOf(p.title)}
               busy={sending}
               onMore={(q) => void submit({ text: q.slice(0, ASK_MAX), mode: "pregunta" })}
               onPedirlo={(fix, m) => {
@@ -314,10 +301,10 @@ export const Pedir = ({
           </>
         ) : (
           <>
-            <section aria-label="Qué pasa después">
-              <Label as="h2">{`Qué pasa después · ${MODES.find((m) => m.id === mode)!.name}`}</Label>
+            <section aria-label={w.whatNext}>
+              <Label as="h2">{w.whatNextOf(MODES.find((m) => m.id === mode)!.name)}</Label>
               <ol className="cor-next">
-                {NEXT[mode].map(([b, t], i) => (
+                {w.next[mode].map(([b, t], i) => (
                   <li key={i}>
                     <span className="cor-key">{i + 1}</span>
                     <span>
@@ -327,8 +314,8 @@ export const Pedir = ({
                 ))}
               </ol>
             </section>
-            <section aria-label="Preguntas anteriores" data-anteriores={list.length}>
-              <Label as="h2">{`Preguntas anteriores · ${p?.title ?? ""}`}</Label>
+            <section aria-label={w.past} data-anteriores={list.length}>
+              <Label as="h2">{w.pastOf(p?.title ?? "")}</Label>
               {list.length ? (
                 <ul className="cor-brief">
                   {list.slice(0, 4).map((c) => (
@@ -337,24 +324,24 @@ export const Pedir = ({
                         <span className="cor-ellipsis" style={{ flex: 1 }}>
                           {c.text}
                         </span>
-                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{c.state === "cola" ? "En cola" : c.state === "leyendo" ? "Leyendo" : c.answer ? "Contestada" : "Sin respuesta"}</span>
+                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{c.state === "cola" ? w.stateQueued : c.state === "leyendo" ? w.stateReading : c.answer ? w.stateAnswered : w.stateNoAnswer}</span>
                       </button>
                     </li>
                   ))}
                 </ul>
               ) : consultas.isPending ? (
                 <p className="cor-text" style={{ padding: "10px 0" }} data-anteriores-cargando>
-                  Buscando tus preguntas…
+                  {w.loadingPast}
                 </p>
               ) : (
                 <p className="cor-text" style={{ padding: "10px 0" }}>
-                  Aún no le has preguntado nada a este proyecto. Lo que preguntes queda aquí con su respuesta y lo que el PO leyó.
+                  {w.noPast}
                 </p>
               )}
             </section>
-            <p className="cor-text">¿No sabes de qué proyecto es? Asistente lo reparte.</p>
+            <p className="cor-text">{w.whichProject}</p>
             <Link className="cor-btn link" to={asistenteTo} style={{ alignSelf: "flex-start" }}>
-              Decírselo a Asistente
+              {w.tellAsistente}
             </Link>
           </>
         )}

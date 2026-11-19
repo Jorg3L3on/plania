@@ -84,7 +84,10 @@ test("PLA-112 F-5: the PO's ficha comes from its Idea doc only; Research's recom
 
 test("PLA-112 F-4: the log says statuses in words; an action refreshes the open step and idea views", async () => {
   const tablero = await readFile(new URL("../ui/src/components/corriente/tablero.tsx", import.meta.url), "utf8");
-  assert.match(tablero, /return `Pasó a \$\{statusWord\(s\("to"\)!\)\}`/);
+  // PLA-I2-10: the words moved to ui/src/lib/tablero-words.ts; the log still says the status in words.
+  assert.match(tablero, /return w\.movedTo\(statusWord\(s\("to"\)!\)\)/);
+  const tw = await readFile(new URL("../ui/src/lib/tablero-words.ts", import.meta.url), "utf8");
+  assert.match(tw, /movedTo: \(status: string\) => `Pasó a \$\{status\}`/);
   const acts = await readFile(new URL("../ui/src/components/corriente/acts.ts", import.meta.url), "utf8");
   assert.match(acts, /invalidateQueries\(\{ queryKey: \["task"\] \}\)/);
   assert.match(acts, /invalidateQueries\(\{ queryKey: \["idea"\] \}\)/);
