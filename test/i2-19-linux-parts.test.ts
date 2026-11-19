@@ -4,7 +4,7 @@
 // XDG and Playwright caches; gitleaks says what to do on native Windows. Parsers run on recorded output
 // (test/fixtures/machine/*-linux.txt); the still is real where Chrome exists, else it skips with its reason.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -210,16 +210,18 @@ test("Chrome is found on PATH and in the Playwright caches (macOS, XDG, PLAYWRIG
   const home = "/home/ana";
   assert.equal(findChrome({ HOME: home, PATH: "/snap/bin" }, only([path.join("/snap/bin", "chromium")])), path.join("/snap/bin", "chromium"));
   // A real cache folder (the lookup lists it): $XDG_CACHE_HOME/ms-playwright/chromium-*/chrome-linux64/chrome.
+  // Only files under TMP count, so a Chrome installed on this machine does not answer first.
+  const inTmp = (p: string) => p.startsWith(TMP) && existsSync(p);
   const xc = path.join(TMP, "xc");
   const linux64 = path.join(xc, "ms-playwright", "chromium-1200", "chrome-linux64", "chrome");
   mkdirSync(path.dirname(linux64), { recursive: true });
   writeFileSync(linux64, "");
-  assert.equal(findChrome({ HOME: home, PATH: "", XDG_CACHE_HOME: xc }), linux64);
+  assert.equal(findChrome({ HOME: home, PATH: "", XDG_CACHE_HOME: xc }, inTmp), linux64);
   const pwb = path.join(TMP, "pwb");
   const old = path.join(pwb, "chromium-1100", "chrome-linux", "chrome");
   mkdirSync(path.dirname(old), { recursive: true });
   writeFileSync(old, "");
-  assert.equal(findChrome({ HOME: home, PATH: "", PLAYWRIGHT_BROWSERS_PATH: pwb }), old);
+  assert.equal(findChrome({ HOME: home, PATH: "", PLAYWRIGHT_BROWSERS_PATH: pwb }, inTmp), old);
   assert.equal(findChrome({ HOME: home, PATH: "" }, () => false), null);
 });
 
