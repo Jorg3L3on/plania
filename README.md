@@ -1,26 +1,113 @@
 # Plania
 
-Source of the plan for the owner and his agents. A generated resume per project on screen, the rest over MCP.
-The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
-sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
+Plania keeps the plan for your projects and runs Claude Code agents (a product owner, research, design, building and
+QA) that work through it while you decide. It runs on your own computer: one small server, a local database, and a page
+in your browser where you follow the work and answer what only you can answer.
 
-- App: Hono on Node, one long-lived process on this machine (`scripts/dev.ts`, the launchd service).
-- DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
-- Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
-- Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
-  static `MCP_BEARER_TOKEN` / `MCP_READ_TOKEN` from `.env`.
-- CI: `POST /hooks/*` with `Authorization: Bearer <PLANIA_CI_TOKEN>`.
+## Install
 
-## Setup
+### What you need
 
-Needs Node 22 or newer and Postgres 14 or newer, installed and running. Supported on macOS and Linux; on Windows,
-inside WSL.
+- **Claude Code, installed and signed in** ([claude.com/claude-code](https://claude.com/claude-code)). Plania's
+  agents run on it, and only you can sign it in.
+- **Postgres 14 or newer, running.** Plania keeps everything in it. If you don't have it:
+  - macOS: `brew install postgresql@17`, then `brew services start postgresql@17`.
+  - Linux: your system's package, for example `sudo apt install postgresql`.
+  - Windows: `winget install PostgreSQL.PostgreSQL.17`, or the installer from
+    [postgresql.org/download](https://www.postgresql.org/download/). Remember the password it asks you to choose.
+
+  If Plania can't connect on its own, the installer asks for the user name and password and saves what works.
+- **Node 22 or newer.** The installer checks it and tells you how to get it if it's missing (`brew install node`,
+  `winget install OpenJS.NodeJS.LTS`, or [nodejs.org](https://nodejs.org)).
+
+The installer handles the rest: pnpm, the download and its checksum, the database, the settings and the background
+service. git and the GitHub CLI are only needed later, for projects with code; Plania's guide tells you when.
+
+### One line
+
+On macOS or Linux, in a terminal:
 
 ```bash
-corepack enable pnpm
+curl -fsSL https://<download-address>/install.sh | sh
+```
+
+On Windows, in PowerShell (no administrator window needed):
+
+```powershell
+irm https://<download-address>/install.ps1 | iex
+```
+
+It installs into the `plania` folder in your home folder, and asks first in case you want another.
+
+Where releases are downloaded from is not decided yet (see Before selling), so `<download-address>` is a placeholder.
+Until then, install from a package file you were given, with the installer that came beside it:
+
+```bash
+sh install.sh --from plania-<version>.tar.gz
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -From plania-<version>.tar.gz
+```
+
+Options: `--dir <folder>` (`-Dir`) installs elsewhere, `--no-service` (`-NoService`) skips the background service, and
+anything after `--` (`-InstallArgs`) goes to `pnpm plania:install`, for example
+`-- --url postgres://user@localhost:5432/plania`.
+
+### What you'll see
+
+The installer checks your machine first and, if something is missing, stops with one sentence and the fix before it
+changes anything. Then it unpacks Plania, sets up the database, starts Plania in the background and opens your
+browser on the first-start page. Type your name and a password, and the guide takes you to your first project.
+Nothing runs, and nothing is spent, until you press resume.
+
+If the browser doesn't open, go to `http://localhost:3737` and type the code the installer printed last.
+
+### Supported systems
+
+macOS, Linux and native Windows. Plania runs as a service of your user and starts when you sign in: a launchd agent
+on macOS, a systemd user unit on Linux, a Scheduled Task on Windows. WSL with systemd works as Linux. Details in
+Running locally as a service.
+
+### Help
+
+If something goes wrong, run `pnpm help:report` in Plania's folder. It writes a text file with what's needed to help
+you, with every secret hidden. It sends nothing: you choose whether to send it. When the page works, Plomería has the
+same report as a button. More in [Getting help](#getting-help).
+
+### Before selling
+
+- **Licence.** `LICENSE` is still a placeholder, and `pnpm release:pack` warns while it is. Write the licence before
+  anyone else installs Plania. Plania's copy may say that it runs Claude Code, but its own name and logo never use
+  Claude's or Anthropic's names or marks.
+- **Download address.** Decide where releases live, then pack with `PLANIA_DOWNLOAD_BASE` set so the one-line
+  installers point there ([docs/releasing.md](docs/releasing.md)).
+
+## For developers
+
+- [docs/developers.md](docs/developers.md): the stack, dev commands, test databases, scanning a diff.
+- [docs/releasing.md](docs/releasing.md): packing a release, the installers, the manifest.
+- [docs/upgrading.md](docs/upgrading.md): upgrade notes for 2.1 to 2.18, the agents' kit and the migration record.
+- [docs/agents-kit.md](docs/agents-kit.md): what a runner agent knows, and how runs are checked.
+- [CLAUDE.md](CLAUDE.md) is the map for coding agents, [GLOSSARY.md](GLOSSARY.md) has Plania's words, and
+  [docs/adr/](docs/adr/README.md) the decisions already made.
+
+The rest of this file is the reference: settings, the database, the service, updating, the MCP tools and errors, and
+the screen.
+
+## Setup by hand
+
+What the one-line installer runs, for a git checkout or a package you unpacked yourself. Needs Node 22 or newer and
+Postgres 14 or newer, installed and running, on macOS, Linux or Windows. pnpm comes from npm (corepack is not needed,
+and Node 25 and newer no longer ship it); use the version that `packageManager` in `package.json` names:
+
+```bash
+npm install -g pnpm@<version>
 pnpm install
 pnpm plania:install
 ```
+
+In a package, install with `pnpm install --prod --frozen-lockfile` and add `--service` to `pnpm plania:install`.
 
 `pnpm plania:install` does the rest, the same from bash or PowerShell, and is safe to run again:
 
@@ -70,7 +157,7 @@ No SQL by hand and no `plania` project needed:
    `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
    A project-level doc `Prompt: <Role>` in the project named by `PLANIA_PROMPTS_PROJECT` (default `plania`)
    replaces the file for that role when it exists; neither the project nor the doc has to exist.
-3. Start the server (`pnpm dev`, or the service) and finish first start (above), or sign in on the screen.
+3. Start Plania (`pnpm start`, or the service) and finish first start (above), or sign in on the screen.
 4. Press «+ Nuevo proyecto», give it a name and a one-sentence goal. The project is created paused, with its team;
    resume it to wake its product owner. If a seat has no prompt, the sheet names it and nothing is created: add
    its file to `kit/roles/` (or its doc) and try again.
@@ -112,116 +199,7 @@ pnpm tsx --env-file=.env scripts/seed-org.ts
 
 Projects come from first start, the screen or `pnpm project:add`; nothing is preloaded.
 
-### Upgrading to 2.3 (audit, context, handoff)
-
-Migration `0018` adds `audit_runs`, `releases`, `tasks.state_note` / `state_note_at` / `handoff` and `checks.derived_from`.
-Nothing to backfill. The audit job starts with the server; `audit(project)` runs it on demand.
-
-### Upgrading to 2.2 (branches, typed blockers, pollers)
-
-Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `env_blockers` rows are copied in),
-`branches`, `resources`, `quota_usage`, `pull_requests`, `poll_state`, `project_metrics`, the structured result
-columns, env `flags`/`migrations`/`deploy_source`, and the bug and debt fields. Then, per project, set what the
-pollers need (`set_project settings`): `github: {repo}`, `vercel: {project_id, team_id?}`, `release_target`,
-`branch_pattern` (e.g. `^feat/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
-set; otherwise the poller reads `~/.config/plania/github-token` (one line, mode `0600`, see GitHub token file). Put `VERCEL_TOKEN`
-in `.env`. The settings only name the variables.
-
-### Upgrading to 2.1 (keys, approvals, tokens)
-
-Migrations `0015` and `0016` add the key counters and aliases (and set each project's `key_prefix`), agent tokens,
-approvals, check waivers, decision retirement, the headline and `events.token_id`; `0016` also copies the old
-single `supersedes_id` into `decision_supersessions`. Then move the keys of a
-project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standalone tickets unchanged); every old key
-stays as an alias and each rename is a `task.rekeyed` event:
-
-```bash
-pnpm rekey --project tienda            # dry run: prints the plan
-pnpm rekey --project tienda --apply    # writes it, in one transaction
-```
-
-### Upgrading to 2.9 (backups, v1 cleanup)
-
-Migration `0022` adds `machine_state` (the nightly backup's record), copies every non-empty v1 `tasks.body` into a
-task doc titled "v1 body", then drops `tasks.body`, the four `projects.resume_*` columns, `design_pages`,
-`env_blockers` and `decisions.supersedes_id`. Take a `plania-pre-0022-*` dump first.
-
-Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is in the git history before 2.9.
-
-### Upgrading to 2.11 (derived truth)
-
-Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headline`, `headline_version`,
-`headline_at` and `headline_stale` to `headline_note*`, data kept: the headline is generated now and what
-`set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first. The 2.11 server reads only the new
-names and the old one only the old, so apply the migration right before the restart.
-
-### Upgrading to 2.12 (intent and the day)
-
-Migration `0025` adds `push_subscriptions`; nothing else changes shape (the owner's requests reuse `tasks.origin` with the
-new value `owner`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
-so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
-stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
-
-### Upgrading to 2.13 (agent surface)
-
-Restart with `pnpm server:restart`: it lists what a restart would cut (a running agent, a QA check, El Probador's pictures, a Máquinas test run) and refuses while there is any; `--check` only lists, `--force` restarts anyway.
-
-No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
-next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
-`settings.release` (on screen in the project's Ajustes, «Fusionar desde Plania», or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
-`settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
-`~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
-the release row keeps the command to copy.
-
-### Upgrading to 2.14 (screen click)
-
-Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moved to 2.14: human-only questions were answered by a click on the owner's screen (that step was removed in 2.17).
-
-### Upgrading to 2.15 (delegated answers)
-
-Migration `0029` adds `delegated_answers`. Take a dump first. Apply `0029`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.15. The kill switch defaults on. It is the `machine_state` key `delegation` (`{enabled: true|false}`). The screen toggles it. Nothing else can.
-
-### Upgrading to 2.16 (readiness)
-
-No migration and no schema change. `pnpm build`, then restart the service. `get_resume`, `list_projects`, `get_digest` and `GET /api/projects` gain `readiness` (`state`, `reasons`, `line`). Existing fields keep their shape. The protocol moves to 2.16.
-
-### Upgrading to 2.17 (stage docs only)
-
-The old screen step is gone (PLA-I18). An idea moves idea → research → design → planning → ready by `set_task stage` alone; the only check left is the stage doc and its headings (`STAGE_REQUIREMENTS_MISSING`). A promoted initiative goes Active like any other. `ask` that still sends the removed field ignores it and the reply includes a hint, so a bot still on 2.16 stores the question. `GATE_NOT_PASSED`, `GATE_OPEN`, `GATE_ANSWERED_BY_AGENT` and `STAGE_DOC_STALE` no longer exist; `GATE_ANSWERED_DELEGATED` is now `DELEGATED_ANSWER`. The Bandeja has no section for that old step.
-
-Old question rows stay as read-only history: the letter column, its check constraint and every `delegated_answers` row are kept, and nothing is dropped. Migration `0030_close_gates` (PLA-I18-5) closes the rows of that kind that are still open:
-
-1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0030-$(date +%Y%m%d).sql.gz`.
-2. Apply `drizzle/migrations/0030_close_gates.sql` (`psql "$DATABASE_URL" -f …`). It only updates those open rows and is safe to run twice.
-3. `pnpm build`, then restart `com.plania.server`.
-
-Until `0030` runs, an open old row stays out of the inbox and can only be closed on the screen; it moves nothing. The protocol moves to 2.17.
-
-### Upgrading to 2.18 (direct moves)
-
-Migration `0032_drop_gates_approvals` copies old approval rows and lettered questions into events, then drops the approval table, the letter column and its check. Take a dump first. The protocol moves to 2.18.
-
-`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_owner` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
-
-1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0032-$(date +%Y%m%d).sql.gz`.
-2. Apply `drizzle/migrations/0032_drop_gates_approvals.sql` (`psql "$DATABASE_URL" -f …`). It copies those rows into `approval.archived` and `question.archived`, then drops them. A second run copies nothing and drops nothing.
-3. `pnpm build`, then restart `com.plania.server`.
-
-### Upgrading to the agents' kit (audit 2026-11)
-
-Migration `0061_run_kit` adds `agent_runs.prompt_version`, `skills`, `skills_used` and `context_tokens`; nothing else changes shape, and it is safe to run twice. Take a `plania-pre-0061-*` dump first, apply `drizzle/migrations/0061_run_kit.sql`, `pnpm build`, then restart the service. The protocol moves to 2.23 (`deliver_stage`).
-
-Then, once, on the server: `pnpm kit:export` writes the live role prompts into `kit/roles/` (commit them), and `pnpm kit:status` should read `same` for every role. What changes for runs is in [The agents' kit](#the-agents-kit). Two things are on from the first run and can be turned off: a seat with no packs carries its role's default skills (`PLANIA_DEFAULT_KITS=0`), and a session that failed, was sent back by QA or grew long starts fresh instead of resuming (`PLANIA_RETRY_FRESH=0`). `finish` runs a project's checks only when it has a `settings.qa.verify` list.
-
-### Upgrading to the migration record
-
-From this version the server refuses to start on a database without the migration record. Once, before restarting,
-mark the live database up to the last file applied to it (today `0061_run_kit.sql`):
-`pnpm db:migrate --database plania --baseline 0061_run_kit.sql`. Later upgrades are `pnpm db:migrate`.
-
 ### GitHub token file
-
-No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
 
 The GitHub poller used to run `gh auth token`, which reads the login keychain through `security`. With the keychain locked that call hit its timeout and left `security` waiting on the dialog, and every cache expiry started another. The poller now takes the token in this order: the env var named by `settings.github.token_env` (default `GITHUB_TOKEN`; that variable still wins), then `~/.config/plania/github-token` (`PLANIA_GITHUB_TOKEN_FILE` overrides the path). The file is one trimmed line. Empty or more than one line counts as no token. The poller stats the file on every tick and re-reads it when the mtime or size changes. A mode that lets the group or others read it still works; the log gets one note per mtime and never the token. With no token it does not call GitHub and does not spawn anything, and `poll_state.error` is `no token: GITHUB_TOKEN unset, ~/.config/plania/github-token missing or empty`.
 
@@ -259,7 +237,7 @@ default).
 
 `ask` with `human_only: true` makes a question only the owner's screen can answer. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. On the screen every open question has its option buttons and a free answer. The Bandeja also has the kill switch «El bot puede responder por ti» (default on) and every delegated answer with the «Delegada» badge, the quote and the time.
 
-Questions asked before 2.17 that carried a letter (A, B or C) are history in `question.archived` events (see Upgrading to 2.18). They are not stored on the question and they change nothing.
+Questions asked before 2.17 that carried a letter (A, B or C) are history in `question.archived` events (see [Upgrading to 2.18](docs/upgrading.md#upgrading-to-218-direct-moves)). They are not stored on the question and they change nothing.
 
 ### Delegated answers
 
@@ -275,111 +253,14 @@ Honest limit: the actor `plania-bot` is an identity declared in the request, and
 
 What proves a human on this machine answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
 
-## Dev
-
-```bash
-pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
-pnpm build   # typecheck server and UI, then build the SPA into dist/ui
-pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event, hooks, seed and backup tests; rebuilds this checkout's local plania_test_<hash> database each run
-```
-
-Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
-In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
-
-Each checkout and worktree gets its own test database, `plania_test_` plus a six-character hash of the repo's absolute path,
-so test runs in different worktrees can run at the same time. Tests only ever drop databases named `plania_test_*`, never `plania`.
-Databases from deleted worktrees stay behind. To list and remove them:
-
-```bash
-psql -l | grep plania_test_
-```
-
-```bash
-dropdb plania_test_3f9a2c
-```
-
-### Scanning a diff for personal data and secrets
-
-`pnpm scan:diff` is a scan you can run on a diff before merging. It reports; it does not block anything. Flags, the JSON report, the local hash file, and the gitleaks pin are in [docs/scan-diff.md](docs/scan-diff.md).
-
-```bash
-pnpm scan:diff <repo-path> [base]
-pnpm scan:diff --json <repo-path> --base main --head HEAD
-```
-
-It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
-
-
-## Packaging a release
-
-Plania reaches a buyer as a numbered package, already built (PLA-I2-17). The buyer never gets the repository and
-never builds anything.
-
-```bash
-pnpm release:pack                 # type-checks, builds the screen, writes release/plania-<version>.tar.gz and .sha256
-pnpm release:pack --skip-build    # pack the dist/ui already built
-pnpm notices                      # regenerate THIRD_PARTY_NOTICES after a dependency changes (--check to compare)
-```
-
-Before a release: bump `version` in `package.json` and add a `## <version>` entry to `CHANGELOG.md`, in plain Spanish
-for the owner and the buyer (the screen shows it on Novedades, and the version in Plomería). The checkout must be
-committed (`--allow-dirty` packs anyway, and the manifest then names no commit). `release/` is ignored by git.
-
-What a package holds: the built screen (`dist/ui`), the server's TypeScript sources (`src/`, and `ui/src/lib/` whose
-words and pure logic the server imports) run through `tsx`, which is a production dependency for that reason;
-`drizzle/migrations/`, `kit/`, `prompts/`, `config/`, `docs/templates/`; the scripts a buyer runs (start, install,
-migrate, service, restart, update, restore, machine check, help report, uninstall, password and VAPID tools,
-project registration, kit, brief, and `seed-org.ts`, which the first start imports); `package.json`
-with only those scripts, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `.env.example`, `README.md`,
-`CHANGELOG.md`, `LICENSE`, a fresh `THIRD_PARTY_NOTICES`, `VERSION` and `release.json`. Never: tests, `spike/`,
-`replay/`, the screen's other sources, build configs, `.env`, `node_modules`.
-
-Dependencies are not in the archive: `@node-rs/argon2` and `esbuild` ship per-platform binaries, so one archive
-serves macOS and Linux and the buyer installs production dependencies from the lockfile it carries.
-
-On the buyer's machine (Node 22+, pnpm through corepack, Postgres 14+ already installed):
-
-```bash
-tar -xzf plania-0.1.0.tar.gz && cd plania-0.1.0
-pnpm install --prod --frozen-lockfile
-pnpm plania:install --service
-```
-
-A package serves its `dist/ui` as shipped: the start-up rebuild (PLA-I46-1) only happens in a git checkout, and a
-`release.json` at the root turns it off even when the folder sits inside another git repository.
-
-### The manifest (`release.json`)
-
-The update command (PLA-I2-8) reads this file; its format is a contract. `VERSION` holds the same version, alone.
-
-| Field | Meaning |
-|---|---|
-| `format` | `1`. Bumped when a field changes meaning. |
-| `name` | `"plania"`. |
-| `version` | `package.json`'s version, `MAJOR.MINOR.PATCH`. The archive is `plania-<version>.tar.gz`, with `plania-<version>.tar.gz.sha256` beside it (`<hex>  <file name>`). |
-| `commit` | The full commit packed, or `null` when packed with uncommitted changes. |
-| `built_at` | ISO time the package was made. |
-| `node` | The `engines.node` range it needs. |
-| `migrations` | The last migration file it carries, e.g. `0062_owner_neutral.sql`, so an update can tell whether it brings new ones. |
-| `kit` | `{ "<path under kit/>": "<sha256>" }` of every kit file as shipped (line endings normalised). The update tells the buyer's edits from the release's with it; a manifest without it makes the update keep every kit file that differs. |
-
-`GET /health/ui` (no auth) returns `{ version: { version, commit, built_at, packaged }, ui, head }`; in a checkout
-`version` comes from `package.json` and the HEAD commit, with `packaged: false`. `GET /api/release` (session) adds
-`notes`, the CHANGELOG.
-
-### Licence and product copy
-
-`LICENSE` is a placeholder until the owner writes the text; `pnpm release:pack` warns while it is. Plania's copy may
-say in plain text that Plania runs Claude Code. Plania's own name and logo never use Claude's or Anthropic's names or
-marks, per Anthropic's published conditions for products built on Claude Code.
-
 ## Running locally as a service
 
 `pnpm service:install` (or `pnpm plania:install --service`) leaves Plania running as a service of the user who runs
 it, from the folder it is run in, on port 3737: it starts at login, restarts when it crashes, and runs the Node that
 ran the command, with that shell's `PATH` (so it finds `claude`, `git` and `gh`). Run it again after moving the folder
 or switching Node versions. `pnpm service:uninstall` stops it and removes the service; data and logs stay.
+
+Supported on macOS, Linux and native Windows:
 
 | | macOS | Linux (and WSL with systemd) |
 |---|---|---|
@@ -389,9 +270,9 @@ or switching Node versions. `pnpm service:uninstall` stops it and removes the se
 | Restart by hand | `launchctl kickstart -k gui/$(id -u)/com.plania.server` | `systemctl --user restart plania.service` |
 | Stop | `launchctl bootout gui/$(id -u)/com.plania.server` | `systemctl --user stop plania.service` |
 
-WSL without systemd: the command changes nothing and says how to turn systemd on (`[boot]` `systemd=true` in
-`/etc/wsl.conf`, then `wsl --shutdown`); until then start Plania by hand with `pnpm start`. Windows outside WSL is not
-supported.
+On Windows the service is a Scheduled Task of your user that starts Plania when you sign in; no administrator shell is
+needed. WSL without systemd: the command changes nothing and says how to turn systemd on (`[boot]` `systemd=true` in
+`/etc/wsl.conf`, then `wsl --shutdown`); until then start Plania by hand with `pnpm start`.
 
 `pnpm server:restart` restarts the service on either system, and refuses while a run, a QA check or a test copy's pass
 is in flight (`--check` lists them, `--force` restarts anyway). In a checkout the restart is the deploy: the server
@@ -410,13 +291,10 @@ rewritten env file with `PLANIA_JOBS=0`, and never the live port; its runs carry
 no migrations, no restart) and do not start when their folder points at the live database. Migrations agents wrote in
 its deliveries are listed on its Máquinas page, for you to apply with `pnpm db:migrate`.
 
-On the owner's Mac: local Postgres 14 (Homebrew service), database `plania`; the MCP clients point at
-`http://localhost:3737/mcp` with the Bearer from `.env`: Claude Code (user scope), Cursor (`~/.cursor/mcp.json`),
-Codex (`~/.codex/config.toml`).
-
 Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `pnpm server:restart` is enough after a code deploy; the plist or unit stays as it is. A group-readable token file still works and logs one line, with no token in it.
 
-Owner: create a read-only fine-grained token for the plania repo and save it with `umask 077; mkdir -p ~/.config/plania; pbpaste > ~/.config/plania/github-token` (non-blocking).
+To let the GitHub poller read your repos, create a read-only fine-grained GitHub token and save it as one line in
+`~/.config/plania/github-token`, readable only by you (see GitHub token file). Plania works without it.
 
 Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
 `~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
@@ -424,7 +302,7 @@ page shows the last copy, and `BACKUP_STALE` appears there when the last one is 
 see "Restoring a backup".
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
-`PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
+`PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating every client that uses it (see Clients).
 
 ## Updating
 
@@ -877,47 +755,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `VERIFY_FAILED` | 409 | finish: one of the project's checks (settings.qa.verify) fails in the ticket's workspace (detail: failed {name, command, exit_code, tail}, hint): fix it there and call finish again |
 <!-- errors:end -->
 
-## The agents' kit
-
-What a runner agent knows is kept in this repo under `kit/` and every run is stamped with the version it got ([kit/README.md](kit/README.md), [docs/adr/0005](docs/adr/0005-the-kit-lives-in-git-and-runs-are-stamped.md)).
-
-| Piece | Where | How a run gets it |
-|---|---|---|
-| Role prompt | `kit/roles/<role>.md`, live copy in the Plania doc `Prompt: <role>` | Appended as system prompt on a session's first run. With no doc the repo file is used. |
-| Skills | `kit/skills/<slug>/SKILL.md` (Claude's skill format); a `Pack: <name>` doc still counts when the repo has no folder with that slug | Written as a plugin in the run's temp folder and passed with `--plugin-dir`. Nothing is written into the app's worktree. |
-| Default skills per role | `kit/kits.json` | A seat that lists no packs carries its role's list. |
-| Project context | Project docs `Context: Glossary`, `Context: Commands`, `Context: Map` (templates in `kit/context/`) | Appended to the role prompt, cut at 200 lines. |
-
-`pnpm kit:status` compares the role prompts in the repo with the live docs; `pnpm kit:export` writes Plania's into the repo; `pnpm kit:sync` writes the repo's into Plania and leaves a doc alone when it was edited there since the last sync (`--force` overwrites).
-
-Each `agent_runs` row records `prompt_version` (`<doc version>:<sha>`), `skills` (`<slug>@<sha>`), `skills_used` (what the stream showed) and `context_tokens`. The Calidad page (`/calidad`, `GET /api/scoreboard`) reads them: first-pass QA rate, deliveries sent back after QA passed, runs and tokens per landed ticket, failures by reason, resumed against fresh runs, by role, model, prompt version or skills.
-
-Checks inside the run (`settings.qa`, set with `set_project`):
-
-| Key | What it does |
-|---|---|
-| `verify` | The list QA runs. The builder's prompt names it, and `finish` runs it in the ticket's workspace and refuses a failing delivery with `VERIFY_FAILED` and the last lines. |
-| `verify_on_finish: false` | Turns the run at `finish` off; the QA lane still runs the list. |
-| `after_edit: {command, timeout_seconds}` | Runs after every file edit of a builder's run, as a hook in the run's own settings file. |
-| `browser: true` | The QA run starts the test copy and walks through the change with browser tools (needs `settings.capture`). |
-| `retro: true` | A delivery QA or the owner sent back queues one Asistente run that proposes one fix. |
-
-The QA review returns two verdicts that are stored apart: whether the change does what was asked, and whether the code is sound.
-
-Runner switches (environment):
-
-| Var | Value |
-|---|---|
-| `PLANIA_RUN_ISOLATION` | `project`: a run loads no user-level settings, skills or CLAUDE.md of the account the server runs as. `bare`: no auto-discovery at all. Unset (or `off`): the CLI's defaults. The install command writes `project` into a new `.env`; an existing `.env` is left as it is. It limits what a run loads, not what it can read: the screen page `/machine/limites` says what the rules do and do not stop. |
-| `PLANIA_KIT_MODE` | `worktree` keeps the older delivery of packs into `.plania-packs/` in the working folder. |
-| `PLANIA_DEFAULT_KITS` | `0`: seats without packs carry none. |
-| `PLANIA_RETRY_FRESH` | `1` (default) fresh session after a failure, a QA return or a long session; `0` always resume; `ab` alternates, so the scoreboard can compare both. |
-| `PLANIA_RESUME_MAX_CONTEXT` | Context tokens above which a session is not resumed. Default 120000. |
-| `PLANIA_BROWSER_MCP` | The command for the QA browser tools. Default `npx -y @playwright/mcp@latest --headless --isolated`. |
-| `PLANIA_KIT_DIR` | Another folder for the kit (tests). |
-
-The replay set (`replay/`, [replay/README.md](replay/README.md)) reruns saved tickets against a prompt, skill or model change: `pnpm replay:capture <project> <key>`, `pnpm replay --trials 3`, `pnpm replay --compare a.json b.json`.
-
 ## Hooks
 
 Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <PLANIA_CI_TOKEN>`.
@@ -966,8 +803,7 @@ network: `gh auth status`, the short `claude -p` and `git ls-remote` are skipped
 
 ## Clients
 
-`PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
-On this machine all three clients are already set up.
+`PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN` in Plania's `.env`. Local URL: `http://localhost:3737/mcp`.
 
 Claude Code, available in every project:
 
@@ -989,7 +825,7 @@ url = "http://localhost:3737/mcp"
 bearer_token_env_var = "PLANIA_MCP_TOKEN"
 ```
 
-The local configs on this machine hold the token literally, because apps launched from the Dock do not see shell variables.
+An app started from the Dock, the Start menu or a desktop launcher does not see your shell's variables: put the token in its config file itself.
 
 ### In a product repo
 

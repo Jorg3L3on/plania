@@ -4,7 +4,8 @@
 //
 // What ships: the built screen (dist/ui), the server's TypeScript sources run through tsx (a production dependency,
 // so no compile step and the same paths as a checkout), the migrations, the kit, the prompts, the scan config, the
-// scripts a buyer runs, package.json (buyer scripts only) with the lockfile, the licence, notices and notes.
+// scripts a buyer runs and the one-line installers (scripts/bootstrap, also put beside the archive), package.json
+// (buyer scripts only) with the lockfile, the licence, notices and notes.
 // node_modules does not ship: @node-rs/argon2 and esbuild are per-platform binaries, so one archive serves macOS and
 // Linux and the install runs `pnpm install --prod --frozen-lockfile` against the lockfile it carries. Nothing is
 // built on the buyer's machine.
@@ -47,6 +48,22 @@ export const BUYER_SCRIPTS = [
   "restore.ts",
 ];
 
+// PLA-I2-4 (audit B2): the one-line installers, shipped inside the package and put beside the archive, so the
+// release folder can be uploaded as it is: <address>/install.sh, install.ps1, plania-<version>.tar.gz and its .sha256.
+export const BOOTSTRAP_SCRIPTS = ["install.sh", "install.ps1"];
+
+// The installer with this release's version, and the download address when one is given (PLANIA_DOWNLOAD_BASE while
+// packing); without one the placeholder stays and the installer asks for the address or --from.
+export function stampBootstrap(text: string, o: { version: string; downloadBase?: string | null }): string {
+  let out = text.replace(/^DEFAULT_VERSION=.*$/m, `DEFAULT_VERSION="${o.version}"`).replace(/^\$DefaultVersion = .*$/m, `$DefaultVersion = '${o.version}'`);
+  const base = o.downloadBase?.trim().replace(/\/+$/, "");
+  if (base) {
+    if (!/^https?:\/\/[^\s"'`$]+$/.test(base)) throw new PackError(`PLANIA_DOWNLOAD_BASE "${base}" is not an http(s) address`);
+    out = out.replace(/^DEFAULT_BASE=.*$/m, `DEFAULT_BASE="${base}"`).replace(/^\$DefaultBase = .*$/m, `$DefaultBase = '${base}'`);
+  }
+  return out;
+}
+
 // Never copied, even inside a folder that ships (a stray .env in kit/, an editor's backup).
 const NEVER = /(^|\/)(\.env(\..*)?|node_modules|\.DS_Store|.*\.test\.ts)$/;
 
@@ -59,11 +76,13 @@ export type PackOptions = {
   now: Date;
   // Writes the THIRD_PARTY_NOTICES text for the production dependencies.
   notices: (root: string) => string;
+  // The download address stamped into the installers (PLANIA_DOWNLOAD_BASE); omitted, they keep the placeholder.
+  downloadBase?: string | null;
   // Makes <archive> from the folder <dir> (both under outDir); omitted, no archive is made.
   archive?: (outDir: string, dirName: string, archiveName: string) => void;
 };
 
-export type PackResult = { dir: string; archive: string | null; sha256: string | null; manifest: Manifest; files: string[] };
+export type PackResult = { dir: string; archive: string | null; sha256: string | null; manifest: Manifest; files: string[]; bootstrap: string[] };
 
 export class PackError extends Error {}
 
@@ -130,6 +149,17 @@ export function pack(opts: PackOptions): PackResult {
     const from = path.join(root, "scripts", s);
     if (existsSync(from)) cpSync(from, path.join(dir, "scripts", s));
   }
+  mkdirSync(path.join(dir, "scripts/bootstrap"), { recursive: true });
+  const bootstrap: string[] = [];
+  for (const s of BOOTSTRAP_SCRIPTS) {
+    const from = path.join(root, "scripts/bootstrap", s);
+    if (!existsSync(from)) throw new PackError(`scripts/bootstrap/${s} is missing`);
+    const text = stampBootstrap(readFileSync(from, "utf8"), { version, downloadBase: opts.downloadBase });
+    writeFileSync(path.join(dir, "scripts/bootstrap", s), text, { mode: 0o755 });
+    const beside = path.join(outDir, s);
+    writeFileSync(beside, text, { mode: 0o755 });
+    bootstrap.push(beside);
+  }
   cpSync(distDir, path.join(dir, "dist/ui"), { recursive: true });
   writeFileSync(path.join(dir, "package.json"), JSON.stringify(buyerPackageJson(pkg), null, 2) + "\n");
   writeFileSync(path.join(dir, "THIRD_PARTY_NOTICES"), opts.notices(root));
@@ -158,5 +188,5 @@ export function pack(opts: PackOptions): PackResult {
     sha256 = createHash("sha256").update(readFileSync(archive)).digest("hex");
     writeFileSync(`${archive}.sha256`, `${sha256}  ${archiveName}\n`);
   }
-  return { dir, archive, sha256, manifest, files: listFiles(dir) };
+  return { dir, archive, sha256, manifest, files: listFiles(dir), bootstrap };
 }
