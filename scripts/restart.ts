@@ -18,5 +18,11 @@ if (found.length && !values.force) {
   console.log("No se reinició: un reinicio corta ese trabajo. Espera a que termine, o usa --force.");
   process.exit(1);
 }
-execFileSync("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/com.plania.server`], { stdio: "inherit" });
+// PLA-I2-4: the service manager of this system: launchd on macOS, the user systemd unit on Linux.
+if (process.platform === "darwin") execFileSync("launchctl", ["kickstart", "-k", `gui/${userInfo().uid}/com.plania.server`], { stdio: "inherit" });
+else if (process.platform === "linux") execFileSync("systemctl", ["--user", "restart", "plania.service"], { stdio: "inherit" });
+else {
+  console.log("Este sistema no tiene un servicio de Plania que reiniciar; detén y vuelve a iniciar el servidor a mano.");
+  process.exit(1);
+}
 console.log("Plania reiniciado.");
