@@ -1145,7 +1145,7 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.23\./);
+    assert.match(text, /^Plania protocol 2\.24\./);
     assert.match(text, /A human_only question is answered on the owner's screen/);
     assert.equal(/\bgates?\b/i.test(text.replaceAll("merge-gate", "")), false, "2.17: the protocol names no gate");
     assert.match(text, /answer_delegated/);

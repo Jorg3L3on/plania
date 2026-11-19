@@ -43,7 +43,7 @@ test("PLA-71 #1: the owner's note counts only when it is newer than the last del
 test("PLA-71 #2: the prompt quotes his words and says to answer them, not just re-run the checks", () => {
   const base = { agent: "Taller", role: "taller", project: { slug: "micasa", title: "MiCasa" }, goal: null, task: { key: "PX-1", title: "Algo" }, workspace: null, sessionId: "run-1", reason: "ticket ready" };
   const p = runner.userPrompt({ ...base, changes: "abre una clienta" });
-  assert.match(p, /Jorge sent your last delivery of this ticket back\. His words: «abre una clienta»/);
-  assert.match(p, /re-running the checks alone does not answer him/);
+  assert.match(p, /The owner sent your last delivery of this ticket back\. Their words: «abre una clienta»/);
+  assert.match(p, /re-running the checks alone does not answer them/);
   assert.doesNotMatch(runner.userPrompt(base), /sent your last delivery/);
 });

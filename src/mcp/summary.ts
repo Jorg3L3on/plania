@@ -1,13 +1,14 @@
 import { LEGACY_EVENT_PREFIX } from "../db/legacy-names.js";
 import type { Actor } from "../db/schema.js";
-import { ownerEs } from "../owner.js";
+import { isOwnerAgent, ownerEs } from "../owner.js";
 
 // 2.7: one Spanish line per event, for assistants that read the cross-project feed and the digest
 // without knowing every payload shape. Unknown types fall back to "<key> · <type>".
 
 type Ev = { type: string; task_key: string | null; actor: Actor; payload: Record<string, unknown> };
 
-const who = (a: Actor) => a.agent;
+// PLA-I2-14: the screen's actor reads as the owner's display name, never the stored "owner".
+const who = (a: Actor) => (isOwnerAgent(a.agent) ? ownerEs() : a.agent);
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const prNum = (p: Record<string, unknown>) => (p.number !== undefined ? `PR #${str(p.number)}` : str(p.url || p.pr) ? `PR ${str(p.url || p.pr)}` : "PR");
 
