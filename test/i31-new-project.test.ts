@@ -36,6 +36,9 @@ before(async () => {
       JSON.stringify({ agent: "test", session_id: "s" }),
     ])
   ).rows[0].id;
+  // NEWPROJ-2: the sheet needs a prompt for every core seat, not only the PO's.
+  for (const title of ["Prompt: Research", "Prompt: Artist", "Prompt: Taller"])
+    await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, '# prompt', $3)`, [micasa, title, JSON.stringify({ agent: "test", session_id: "s" })]);
 });
 
 after(async () => {
@@ -142,7 +145,7 @@ test("I31-3: without the Prompt: Product owner doc nothing is created (409 PROMP
   try {
     const res = await post({ name: "Sin Prompt", goal: "Meta." });
     assert.equal(res.status, 409);
-    assert.deepEqual(await res.json(), { error: "PROMPT_DOC_MISSING" });
+    assert.deepEqual(await res.json(), { error: "PROMPT_DOC_MISSING", seats: ["product-owner"] });
     assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'sin-prompt'`)).rows[0].n, 0);
   } finally {
     await raw.query(`update docs set title = 'Prompt: Product owner' where id = $1`, [promptDocId]);

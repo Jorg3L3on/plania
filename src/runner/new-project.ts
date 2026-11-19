@@ -1,25 +1,24 @@
 // PLA-I31-3: a new project from the company template. Jorge's screen only (POST /api/company/projects).
 // A name and a one-sentence goal make: the project (switch off, so it starts paused), its active goal,
 // a product owner on the runner (adapter claude_code, reports to ceo, no cadence) whose prompt is the
-// `Prompt: Product owner` doc. No token limit (PLA-21). PLA-I32-2: the PO comes
+// `Prompt: Product owner` doc or, with none, kit/roles/product-owner.md (NEWPROJ-2). No token limit (PLA-21). PLA-I32-2: the PO comes
 // with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
 // the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, docs, projects, type ProjectSettings } from "../db/schema.js";
+import { agents, projects, type ProjectSettings } from "../db/schema.js";
 import { setGoal } from "../mcp/goals.js";
 import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx, type Ctx } from "../mcp/tx.js";
-import { PROMPT_DOCS } from "./limits.js";
+import { promptNote, rolePrompts } from "./prompts.js";
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
 
-// Where the role prompt docs live; the runner reads them from the same project.
-const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
 
 export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
-export type NewProjectError = { error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN"; status: 400 | 409; field?: string; slug?: string };
+// NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
+export type NewProjectError = { error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN"; status: 400 | 409; field?: string; slug?: string; seats?: string[] };
 
 export function slugOf(name: string): string {
   const base = name
@@ -62,8 +61,8 @@ export type NewProjectInput = {
 };
 
 export type NewProjectOptions = {
-  // The sheet refuses when the `Prompt: Product owner` doc is missing; the script and the MCP tool
-  // create anyway (the runner reads the prompt doc by role when the PO runs).
+  // NEWPROJ-2: the sheet refuses when any core seat (PO, Research, Artist, Taller) has no prompt, looked up
+  // the way the runner does (src/runner/prompts.ts); the script and the MCP tool create anyway.
   requirePromptDoc?: boolean;
   ctx?: Ctx;
 };
@@ -89,13 +88,10 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
   const [teamTaken] = await db.select({ id: agents.id }).from(agents).where(inArray(agents.slug, team)).limit(1);
   if (teamTaken) return { error: "PROJECT_EXISTS", status: 409, slug };
 
-  const [prompt] = await db
-    .select({ id: docs.id })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, promptsProject()), isNull(docs.taskId), eq(docs.title, PROMPT_DOCS["product-owner"])))
-    .limit(1);
-  if (!prompt && requirePromptDoc) return { error: "PROMPT_DOC_MISSING", status: 409 };
+  const prompts = await rolePrompts(db, CORE_TEMPLATES);
+  const seats = CORE_TEMPLATES.filter((t) => !prompts.has(t));
+  if (seats.length > 0 && requirePromptDoc) return { error: "PROMPT_DOC_MISSING", status: 409, seats };
+  const prompt = prompts.get("product-owner");
 
   const taken = new Set((await db.select({ p: projects.keyPrefix }).from(projects)).map((r) => r.p));
   if (input.key_prefix !== undefined && taken.has(input.key_prefix)) return { error: "KEY_PREFIX_TAKEN", status: 409, field: "key_prefix" };
@@ -133,7 +129,7 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
       adapter: RUNNER_CONFIG.adapter,
       adapter_config: RUNNER_CONFIG.adapterConfig as Record<string, string>,
       heartbeat_minutes: null,
-      note: prompt ? `Prompt: doc «${PROMPT_DOCS["product-owner"]}» (${prompt.id}).` : `Prompt: doc «${PROMPT_DOCS["product-owner"]}».`,
+      note: promptNote("product-owner", prompt),
     });
     await ensureTeam(db, { id: project.id, slug, title: name });
   } catch (err) {
@@ -141,5 +137,5 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
     await db.delete(projects).where(eq(projects.id, project.id));
     throw err;
   }
-  return { slug, key_prefix: keyPrefix, paused: true, po, team, prompt_doc_id: prompt?.id ?? null };
+  return { slug, key_prefix: keyPrefix, paused: true, po, team, prompt_doc_id: prompt?.docId ?? null };
 }

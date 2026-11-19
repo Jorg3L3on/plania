@@ -16,6 +16,7 @@ import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
 import { latestBrief } from "../runner/asistente.js";
 import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type CardUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
+import { promptNote, rolePrompt, rolePrompts } from "../runner/prompts.js";
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
@@ -31,7 +32,6 @@ import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTic
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
-const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 
 export type MemberState = "running" | "idle" | "waiting_jorge" | "paused";
 // PLA-I36-1: the worst of, in order: something is Jorge's, a run failed, the work is blocked, the plan is
@@ -672,18 +672,13 @@ export type HireRef = TemplateRef & { state: "free" | "taken" | "no_doc" };
 export type ProjectRead = ProjectSheet & { team: TeamMember[]; thread_id: string; templates: TemplateRef[]; hire: HireRef[] };
 
 export async function hireFor(db: Db, team: TeamMember[]): Promise<HireRef[]> {
-  const titles = TEAM_TEMPLATES.filter((t) => isRunnerRole(t)).map((t) => PROMPT_DOCS[t as keyof typeof PROMPT_DOCS]);
-  const found = await db
-    .select({ title: docs.title })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, promptsProject()), isNull(docs.taskId), inArray(docs.title, titles)));
-  const have = new Set(found.map((d) => d.title));
+  // NEWPROJ-2: a doc or a kit/roles file, the same lookup the runner and project creation use.
+  const have = await rolePrompts(db, TEAM_TEMPLATES.filter((t) => isRunnerRole(t)));
   const taken = new Set(team.map((m) => m.template));
   return TEAM_TEMPLATES.map((t) => ({
     slug: t,
     title: TEMPLATE_ROWS[t].title,
-    state: taken.has(t) ? ("taken" as const) : have.has(PROMPT_DOCS[t as keyof typeof PROMPT_DOCS]) ? ("free" as const) : ("no_doc" as const),
+    state: taken.has(t) ? ("taken" as const) : have.has(t) ? ("free" as const) : ("no_doc" as const),
   }));
 }
 
@@ -703,19 +698,15 @@ export async function addTeamMember(db: Db, slug: string, template: string): Pro
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if (!isTeamTemplate(template)) return { error: "INVALID_TEMPLATE", status: 400, hint: `one of ${TEAM_TEMPLATES.join(", ")}` };
-  const title = PROMPT_DOCS[template as keyof typeof PROMPT_DOCS];
-  const [doc] = await db
-    .select({ id: docs.id })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, promptsProject()), isNull(docs.taskId), eq(docs.title, title)))
-    .limit(1);
-  if (!doc) return { error: "PROMPT_DOC_MISSING", status: 409, hint: `Falta el doc «${title}» en Plania.` };
+  const title = PROMPT_DOCS[template];
+  // NEWPROJ-2: the doc or the kit/roles file, as the runner and project creation look it up.
+  const prompt = await rolePrompt(db, template);
+  if (!prompt) return { error: "PROMPT_DOC_MISSING", status: 409, hint: `Falta el doc «${title}» en Plania.` };
   const agentSlug = teamSlug(template, p.slug);
   const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, agentSlug)).limit(1);
   if (taken) return { error: "AGENT_EXISTS", status: 409, hint: `${agentSlug} ya está en el roster.`, agent: agentSlug };
   const po = await db.select().from(agents).where(and(eq(agents.projectId, p.id), eq(agents.roleTemplate, "product-owner"))).limit(1);
-  await ensureMember(db, p, template, { reportsTo: po[0]?.slug ?? "ceo", note: `Prompt: doc «${title}» (${doc.id}).` });
+  await ensureMember(db, p, template, { reportsTo: po[0]?.slug ?? "ceo", note: promptNote(template, prompt) });
   const read = await projectRead(db, slug);
   return { agent: read.team.find((m) => m.agent === agentSlug)!, team: read.team };
 }

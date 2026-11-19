@@ -15,6 +15,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
+import { nuevoProyectoError } from "@/lib/nuevo-proyecto";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
 
@@ -110,7 +111,7 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         </span>
         <Rows rows={[["Clave", "Recibe su clave para pasos, sacada del nombre."], ["PO", "Se crea de la plantilla, con su prompt."], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
         {missing && <p className="cor-state bad">Todavía no se pueden crear proyectos desde aquí: el servidor no tiene esa ruta. No se creó nada.</p>}
-        {make.isError && !missing && <p className="cor-state bad">{make.error instanceof ApiError ? `No se pudo crear (${make.error.code}).` : "No se pudo crear el proyecto."}</p>}
+        {make.isError && !missing && <p className="cor-state bad">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
         <div className="cor-acts">
           <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim()} data-control="crear-proyecto">
             {make.isPending ? "Creando…" : "Crear proyecto"}

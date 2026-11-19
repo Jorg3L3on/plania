@@ -30,10 +30,9 @@ before(async () => {
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const micasa = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
-  await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, 'Prompt: Product owner', '# PO', $2)`, [
-    micasa,
-    JSON.stringify({ agent: "test", session_id: "s" }),
-  ]);
+  // NEWPROJ-2: the sheet needs a prompt for every core seat.
+  for (const title of ["Prompt: Product owner", "Prompt: Research", "Prompt: Artist", "Prompt: Taller"])
+    await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, '# prompt', $3)`, [micasa, title, JSON.stringify({ agent: "test", session_id: "s" })]);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "newproj-1", version: "0" });

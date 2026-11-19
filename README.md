@@ -33,6 +33,24 @@ Fill `.env`:
 | `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
 | `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
 
+### A first project on a new install
+
+No SQL by hand and no `plania` project needed:
+
+1. Create an empty database, apply the migrations (see Database) and fill `.env` as above.
+2. Check the role prompts. The four seats a project starts with (product owner, Research, Artist, Taller) each
+   need one. They come with the repo in `kit/roles/<role>.md` (`product-owner.md`, `research.md`, `artist.md`,
+   `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
+   A project-level doc `Prompt: <Role>` in the project named by `PLANIA_PROMPTS_PROJECT` (default `plania`)
+   replaces the file for that role when it exists; neither the project nor the doc has to exist.
+3. Start the server (`pnpm dev`, or the service) and sign in on the screen.
+4. Press «+ Nuevo proyecto», give it a name and a one-sentence goal. The project is created paused, with its team;
+   resume it to wake its product owner. If a seat has no prompt, the sheet names it and nothing is created: add
+   its file to `kit/roles/` (or its doc) and try again.
+
+`pnpm project:add` (see Database) creates the same project from the shell and does not check the prompts; a seat
+without one fails its first run with `no prompt doc`.
+
 ## Database
 
 Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
