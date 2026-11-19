@@ -50,6 +50,7 @@ import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
 import { machineCheckRoutes } from "./machine-check.js";
 import { helpReportRoutes } from "./help-report.js";
 import { releaseRoutes } from "./release.js";
+import { limitsRoutes } from "./limits.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
@@ -758,6 +759,8 @@ api.route("/machine-check", machineCheckRoutes());
 api.route("/help-report", helpReportRoutes());
 // PLA-I2-17: the release and its notes (src/api/release.ts).
 api.route("/release", releaseRoutes());
+// PLA-I2-7: what the team may never do, from the real rules (src/api/limits.ts).
+api.route("/limits", limitsRoutes());
 // PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).

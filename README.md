@@ -847,7 +847,7 @@ Runner switches (environment):
 
 | Var | Value |
 |---|---|
-| `PLANIA_RUN_ISOLATION` | `project`: a run loads no user-level settings, skills or CLAUDE.md of the account the server runs as. `bare`: no auto-discovery at all. Unset: the CLI's defaults. Try it on one project before leaving it on. |
+| `PLANIA_RUN_ISOLATION` | `project`: a run loads no user-level settings, skills or CLAUDE.md of the account the server runs as. `bare`: no auto-discovery at all. Unset (or `off`): the CLI's defaults. The install command writes `project` into a new `.env`; an existing `.env` is left as it is. It limits what a run loads, not what it can read: the screen page `/machine/limites` says what the rules do and do not stop. |
 | `PLANIA_KIT_MODE` | `worktree` keeps the older delivery of packs into `.plania-packs/` in the working folder. |
 | `PLANIA_DEFAULT_KITS` | `0`: seats without packs carry none. |
 | `PLANIA_RETRY_FRESH` | `1` (default) fresh session after a failure, a QA return or a long session; `0` always resume; `ab` alternates, so the scoreboard can compare both. |

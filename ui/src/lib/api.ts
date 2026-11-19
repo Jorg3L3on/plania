@@ -8,6 +8,7 @@ import type { Listo } from "@/lib/listo";
 import type { MachineCheckReading } from "@/lib/falta";
 import type { ReleaseReading } from "@/lib/version";
 import type { FirstStartState } from "@/lib/primer-arranque";
+import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -89,6 +90,8 @@ export const api = {
   firstStart: () => request<FirstStartState>("GET", "/first-start"),
   finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
+  // PLA-I2-7: the page of limits, built from the real rules.
+  limits: () => request<LimitsPage>("GET", "/limits"),
   // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>

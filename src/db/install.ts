@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import pg from "pg";
+import { newInstallSettings } from "../runner/isolation.js";
 import {
   assertDatabaseName,
   databaseName,
@@ -146,10 +147,13 @@ export function writeSettings(
       ? readFileSync(examplePath, "utf8")
       : "";
   const lines = text.split(/\r?\n/);
+  const isNew = !existsSync(envPath);
   const wanted: Array<[string, (current: string) => string | null]> = [
     ["DATABASE_URL", (cur) => (cur === url ? null : url)],
     ["SESSION_SECRET", (cur) => (cur ? null : secret(48, "base64"))],
     ["MCP_BEARER_TOKEN", (cur) => (cur ? null : secret(32, "hex"))],
+    // PLA-I2-7: a new install starts with run isolation on; an existing .env is left as it is.
+    ...Object.entries(newInstallSettings()).map(([key, value]): [string, (current: string) => string | null] => [key, (cur) => (isNew && !cur ? value : null)]),
   ];
   const written: string[] = [];
   for (const [key, next] of wanted) {

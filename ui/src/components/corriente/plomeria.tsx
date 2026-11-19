@@ -4,6 +4,7 @@
 // project with Pausar / Reanudar and its app's switch, Configurar su app and Apagar todas las apps (the building's
 // tablero); the last runs; the owner's code row. The calls are the ones /machine and the tablero make.
 import { useState } from "react";
+import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { OWNER_CODE_WORDS, isOwnerCode } from "@/components/compania/sheets";
@@ -15,6 +16,7 @@ import { logWords } from "@/lib/calidad";
 import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { NOVEDADES, versionLine } from "@/lib/version";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
+import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -349,6 +351,10 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
           {inventory ? "Ocultar lo que corre" : "Ver qué corre"}
         </Btn>
         <ReleaseLine />
+        {/* PLA-I2-7: the page of limits. */}
+        <Link to={LIMITS_PATH} className="cor-text underline underline-offset-2" data-control="limites">
+          {LIMITS_LINK}
+        </Link>
       </div>
       {/* PLA-I2-18: two downloads; the owner decides what to do with each file. */}
       <section className="cor-pl-foot" aria-label={AYUDA.title} data-block="ayuda">
