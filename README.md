@@ -604,6 +604,11 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
+| `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
+| `REPO_NO_ORIGIN` | 400 | new project: the folder's git repository has no remote named origin |
+| `REPO_NO_START_BRANCH` | 400 | new project: origin has no branch to start from (sandbox; detail: branch) |
+| `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
+| `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |

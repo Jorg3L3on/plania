@@ -38,6 +38,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
+import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { listConsultas } from "../pedidos/consultas.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
@@ -512,12 +513,28 @@ companyRoutes.put("/projects/:slug/options", async (c) => {
   return c.json(out);
 });
 
-const NewProjectBody =z.object({ name: z.string().min(1).max(40), goal: z.string().min(1).max(280) }).strict();
+// NEWPROJ-3: where the code is: a folder on this machine (checked before creating), a GitHub repo (owner/name, shape
+// only), both, or no_code. Shapes are checked by createProjectFromTemplate so a refusal names its field.
+const NewProjectBody = z
+  .object({
+    name: z.string().min(1).max(40),
+    goal: z.string().min(1).max(280),
+    repo_path: z.string().max(500).optional(),
+    github_repo: z.string().max(140).optional(),
+    no_code: z.boolean().optional(),
+  })
+  .strict();
+
+// NEWPROJ-3: the folder check's git and filesystem; tests swap them (setNewProjectRepoCheck).
+let newProjectRepoCheck: RepoCheckDeps = defaultRepoCheckDeps;
+export const setNewProjectRepoCheck = (d: RepoCheckDeps | null): void => {
+  newProjectRepoCheck = d ?? defaultRepoCheckDeps;
+};
 
 companyRoutes.post("/projects", async (c) => {
   const input = await body(c, NewProjectBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => createProjectFromTemplate(db, input));
+  const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck }));
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);

@@ -15,7 +15,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
-import { nuevoProyectoError } from "@/lib/nuevo-proyecto";
+import { CODIGO_OPCIONES, codigoBody, nuevoProyectoError, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
 
@@ -73,7 +73,12 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
   const client = useQueryClient();
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const make = useMutation({ mutationFn: (input: { name: string; goal: string }) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
+  // NEWPROJ-3: where the code is. Nothing is sent until one of the three is picked and its field is right.
+  const [codigo, setCodigo] = useState<CodigoOpcion | null>(null);
+  const [carpeta, setCarpeta] = useState("");
+  const [repo, setRepo] = useState("");
+  const code = codigoBody(codigo, carpeta, repo);
+  const make = useMutation({ mutationFn: (input: { name: string; goal: string } & CodigoBody) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
   const missing = make.error instanceof ApiError && (make.error.status === 404 || make.error.status === 405);
   if (make.data)
     return (
@@ -96,7 +101,7 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
         className="cor-hoja-form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim() && goal.trim()) make.mutate({ name: name.trim(), goal: goal.trim() });
+          if (name.trim() && goal.trim() && code) make.mutate({ name: name.trim(), goal: goal.trim(), ...code });
         }}
       >
         <span className="cor-hoja-two">
@@ -109,11 +114,40 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
             <input className="cor-input" value={goal} maxLength={240} onChange={(e) => setGoal(e.target.value)} placeholder="Que alguien arme su viaje en diez minutos." required />
           </label>
         </span>
+        <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>
+          <legend className="cor-text">¿Dónde está su código?</legend>
+          <div className="cor-opts" role="radiogroup" aria-label="Dónde está su código">
+            {CODIGO_OPCIONES.map((o) => (
+              <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => setCodigo(o.key)} data-codigo-opcion={o.key}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {codigo && <p className="cor-text">{CODIGO_OPCIONES.find((o) => o.key === codigo)!.hint}</p>}
+          {codigo === "carpeta" && (
+            <span className="cor-hoja-two">
+              <label style={{ flex: 2 }}>
+                <span className="cor-text">Carpeta en esta Mac</span>
+                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="~/Developer/Projects/viajia" autoComplete="off" spellCheck={false} required />
+              </label>
+              <label>
+                <span className="cor-text">En GitHub (si tiene)</span>
+                <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} />
+              </label>
+            </span>
+          )}
+          {codigo === "github" && (
+            <label className="cor-hoja-one">
+              <span className="cor-text">Repositorio en GitHub</span>
+              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="dueño/nombre" autoComplete="off" spellCheck={false} required />
+            </label>
+          )}
+        </fieldset>
         <Rows rows={[["Clave", "Recibe su clave para pasos, sacada del nombre."], ["PO", "Se crea de la plantilla, con su prompt."], ["En pausa", "Su PO despierta cuando lo reanudes."]]} />
         {missing && <p className="cor-state bad">Todavía no se pueden crear proyectos desde aquí: el servidor no tiene esa ruta. No se creó nada.</p>}
-        {make.isError && !missing && <p className="cor-state bad">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
+        {make.isError && !missing && <p className="cor-state bad cor-hoja-refusal" role="alert">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
         <div className="cor-acts">
-          <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim()} data-control="crear-proyecto">
+          <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim() || !code} data-control="crear-proyecto">
             {make.isPending ? "Creando…" : "Crear proyecto"}
           </Btn>
           <Btn kind="quiet" onClick={onClose}>

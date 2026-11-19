@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, type OrgProject } from "@/lib/api";
-import { bytes, filas, maqView, pedirFallo, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
+import { bytes, filas, maqView, pedirFallo, setupLine, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
 import type { CapturesRead } from "@/lib/ventana";
 import { Btn, Label, Opt, ReadError } from "./parts";
 
@@ -113,7 +113,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
       <div className="cor-maq-main">
         <div className="cor-pedidos-head" style={{ borderBottom: 0, paddingBottom: 0 }}>
           <h2 className="cor-h3" style={{ fontSize: 22 }}>
-            {v.state === "on" ? "La app está encendida" : v.state === "unconfigured" ? "La app no sabe cómo encenderse" : v.state === "starting" ? "La app está encendiendo" : v.state === "failed" ? "La app no arrancó" : v.state === "base-down" ? "La app no llega a su base" : "La app está apagada"}{" "}
+            {v.state === "on" ? "La app está encendida" : v.state === "unconfigured" ? "La app no sabe cómo encenderse" : v.state === "no-code" ? "Todavía no hay app" : v.state === "starting" ? "La app está encendiendo" : v.state === "failed" ? "La app no arrancó" : v.state === "base-down" ? "La app no llega a su base" : "La app está apagada"}{" "}
             <span className="cor-cap">COPIA DE PRUEBA · EN TU MAC</span>
           </h2>
           <span className="cor-segbox" role="group" aria-label="Tamaño">
@@ -164,7 +164,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
             ) : (
               <div className="cor-noshot">
                 <b>{v.word}</b>
-                <span className="cor-text">{v.state === "unconfigured" ? (r.found?.missing.length ? `Falta: ${r.found.missing.join(", ")}.` : "Configurar busca cómo arrancarla en el repo.") : v.state === "failed" ? (r.server.error ?? v.say) : live ? "Toma una captura para verla aquí, o ábrela." : v.say}</span>
+                <span className="cor-text">{v.state === "unconfigured" || v.state === "no-code" ? setupLine(r) : v.state === "failed" ? (r.server.error ?? v.say) : live ? "Toma una captura para verla aquí, o ábrela." : v.say}</span>
               </div>
             )}
           </div>

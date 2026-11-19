@@ -29,7 +29,7 @@ export type BaseRead = {
 };
 export type ServerRead = PruebaRead & { command: string | null; commit: string | null; branch: string | null; worktree: string | null; started_by: string | null; frameable?: boolean };
 export type MaqPage = { key: string; path: string; label: string; session?: boolean };
-export type MaquinasRead = { project: string; configured: boolean; server: ServerRead; base: BaseRead; found: Found | null; pages: MaqPage[]; test_user: string | null };
+export type MaquinasRead = { project: string; configured: boolean; no_code?: boolean; server: ServerRead; base: BaseRead; found: Found | null; pages: MaqPage[]; test_user: string | null };
 
 export type Column = { name: string; type: string; not_null: boolean; key: boolean; unique: boolean; default: string | null; references: { table: string; column: string } | null; hidden: boolean };
 export type Table = { name: string; rows: number; columns: Column[]; indexes: { name: string; definition: string }[]; relations: { column: string; table: string; foreign: string }[] };
@@ -48,7 +48,8 @@ export type TableroRow = { project: string; title: string; configured: boolean; 
 export type TableroRead = { floors: TableroRow[]; on: number };
 
 // The five states of the sketch, plus the moment it is starting.
-export type MaqState = "on" | "off" | "failed" | "base-down" | "unconfigured" | "starting";
+// NEWPROJ-3: no-code, the project has no code yet on purpose; nothing to configure, so no Configurar.
+export type MaqState = "on" | "off" | "failed" | "base-down" | "unconfigured" | "no-code" | "starting";
 export type Light = "on" | "off" | "starting" | "error" | "none";
 export type ServerAct = "encender" | "apagar" | "reiniciar";
 
@@ -65,6 +66,14 @@ export type MaqView = {
 };
 
 const LIVE = new Set(["live", "running", "capturing"]);
+
+// NEWPROJ-3: what Máquinas says for a project created with «Todavía no hay código».
+export const NO_CODE_SAY = "Este proyecto todavía no tiene código. Cuando tenga su carpeta en esta Mac, aquí se podrá encender.";
+/** The line under the app's window when it has no picture: what is missing, or why there is nothing to do. */
+export function setupLine(r: MaquinasRead): string {
+  if (!r.configured && r.no_code) return NO_CODE_SAY;
+  return r.found?.missing.length ? `Falta: ${r.found.missing.join(", ")}.` : "Configurar busca cómo arrancarla en el repo.";
+}
 
 export function maqView(r: MaquinasRead): MaqView {
   const ph = r.server.phase;
@@ -87,6 +96,8 @@ export function maqView(r: MaquinasRead): MaqView {
   };
   const server = (word: string, sub: string, lever: MaqView["server"]["lever"]): MaqView["server"] => ({ light: serverLight, word, sub, lever, outside });
   const common = { base, lights: { server: serverLight, base: baseLight }, drawers: baseOn };
+  if (!r.configured && r.no_code)
+    return { ...common, state: "no-code", word: "Todavía sin código", say: NO_CODE_SAY, server: server("Sin código", "No hay nada que encender todavía", null), pipes: { window: "dark", base: "dark" }, window: "setup", lights: { server: "none", base: baseLight } };
   if (!r.configured)
     return { ...common, state: "unconfigured", word: "Sin configurar", say: "Este piso no sabe cómo encenderse.", server: server("Sin configurar", "Falta cómo arrancarla", null), pipes: { window: "dark", base: "dark" }, window: "setup", lights: { server: "none", base: baseLight } };
   if (ph === "starting")

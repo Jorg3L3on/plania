@@ -12,13 +12,24 @@ import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx, type Ctx } from "../mcp/tx.js";
 import { promptNote, rolePrompts } from "./prompts.js";
+import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheck, type RepoCheckCode, type RepoCheckDeps } from "./repo-check.js";
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
 
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
 
 export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
 // NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
-export type NewProjectError = { error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN"; status: 400 | 409; field?: string; slug?: string; seats?: string[] };
+// NEWPROJ-3: a folder that fails its check is refused with the check's code, the folder and every check's result.
+export type NewProjectError = {
+  error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING" | "KEY_PREFIX_TAKEN" | RepoCheckCode;
+  status: 400 | 409;
+  field?: string;
+  slug?: string;
+  seats?: string[];
+  path?: string;
+  branch?: string;
+  checks?: RepoCheck["checks"];
+};
 
 export function slugOf(name: string): string {
   const base = name
@@ -57,6 +68,8 @@ export type NewProjectInput = {
   key_prefix?: string;
   github_repo?: string;
   repo_path?: string;
+  // NEWPROJ-3: the project has no code yet, said on purpose (settings.local.no_code); never with repo_path or github_repo.
+  no_code?: boolean;
   po_name?: string;
 };
 
@@ -64,6 +77,9 @@ export type NewProjectOptions = {
   // NEWPROJ-2: the sheet refuses when any core seat (PO, Research, Artist, Taller) has no prompt, looked up
   // the way the runner does (src/runner/prompts.ts); the script and the MCP tool create anyway.
   requirePromptDoc?: boolean;
+  // NEWPROJ-3: when given, a repo_path is checked (exists, git, origin, start branch) before anything is created.
+  // The sheet passes it; the script and the MCP tool do not.
+  repoCheck?: RepoCheckDeps;
   ctx?: Ctx;
 };
 
@@ -79,6 +95,11 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
   const slug = input.slug !== undefined ? input.slug.trim().toLowerCase() : slugOf(name);
   if (!slug || !SLUG.test(slug)) return { error: "INVALID_BODY", status: 400, field: input.slug !== undefined ? "slug" : "name" };
   if (input.key_prefix !== undefined && !PREFIX.test(input.key_prefix)) return { error: "INVALID_BODY", status: 400, field: "key_prefix" };
+  const githubRepo = input.github_repo?.trim() || undefined;
+  const repoPath = input.repo_path?.trim() || undefined;
+  if (githubRepo !== undefined && !GITHUB_REPO.test(githubRepo)) return { error: "INVALID_BODY", status: 400, field: "github_repo" };
+  if (repoPath !== undefined && !repoPathShapeOk(repoPath)) return { error: "INVALID_BODY", status: 400, field: "repo_path" };
+  if (input.no_code && (githubRepo || repoPath)) return { error: "INVALID_BODY", status: 400, field: "no_code" };
   const poName = (input.po_name?.trim() || `PO ${name}`).slice(0, 60);
   const po = `po-${slug}`;
 
@@ -93,14 +114,19 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
   if (seats.length > 0 && requirePromptDoc) return { error: "PROMPT_DOC_MISSING", status: 409, seats };
   const prompt = prompts.get("product-owner");
 
+  if (repoPath && opts.repoCheck) {
+    const check = await checkRepoFolder(repoPath, opts.repoCheck);
+    if (check.failed) return { error: check.failed, status: 400, field: "repo_path", path: repoPath, branch: check.branch, checks: check.checks };
+  }
+
   const taken = new Set((await db.select({ p: projects.keyPrefix }).from(projects)).map((r) => r.p));
   if (input.key_prefix !== undefined && taken.has(input.key_prefix)) return { error: "KEY_PREFIX_TAKEN", status: 409, field: "key_prefix" };
   const keyPrefix = input.key_prefix ?? prefixCandidates(slug).find((c) => !taken.has(c)) ?? `${slug.slice(0, 1).toUpperCase()}${Date.now() % 100}`;
 
   const settings: ProjectSettings = {
     plan_approval: true,
-    ...(input.github_repo ? { github: { repo: input.github_repo } } : {}),
-    ...(input.repo_path ? { local: { repo_path: input.repo_path } } : {}),
+    ...(githubRepo ? { github: { repo: githubRepo } } : {}),
+    ...(repoPath ? { local: { repo_path: repoPath } } : input.no_code ? { local: { no_code: true } } : {}),
   };
   const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db

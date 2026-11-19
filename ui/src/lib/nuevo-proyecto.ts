@@ -16,6 +16,45 @@ export function nuevoProyectoError(code: string | null, detail: Record<string, u
   }
   if (code === "PROJECT_EXISTS") return "No se creó nada: ya hay un proyecto con ese nombre.";
   if (code === "KEY_PREFIX_TAKEN") return "No se creó nada: esa clave ya es de otro proyecto.";
+  // NEWPROJ-3: the folder's checks, one sentence each, saying what to fix.
+  const folder = typeof detail.path === "string" && detail.path ? `la carpeta ${detail.path}` : "esa carpeta";
+  const branch = typeof detail.branch === "string" && detail.branch ? detail.branch : "sandbox";
+  if (code === "REPO_FOLDER_MISSING") return `No se creó nada: ${folder} no existe en esta Mac. Revisa la ruta o elige otra opción.`;
+  if (code === "REPO_NOT_GIT") return `No se creó nada: ${folder} no es un repositorio de git. Ábrela en la terminal y corre git init, o elige la carpeta correcta.`;
+  if (code === "REPO_NO_ORIGIN") return `No se creó nada: ${folder} no está conectada a GitHub (no tiene origin). Agrégale el repositorio remoto y vuelve a intentar.`;
+  if (code === "REPO_ORIGIN_UNREACHABLE") return `No se creó nada: no pude leer el repositorio remoto de ${folder}. Revisa la conexión, la dirección del remoto o tu acceso a GitHub.`;
+  if (code === "REPO_NO_START_BRANCH") return `No se creó nada: el repositorio remoto de ${folder} no tiene la rama ${branch}, de donde parte el equipo. Créala y súbela, y vuelve a intentar.`;
+  if (code === "INVALID_BODY" && detail.field === "github_repo") return "No se creó nada: el repositorio de GitHub se escribe como dueño/nombre, por ejemplo jorge/viajia.";
+  if (code === "INVALID_BODY" && detail.field === "repo_path") return "No se creó nada: la carpeta va con su ruta completa, empezando con / o con ~/.";
+  if (code === "INVALID_BODY" && detail.field === "no_code") return "No se creó nada: elige solo una opción para el código.";
   if (code === "INVALID_BODY") return "No se creó nada: revisa el nombre y la meta.";
   return "No se pudo crear el proyecto.";
+}
+
+// NEWPROJ-3: where the project's code is. A folder on this Mac (with its GitHub repo if there is one), only a GitHub
+// repo, or no code yet. The same shapes the server checks (src/runner/repo-check.ts); GitHub is never called.
+export type CodigoOpcion = "carpeta" | "github" | "ninguno";
+export const CODIGO_OPCIONES: { key: CodigoOpcion; label: string; hint: string }[] = [
+  { key: "carpeta", label: "Ya está en esta Mac", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
+  { key: "github", label: "Está en GitHub", hint: "Se guarda el repositorio; la carpeta se busca en la de proyectos con el nombre del proyecto." },
+  { key: "ninguno", label: "Todavía no hay código", hint: "Se crea el proyecto sin código. Máquinas lo dirá hasta que tenga carpeta." },
+];
+const GITHUB_REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+export const githubRepoOk = (v: string): boolean => GITHUB_REPO.test(v.trim());
+export const carpetaOk = (v: string): boolean => {
+  const t = v.trim();
+  return t.length > 0 && t.length <= 500 && (t.startsWith("/") || t.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(t));
+};
+
+export type CodigoBody = { repo_path?: string; github_repo?: string; no_code?: true };
+/** What the sheet sends for the choice, or null while the choice is missing or its field is not right yet. */
+export function codigoBody(opcion: CodigoOpcion | null, carpeta: string, repo: string): CodigoBody | null {
+  if (opcion === "ninguno") return { no_code: true };
+  if (opcion === "github") return githubRepoOk(repo) ? { github_repo: repo.trim() } : null;
+  if (opcion === "carpeta") {
+    if (!carpetaOk(carpeta)) return null;
+    if (repo.trim() && !githubRepoOk(repo)) return null;
+    return { repo_path: carpeta.trim(), ...(repo.trim() ? { github_repo: repo.trim() } : {}) };
+  }
+  return null;
 }

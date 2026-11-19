@@ -224,7 +224,7 @@ export const api = {
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
-  createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
+  createCompanyProject: (input: { name: string; goal: string; repo_path?: string; github_repo?: string; no_code?: true }) => request<NewProjectResult>("POST", "/company/projects", input),
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
