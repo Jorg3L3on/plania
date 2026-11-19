@@ -915,7 +915,8 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-todo-err { padding: 8px 0; }
 .cor-todo-err .cor-empty { padding: 12px 0; align-items: flex-start; }
 /* PLA-62: «Qué toca» keeps 320px (two buttons and its sentence); the thread gives way first. */
-.cor-cosa-head, .cor-cosa { display: grid; grid-template-columns: minmax(180px, 290px) minmax(200px, 660px) minmax(320px, 1fr); column-gap: 20px; align-items: center; }
+/* PLA-I3-3: name up to 296 px, the thread takes the rest, «qué toca» up to 400 px. */
+.cor-cosa-head, .cor-cosa { display: grid; grid-template-columns: minmax(180px, 296px) minmax(240px, 1fr) minmax(280px, 400px); column-gap: 20px; align-items: center; }
 .cor-cosa-head { position: sticky; top: 0; z-index: 2; height: 30px; border-bottom: 1px solid var(--cor-line); background: var(--cor-bg); }
 .cor-grp { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 30px; padding-top: 4px; }
 .cor-grp .cor-label { white-space: nowrap; }
@@ -937,17 +938,38 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cosa-que { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 6px 0; }
 .cor-cosa-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cor-cosa-tx .cor-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cor-cosa-espera { font-size: 13px; line-height: 1.35; color: var(--cor-body); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.cor-cosa:not(.you) .cor-cosa-espera { -webkit-line-clamp: 2; }
+.cor-cosa-espera { font-size: 13px; line-height: 1.35; color: var(--cor-body); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* PLA-I3-3: a Te toca row shares its column with the lever's button, so its sentence may take a third line. */
+.cor-cosa.you .cor-cosa-espera { -webkit-line-clamp: 3; }
+/* PLA-I3-3: a title takes two lines instead of an ellipsis; the token line sits under it. */
+.cor-cosa-t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; overflow-wrap: anywhere; }
+.cor-tokens { display: inline-flex; align-items: center; gap: 6px; font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); }
+.cor-tokens.live { color: var(--cor-violet-3); }
+.cor-tokens i { width: 6px; height: 6px; border-radius: 50%; background: var(--cor-violet-2); box-shadow: 0 0 8px 2px rgba(139, 92, 246, 0.7); }
+@media (prefers-reduced-motion: no-preference) { .cor-tokens.live i { animation: cor-tdot 1.6s ease-in-out infinite; } }
+@keyframes cor-tdot { 50% { opacity: 0.45; } }
+/* PLA-I3-3: the counts that filter the list (Todo, Te toca, Se mueve, En fila, Quieto) and Hecho's door. */
+.cor-cuentas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; }
+.cor-cuenta { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--cor-line); border-radius: 10px; background: transparent; color: var(--cor-text); font: inherit; cursor: pointer; text-decoration: none; }
+.cor-cuenta:hover { border-color: var(--cor-line-strong); background: rgba(255, 255, 255, 0.03); }
+.cor-cuenta-n { font-family: var(--cor-mono); font-size: 13px; font-weight: 500; }
+.cor-cuenta[aria-pressed="true"] { border-color: rgba(167, 139, 250, 0.55); background: rgba(139, 92, 246, 0.14); }
+.cor-cuenta[aria-pressed="true"] .cor-label { color: var(--cor-violet-4); }
+.cor-cuenta.you .cor-label, .cor-cuenta.you .cor-cuenta-n { color: var(--cor-amber); }
+.cor-cuenta.hecho { margin-left: auto; }
+.cor-cuenta.hecho .cor-label, .cor-cuenta.hecho .cor-cuenta-n { color: var(--cor-green); }
+.cor-cuenta-go { color: var(--cor-muted); }
 
-.cor-hilo { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) 26px minmax(0, 2.3fr) minmax(0, 1fr); align-items: center; height: 24px; }
+/* PLA-I3-3: the six idea stops take ~46 px each (less in a narrow thread), Publicado as much, the valve 26 px and
+ * construction the rest (at least 40%). --hs is one stop's width; the dashed line of a thread born here reads it. */
+.cor-hilo { --hs: min(46px, (100% - 26px) * 0.6 / 7); position: relative; display: grid; grid-template-columns: repeat(6, var(--hs)) 26px minmax(0, 1fr) var(--hs); align-items: center; height: 24px; }
 .cor-hilo::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.12); }
 .cor-hilo > span { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; }
 .cor-hilo.head { height: 30px; }
 .cor-hilo.head::before { display: none; }
 .cor-hilo.head > span { font-family: var(--cor-mono); font-size: 9px; letter-spacing: 0; color: var(--cor-muted); white-space: nowrap; text-transform: uppercase; }
-.cor-hilo.born::before { left: calc((100% - 26px) * 6 / 9.3); }
-.cor-hilo.born::after { content: ""; position: absolute; left: 0; top: 50%; width: calc((100% - 26px) * 6 / 9.3); border-top: 1px dashed rgba(255, 255, 255, 0.14); }
+.cor-hilo.born::before { left: calc(var(--hs) * 6); }
+.cor-hilo.born::after { content: ""; position: absolute; left: 0; top: 50%; width: calc(var(--hs) * 6); border-top: 1px dashed rgba(255, 255, 255, 0.14); }
 .cor-h-d { width: 7px; height: 7px; border-radius: 50%; background: #7c6ad6; box-shadow: 0 0 0 3px var(--cor-bg); }
 .cor-hilo.sm .cor-h-d { background: #4a4270; }
 .cor-h-r { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.3); background: var(--cor-bg); box-shadow: 0 0 0 2px var(--cor-bg); }
@@ -970,15 +992,16 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 @keyframes cor-hflow { from { background-position: -30% 0; } to { background-position: 130% 0; } }
 @media (prefers-reduced-motion: reduce) { .cor-hilo.flow::after { animation: none; display: none; } }
 @media (max-width: 1100px) {
-  .cor-cosa-head, .cor-cosa { grid-template-columns: minmax(160px, 1fr) minmax(160px, 1.2fr) minmax(300px, 1.2fr); }
+  .cor-cosa-head, .cor-cosa { grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.1fr) minmax(240px, 1.3fr); }
 }
 @media (max-width: 639px) {
   .cor-todo-scroll { padding: 0 16px 12px; }
   .cor-cosa-head { display: none; }
   .cor-cosa, .cor-cosa.you, .cor-cosa.liv { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 12px; margin-inline: 0; }
+  .cor-cuenta { padding: 0 10px; }
+  .cor-cuenta.hecho { margin-left: 0; }
 }
 .cor-cosa-nm.row { justify-content: flex-start; }
-.cor-cosa[data-grupo="fila"] .cor-cosa-espera { -webkit-line-clamp: 1; }
 .cor-cosa[data-grupo="fila"] { min-height: 48px; }
 .cor-todo-err .cor-empty { flex-direction: row; justify-content: flex-start; gap: 16px; text-align: left; }
 /* PLA-I64-3: the sentence and the pulse. */
@@ -1056,8 +1079,8 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }
 .cor-cosa-que { flex-wrap: wrap; row-gap: 6px; }
 .cor-cosa-tx { flex: 1 1 140px; }
-.cor-hilo.head .s { display: none; }
-@media (max-width: 1359px) { .cor-hilo.head .l { display: none; } .cor-hilo.head .s { display: inline; } }
+/* PLA-I3-3: the stops are narrow at every width, so the header always shows the short names («Construcción» whole). */
+.cor-hilo.head .l { display: none; }
 /* PLA-109 (F-41): the header's own width decides the three-letter names, whatever the window. */
 .cor-hilo-wrap { display: block; min-width: 0; container-type: inline-size; }
 .cor-hilo.head .t { display: none; }
@@ -1237,7 +1260,7 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-tab.none b { color: var(--cor-muted); font-weight: 400; }
 .cor-ficha-tab.none { cursor: default; }
 /* PLA-63: on a thread with no idea part, the moving light runs over the construction only. */
-.cor-hilo.born.flow::after { left: calc((100% - 26px) * 6 / 9.3 + 26px); }
+.cor-hilo.born.flow::after { left: calc(var(--hs) * 6 + 26px); }
 /* NEWPROJ-6: the Ajustes door (components/corriente/ajustes.tsx). Cards in two columns on a wide screen, one on a phone. */
 .cor-ajustes-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; max-width: 1180px; }
 .cor-ajustes-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px 20px; }

@@ -7,6 +7,7 @@ import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
 import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
+import { cuentaAria, cuentasOf, filtrar, tokensLabel, tokensTitle, type Filtro } from "@/lib/fila";
 import { Hilo, HiloHead } from "./hilo";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
@@ -25,15 +26,18 @@ const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean)
 
 /** How many rows each group shows before it folds. The list measures its own height (ResizeObserver) and spends
  *  it in group order: a Te toca row costs more than a quiet one, a row in line or done costs least. Te toca always
- *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2). */
-export const ROW_PX = { toca: 86, mueve: 58, fila: 52, quieto: 66, hecho: 46 } as const;
-// The column header is 30px; a group's line is 30, or 48 when it carries a «Ver…» link (a 44px target).
-export const LINE_PX = { head: 30, group: 30, folded: 48 } as const;
+ *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2); PLA-I3-3
+ *  re-measured them once titles and «qué toca» took two lines and initiatives a token line. */
+export const ROW_PX = { toca: 96, mueve: 94, fila: 80, quieto: 80, hecho: 46 } as const;
+// The column header is 30px; the counts' row is 56 (44px controls); a group's line is 30, or 48 when it carries a
+// «Ver…» link (a 44px target). Only groups with rows get a line (PLA-I3-3).
+export const LINE_PX = { head: 30, cuentas: 56, group: 30, folded: 48 } as const;
 export const FOLD = { perGroup: 3, hecho: 2, fallback: 420 } as const;
 export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD.fallback): Record<Grupo, number> {
-  // Fixed lines: the column header, one line per group shown (empty groups share the next one), Hecho's line.
-  let left = height - LINE_PX.head - c.grupos.filter((g) => g.cosas.length > 0).length * LINE_PX.group - LINE_PX.folded;
-  const out = {} as Record<Grupo, number>;
+  // Fixed lines: the column header, the counts, one line per group with rows, Hecho's line when it has any.
+  const hechoLine = c.hecho.iniciativas.length > 0 || c.hecho.sueltos > 0 ? LINE_PX.folded : 0;
+  let left = height - LINE_PX.head - LINE_PX.cuentas - c.grupos.filter((g) => g.cosas.length > 0).length * LINE_PX.group - hechoLine;
+  const out = { toca: 0, mueve: 0, fila: 0, quieto: 0, hecho: 0 } as Record<Grupo, number>;
   for (const g of c.grupos) {
     const n = g.cosas.length;
     let show = 0;
@@ -61,6 +65,18 @@ export function groupLine(g: Exclude<Grupo, "hecho">, n: number, paused: boolean
   return "no se mueven solas; cada una dice qué espera";
 }
 
+// PLA-I3-3: an initiative's token line under its name: one figure, violet with a dot while one of its steps is live.
+const TokensLine = ({ c }: { c: Cosa }) => {
+  if (!c.tokens) return null;
+  const live = c.hilo.tramos.some((t) => t.tono === "vivo");
+  return (
+    <span className={cls("cor-tokens", live && "live")} title={tokensTitle(c.tokens)} data-tokens={c.tokens.used}>
+      {live && <i aria-hidden />}
+      {tokensLabel(c.tokens.used)}
+    </span>
+  );
+};
+
 const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) => {
   const toca = c.grupo === "toca";
   return (
@@ -70,17 +86,45 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
           <Label tone={toca ? "amber" : undefined}>{TIPO_NAME[c.tipo]}</Label>
           {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
-        <b className="cor-ellipsis">{c.title}</b>
+        <b className="cor-cosa-t" title={c.title}>
+          {c.title}
+        </b>
+        <TokensLine c={c} />
       </Link>
       <Hilo h={c.hilo} />
       <div className="cor-cosa-que">
         <span className="cor-cosa-tx">
           <span className={cls("cor-label", toca && "amber")}>{c.cap}</span>
-          <span className="cor-cosa-espera">{c.espera}</span>
+          <span className="cor-cosa-espera" title={c.espera}>
+            {c.espera}
+          </span>
         </span>
         {act}
       </div>
     </li>
+  );
+};
+
+/** PLA-I3-3: the counts above the list (Todo, Te toca, Se mueve, En fila, Quieto), each a pressed-state button that
+ *  filters it, and Hecho as the link to its door. They replace the line «TE TOCA · 0 SE MUEVE · 0 …». */
+export const Cuentas = ({ cosas, filtro, onFiltro, hechoHref }: { cosas: Cosas; filtro: Filtro; onFiltro: (f: Filtro) => void; hechoHref: string }) => {
+  const { cuentas, hecho } = cuentasOf(cosas);
+  return (
+    <div className="cor-cuentas" role="group" aria-label="Filtrar la lista" data-cuentas>
+      {cuentas.map((k) => (
+        <button key={k.id} type="button" className={cls("cor-cuenta", k.id === "toca" && k.n > 0 && "you")} aria-pressed={filtro === k.id} aria-label={cuentaAria(k)} onClick={() => onFiltro(k.id)} data-control={`filtro-${k.id}`}>
+          <span className="cor-label">{k.label}</span>
+          <b className="cor-cuenta-n">{k.n}</b>
+        </button>
+      ))}
+      <Link className="cor-cuenta hecho" to={hechoHref} aria-label={`Hecho: ${hecho}. Ver todo lo hecho`} data-control="filtro-hecho">
+        <span className="cor-label">Hecho</span>
+        <b className="cor-cuenta-n">{hecho}</b>
+        <span className="cor-cuenta-go" aria-hidden>
+          →
+        </span>
+      </Link>
+    </div>
   );
 };
 
@@ -123,6 +167,10 @@ export const TodoList = ({
   plan?: ReactNode;
 }) => {
   const [open, setOpen] = useState<Set<Grupo>>(new Set());
+  // PLA-I3-3: the count pressed above the list; a group's count shows that group whole.
+  const [filtro, setFiltro] = useState<Filtro>("todo");
+  const vista = filtrar(cosas, filtro);
+  const abiertos: ReadonlySet<Grupo> = filtro === "todo" ? open : new Set<Grupo>([filtro]);
   const paused = companyPaused || p.paused;
   // The room the list has (its scroll box), read on every resize.
   const ref = useRef<HTMLDivElement>(null);
@@ -152,28 +200,21 @@ export const TodoList = ({
   // floor went blank. It now corrects at most MAX_FIT_TRIES times per box size, and never past the room itself; what
   // still overflows then scrolls.
   const tries = useRef(0);
-  const shown = foldOf(cosas, open, room === undefined ? undefined : room - over);
+  const shown = foldOf(vista, abiertos, room === undefined ? undefined : room - over);
   useLayoutEffect(() => {
     const box = ref.current?.closest(".cor-todo-scroll") as HTMLElement | null;
-    if (!box || open.size > 0) return;
+    if (!box || abiertos.size > 0) return;
     const extra = box.scrollHeight - box.clientHeight;
     if (!shouldRefit(extra, tries.current, over, room)) return;
     tries.current += 1;
     setOver((o) => o + extra);
   });
   const toggle = (g: Grupo) => setOpen((s) => (s.has(g) ? new Set([...s].filter((x) => x !== g)) : new Set([...s, g])));
-  // Empty groups share the line of the group after them (or one line of their own at the end).
-  const blocks: ({ kind: "empty"; grupos: Exclude<Grupo, "hecho">[] } | { kind: "group"; i: number; lead: Exclude<Grupo, "hecho">[] })[] = [];
-  let pend: Exclude<Grupo, "hecho">[] = [];
-  cosas.grupos.forEach((g, i) => {
-    if (g.cosas.length === 0) pend.push(g.grupo);
-    else {
-      blocks.push({ kind: "group", i, lead: pend });
-      pend = [];
-    }
-  });
-  if (pend.length) blocks.push({ kind: "empty", grupos: pend });
-  const hecho = cosas.hecho;
+  // PLA-I3-3: the counts say every group's size, so only groups with rows get a header; a pressed count whose group is
+  // empty says so in its line.
+  const grupos = vista.grupos.filter((g) => g.cosas.length > 0 || filtro !== "todo");
+  const cuentas = <Cuentas cosas={cosas} filtro={filtro} onFiltro={setFiltro} hechoHref={links.hecho} />;
+  const hecho = vista.hecho;
   const hechoRows = hecho.iniciativas.slice(0, shown.hecho);
   if (cosas.abiertas === 0 && hecho.iniciativas.length === 0 && hecho.sueltos === 0)
     return (
@@ -196,11 +237,7 @@ export const TodoList = ({
             </span>
           </div>
         </div>
-        <div className="cor-grp" data-grupo-vacio="toca mueve fila quieto hecho">
-          {(["toca", "mueve", "fila", "quieto", "hecho"] as const).map((g) => (
-            <span key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</span>
-          ))}
-        </div>
+        {cuentas}
         {plan && (
           <div className="cor-vacio-plan">
             <p className="cor-text">¿Prefieres que el PO proponga por dónde empezar? Arma el plan del proyecto: los entregables y los pasos de cada uno.</p>
@@ -216,29 +253,17 @@ export const TodoList = ({
         <HiloHead />
         <span className="cor-label">Qué toca</span>
       </div>
-      {blocks.map((b) => {
-        if (b.kind === "empty")
-          return (
-            <div key={b.grupos.join("-")} className="cor-grp" data-grupo-vacio={b.grupos.join(" ")}>
-              {b.grupos.map((g) => (
-                <h2 key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</h2>
-              ))}
-              <span className="cor-grp-tx">{b.grupos.length > 1 ? b.grupos.map((g) => groupLine(g, 0, paused)).join(" ") : groupLine(b.grupos[0]!, 0, paused)}</span>
-            </div>
-          );
-        const g = cosas.grupos[b.i]!;
+      {cuentas}
+      {grupos.map((g) => {
         const n = g.cosas.length;
         const k = shown[g.grupo];
         const more = n - k;
         return (
           <section key={g.grupo} aria-label={GRUPO_NAME[g.grupo]} data-grupo={g.grupo}>
             <div className="cor-grp">
-              {b.lead.map((e) => (
-                <span key={e} className="cor-label" data-grupo-vacio={e}>{`${GRUPO_NAME[e]} · 0`}</span>
-              ))}
-              <h2 className={cls("cor-label", g.grupo === "toca" && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
-              {g.grupo !== "toca" && <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>}
-              {(more > 0 || open.has(g.grupo)) && (
+              <h2 className={cls("cor-label", g.grupo === "toca" && n > 0 && "amber")}>{`${GRUPO_NAME[g.grupo]} · ${n}`}</h2>
+              <span className="cor-grp-tx">{groupLine(g.grupo, n, paused)}</span>
+              {filtro === "todo" && (more > 0 || open.has(g.grupo)) && (
                 <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has(g.grupo)} onClick={() => toggle(g.grupo)} data-control={`ver-${g.grupo}`}>
                   {open.has(g.grupo) ? "Ver menos" : k === 0 ? (n === 1 ? "Verla" : `Ver las ${n}`) : more === 1 ? "Ver la otra" : `Ver las otras ${more}`}
                 </button>
@@ -254,23 +279,24 @@ export const TodoList = ({
           </section>
         );
       })}
-      <section aria-label="Hecho" data-grupo="hecho">
-        <div className="cor-grp">
-          <h2 className="cor-label green">{["Hecho", hecho.iniciativas.length ? `${hecho.iniciativas.length} ${hecho.iniciativas.length === 1 ? "iniciativa" : "iniciativas"}` : null, hecho.sueltos ? `${hecho.sueltos} ${hecho.sueltos === 1 ? "paso suelto" : "pasos sueltos"}` : null].filter(Boolean).join(" · ") || "Hecho · 0"}</h2>
-          {!hecho.iniciativas.length && !hecho.sueltos && <span className="cor-grp-tx">Todavía nada.</span>}
-          <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
-            Ver todo lo hecho
-          </Link>
-        </div>
-        {hechoRows.length > 0 && (
-          <ul>
-            {hechoRows.map((h) => (
-              <HechaRow key={h.key} h={h} links={links} timeZone={timeZone} />
-            ))}
-          </ul>
-        )}
-      </section>
-      {cosas.guardadas > 0 && (
+      {(hecho.iniciativas.length > 0 || hecho.sueltos > 0) && (
+        <section aria-label="Hecho" data-grupo="hecho">
+          <div className="cor-grp">
+            <h2 className="cor-label green">{["Hecho", hecho.iniciativas.length ? `${hecho.iniciativas.length} ${hecho.iniciativas.length === 1 ? "iniciativa" : "iniciativas"}` : null, hecho.sueltos ? `${hecho.sueltos} ${hecho.sueltos === 1 ? "paso suelto" : "pasos sueltos"}` : null].filter(Boolean).join(" · ")}</h2>
+            <Link className="cor-btn link cor-grp-more" to={links.hecho} data-control="ver-hecho">
+              Ver todo lo hecho
+            </Link>
+          </div>
+          {hechoRows.length > 0 && (
+            <ul>
+              {hechoRows.map((h) => (
+                <HechaRow key={h.key} h={h} links={links} timeZone={timeZone} />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {vista.guardadas > 0 && (
         <section aria-label="Guardadas" data-guardadas={cosas.guardadas}>
           <div className="cor-grp">
             <h2 className="cor-label">{`Guardadas · ${cosas.guardadas}`}</h2>

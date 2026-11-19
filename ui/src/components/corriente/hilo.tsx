@@ -40,8 +40,9 @@ export const Hilo = ({ h, small }: { h: HiloT; small?: boolean }) => {
   );
 };
 
-/** PLA-62: the short names, when the thread is narrow (under 1360 px wide). */
-const SHORT: Partial<Record<(typeof PARADAS)[number], string>> = { entendido: "Entend.", investigacion: "Invest.", construccion: "Constr.", publicado: "Public." };
+/** PLA-62: the short names. PLA-I3-3: the idea stops and Publicado are ~46 px wide at any width, so they always show
+ *  these; construction has the room and spells «Construcción». */
+const SHORT: Partial<Record<(typeof PARADAS)[number], string>> = { entendido: "Entend.", investigacion: "Invest.", publicado: "Public." };
 /** PLA-109 (guided test PLA-86, F-41): in a narrow pane each stop is ~25 px and even the short names ran into each
  * other («BUZÓNENTEND.INVEST.»); there the header shows three letters, switched by the header's own width. */
 export const TINY = (p: (typeof PARADAS)[number]): string => PARADA_NAME[p].normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 3);
@@ -54,7 +55,7 @@ export const HiloHead = () => (
         p === "valvula" ? (
           <span key={p} />
         ) : (
-          <span key={p}>
+          <span key={p} title={PARADA_NAME[p]}>
             <span className="l">{PARADA_NAME[p]}</span>
             <span className="s">{SHORT[p] ?? PARADA_NAME[p]}</span>
             <span className="t">{TINY(p)}</span>
