@@ -3,6 +3,8 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
+import { PARTS } from "@/lib/corriente-parts-words";
+import { words } from "@/lib/i18n";
 
 export type BtnKind = "primary" | "secondary" | "quiet" | "amber" | "danger" | "link";
 
@@ -58,9 +60,9 @@ export const Logo = ({ slug, title, size }: { slug: string; title: string; size?
 /** A section not drawn in La corriente yet: it says so and links to where it lives today. */
 export const NotYet = ({ what, to }: { what: string; to: string }) => (
   <div className="cor-empty" data-not-yet={what}>
-    <p className="cor-text">{what} todavía se ve en el edificio.</p>
+    <p className="cor-text">{words(PARTS).notYet(what)}</p>
     <BtnLink to={to} kind="secondary">
-      Abrir {what.toLowerCase()} en el edificio
+      {words(PARTS).openInBuilding(what.toLowerCase())}
     </BtnLink>
   </div>
 );
@@ -68,9 +70,9 @@ export const NotYet = ({ what, to }: { what: string; to: string }) => (
 /** What a part says when it cannot be read. */
 export const ReadError = ({ what, onRetry }: { what: string; onRetry: () => void }) => (
   <div className="cor-empty" role="alert" data-error={what}>
-    <p className="cor-text">No se pudo leer {what}. Si la máquina está dormida, intenta al despertar.</p>
+    <p className="cor-text">{words(PARTS).readError(what)}</p>
     <Btn kind="secondary" onClick={onRetry}>
-      Reintentar
+      {words(PARTS).retry}
     </Btn>
   </div>
 );
@@ -80,7 +82,7 @@ export const Switch = ({ on, label, onChange, disabled, ...rest }: { on: boolean
   <button type="button" role="switch" aria-checked={on} className="cor-switch" onClick={() => onChange(!on)} disabled={disabled} {...rest}>
     <i aria-hidden />
     <span>
-      {label} · {on ? "encendido" : "apagado"}
+      {label} · {on ? words(PARTS).on : words(PARTS).off}
     </span>
   </button>
 );

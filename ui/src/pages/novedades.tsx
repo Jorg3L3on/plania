@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
+import { words } from "@/lib/i18n";
 import { NOVEDADES, versionLine, type ReleaseReading } from "@/lib/version";
 import { ACTUALIZAR, kitFileLine, kitRoleLine, type UpdateReport } from "@/lib/actualizar";
 
@@ -10,16 +11,17 @@ import { ACTUALIZAR, kitFileLine, kitRoleLine, type UpdateReport } from "@/lib/a
 
 export function NovedadesPage() {
   const release = useQuery({ queryKey: ["release"], queryFn: api.releaseInfo, staleTime: 5 * 60_000 });
+  const nw = words(NOVEDADES);
   return (
     <div className="grid gap-8">
       <header className="grid gap-2">
-        <Kicker>{NOVEDADES.kicker}</Kicker>
-        <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{NOVEDADES.title}</h1>
+        <Kicker>{nw.kicker}</Kicker>
+        <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{nw.title}</h1>
       </header>
       {release.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : release.isError ? (
-        <p className="text-sm text-muted-foreground">{NOVEDADES.error}</p>
+        <p className="text-sm text-muted-foreground">{nw.error}</p>
       ) : (
         <NovedadesView release={release.data} />
       )}
@@ -29,6 +31,7 @@ export function NovedadesPage() {
 
 /** The reading apart from the query, so a test renders it. */
 export function NovedadesView({ release }: { release: ReleaseReading }) {
+  const nw = words(NOVEDADES);
   return (
     <section className="grid gap-4" data-version={release.version}>
       <p className="text-muted-foreground" data-version-line>
@@ -40,7 +43,7 @@ export function NovedadesView({ release }: { release: ReleaseReading }) {
           <ReactMarkdown>{release.notes}</ReactMarkdown>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">{NOVEDADES.empty}</p>
+        <p className="text-sm text-muted-foreground">{nw.empty}</p>
       )}
     </section>
   );
@@ -48,13 +51,14 @@ export function NovedadesView({ release }: { release: ReleaseReading }) {
 
 // PLA-I2-8: what the update to this version kept of the owner's own kit, and what to do about it.
 function LastUpdate({ report }: { report: UpdateReport }) {
+  const aw = words(ACTUALIZAR);
   const lines = [...report.kit_files.map((k) => ({ key: k.file, text: kitFileLine(k), todo: k.kind === "both" })), ...report.kit_roles.map((r) => ({ key: r.role, text: kitRoleLine(r), todo: true }))];
   return (
     <section className="grid gap-2 rounded-lg border p-4" data-last-update={report.to}>
-      <h2 className="font-semibold">{ACTUALIZAR.title}</h2>
-      <p className="text-sm text-muted-foreground">{ACTUALIZAR.headline(report)}</p>
+      <h2 className="font-semibold">{aw.title}</h2>
+      <p className="text-sm text-muted-foreground">{aw.headline(report)}</p>
       {lines.length === 0 ? (
-        <p className="text-sm">{ACTUALIZAR.nothingKept}</p>
+        <p className="text-sm">{aw.nothingKept}</p>
       ) : (
         <ul className="grid gap-1 text-sm">
           {lines.map((l) => (
@@ -64,7 +68,7 @@ function LastUpdate({ report }: { report: UpdateReport }) {
           ))}
         </ul>
       )}
-      <p className="text-xs text-muted-foreground">{ACTUALIZAR.backup(report.backup)}</p>
+      <p className="text-xs text-muted-foreground">{aw.backup(report.backup)}</p>
     </section>
   );
 }

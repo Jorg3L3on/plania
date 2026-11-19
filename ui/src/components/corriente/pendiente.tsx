@@ -17,6 +17,8 @@ import { seatName } from "@/lib/corriente";
 import { APPROVE, acceptWords } from "@/lib/evidencia";
 import { frameOf } from "@/lib/probador";
 import { checksText, evidenceText, ordered, releaseText, stateText } from "@/lib/v2";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { PENDIENTE_WORDS } from "@/lib/pendiente-words";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { Btn, Label, Logo, Opt, Switch, You } from "./parts";
@@ -24,22 +26,23 @@ import { useProbadorRead } from "./reads";
 
 export type PendLinks = { entrega: (d: Decision) => string; publicar: (d: Decision) => string; project: (slug: string) => string };
 
-export function kindWord(d: Decision): string {
+export function kindWord(d: Decision, language: Language = getLanguage()): string {
+  const w = words(PENDIENTE_WORDS, language).kind;
   const who = d.asker ? seatName(d.asker.role) : null;
   switch (d.kind) {
     case "deliverable":
     case "pr":
-      return d.actions.includes("verificar") && d.hold ? "Algo falló" : `Entrega · ${who ?? "Taller"}`;
+      return d.actions.includes("verificar") && d.hold ? w.failed : w.delivery(who);
     case "plan":
-      return `Plan · ${who ?? "PO"}`;
+      return w.plan(who);
     case "proposal":
-      return `Opciones · ${who ?? "PO"}`;
+      return w.options(who);
     case "question":
-      return `Pregunta · ${who ?? "el equipo"}`;
+      return w.question(who);
     case "release":
-      return "Publicar";
+      return w.release;
     default:
-      return d.file_step ? "Paso tuyo · archivo" : "Paso tuyo";
+      return d.file_step ? w.fileStep : w.step;
   }
 }
 
@@ -50,12 +53,13 @@ export const AutoSwitches = ({ p, acts, compact }: { p: OrgProject; acts: Corrie
   const on = !!p.auto_accept?.on;
   const invisible = !!p.auto_accept?.invisible;
   const busy = acts.busy === `${p.slug}:auto`;
+  const w = words(PENDIENTE_WORDS);
   return (
     <div className="cor-pend-auto" data-auto={p.slug}>
-      {!compact && <Label>En {p.title}</Label>}
-      <Switch on={on} label="Aprobar sola si las pruebas pasan" onChange={(v) => acts.autoAccept(p.slug, v)} disabled={busy} data-control="aceptar-sola" />
-      {!on && <Switch on={invisible} label="Solo lo que no se ve" onChange={(v) => acts.autoInvisible(p.slug, v)} disabled={busy} data-control="aceptar-invisible" />}
-      {(on || invisible) && p.auto_accept?.hold ? <p data-auto-hold>No se aprobó sola: {p.auto_accept.hold}</p> : !compact && <p>Solo llega a la copia de prueba. Publicar sigue siendo tuyo.</p>}
+      {!compact && <Label>{w.inProject(p.title)}</Label>}
+      <Switch on={on} label={w.autoAccept} onChange={(v) => acts.autoAccept(p.slug, v)} disabled={busy} data-control="aceptar-sola" />
+      {!on && <Switch on={invisible} label={w.autoInvisible} onChange={(v) => acts.autoInvisible(p.slug, v)} disabled={busy} data-control="aceptar-invisible" />}
+      {(on || invisible) && p.auto_accept?.hold ? <p data-auto-hold>{w.notAccepted(p.auto_accept.hold)}</p> : !compact && <p>{w.autoHint}</p>}
     </div>
   );
 };
@@ -65,9 +69,10 @@ export const AutoSwitches = ({ p, acts, compact }: { p: OrgProject; acts: Corrie
 export const Shots = ({ p, d, to }: { p: OrgProject; d: Decision; to: string }) => {
   const read = useProbadorRead(p.slug, d.ref);
   const v = read.data?.vistas[0];
+  const w = words(PENDIENTE_WORDS);
   const one = (side: "antes" | "despues") => {
     const f = v ? frameOf(v, "desktop", side) : null;
-    const word = side === "antes" ? "Antes" : "Después";
+    const word = side === "antes" ? w.before : w.after;
     if (f?.kind === "still")
       return (
         <span className="cor-shot" data-shot={side}>
@@ -77,13 +82,13 @@ export const Shots = ({ p, d, to }: { p: OrgProject; d: Decision; to: string }) 
       );
     return (
       <span className="cor-shot empty" data-shot={side}>
-        {f?.kind === "nueva" ? "Pantalla nueva" : read.data?.state?.state === "tomando" ? "Tomando la foto…" : `Sin foto · ${word.toLowerCase()}`}
+        {f?.kind === "nueva" ? w.newScreen : read.data?.state?.state === "tomando" ? w.takingShot : w.noShot(word.toLowerCase())}
       </span>
     );
   };
   if (read.isPending || !read.data?.muestra) return null;
   return (
-    <Link className="cor-pend-shots" to={to} data-shots aria-label={`Ver antes y después de ${d.ref ?? d.title}`}>
+    <Link className="cor-pend-shots" to={to} data-shots aria-label={w.shotsAria(d.ref ?? d.title)}>
       {one("antes")}
       {one("despues")}
     </Link>
@@ -100,19 +105,20 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
   const [text, setText] = useState("");
   const busy = acts.decisions.busy?.id === d.id;
   const leg = !!plan.leg;
+  const w = words(PENDIENTE_WORDS);
   return (
     <>
       {plan.understood && (
         <p className="cor-text" data-plan-understood>
-          <b>Lo entendí:</b> {plan.understood}
+          <b>{w.understood}</b> {plan.understood}
         </p>
       )}
       <div className="cor-plan" data-plan={d.id}>
         <div>
-          <Label>{plan.steps.length === 1 ? "1 paso" : `${plan.steps.length} pasos`}</Label>
+          <Label>{w.steps(plan.steps.length)}</Label>
           <ol>
             {plan.steps.map((s, i) => (
-              <li key={i} title={`Hecho cuando: ${s.done_when}`}>
+              <li key={i} title={w.doneWhen(s.done_when)}>
                 {s.title}
               </li>
             ))}
@@ -120,7 +126,7 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
         </div>
         {qs.length > 0 && (
           <div className="cor-plan-q">
-            <Label>{qs.length === 1 ? "1 pregunta del PO" : `${qs.length} preguntas del PO`}</Label>
+            <Label>{w.poQuestions(qs.length)}</Label>
             {qs.map((q, i) => (
               <div key={i} role="radiogroup" aria-label={q.text} className="cor-plan-q">
                 <span>{q.text}</span>
@@ -128,7 +134,7 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
                   {q.options.map((o, k) => (
                     <button key={k} type="button" role="radio" aria-checked={answers[i] === k} className="cor-opt" onClick={() => setAnswers((a) => a.map((x, j) => (j === i ? k : x)))} disabled={busy}>
                       {o}
-                      {k === q.suggested && <small>sugerida</small>}
+                      {k === q.suggested && <small>{w.suggested}</small>}
                     </button>
                   ))}
                 </span>
@@ -138,9 +144,9 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
         )}
         {leg && (
           <div>
-            <Label>Lista para revisar · la puedes editar</Label>
+            <Label>{w.checklist}</Label>
             {list.map((c, i) => (
-              <input key={i} className="cor-input" value={c} maxLength={200} aria-label={`Cosa a verificar ${i + 1}`} onChange={(e) => setList((l) => l.map((v, j) => (j === i ? e.target.value : v)))} disabled={busy} />
+              <input key={i} className="cor-input" value={c} maxLength={200} aria-label={w.checkItem(i + 1)} onChange={(e) => setList((l) => l.map((v, j) => (j === i ? e.target.value : v)))} disabled={busy} />
             ))}
           </div>
         )}
@@ -148,23 +154,23 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
       <div className="cor-acts">
         {d.actions.includes("empezar") && (
           <Btn kind="primary" onClick={() => acts.decisions.decide(d, { action: "empezar", ...(leg ? { answers, checklist: list.map((c) => c.trim()) } : {}) }, "plan-empezar")} disabled={busy} data-action="empezar">
-            {busy && acts.decisions.busy?.key === "plan-empezar" ? "…" : "Empezar"}
+            {busy && acts.decisions.busy?.key === "plan-empezar" ? "…" : w.start}
           </Btn>
         )}
         {d.actions.includes("cambiar") && (
           // An order's plan hands its words back to the ask box at once; a leg's plan takes one line for the PO.
           <Btn kind="secondary" aria-expanded={leg ? changing : undefined} onClick={() => (leg ? setChanging((x) => !x) : acts.decisions.decide(d, { action: "cambiar" }, "cambiar"))} disabled={busy} data-action="cambiar">
-            Cambiar algo
+            {w.change}
           </Btn>
         )}
         {d.actions.includes("despues") && (
           <Btn kind="quiet" onClick={() => acts.decisions.decide(d, { action: "despues" }, "plan-despues")} disabled={busy} data-action="despues">
-            Después
+            {w.later}
           </Btn>
         )}
         {d.actions.includes("cancelar") && (
           <Btn kind="quiet" onClick={() => acts.decisions.decide(d, { action: "cancelar" }, "cancelar")} disabled={busy} data-action="cancelar">
-            Cancelar
+            {w.cancel}
           </Btn>
         )}
       </div>
@@ -179,9 +185,9 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
             setChanging(false);
           }}
         >
-          <input className="cor-input" value={text} maxLength={500} placeholder="Qué cambiar, en una línea. El PO rehace el plan." aria-label="Qué cambiar del plan" onChange={(e) => setText(e.target.value)} disabled={busy} />
+          <input className="cor-input" value={text} maxLength={500} placeholder={w.changePlaceholder} aria-label={w.changeAria} onChange={(e) => setText(e.target.value)} disabled={busy} />
           <Btn kind="secondary" type="submit" disabled={busy || !text.trim()}>
-            Enviar al PO
+            {w.sendToPo}
           </Btn>
         </form>
       )}
@@ -196,23 +202,24 @@ const Options = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
   const [own, setOwn] = useState(false);
   const [text, setText] = useState("");
   const busy = acts.decisions.busy?.id === d.id;
+  const w = words(PENDIENTE_WORDS);
   return (
     <>
       {options.length > 0 && (
-        <div className="cor-opts" role="radiogroup" aria-label="Opciones" data-options={options.length}>
+        <div className="cor-opts" role="radiogroup" aria-label={w.options} data-options={options.length}>
           {options.map((o) => (
             <button key={o.n} type="button" role="radio" aria-checked={pick === o.n} className="cor-opt" onClick={() => setPick(o.n)} disabled={busy} data-option={o.n} title={[o.effect, o.cost].filter(Boolean).join(" · ") || undefined}>
               {o.label}
-              {o.recommended && <small>{d.kind === "proposal" ? "recomendada" : "sugerida"}</small>}
+              {o.recommended && <small>{d.kind === "proposal" ? w.recommended : w.suggested}</small>}
             </button>
           ))}
         </div>
       )}
-      {d.kind === "proposal" && d.recommended_reason && <p className="cor-cap">Recomienda: {d.recommended_reason}</p>}
+      {d.kind === "proposal" && d.recommended_reason && <p className="cor-cap">{w.recommends(d.recommended_reason)}</p>}
       <div className="cor-acts">
         {options.length > 0 && d.actions.includes("elegir") && (
           <Btn kind="primary" disabled={busy || pick === null} onClick={() => pick !== null && acts.decisions.decide(d, { action: "elegir", option: pick }, `elegir-${pick}`)} data-action="elegir">
-            {busy ? "…" : "Responder"}
+            {busy ? "…" : w.answer}
           </Btn>
         )}
         {(d.combinable ?? []).map((set) => (
@@ -222,7 +229,7 @@ const Options = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
         ))}
         {d.actions.includes("responder") && (
           <Btn kind={options.length ? "quiet" : "primary"} aria-expanded={own} onClick={() => setOwn((x) => !x)} disabled={busy} data-action="responder">
-            {options.length ? "Cambiar algo" : "Responder"}
+            {options.length ? w.change : w.answer}
           </Btn>
         )}
       </div>
@@ -237,9 +244,9 @@ const Options = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
             setText("");
           }}
         >
-          <input className="cor-input" value={text} maxLength={2000} placeholder="Tu respuesta" aria-label="Tu respuesta" onChange={(e) => setText(e.target.value)} autoFocus />
+          <input className="cor-input" value={text} maxLength={2000} placeholder={w.yourAnswer} aria-label={w.yourAnswer} onChange={(e) => setText(e.target.value)} autoFocus />
           <Btn kind="secondary" type="submit" disabled={text.trim().length < 2}>
-            Enviar
+            {w.send}
           </Btn>
         </form>
       )}
@@ -255,26 +262,27 @@ const FileBox = ({ d, acts }: { d: Decision & { file_step: NonNullable<Decision[
   const n = f.pr_url ? (/\/pull\/(\d+)/.exec(f.pr_url)?.[1] ?? null) : null;
   const busy = acts.decisions.busy?.id === d.id;
   const working = busy && acts.decisions.busy?.key === "aplicar";
+  const w = words(PENDIENTE_WORDS);
   return (
     <div className="cor-file" data-file-step={f.source}>
       <p className="cor-text">
-        Son líneas para un archivo que el equipo no puede escribir. Las revisas y se agregan al PR{n ? ` #${n}` : ""} con un clic. Las que ya estén no se repiten.
-        {f.source === "text" ? " Se leyeron del mensaje: revísalas antes." : ""}
+        {w.fileIntro(n)}
+        {f.source === "text" ? w.fileFromText : ""}
       </p>
-      <input className="cor-input" value={path} onChange={(e) => setPath(e.target.value)} disabled={busy} aria-label="Archivo" spellCheck={false} data-control="archivo-ruta" />
-      <textarea className="cor-textarea" rows={Math.min(8, Math.max(3, lines.split("\n").length + 1))} value={lines} onChange={(e) => setLines(e.target.value)} disabled={busy} aria-label="Líneas" spellCheck={false} data-control="archivo-lineas" />
+      <input className="cor-input" value={path} onChange={(e) => setPath(e.target.value)} disabled={busy} aria-label={w.filePath} spellCheck={false} data-control="archivo-ruta" />
+      <textarea className="cor-textarea" rows={Math.min(8, Math.max(3, lines.split("\n").length + 1))} value={lines} onChange={(e) => setLines(e.target.value)} disabled={busy} aria-label={w.fileLines} spellCheck={false} data-control="archivo-lineas" />
       {working && (
         <p className="cor-cap" role="status">
-          Agregando en GitHub: lee {path.trim()} en la rama del PR, agrega las líneas que faltan y hace un commit.
+          {w.adding(path.trim())}
         </p>
       )}
       <div className="cor-acts">
         <Btn kind="primary" disabled={busy || !path.trim() || !lines.trim()} onClick={() => acts.decisions.decide(d, { action: "aplicar", path: path.trim(), lines }, "aplicar")} data-action="aplicar">
-          {working ? "Agregando…" : n ? `Agregar al PR #${n} y marcar hecho` : "Agregar al PR y marcar hecho"}
+          {working ? w.addingShort : w.addToPr(n)}
         </Btn>
         {d.actions.includes("hecho") && (
           <Btn kind="quiet" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "hecho" }, "hecho")} data-action="hecho">
-            Ya lo hice yo
+            {w.didItMyself}
           </Btn>
         )}
       </div>
@@ -293,6 +301,7 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
   const fileStep = d.file_step && d.actions.includes("aplicar") ? (d as Decision & { file_step: NonNullable<Decision["file_step"]> }) : null;
   const failed = delivery && d.actions.includes("verificar") && !!d.hold && !d.verify;
   const title = d.ref && (delivery || d.kind === "action" || d.kind === "step") ? `${d.ref} · ${d.title}` : d.title;
+  const w = words(PENDIENTE_WORDS);
   const why = delivery ? (d.hold ? null : accept ? acceptWords(d, { seen: true }).hint : null) : d.kind === "release" ? release : d.detail;
   return (
     <article className={`cor-pend ${big ? "big" : ""} ${d.state ? "done" : ""}`} data-pendiente={d.id} data-kind={d.kind} aria-label={`${kindWord(d)}: ${d.title}`}>
@@ -312,7 +321,7 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
           {why && <p className="cor-text">{why}</p>}
           {failed && (
             <p className="cor-text">
-              <span className="cor-state bad">{d.hold}</span> Puedes pedir que su dueño lo intente otra vez.
+              <span className="cor-state bad">{d.hold}</span> {w.retryHint}
             </p>
           )}
           {checks && (
@@ -328,10 +337,10 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
                 {ev && " · "}
                 {d.preview_url ? (
                   <a className="cor-inline" href={d.preview_url} target="_blank" rel="noreferrer" data-control="vista-previa">
-                    Ver la vista previa ↗
+                    {w.seePreview}
                   </a>
                 ) : (
-                  <span data-no-preview>Sin vista previa</span>
+                  <span data-no-preview>{w.noPreview}</span>
                 )}
               </p>
             );
@@ -350,20 +359,20 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
                   <div className="cor-acts">
                     {accept && (
                       <Btn kind="primary" disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
-                        {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
+                        {busy && acts.decisions.busy?.key === "aceptar" ? "…" : w.accept}
                       </Btn>
                     )}
                     {d.actions.includes("verificar") && (
                       <Btn kind={accept ? "secondary" : "primary"} disabled={busy} onClick={() => acts.decisions.decide(d, { action: "verificar" }, "verificar")} data-action="verificar">
-                        {`Que ${d.asker ? seatName(d.asker.role) : "su dueño"} vuelva a probar`}
+                        {w.retry(d.asker ? seatName(d.asker.role) : null)}
                       </Btn>
                     )}
                     <Link className="cor-btn secondary" to={links.entrega(d)} data-control="ver-entrega">
-                      Ver antes y después
+                      {w.seeBeforeAfter}
                     </Link>
                     {d.actions.includes("cambios") && (
                       <Btn kind="quiet" aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
-                        Pedir ajuste
+                        {w.askFix}
                       </Btn>
                     )}
                   </div>
@@ -379,12 +388,12 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
                 <div className="cor-acts">
                   {d.actions.includes("hecho") && (
                     <Btn kind="primary" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "hecho" }, "hecho")} data-action="hecho">
-                      {busy && acts.decisions.busy?.key === "hecho" ? "…" : "Hecho"}
+                      {busy && acts.decisions.busy?.key === "hecho" ? "…" : w.done}
                     </Btn>
                   )}
                   {d.actions.includes("aplazar") && (
                     <Btn kind="quiet" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "aplazar" }, "aplazar")} data-action="aplazar">
-                      Aplazar
+                      {w.postpone}
                     </Btn>
                   )}
                 </div>
@@ -392,7 +401,7 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
               {d.kind === "release" && (
                 <div className="cor-acts">
                   <Link className="cor-btn primary" to={links.publicar(d)} data-action="publicar">
-                    Publicar
+                    {w.publish}
                   </Link>
                 </div>
               )}
@@ -422,7 +431,7 @@ export const PendienteRow = ({ d, p, onOpen }: { d: Decision; p: OrgProject | nu
     </div>
     {d.hold && <span className="cor-hold">{d.hold}</span>}
     <Btn kind="secondary" onClick={onOpen} data-control="abrir">
-      Abrir
+      {words(PENDIENTE_WORDS).open}
     </Btn>
   </div>
 );

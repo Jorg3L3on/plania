@@ -6,12 +6,14 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
 import { listoLinea } from "@/lib/listo";
-import { ESTADO, NOMBRE_GITHUB, PASO, acciones, porQue, ramaDicho, resumen, type Preparacion } from "@/lib/preparar-codigo";
+import { ESTADO, NOMBRE_GITHUB, PASO, PREPARAR_CODIGO_WORDS, acciones, porQue, ramaDicho, resumen, type Preparacion } from "@/lib/preparar-codigo";
+import { words } from "@/lib/i18n";
 import type { Ajustes } from "@/lib/ajustes";
 import { Btn, Switch } from "./parts";
 
 export function PrepararCodigo({ a }: { a: Ajustes }) {
   const client = useQueryClient();
+  const w = words(PREPARAR_CODIGO_WORDS);
   const listo = useQuery({ queryKey: ["readiness", a.slug], queryFn: () => api.readiness(a.slug) });
   const code = listo.data?.items.find((i) => i.id === "code");
   const que = acciones(code, a.code);
@@ -35,7 +37,7 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
   });
   const rama = useMutation({ mutationFn: () => api.crearRama(a.slug), onSuccess: refresh });
   const nombreOk = !enGithub || NOMBRE_GITHUB.test(nombre.trim());
-  const errorDe = (e: unknown) => (e instanceof ApiError && e.code === "STALE_VERSION" ? "Esto cambió mientras lo veías. Recarga y vuelve a intentarlo." : porQue(e instanceof ApiError ? e.code : null));
+  const errorDe = (e: unknown) => (e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : porQue(e instanceof ApiError ? e.code : null));
 
   return (
     <div className="cor-ajustes-form" data-preparar-codigo={a.slug}>
@@ -48,22 +50,22 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
             if (nombreOk) preparar.mutate();
           }}
         >
-          <p className="cor-text">Plania crea la carpeta, su repositorio y la rama de trabajo. Nunca toca una carpeta que ya tiene archivos.</p>
+          <p className="cor-text">{w.intro}</p>
           <label>
-            <span className="cor-text">Carpeta en esta máquina (vacía o nueva)</span>
-            <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder="En la carpeta de proyectos, con el nombre del proyecto" autoComplete="off" spellCheck={false} data-campo="preparar-carpeta" />
+            <span className="cor-text">{w.folder}</span>
+            <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder={w.folderPlaceholder} autoComplete="off" spellCheck={false} data-campo="preparar-carpeta" />
           </label>
-          <Switch on={enGithub} label="Crear su repositorio en GitHub con tu cuenta" onChange={setEnGithub} data-campo="preparar-github" />
+          <Switch on={enGithub} label={w.onGithub} onChange={setEnGithub} data-campo="preparar-github" />
           {enGithub && (
             <span className="cor-hoja-two">
               <label>
-                <span className="cor-text">Nombre en GitHub</span>
+                <span className="cor-text">{w.githubName}</span>
                 <input className="cor-input cor-mono" value={nombre} onChange={(e) => setNombre(e.target.value)} autoComplete="off" spellCheck={false} data-campo="preparar-nombre" />
               </label>
-              <Switch on={privado} label="Privado" onChange={setPrivado} data-campo="preparar-privado" />
+              <Switch on={privado} label={w.private} onChange={setPrivado} data-campo="preparar-privado" />
             </span>
           )}
-          {!nombreOk && <p className="cor-state amber">El nombre lleva letras, números, punto, guion o guion bajo.</p>}
+          {!nombreOk && <p className="cor-state amber">{w.badName}</p>}
           {preparar.error && (
             <p className="cor-state bad" role="alert">
               {errorDe(preparar.error)}
@@ -71,7 +73,7 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
           )}
           <div className="cor-acts">
             <Btn kind="secondary" type="submit" disabled={!nombreOk || preparar.isPending} data-control="preparar-codigo">
-              {preparar.isPending ? "Preparando…" : "Preparar el código"}
+              {preparar.isPending ? w.preparing : w.prepare}
             </Btn>
           </div>
         </form>
@@ -91,7 +93,7 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
       {que.rama && (
         <div className="cor-acts">
           <Btn kind="secondary" disabled={rama.isPending} onClick={() => rama.mutate()} data-control="crear-rama">
-            {rama.isPending ? "Creándola…" : "Crear la rama de trabajo"}
+            {rama.isPending ? w.creatingBranch : w.createBranch}
           </Btn>
         </div>
       )}
@@ -99,7 +101,7 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
       {rama.error && <p className="cor-state bad">{errorDe(rama.error)}</p>}
       <div className="cor-acts">
         <Btn kind="quiet" small disabled={listo.isFetching} onClick={() => void listo.refetch()} data-control="revisar-codigo">
-          {listo.isFetching ? "Revisando…" : "Revisar de nuevo"}
+          {listo.isFetching ? w.checking : w.checkAgain}
         </Btn>
       </div>
     </div>

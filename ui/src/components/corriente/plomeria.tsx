@@ -14,6 +14,8 @@ import { seatName, thousands } from "@/lib/corriente";
 import { tableroView } from "@/lib/maquinas";
 import { logWords } from "@/lib/calidad";
 import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
+import { PLOMERIA } from "@/lib/plomeria-words";
+import { getLanguage, words, type Language } from "@/lib/i18n";
 import { NOVEDADES, versionLine } from "@/lib/version";
 import { ACTUALIZAR, pendingKit } from "@/lib/actualizar";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
@@ -30,16 +32,22 @@ export const weekParts = (plumbing: MachinePlumbing) => {
 };
 
 /** The headline: whether the company runs, and with or without the plan's brake. */
-export function plumbingHead(p: MachinePlumbing): { title: string; sub: string; tone: "ok" | "warn" | "stop" } {
+export function plumbingHead(p: MachinePlumbing, language: Language = getLanguage()): { title: string; sub: string; tone: "ok" | "warn" | "stop" } {
+  const w = words(PLOMERIA, language);
   const n = p.usage.projects.filter((x) => !x.paused).length;
-  if (p.company.paused) return { title: "La compañía está detenida.", sub: "Nada arranca hasta que la reanudes. No se borra nada.", tone: "stop" };
-  if (p.plan.override) return { title: "La compañía trabaja sin el freno del plan.", sub: `Nada corre ahora y ${n === 1 ? "el proyecto puede" : `los ${n} proyectos pueden`} arrancar. Le dijiste que siga aunque tu plan de Claude esté alto: solo se detiene si Claude ya no acepta más uso.`, tone: "warn" };
+  if (p.company.paused) return { title: w.stoppedTitle, sub: w.stoppedSub, tone: "stop" };
+  if (p.plan.override) return { title: w.overrideTitle, sub: w.overrideSub(n), tone: "warn" };
   const pct = p.plan.five_hour_pct;
-  if (pct !== null && pct >= p.plan.guard_pct) return { title: "El freno del plan está puesto.", sub: `Tu plan va en ${Math.round(pct)}% y el freno está en ${p.plan.guard_pct}%: nada nuevo arranca hasta que baje.`, tone: "warn" };
-  return { title: "La compañía está en marcha.", sub: `${n === 1 ? "El proyecto puede" : `Los ${n} proyectos pueden`} arrancar. Arriba del freno del plan no arranca nada nuevo.`, tone: "ok" };
+  if (pct !== null && pct >= p.plan.guard_pct) return { title: w.brakedTitle, sub: w.brakedSub(Math.round(pct), p.plan.guard_pct), tone: "warn" };
+  return { title: w.runningTitle, sub: w.runningSub(n), tone: "ok" };
 }
 
-const RUN_WORD: Record<string, [string, "ok" | "bad" | undefined]> = { ok: ["Terminó bien", "ok"], fail: ["Falló", "bad"], stopped: ["La detuviste", undefined], skipped: ["No arrancó", "bad"], running: ["Corriendo", undefined] };
+// PLA-I2-10: a run's outcome, in the screen's language.
+const runWord = (status: string, language: Language = getLanguage()): [string, "ok" | "bad" | undefined] | undefined => {
+  const w = words(PLOMERIA, language);
+  const all: Record<string, [string, "ok" | "bad" | undefined]> = { ok: [w.runOk, "ok"], fail: [w.runFail, "bad"], stopped: [w.runStopped, undefined], skipped: [w.runSkipped, "bad"], running: [w.runRunning, undefined] };
+  return all[status];
+};
 const hm = (iso: string | null, tz?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(new Date(iso)) : "");
 const mins = (a: string | null, b: string | null) => (a && b ? Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / 60_000)) : null);
 
@@ -51,14 +59,15 @@ const OwnerCode = () => {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const enrolled = owner.data?.enrolled ?? null;
-  const error = enrol.error instanceof ApiError ? (enrol.error.code === "INVALID_PASSWORD" ? "Contraseña incorrecta." : (OWNER_CODE_WORDS[enrol.error.code] ?? `No se pudo (${enrol.error.code}).`)) : null;
+  const w = words(PLOMERIA);
+  const error = enrol.error instanceof ApiError ? (enrol.error.code === "INVALID_PASSWORD" ? w.wrongPassword : (OWNER_CODE_WORDS[enrol.error.code] ?? w.couldNot(enrol.error.code))) : null;
   return (
     <div className="cor-owner" data-owner-code-row={enrolled ? "1" : "0"}>
       <span className="cor-text">
-        <b>Código del dueño</b> · {enrolled == null ? "…" : enrolled ? "configurado; borrar un proyecto lo pide" : "sin configurar; solo se pide para borrar un proyecto"}
+        <b>{w.ownerCode}</b> · {enrolled == null ? "…" : enrolled ? w.ownerEnrolled : w.ownerNotEnrolled}
       </span>
       <Btn kind="link" aria-expanded={open} onClick={() => setOpen((x) => !x)} data-control="codigo-dueno">
-        {enrolled ? "Cambiar" : "Configurar"}
+        {enrolled ? w.change : w.configure}
       </Btn>
       {open && !enrol.data && (
         <form
@@ -68,17 +77,17 @@ const OwnerCode = () => {
             if (password) enrol.mutate({ password, code: enrolled ? code : undefined });
           }}
         >
-          <input type="password" className="cor-input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" aria-label="Contraseña" placeholder="Tu contraseña" />
-          {enrolled && <input inputMode="numeric" maxLength={6} className="cor-input cor-mono" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} aria-label="Código del dueño actual" placeholder="000000" />}
+          <input type="password" className="cor-input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" aria-label={w.password} placeholder={w.yourPassword} />
+          {enrolled && <input inputMode="numeric" maxLength={6} className="cor-input cor-mono" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} aria-label={w.currentCode} placeholder="000000" />}
           <Btn kind="secondary" type="submit" disabled={enrol.isPending || !password || (!!enrolled && !isOwnerCode(code))}>
-            Generar código
+            {w.generateCode}
           </Btn>
           {error && <span className="cor-state bad">{error}</span>}
         </form>
       )}
       {enrol.data && (
         <p className="cor-text" data-owner-secret>
-          Agrégalo a tu app de autenticación ahora; no se vuelve a mostrar: <span className="cor-mono">{enrol.data.secret_base32}</span>
+          {w.secretLead} <span className="cor-mono">{enrol.data.secret_base32}</span>
         </p>
       )}
     </div>
@@ -89,16 +98,18 @@ const OwnerCode = () => {
 export const ReleaseLine = () => {
   const release = useQuery({ queryKey: ["release"], queryFn: api.releaseInfo, staleTime: 5 * 60_000 });
   if (!release.data) return null;
+  const nw = words(NOVEDADES);
+  const aw = words(ACTUALIZAR);
   return (
     <span className="cor-text" data-version={release.data.version}>
       <span data-version-line>{versionLine(release.data)}</span>{" "}
       <BtnLink kind="link" to="/novedades" data-control="novedades">
-        {NOVEDADES.link}
+        {nw.link}
       </BtnLink>
       {/* PLA-I2-8: after an update, the owner's kit edits that the release also changed wait on Novedades. */}
       {pendingKit(release.data.last_update) > 0 && (
         <span className="cor-amber" data-kit-pending>
-          {" "}· {ACTUALIZAR.hint(pendingKit(release.data.last_update))}
+          {" "}· {aw.hint(pendingKit(release.data.last_update))}
         </span>
       )}
     </span>
@@ -107,6 +118,8 @@ export const ReleaseLine = () => {
 
 export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbing: MachinePlumbing; inventory: boolean; onInventory: () => void; macLine: string }) => {
   const client = useQueryClient();
+  const w = words(PLOMERIA);
+  const ayuda = words(AYUDA);
   const tz = plumbing.week.timezone;
   const canEdit = plumbing.viewer?.can_edit_limits ?? true;
   const [stopping, setStopping] = useState<{ kind: "company" } | { kind: "project"; p: CompanyProjectRow } | null>(null);
@@ -120,31 +133,31 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
   const titles = new Map(plumbing.usage.projects.map((p) => [p.slug, p.title]));
   const companySwitch = useMutation({
     mutationFn: (paused: boolean) => api.setCompanyPaused(paused),
-    onSuccess: (r) => (toast(r.paused ? `Compañía detenida${r.stopped ? ` · ${r.stopped} corridas cerrándose` : ""}` : "Compañía en marcha"), setStopping(null), refresh()),
-    onError: () => toast.error("No se pudo cambiar el interruptor"),
+    onSuccess: (r) => (toast(r.paused ? w.companyStopped(r.stopped) : w.companyRunning), setStopping(null), refresh()),
+    onError: () => toast.error(w.switchFailed),
   });
   const projectSwitch = useMutation({
     mutationFn: ({ slug, paused }: { slug: string; paused: boolean }) => api.setProjectPaused(slug, paused),
-    onSuccess: (r) => (toast(r.paused ? `${titles.get(r.project) ?? r.project} en pausa` : `${titles.get(r.project) ?? r.project} reanudado`), setStopping(null), refresh()),
-    onError: () => toast.error("No se pudo cambiar el interruptor del proyecto"),
+    onSuccess: (r) => (toast(r.paused ? w.projectPaused(titles.get(r.project) ?? r.project) : w.projectResumed(titles.get(r.project) ?? r.project)), setStopping(null), refresh()),
+    onError: () => toast.error(w.projectSwitchFailed),
   });
   const saveGuard = useMutation({
     mutationFn: (v: number) => api.setRunnerSettings({ plan_guard_pct: v }),
-    onSuccess: () => (toast("Guardado"), setGuard(null), refresh()),
-    onError: () => toast.error("No se pudo guardar"),
+    onSuccess: () => (toast(w.saved), setGuard(null), refresh()),
+    onError: () => toast.error(w.saveFailed),
   });
-  const override = useMutation({ mutationFn: (on: boolean) => api.setRunnerSettings({ guard_override: on }), onSuccess: (_r, on) => (toast(on ? "Límite del plan ignorado" : "Freno del plan activo"), refresh()), onError: () => toast.error("No se pudo guardar") });
+  const override = useMutation({ mutationFn: (on: boolean) => api.setRunnerSettings({ guard_override: on }), onSuccess: (_r, on) => (toast(on ? w.overrideOn : w.overrideOff), refresh()), onError: () => toast.error(w.saveFailed) });
   const tablero = useQuery({ queryKey: ["maquinas-tablero"], queryFn: () => api.tablero(), refetchInterval: 15_000, retry: 1 });
   const tv = tablero.data ? tableroView(tablero.data) : null;
   const [busy, setBusy] = useState<string | null>(null);
   const appRun = useMutation({
     mutationFn: async (x: { key: string; call: () => Promise<unknown> }) => x.call(),
     onMutate: (x) => setBusy(x.key),
-    onError: () => toast.error("No se pudo. Si la máquina está dormida, intenta al despertar."),
+    onError: () => toast.error(w.appFailed),
     onSettled: () => (setBusy(null), refresh(), void client.invalidateQueries({ queryKey: ["maquinas"] })),
   });
   const head = plumbingHead(plumbing);
-  const w = weekParts(plumbing);
+  const week = weekParts(plumbing);
   const spent = [...plumbing.usage.projects.filter((p) => p.usage.used > 0)].sort((a, b) => b.usage.used - a.usage.used);
   const quiet = plumbing.usage.projects.filter((p) => p.usage.used === 0).map((p) => p.title);
   const max = Math.max(1, ...spent.map((p) => p.usage.used));
@@ -155,9 +168,9 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
   const log: RunBrief[] = logAll ? plumbing.log : plumbing.log.slice(0, 3);
   return (
     <div className="cor-plomeria" data-plomeria={head.tone}>
-      <section className="cor-pl-hero" aria-label="Estado de la compañía">
+      <section className="cor-pl-hero" aria-label={w.stateLabel}>
         <div>
-          <Label>Plomería · esta semana</Label>
+          <Label>{w.kicker}</Label>
           <h1 className="cor-h2" data-pl-head>
             {head.tone !== "ok" && <span className={head.tone === "stop" ? "cor-state bad" : "cor-amber"} aria-hidden>{head.tone === "stop" ? "■ " : "▲ "}</span>}
             {head.title}
@@ -167,38 +180,38 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
         {canEdit &&
           (plumbing.company.paused ? (
             <Btn kind="primary" disabled={companySwitch.isPending} onClick={() => companySwitch.mutate(false)} data-control="reanudar-compania">
-              Reanudar la compañía
+              {w.resumeCompany}
             </Btn>
           ) : stopping?.kind === "company" ? (
-            <div className="cor-card cor-confirm" role="alertdialog" aria-label="¿Detener la compañía?" data-confirm="company">
+            <div className="cor-card cor-confirm" role="alertdialog" aria-label={w.stopQuestion} data-confirm="company">
               <p className="cor-text">
-                <b>¿Detener la compañía?</b> {live.length ? `Se cierran ${live.length === 1 ? "la corrida" : `las ${live.length} corridas`} que están corriendo` : "Nada está corriendo"} y nada nuevo arranca. Se puede deshacer.
+                <b>{w.stopQuestion}</b> {w.stopBody(live.length)}
               </p>
               <span className="cor-acts">
                 <Btn kind="danger" disabled={companySwitch.isPending} onClick={() => companySwitch.mutate(true)} data-control="detener-si">
-                  Sí, detener
+                  {w.yesStop}
                 </Btn>
                 <Btn kind="quiet" onClick={() => setStopping(null)}>
-                  Cancelar
+                  {w.cancel}
                 </Btn>
               </span>
             </div>
           ) : (
             <span className="cor-pl-stop">
               <Btn kind="danger" onClick={() => setStopping({ kind: "company" })} data-control="detener-compania">
-                Detener la compañía
+                {w.stopCompany}
               </Btn>
-              <span className="cor-cap">Cierra lo que esté corriendo y nada nuevo arranca. Se puede deshacer.</span>
+              <span className="cor-cap">{w.stopCap}</span>
             </span>
           ))}
       </section>
       <div className="cor-pl-grid">
-        <section aria-label="Lo que gastaron los modelos esta semana" data-block="tokens">
-          <Label as="h2">Lo que gastaron los modelos esta semana</Label>
+        <section aria-label={w.spentTitle} data-block="tokens">
+          <Label as="h2">{w.spentTitle}</Label>
           <p className="cor-pl-big">
-            <span className="cor-figure">{thousands(w.main)}</span> <span className="cor-text">tokens (lo que leen + lo que escriben)</span>
+            <span className="cor-figure">{thousands(week.main)}</span> <span className="cor-text">{w.tokensUnit}</span>
           </p>
-          <p className="cor-cap">Sin límite propio. El freno es el de tu plan.</p>
+          <p className="cor-cap">{w.noOwnLimit}</p>
           <ul className="cor-pl-usage">
             {spent.slice(0, 2).map((p) => (
               <li key={p.slug}>
@@ -214,28 +227,28 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
             {(quiet.length > 0 || spent.length > 2) && (
               <li>
                 <span className="cor-ellipsis">{[...spent.slice(2).map((p) => p.title), ...quiet].join(", ")}</span>
-                <span className="cor-cap">{spent.length > 2 ? tokens(spent.slice(2).reduce((n, p) => n + p.usage.used, 0)) : "sin reporte"}</span>
+                <span className="cor-cap">{spent.length > 2 ? tokens(spent.slice(2).reduce((n, p) => n + p.usage.used, 0)) : w.noReport}</span>
               </li>
             )}
           </ul>
-          <p className="cor-cap">{`Aparte, lo que releyeron de memoria (más barato, no cuenta arriba): ${thousands(w.cache_read)} leídos y ${thousands(w.cache_create)} guardados.`}</p>
+          <p className="cor-cap">{w.cacheLine(thousands(week.cache_read), thousands(week.cache_create))}</p>
         </section>
-        <section aria-label="Freno del plan" data-block="freno">
-          <Label as="h2">Freno del plan</Label>
+        <section aria-label={w.brakeTitle} data-block="freno">
+          <Label as="h2">{w.brakeTitle}</Label>
           <div className="cor-planline">
-            <span className="cor-text">Tu plan, últimas 5 horas</span>
-            <span className="cor-cap">{`${pct === null ? "—" : `${Math.round(pct)}%`}${plumbing.plan.resets_at ? ` · a cero ${hm(plumbing.plan.resets_at, tz)}` : ""}`}</span>
+            <span className="cor-text">{w.planWindow}</span>
+            <span className="cor-cap">{`${pct === null ? "—" : `${Math.round(pct)}%`}${plumbing.plan.resets_at ? w.resetsAt(hm(plumbing.plan.resets_at, tz)) : ""}`}</span>
           </div>
           <span className="cor-meter" aria-hidden>
             <i style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
             <u style={{ left: `${plumbing.plan.guard_pct}%` }} />
           </span>
-          <p className="cor-cap">{`La raya es el freno (${plumbing.plan.guard_pct}%): arriba no arranca nada nuevo.`}</p>
+          <p className="cor-cap">{w.brakeLine(plumbing.plan.guard_pct)}</p>
           <div className="cor-krow">
-            <span className="cor-text">{`Uso de la semana ${plumbing.plan.seven_day_pct === null ? "—" : `${Math.round(plumbing.plan.seven_day_pct)}%`}`}</span>
+            <span className="cor-text">{w.weekUse(plumbing.plan.seven_day_pct === null ? "—" : `${Math.round(plumbing.plan.seven_day_pct)}%`)}</span>
             {canEdit && guard === null && (
               <Btn kind="secondary" onClick={() => setGuard(String(plumbing.plan.guard_pct))} data-control="mover-guardia">
-                Mover el freno
+                {w.moveBrake}
               </Btn>
             )}
           </div>
@@ -248,17 +261,17 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
               }}
               data-guard-form
             >
-              <Label as="p">Al tocar «Mover el freno» · solo tú lo mueves</Label>
+              <Label as="p">{w.brakeFormLabel}</Label>
               <span className="cor-ajuste-row">
                 <label className="cor-text" htmlFor="freno-pct">
-                  Freno, % de 5 horas
+                  {w.brakeField}
                 </label>
                 <input id="freno-pct" inputMode="numeric" className="cor-input cor-mono" style={{ width: 90 }} value={guard} onChange={(e) => setGuard(e.target.value)} />
                 <Btn kind="quiet" onClick={() => setGuard(null)}>
-                  Cancelar
+                  {w.cancel}
                 </Btn>
                 <Btn kind="secondary" type="submit" disabled={!guardValid || saveGuard.isPending} data-control="guardar-freno">
-                  Guardar
+                  {w.save}
                 </Btn>
               </span>
             </form>
@@ -266,18 +279,18 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
           <label className={`cor-card cor-override ${plumbing.plan.override ? "on" : ""}`} data-inline-ok>
             <input type="checkbox" checked={plumbing.plan.override === true} disabled={!canEdit || override.isPending} onChange={(e) => override.mutate(e.target.checked)} data-control="seguir-sin-guardia" />
             <span>
-              <b>Seguir aunque el plan esté alto</b>
-              <span className="cor-cap">{plumbing.plan.override ? "Encendido: el freno no se usa." : "Apagado: el freno detiene lo nuevo al llegar."}</span>
+              <b>{w.overrideLabel}</b>
+              <span className="cor-cap">{plumbing.plan.override ? w.overrideOnCap : w.overrideOffCap}</span>
             </span>
           </label>
         </section>
         <LimitesCorrida settings={plumbing.settings} canEdit={canEdit} onSaved={refresh} />
-        <section aria-label="Proyectos, agentes y app en tu máquina" data-block="proyectos">
+        <section aria-label={w.projectsLabel} data-block="proyectos">
           <div className="cor-side-head">
-            <Label as="h2">Proyectos · agentes y app en tu máquina</Label>
+            <Label as="h2">{w.projectsTitle}</Label>
             {tv && tv.stoppable.length > 0 && (
               <Btn kind="quiet" disabled={busy === "todo"} onClick={() => appRun.mutate({ key: "todo", call: () => Promise.all(tv.stoppable.map((slug) => api.prueba(slug, "apagar"))) })} data-control="apagar-todo">
-                Apagar todas las apps
+                {w.stopAllApps}
               </Btn>
             )}
           </div>
@@ -290,52 +303,52 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
                   <span className="cor-pl-name">
                     <span className={`cor-state ${off ? "" : "ok"}`}>{off ? "○" : "●"}</span>
                     <b>{p.title}</b>
-                    <span className="cor-cap">{p.paused ? "EN PAUSA" : plumbing.company.paused ? "DETENIDA" : "EN MARCHA"}</span>
+                    <span className="cor-cap">{p.paused ? w.projectPausedTag : plumbing.company.paused ? w.companyStoppedTag : w.runningTag}</span>
                   </span>
                   {app && !app.configured ? (
                     <Btn kind="link" disabled={busy === `cfg:${p.slug}`} onClick={() => appRun.mutate({ key: `cfg:${p.slug}`, call: () => api.configurar(p.slug) })} data-control="configurar-app">
-                      Configurar su app
+                      {w.configureApp}
                     </Btn>
                   ) : app && app.phase === "running" && !app.managed ? (
-                    <span className="cor-cap">ENCENDIDA FUERA DE AQUÍ</span>
+                    <span className="cor-cap">{w.appElsewhere}</span>
                   ) : app ? (
-                    <Switch on={app.on} label={app.on ? `App encendida${app.port ? ` :${app.port}` : ""}` : "App apagada"} onChange={(v) => appRun.mutate({ key: `sw:${p.slug}`, call: () => api.prueba(p.slug, v ? "encender" : "apagar") })} disabled={busy === `sw:${p.slug}`} data-control="app-switch" aria-label={`App de ${p.title}`} />
+                    <Switch on={app.on} label={app.on ? w.appOn(app.port ? ` :${app.port}` : "") : w.appOff} onChange={(v) => appRun.mutate({ key: `sw:${p.slug}`, call: () => api.prueba(p.slug, v ? "encender" : "apagar") })} disabled={busy === `sw:${p.slug}`} data-control="app-switch" aria-label={w.appOf(p.title)} />
                   ) : (
                     <span />
                   )}
                   {canEdit &&
                     (p.paused ? (
                       <Btn kind="quiet" disabled={projectSwitch.isPending} onClick={() => projectSwitch.mutate({ slug: p.slug, paused: false })} data-control="reanudar-proyecto">
-                        Reanudar
+                        {w.resume}
                       </Btn>
                     ) : stopping?.kind === "project" && stopping.p.slug === p.slug ? (
                       <Btn kind="danger" disabled={projectSwitch.isPending} onClick={() => projectSwitch.mutate({ slug: p.slug, paused: true })} data-control="pausar-si">
-                        ¿Pausar? Sí
+                        {w.pauseYes}
                       </Btn>
                     ) : (
                       <Btn kind="quiet" onClick={() => setStopping({ kind: "project", p })} data-control="pausar-proyecto">
-                        Pausar
+                        {w.pause}
                       </Btn>
                     ))}
                 </li>
               );
             })}
           </ul>
-          <p className="cor-cap">Pausar no borra nada.</p>
+          <p className="cor-cap">{w.pauseCap}</p>
         </section>
       </div>
-      <section className="cor-pl-log" aria-label="Lo último que corrió" data-block="bitacora">
+      <section className="cor-pl-log" aria-label={w.logTitle} data-block="bitacora">
         <div className="cor-side-head">
-          <Label as="h2">Lo último que corrió</Label>
+          <Label as="h2">{w.logTitle}</Label>
           {plumbing.log.length > 3 && (
             <Btn kind="link" onClick={() => setLogAll((x) => !x)} data-control="bitacora">
-              {logAll ? "Ver menos" : "Ver toda la bitácora"}
+              {logAll ? w.seeLess : w.seeAll}
             </Btn>
           )}
         </div>
         <ul className={logAll ? "cor-scrollbox" : ""} tabIndex={logAll ? 0 : undefined}>
           {log.map((x) => {
-            const [word, tone] = x.resolved ? (["Ya resuelto", undefined] as [string, undefined]) : (RUN_WORD[x.status] ?? [x.status, undefined]);
+            const [word, tone] = x.resolved ? ([w.runResolved, undefined] as [string, undefined]) : (runWord(x.status) ?? [x.status, undefined]);
             const m = mins(x.started_at, x.ended_at);
             return (
               <li key={x.id} className="cor-row">
@@ -346,20 +359,20 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
                 <span className="cor-ellipsis" style={{ flex: 1 }} title={logWords(x.summary)}>
                   <span className={`cor-state ${tone ?? ""}`}>{word}</span> · {logWords(x.summary)}
                 </span>
-                <span className="cor-cap">{`HOY ${hm(x.ended_at ?? x.started_at, tz)}${m ? ` · ${m} MIN` : ""}`}</span>
+                <span className="cor-cap">{w.when(hm(x.ended_at ?? x.started_at, tz), m)}</span>
               </li>
             );
           })}
-          {plumbing.log.length === 0 && <li className="cor-text">Nada ha corrido todavía.</li>}
+          {plumbing.log.length === 0 && <li className="cor-text">{w.nothingRan}</li>}
         </ul>
       </section>
       <div className="cor-pl-foot">
         <OwnerCode />
         <span className="cor-text">
-          <b>En tu máquina</b> · {macLine}
+          <b>{w.onYourMachine}</b> · {macLine}
         </span>
-        <Btn kind="link" aria-expanded={inventory} onClick={onInventory} data-control="ver-que-corre">
-          {inventory ? "Ocultar lo que corre" : "Ver qué corre"}
+        <Btn kind="link" aria-expanded={inventory} onClick={onInventory} data-control="inventario">
+          {inventory ? w.hideRunning : w.showRunning}
         </Btn>
         <ReleaseLine />
         {/* PLA-I2-10: one language for the screen and the brief. */}
@@ -370,20 +383,20 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
         </Link>
       </div>
       {/* PLA-I2-18: two downloads; the owner decides what to do with each file. */}
-      <section className="cor-pl-foot" aria-label={AYUDA.title} data-block="ayuda">
+      <section className="cor-pl-foot" aria-label={ayuda.title} data-block="ayuda">
         <span className="cor-text">
           <a className="cor-btn link" href={HELP_REPORT_URL} download data-control="informe-ayuda">
-            {AYUDA.report}
+            {ayuda.report}
           </a>
-          <span className="cor-cap"> {AYUDA.reportCap}</span>
+          <span className="cor-cap"> {ayuda.reportCap}</span>
         </span>
         <span className="cor-text">
           <a className="cor-btn link" href={EXPORT_ALL_URL} download data-control="exportar-todo">
-            {AYUDA.exportAll}
+            {ayuda.exportAll}
           </a>
-          <span className="cor-cap"> {AYUDA.exportAllCap}</span>
+          <span className="cor-cap"> {ayuda.exportAllCap}</span>
         </span>
-        <span className="cor-cap">{AYUDA.leaveCap}</span>
+        <span className="cor-cap">{ayuda.leaveCap}</span>
       </section>
     </div>
   );

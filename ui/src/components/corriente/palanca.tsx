@@ -7,6 +7,8 @@ import { useState } from "react";
 import { Link } from "react-router";
 import type { Decision, OrgProject } from "@/lib/api";
 import type { Cosa, Palanca as PalancaT } from "@/lib/cosas";
+import { PALANCA } from "@/lib/corriente-parts-words";
+import { words } from "@/lib/i18n";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { MoveButton, type AhoraLinks } from "./ahora";
@@ -47,10 +49,9 @@ export function busyKey(slug: string, a: PalancaT): string | null {
 /** PLA-62: the levers a ficha or a step's view does not offer by itself; opening the thing carries them over. */
 export const CARRIED: ReadonlySet<PalancaT["kind"]> = new Set(["lista", "primero", "detener", "reenviar"]);
 
-const DECISION_WORD: Record<string, string> = { plan: "Ver el plan", question: "Responder", proposal: "Elegir", step: "Hacerlo" };
-
 export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p: OrgProject; c: Cosa; primary: boolean; acts: CorrienteActs; decisions: Decision[]; links: PalancaLinks; onFijar: (p: OrgProject) => void }) => {
   const [ajuste, setAjuste] = useState(false);
+  const w = words(PALANCA);
   const a = c.palanca;
   if (!a) return null;
   const kind = primary ? "primary" : "secondary";
@@ -77,52 +78,52 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
         return (
           <>
             <MoveButton p={p} a={a.action} d={d} primary={primary} acts={acts} links={links.ahora} onFijar={onFijar} />
-            {delivery && d && link("Ver", links.entrega(d.id), "ver-entrega", "quiet")}
+            {delivery && d && link(w.see, links.entrega(d.id), "ver-entrega", "quiet")}
           </>
         );
       case "entregas":
-        if (a.ids.length > 1) return link("Ver las entregas", links.entrega(a.ids[0]!), "ver-entregas");
+        if (a.ids.length > 1) return link(w.seeDeliveries, links.entrega(a.ids[0]!), "ver-entregas");
         return (
           <>
             {/* Beside Pedir ajuste the short word keeps «qué toca» readable; the label says it whole. */}
-            <Link className={`cor-btn ${kind}`} to={links.entrega(a.ids[0]!)} {...data("ver-entrega")} aria-label={`Ver antes y después: ${c.title}`}>
-              {d?.actions.includes("cambios") ? "Ver" : "Ver antes y después"}
+            <Link className={`cor-btn ${kind}`} to={links.entrega(a.ids[0]!)} {...data("ver-entrega")} aria-label={`${w.beforeAfter}: ${c.title}`}>
+              {d?.actions.includes("cambios") ? w.see : w.beforeAfter}
             </Link>
             {d?.actions.includes("cambios") && (
               <Btn kind="quiet" aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} data-control="pedir-ajuste">
-                Pedir ajuste
+                {w.askTweak}
               </Btn>
             )}
           </>
         );
       case "decision":
-        return link(d ? (DECISION_WORD[d.kind] ?? a.label) : a.label, links.tetoca(a.id), "decidir");
+        return link(d ? (w.decision[d.kind] ?? a.label) : a.label, links.tetoca(a.id), "decidir");
       case "responder":
-        return link("Responder", links.idea(a.key), "responder");
+        return link(w.answer, links.idea(a.key), "responder");
       case "construir":
-        return btn("Constrúyelo", () => acts.pedido(p.slug, a.key, "construir"), "construyelo");
+        return btn(w.build, () => acts.pedido(p.slug, a.key, "construir"), "construyelo");
       case "despertar":
-        return btn("Despertar al PO", () => acts.despertar(p.slug, a.key), "despertar", "Despertando…");
+        return btn(w.wake, () => acts.despertar(p.slug, a.key), "despertar", w.waking);
       case "cerrar":
-        return a.version == null ? null : btn("Cerrar iniciativa", () => acts.cerrar(p.slug, a.key, a.version!), "cerrar-iniciativa", "Cerrando…");
+        return a.version == null ? null : btn(w.closeInitiative, () => acts.cerrar(p.slug, a.key, a.version!), "cerrar-iniciativa", w.closing);
       case "reenviar":
         return (
           <>
-            {btn("Reenviar al PO", () => acts.resend(p.slug, a.key), "reenviar")}
-            <Btn kind="quiet" onClick={() => acts.closeRequest(p.slug, a.key)} disabled={busy} data-control="cerrar-pedido" data-palanca="cerrar-pedido" aria-label={`Cerrar pedido: ${c.title}`}>
-              Cerrar pedido
+            {btn(w.resend, () => acts.resend(p.slug, a.key), "reenviar")}
+            <Btn kind="quiet" onClick={() => acts.closeRequest(p.slug, a.key)} disabled={busy} data-control="cerrar-pedido" data-palanca="cerrar-pedido" aria-label={`${w.closeRequest}: ${c.title}`}>
+              {w.closeRequest}
             </Btn>
           </>
         );
       case "publicar":
-        return link("Publicar", links.publicar, "publicar");
+        return link(w.publish, links.publicar, "publicar");
       case "detener":
-        return btn("Detener", () => acts.stopRun(a.run), "detener", "Deteniendo…", "secondary");
+        return btn(w.stop, () => acts.stopRun(a.run), "detener", w.stopping, "secondary");
       case "primero":
         // PLA-63: En fila can hold many rows; their «Hacer primero» stays quiet (no border) so the list is not a wall of buttons.
-        return btn("Hacer primero", () => acts.pickNext(p.slug, a.key), "hacer-primero", "…", "quiet");
+        return btn(w.first, () => acts.pickNext(p.slug, a.key), "hacer-primero", "…", "quiet");
       case "lista":
-        return btn("Pasar a Lista", () => acts.aLista(p.slug, a.key), "pasar-a-lista", "Pasando…", "secondary");
+        return btn(w.toReady, () => acts.aLista(p.slug, a.key), "pasar-a-lista", w.moving, "secondary");
     }
   })();
   if (!body) return null;

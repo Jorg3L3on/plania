@@ -1,0 +1,46 @@
+// PLA-I2-10: the words of Te toca (components/corriente/tetoca.tsx), in both languages (lib/i18n.ts).
+// No "@/" imports: a test reads this file with node directly.
+import { defineWords } from "./i18n.js";
+
+export const TETOCA_WORDS = defineWords({
+  es: {
+    numbers: ["Nada", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+    nothing: "Nada te espera.",
+    oneDelivery: "Una entrega espera tu decisión.",
+    deliveries: (n: string) => `${n} entregas esperan tu decisión.`,
+    oneThing: "Una cosa espera tu decisión.",
+    things: (n: string) => `${n} cosas esperan tu decisión.`,
+    questions: "preguntas",
+    plans: "planes por aprobar",
+    steps: "pasos tuyos",
+    absent: (list: string[], last: string) => `Sin ${list.length ? `${list.join(", ")} ni ${last}` : last} pendientes.`,
+    mainAria: "Lo que te espera",
+    intro: "Todo lo que la compañía no puede seguir sin ti, de todos los proyectos. Se resuelve aquí, una cosa a la vez.",
+    emptyHint: "Cuando una entrega, un plan, una pregunta o un paso tuyo necesite tu decisión, aparece aquí.",
+    later: "Después",
+    more: (n: number) => `y ${n} más: aparecen al resolver estas`,
+    answers: "Respuestas a tus preguntas",
+    noAnswers: "Ninguna nueva. Lo que preguntes desde Pedir llega aquí cuando el PO termine de leer el código.",
+    ask: "Hacer una pregunta",
+  },
+  en: {
+    numbers: ["Nothing", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"],
+    nothing: "Nothing waits on you.",
+    oneDelivery: "One delivery waits for your decision.",
+    deliveries: (n: string) => `${n} deliveries wait for your decision.`,
+    oneThing: "One thing waits for your decision.",
+    things: (n: string) => `${n} things wait for your decision.`,
+    questions: "questions",
+    plans: "plans to approve",
+    steps: "steps of yours",
+    absent: (list: string[], last: string) => `No ${list.length ? `${list.join(", ")} or ${last}` : last} pending.`,
+    mainAria: "What waits on you",
+    intro: "Everything the company can't continue without you, from every project. It's resolved here, one thing at a time.",
+    emptyHint: "When a delivery, a plan, a question or a step of yours needs your decision, it shows up here.",
+    later: "Later",
+    more: (n: number) => `and ${n} more: they show up as you resolve these`,
+    answers: "Answers to your questions",
+    noAnswers: "None new. What you ask from Pedir arrives here when the PO finishes reading the code.",
+    ask: "Ask a question",
+  },
+});
