@@ -294,11 +294,45 @@ const publishError = (code: string, detail: Record<string, unknown> = {}): strin
     if (why === "merged" || why === "nothing_to_ship") return w.alreadyMerged;
     if (why === "mode_command") return w.byCommand;
     if (why === "prod_migration_unhandled") return publicarWords().prodUnset("");
+    if (why === "freeze") return w.freeze;
     return w.notHere;
   }
   if (code === "RELEASE_MERGE_FAILED") return w.githubRefused(detail.output ? String(detail.output) : null);
   if (code === "CAMINO_RULE_BLOCKS") return w.ruleBlocks(Array.isArray(detail.checks) ? detail.checks.join(", ") : "");
   return w.publishFailed(code);
+};
+
+// PLA-I68-6: Camino's production environment reviews the SQL and asks for the owner's approval of the exact file of a
+// destructive migration; the sheet lists them, approves each one, and Publicar can then run again.
+type GateFile = { path: string; sha256?: string; statements?: string[]; issues?: { rule: string; message: string }[] };
+const MigrationGate = ({ slug, code, detail }: { slug: string; code: string; detail: Record<string, unknown> }) => {
+  const w = words(HOJAS_WORDS);
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const files = (Array.isArray(detail.files) ? detail.files : []) as GateFile[];
+  return (
+    <div className="cor-state bad" role="alert" data-publish-gate={code}>
+      <p>{code === "CAMINO_SQL_REVIEW" ? w.sqlReview : w.needsApproval}</p>
+      <ul className="cor-hoja-list">
+        {files.map((f) => (
+          <li key={f.path} className="cor-row" data-migracion={f.path}>
+            <span className="cor-mono cor-ellipsis">{f.path}</span>
+            <span className="cor-cap">{(f.statements ?? f.issues?.map((i) => `${i.rule}: ${i.message}`) ?? []).join(" · ")}</span>
+            {code === "CAMINO_NEEDS_APPROVAL" && f.sha256 && (
+              <Btn
+                kind="secondary"
+                small
+                disabled={done.has(f.path)}
+                onClick={() => void api.caminoApprove(slug, f.path, f.sha256!).then(() => setDone((s) => new Set(s).add(f.path)))}
+                data-control={`aprobar-${f.path}`}
+              >
+                {done.has(f.path) ? w.approved : w.approveFile}
+              </Btn>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 };
 
 export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProject; release: Decision | null; first: Decision | null; firstTo: string | null; onClose: () => void }) => {
@@ -397,7 +431,11 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
           </a>
         </p>
       )}
-      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>}
+      {ship.isError && ship.error instanceof ApiError && (ship.error.code === "CAMINO_NEEDS_APPROVAL" || ship.error.code === "CAMINO_SQL_REVIEW") ? (
+        <MigrationGate slug={p.slug} code={ship.error.code} detail={ship.error.detail} />
+      ) : (
+        ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>
+      )}
       <div className="cor-acts">
         {done ? (
           <Btn kind="primary" onClick={onClose} data-control="publicar-listo">

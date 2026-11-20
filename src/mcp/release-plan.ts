@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { PROD_MIGRATIONS, blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type ProdMigrations, type Project, type ReleaseSettings } from "../db/schema.js";
+import { frozen, prodEnvOf, prodMigrationsFromEnv } from "../camino/prod.js";
+import { PROD_MIGRATIONS, camino, blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type ProdMigrations, type Project, type ReleaseSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";
 
@@ -54,8 +55,10 @@ export type ReleasePlan = {
   mode: "command" | "merge";
   merged: { sha: string; pr_url: string; at: string } | null;
   ship: { ready: boolean; reason: ShipBlock | null };
-  // PLA-I68-1: who migrates production (settings.release.prod_migrations); null when nobody said.
+  // PLA-I68-1: who migrates production (settings.release.prod_migrations, else Camino's production environment).
   prod_migrations: ProdMigrations | null;
+  // PLA-I68-6: Camino's production environment, as Publicar uses it (null when Camino names none).
+  prod_env: { id: string; name: string; sql_review: boolean; approve_destructive: boolean; backup: string | null; health: { url: string | null; pages: string[] }; freeze: boolean } | null;
 };
 
 /** PLA-I68-1: the release adds migrations (reserved numbers or files in the compare) and the project names nobody to
@@ -65,7 +68,8 @@ export const prodMigrationUnhandled = (r: Pick<ReleaseSettings, "prod_migrations
 
 // Why Lanzar is off: command mode, nothing ahead, no GitHub data to know, a before-step or a check
 // still open, already merged, or (PLA-I68-1) the release adds migrations and nobody is named to migrate production.
-export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged" | "prod_migration_unhandled";
+// PLA-I68-6: or the production environment's freeze window is on.
+export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged" | "freeze" | "prod_migration_unhandled";
 
 const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/;
 const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
@@ -155,6 +159,10 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     ? await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(inArray(checks.taskId, ids), eq(checks.done, false), isNull(checks.waivedAt)))
     : [{ n: 0 }];
 
+  // PLA-I68-6: Camino's production environment: who migrates it, its freeze window, its SQL review and approval.
+  const [cam] = await db.select({ config: camino.config }).from(camino).where(eq(camino.projectId, p.id)).limit(1);
+  const prodEnv = prodEnvOf(cam?.config ?? {}, r);
+  const prodMig = r.prod_migrations ?? prodMigrationsFromEnv(prodEnv);
   const mode = r.mode ?? "command";
   const merged = fromHead ? await mergedFromScreen(db, p.id, fromHead) : null;
   const open_checks = checksOpen?.n ?? 0;
@@ -169,7 +177,8 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     : !pending ? "nothing_to_ship"
     : before.length ? "before_steps"
     : open_checks ? "open_checks"
-    : prodMigrationUnhandled(r, migrations, migration_files) ? "prod_migration_unhandled"
+    : frozen(prodEnv, new Date()) ? "freeze"
+    : prodMigrationUnhandled({ prod_migrations: prodMig ?? undefined }, migrations, migration_files) ? "prod_migration_unhandled"
     : null;
 
   return {
@@ -188,7 +197,10 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     mode,
     merged,
     ship: { ready: reason === null, reason },
-    prod_migrations: r.prod_migrations ?? null,
+    prod_migrations: prodMig ?? null,
+    prod_env: prodEnv
+      ? { id: prodEnv.id, name: prodEnv.name, sql_review: !!prodEnv.database?.sql_review, approve_destructive: !!prodEnv.database?.approve_destructive, backup: prodEnv.database?.backup ?? null, health: prodEnv.health, freeze: prodEnv.freeze }
+      : null,
   };
 }
 

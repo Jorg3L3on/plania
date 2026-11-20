@@ -9,6 +9,11 @@
 //   POST   /projects/:slug/camino/lint               {path, content}: actionlint's verdict on a workflow before staging
 //   POST   /projects/:slug/camino/pins               {uses: ["owner/repo@tag"]}: the commit each tag points at, to pin
 //   POST   /projects/:slug/camino/runs/:id/rerun     re-runs a run's failed jobs on GitHub
+//   POST   /projects/:slug/camino/providers/:provider/list  {project?}: what the saved key opens (projects, branches,
+//                                                    releases), to pick from
+//   POST   /projects/:slug/camino/providers/:provider/vars  {project, target?}: variable NAMES on the service
+//   POST   /projects/:slug/camino/approve            {path, sha256}: the owner approves that exact migration file
+//   POST   /projects/:slug/camino/migrations         {database, tool}: rows in the local database's migration table
 //   POST   /projects/:slug/camino/apply              {version, changes}: the change set, in order (src/camino/changes.ts);
 //                                                    answers the results, where it stopped, and the read
 import { Hono, type Context } from "hono";
@@ -18,7 +23,10 @@ import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { removeKey, saveKey, tryKey } from "../camino/connections.js";
 import { applyChanges, ChangeSchema, GITHUB_FILE, rerunFailed, resolvePins } from "../camino/changes.js";
-import { caminoDeps, caminoRead, caminoRow, discoverOnce, STALE_MS } from "../camino/store.js";
+import { addHistory, caminoDeps, caminoRead, caminoRow, discoverOnce, githubFor, STALE_MS } from "../camino/store.js";
+import { listFor, varsFor } from "../camino/envs.js";
+import { approveMigration, localMigrationCount } from "../camino/approve.js";
+import { PROVIDERS, type ProviderId } from "../camino/types.js";
 
 export const caminoRoutes = new Hono();
 
@@ -129,4 +137,54 @@ caminoRoutes.post("/projects/:slug/camino/runs/:id/rerun", async (c) => {
   } catch (e) {
     return fail(c, e);
   }
+});
+
+caminoRoutes.post("/projects/:slug/camino/providers/:provider/list", async (c) => {
+  const input = await json(c, z.object({ project: z.string().max(200).optional() }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(
+      await withDb(async (db) => {
+        const p = await findProject(db, c.req.param("slug"));
+        const provider = c.req.param("provider") as ProviderId;
+        if (!(PROVIDERS as readonly string[]).includes(provider)) throw new ToolError("CAMINO_PROVIDER_UNKNOWN", { provider });
+        return listFor(p, provider, caminoDeps.fetch, { project: input.project, gh: provider === "github_releases" ? await githubFor(p) : null });
+      }),
+    );
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/providers/:provider/vars", async (c) => {
+  const input = await json(c, z.object({ project: z.string().min(1).max(200), target: z.string().max(40).nullable().optional() }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(
+      await withDb(async (db) => {
+        const p = await findProject(db, c.req.param("slug"));
+        const provider = c.req.param("provider") as ProviderId;
+        if (!(PROVIDERS as readonly string[]).includes(provider)) throw new ToolError("CAMINO_PROVIDER_UNKNOWN", { provider });
+        return varsFor(p, provider, caminoDeps.fetch, input.project, input.target ?? null);
+      }),
+    );
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/approve", async (c) => {
+  const input = await json(c, z.object({ path: z.string().min(1).max(300), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(await withDb((db) => approveMigration(db, c.req.param("slug"), input.path, input.sha256)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/migrations", async (c) => {
+  const input = await json(c, z.object({ database: z.string().regex(/^[A-Za-z0-9_-]{1,63}$/), tool: z.enum(["drizzle", "prisma", "supabase", "knex"]) }).strict());
+  if (input instanceof Response) return input;
+  return c.json(await localMigrationCount(input.database, input.tool));
 });

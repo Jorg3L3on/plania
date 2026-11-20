@@ -269,6 +269,12 @@ export const api = {
     request<{ available: boolean; errors: { line: number; column: number; message: string; kind: string }[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/lint`, { path, content }),
   caminoPins: (slug: string, uses: string[]) => request<Record<string, string>>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/pins`, { uses }),
   caminoRerun: (slug: string, id: number) => request<{ rerun: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/runs/${id}/rerun`, {}),
+  caminoProviderList: (slug: string, provider: string, project?: string) =>
+    request<{ items: { id: string; name: string; url?: string | null; note?: string | null }[]; connected: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/list`, project ? { project } : {}),
+  caminoProviderVars: (slug: string, provider: string, project: string, target: string | null) =>
+    request<{ names: string[]; connected: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/vars`, { project, target }),
+  caminoApprove: (slug: string, path: string, sha256: string) => request<{ approved: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/approve`, { path, sha256 }),
+  caminoMigrations: (slug: string, database: string, tool: string) => request<{ ok: boolean; count: number | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/migrations`, { database, tool }),
   caminoRemoveKey: (slug: string, provider: string) => request<{ removed: true }>("DELETE", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`),
   ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),

@@ -148,7 +148,7 @@ export type CaminoRead = {
   title: string;
   version: number;
   config: EffectiveConfig;
-  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; vercel: boolean };
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; capture_pages: string[]; vercel: boolean };
   discovery: Discovery | null;
   checked_at: string | null;
   checking: boolean;
@@ -190,6 +190,7 @@ export async function caminoRead(db: Db, slug: string): Promise<CaminoRead> {
       no_code: s.local?.no_code === true,
       release: s.release ? { from: s.release.from, into: s.release.into, env: s.release.env, prod_migrations: s.release.prod_migrations ?? null } : null,
       capture: !!s.capture,
+      capture_pages: [...new Set((s.capture?.pages ?? []).map((x) => x.path))],
       vercel: !!s.vercel,
     },
     discovery: d,

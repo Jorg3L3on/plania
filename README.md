@@ -758,8 +758,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BRANCH_IN_USE` | 409 | the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it |
 | `CAMINO_GITHUB_REFUSED` | 409 | camino: GitHub refused a change; the ones before it stay applied and the rest did not run (detail: step, status, message) |
 | `CAMINO_KEY_STORE` | 409 | camino: the keychain (or the 0600 file) did not take the key; nothing else changed |
+| `CAMINO_NEEDS_APPROVAL` | 409 | Publicar: a migration the release carries destroys or reshapes data and the owner has not approved that exact file (detail: files [{path, sha256, statements}]) |
 | `CAMINO_NO_GITHUB` | 409 | camino: the change needs GitHub and the project has no repository or no token (detail: repo, token) |
 | `CAMINO_RULE_BLOCKS` | 409 | Aceptar or Publicar: the branch's rule in Camino requires checks that are not green on this PR, on a repo where GitHub cannot enforce it (detail: base, checks) |
+| `CAMINO_SQL_REVIEW` | 409 | Publicar: squawk found errors in a migration the release carries, and the production environment asks for the SQL review (detail: files [{path, issues}]) |
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
 | `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |
@@ -788,7 +790,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `REFERENCE_LIMIT` | 409 | the seat already has the most references it may keep (detail: max) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
-| `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged | prod_migration_unhandled: the release adds migrations and settings.release.prod_migrations names nobody) |
+| `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged | freeze: Camino's production environment is in its freeze window | prod_migration_unhandled: the release adds migrations and neither settings.release.prod_migrations nor Camino's production environment names who migrates) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |

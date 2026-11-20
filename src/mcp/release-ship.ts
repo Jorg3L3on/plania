@@ -1,4 +1,8 @@
 import type { Db } from "../db/client.js";
+import { eq } from "drizzle-orm";
+import { camino } from "../db/schema.js";
+import { destructive, sha256 } from "../camino/prod.js";
+import { runSquawk, type SqlReview } from "../camino/squawk.js";
 import { mergeRules, missingChecks, type Rollup } from "../camino/guard.js";
 import { runInGroup } from "../jobs/gh-process.js";
 import { githubReleaseTokenFilePath, githubTokenFilePath, readTokenFile } from "../jobs/gh-token.js";
@@ -99,7 +103,7 @@ export function migrateMode(p: { settings: { capture?: { database?: unknown } } 
 }
 
 // Test seam: the background migration.
-export const shipDeps: { migrar?: (db: Db, p: Awaited<ReturnType<typeof findProject>>, into: string, migrations: string[]) => Promise<unknown> } = {};
+export const shipDeps: { migrar?: (db: Db, p: Awaited<ReturnType<typeof findProject>>, into: string, migrations: string[]) => Promise<unknown>; sqlReview?: SqlReview } = {};
 
 export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
   if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only the owner ships a release, from the screen" });
@@ -108,6 +112,28 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
   if (!plan) throw new ToolError("RELEASE_NOT_READY", { reason: "no_release", hint: "the project has no settings.release" });
   if (!plan.ship.ready) throw new ToolError("RELEASE_NOT_READY", { reason: plan.ship.reason, before: plan.before.length, open_checks: plan.open_checks });
   const repo = p.settings.github!.repo;
+
+  // PLA-I68-6: Camino's production environment reviews the SQL (squawk) and asks the owner to approve the exact file
+  // of a migration that destroys data, before anything is merged.
+  if (plan.prod_env && plan.migration_files.length && (plan.prod_env.sql_review || plan.prod_env.approve_destructive)) {
+    const [cam] = await db.select({ config: camino.config }).from(camino).where(eq(camino.projectId, p.id)).limit(1);
+    const approvals = cam?.config.approvals ?? {};
+    const review: { path: string; issues: { rule: string; level: string; message: string }[] }[] = [];
+    const approve: { path: string; sha256: string; statements: string[] }[] = [];
+    for (const file of plan.migration_files.slice(0, 20)) {
+      const body = JSON.parse(await gh("read", ["api", `repos/${repo}/contents/${file}?ref=${plan.from.head_sha ?? plan.from.branch}`])) as { content?: string };
+      const sql = Buffer.from(body.content ?? "", "base64").toString("utf8");
+      if (plan.prod_env.sql_review) {
+        const out = await (shipDeps.sqlReview ?? runSquawk)(file, sql);
+        const errors = out.issues.filter((x) => x.level.toLowerCase() === "error");
+        if (errors.length) review.push({ path: file, issues: errors });
+      }
+      const bad = destructive(sql);
+      if (plan.prod_env.approve_destructive && bad.length && approvals[file] !== sha256(sql)) approve.push({ path: file, sha256: sha256(sql), statements: bad });
+    }
+    if (review.length) throw new ToolError("CAMINO_SQL_REVIEW", { files: review });
+    if (approve.length) throw new ToolError("CAMINO_NEEDS_APPROVAL", { files: approve });
+  }
 
   // An open PR from → into is reused (its title and body brought up to date); otherwise one is opened.
   const listed = JSON.parse(

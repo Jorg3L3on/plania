@@ -203,6 +203,11 @@
 .cam-box.bad { border: 1px solid rgba(255, 122, 122, 0.45); background: rgba(255, 122, 122, 0.06); color: #ffd0d0; }
 .cam-exigir, .cam-corridas, .cam-deps { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
 
+/* PLA-I68-6: environments */
+.cam-add-env b { color: var(--cor-violet-3); }
+.cam-add-env { width: 100%; text-align: left; cursor: pointer; font: inherit; background: transparent; }
+.cam-add-form { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px; }
+
 @media (max-width: 900px) {
   .cam-grid2, .cam-grid3 { grid-template-columns: 1fr; }
 }

@@ -25,7 +25,7 @@ export type CaminoRead = {
   title: string;
   version: number;
   config: CaminoConfigRead;
-  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; vercel: boolean };
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; capture_pages?: string[]; vercel: boolean };
   discovery: Discovery | null;
   checked_at: string | null;
   checking: boolean;

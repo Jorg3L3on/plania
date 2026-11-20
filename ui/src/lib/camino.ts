@@ -110,6 +110,11 @@ export const CAMINO_WORDS = defineWords({
       keyFailed: (s: string) => [`La llave de ${s} no pasó la última prueba`, "El servicio la rechazó. Cámbiala en Conexiones y llaves."] as Pair,
       keyExpired: (s: string) => [`La llave de ${s} venció`, "Plania ya no puede usarla."] as Pair,
       keyExpiring: (s: string, d: number) => [`La llave de ${s} vence en ${d} ${d === 1 ? "día" : "días"}`, "Cámbiala antes de que venza."] as Pair,
+      byHand: (e: string) => [`${e} se migra a mano`, "Recomendado: un paso propio después del build y antes del tráfico, con copia y candado."] as Pair,
+      buildNoLock: (e: string) => [`${e} migra dentro del build sin candado`, "Dos builds a la vez migrarían a la vez, y si el build falla después de migrar queda esquema nuevo con código viejo."] as Pair,
+      noSqlReview: (e: string) => [`${e}: nadie revisa el SQL antes de migrar`, "squawk avisa si una migración borra datos o bloquea tablas. Es gratis."] as Pair,
+      noHealth: (e: string) => [`${e} no tiene cómo comprobar que abre`, "Sin una dirección de salud ni páginas que abrir, nada avisa si una publicación rompe la app."] as Pair,
+      missingVars: (e: string, n: number, list: string) => [`${e}: faltan ${n} ${n === 1 ? "variable" : "variables"}`, list] as Pair,
       publicRepo: "Repo público: reglas de GitHub y minutos de Actions gratis",
       fakeData: (e: string) => `${e} usa datos falsos`,
       allGood: "GitHub, la carpeta y las llaves responden",
@@ -296,6 +301,11 @@ export const CAMINO_WORDS = defineWords({
       keyFailed: (s: string) => [`The ${s} key failed its last test`, "The service refused it. Change it in Connections and keys."] as Pair,
       keyExpired: (s: string) => [`The ${s} key expired`, "Plania can no longer use it."] as Pair,
       keyExpiring: (s: string, d: number) => [`The ${s} key expires in ${d} ${d === 1 ? "day" : "days"}`, "Change it before it expires."] as Pair,
+      byHand: (e: string) => [`${e} is migrated by hand`, "Recommended: its own step after the build and before traffic, with a backup and a lock."] as Pair,
+      buildNoLock: (e: string) => [`${e} migrates inside the build with no lock`, "Two builds at once would migrate at once, and a build that fails after migrating leaves a new schema with old code."] as Pair,
+      noSqlReview: (e: string) => [`${e}: nobody reviews the SQL before migrating`, "squawk warns when a migration deletes data or locks tables. It is free."] as Pair,
+      noHealth: (e: string) => [`${e} has no way to check it opens`, "With no health address and no pages to open, nothing warns when a release breaks the app."] as Pair,
+      missingVars: (e: string, n: number, list: string) => [`${e}: ${n} ${n === 1 ? "variable" : "variables"} missing`, list] as Pair,
       publicRepo: "Public repo: GitHub rules and Actions minutes are free",
       fakeData: (e: string) => `${e} uses fake data`,
       allGood: "GitHub, the folder and the keys answer",
@@ -572,6 +582,19 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
     if (rec && rec.migrations > 0 && rec.migrations_applied != null && rec.migrations_applied !== rec.migrations) add(`env-count:${e.id}`, "info", sec, w.f.envCount(e.name, rec.migrations_applied, rec.migrations), { label: w.fix.env, go: sec });
     else if (rec && rec.migrations_applied != null && d?.mac.migrations && d.mac.migrations.count > rec.migrations_applied && e.kind === "produccion") add(`env-missing:${e.id}`, "info", sec, w.f.envMissing(e.name, d.mac.migrations.count - rec.migrations_applied), { label: w.fix.env, go: sec });
     if (e.database?.data === "falsos" && e.kind !== "produccion") add(`fake:${e.id}`, "ok", sec, [w.f.fakeData(e.name), ""]);
+    // PLA-I68-6: production's database and checks.
+    const fix = { label: w.fix.env, go: sec } as Fix;
+    if (e.kind === "produccion" && e.database?.provider) {
+      if (e.database.migrate_when === "mano") add(`by-hand:${e.id}`, "warn", sec, w.f.byHand(e.name), fix);
+      if (e.database.migrate_when === "build" && !e.database.lock) add(`build-lock:${e.id}`, "warn", sec, w.f.buildNoLock(e.name), fix);
+      if (!e.database.sql_review) add(`sql:${e.id}`, "info", sec, w.f.noSqlReview(e.name), fix);
+    }
+    if (e.kind === "produccion" && e.runs.kind !== "none" && e.server.provider && e.server.provider !== "mac_service" && !e.health.url && !e.health.pages.length) add(`health:${e.id}`, "warn", sec, w.f.noHealth(e.name), fix);
+    const example = d?.mac.env_example ?? [];
+    if (e.kind === "produccion" && example.length && e.vars.length) {
+      const miss = example.filter((n) => !e.vars.includes(n));
+      if (miss.length) add(`vars:${e.id}`, "info", sec, w.f.missingVars(e.name, miss.length, miss.join(", ")), fix);
+    }
   }
   if (r.settings.release && !r.settings.release.prod_migrations) add("prod-unset", "info", "resumen", w.f.prodUnset, { label: w.fix.who, ajustes: "lanzamiento" });
 

@@ -6,7 +6,7 @@
 // Historial lists every change with where it went and how to undo it. Every word and rule is in @/lib/camino.
 import { useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import {
   agoText,
@@ -37,6 +37,7 @@ import { CambiosBar } from "./camino-cambios";
 import { Codigo } from "./camino-codigo";
 import { Commits } from "./camino-commits";
 import { Pruebas } from "./camino-pruebas";
+import { AddEnv, Entorno } from "./camino-entornos";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 export type CaminoLinks = { hrefOf: (sec: SectionId) => string; prHref: (n: number) => string; ajustesHref: (sec: string) => string };
@@ -451,8 +452,13 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
   const recheck = useMutation({ mutationFn: () => api.caminoRecheck(p.slug), onSuccess: (d) => client.setQueryData(caminoKey(p.slug), d) });
   const links: CaminoLinks = { hrefOf, prHref, ajustesHref };
   const cambios = useCambios(p.slug);
+  const navigate = useNavigate();
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
-  const r = q.data;
+  const read = q.data;
+  // PLA-I68-6: environments staged in the change set already show in the strip and the sections.
+  const stagedEnvs = (cambios.staged("envs") as { patch: { envs: CaminoRead["config"]["envs"] } } | undefined)?.patch.envs;
+  // The editors and the review compare with what was read; the menu, the strip and the findings show what is staged.
+  const r = read && stagedEnvs ? { ...read, config: { ...read.config, envs: stagedEnvs } } : read;
   if (!r) return <div className="cor-skel" style={{ height: 420 }} role="status" aria-busy="true" aria-label={w.reading} />;
   const now = new Date();
   const F = findings(r, now);
@@ -474,13 +480,13 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
       case "hist":
         return <Historial r={r} />;
       case "codigo":
-        return <Codigo r={r} cambios={cambios} />;
+        return <Codigo r={read!} cambios={cambios} />;
       case "commits":
-        return <Commits r={r} cambios={cambios} />;
+        return <Commits r={read!} cambios={cambios} />;
       case "ci":
-        return <Pruebas r={r} cambios={cambios} />;
+        return <Pruebas r={read!} cambios={cambios} />;
       default:
-        return <Pronto s={current} />;
+        return current.id.startsWith("env:") ? <Entorno key={current.id} r={read!} cambios={cambios} id={current.id.slice(4)} links={links} /> : <Pronto s={current} />;
     }
   })();
   const navRow = (s: Section) => (
@@ -517,12 +523,13 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
           <div className="cam-sep" />
           <span className="cam-cap">{w.sections.envs}</span>
           {S.envs.map(navRow)}
+          <AddEnv r={read!} cambios={cambios} onAdded={(id) => navigate(hrefOf(`env:${id}`))} />
           <div className="cam-sep" />
           {navRow(S.hist)}
         </nav>
         <div className="cam-main">{body}</div>
       </div>
-      <CambiosBar r={r} cambios={cambios} />
+      <CambiosBar r={read!} cambios={cambios} />
     </div>
   );
 };

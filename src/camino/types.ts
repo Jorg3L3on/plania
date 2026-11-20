@@ -93,6 +93,9 @@ export type CaminoEnv = {
   record: string | null;
 };
 
+/** Who migrates production, as Publicar reads it (null: nobody said). */
+export type ProdMigrationsOf = "deploy" | "owner" | "none" | null;
+
 export type CaminoConfig = {
   model?: PublishModel;
   branches?: { published?: string; integration?: string | null; work_pattern?: string };
@@ -104,6 +107,8 @@ export type CaminoConfig = {
   deps?: Partial<DepsSettings>;
   envs?: CaminoEnv[];
   connections?: Partial<Record<ProviderId, ConnMeta>>;
+  /** PLA-I68-6: a destructive migration the owner approved, by repo path → the sha256 of the exact file approved. */
+  approvals?: Record<string, string>;
 };
 
 // ---- discovery
