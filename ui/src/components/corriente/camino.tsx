@@ -403,7 +403,7 @@ const Historial = ({ r }: { r: CaminoRead }) => {
       {r.history.length === 0 ? (
         <p className="cam-hint">{w.hist.none}</p>
       ) : (
-        <div className="cam-tw" tabIndex={0} role="region" aria-label={w.sections.hist}>
+        <div className="cam-tw" tabIndex={0} role="region" aria-label={w.hist.table}>
           <table className="cam-tbl" data-historial={r.history.length}>
             <thead>
               <tr>
