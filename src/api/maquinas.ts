@@ -11,6 +11,7 @@
 //   POST /:slug/maquinas/sembrar                migrate and seed (F2)
 //   POST /:slug/maquinas/vaciar-y-sembrar       {rows}: truncate and seed again, the only writing path (F2)
 //   GET  /:slug/maquinas/llaves                 variable names, set or missing, never a value (F3)
+//   POST /:slug/maquinas/llaves                 {name, value}: one value into the app's env file; answers names only (PLA-116)
 //   GET  /:slug/maquinas/pruebas, POST …        the last test run; start one (F3)
 //   GET  /:slug/maquinas/recorrido              Cómo probarla's steps and the test user (F3)
 //   POST /:slug/maquinas/recorrido/contrasena   a fresh password for the test user, once (F3)
@@ -25,7 +26,7 @@ import { pruebaOf, pruebaRead, reiniciar, pruebaLog } from "../captures/prueba.j
 import { MaquinaError } from "../maquinas/errors.js";
 import { appEnvOf, baseLever, configurar, maquinasRead, projectOf } from "../maquinas/machines.js";
 import { filas, migrar, sembrar, tablas, vaciarYSembrar } from "../maquinas/reader.js";
-import { llaves } from "../maquinas/llaves.js";
+import { llaves, ponerLlave } from "../maquinas/llaves.js";
 import { correrPruebas, pruebasRead } from "../maquinas/pruebas.js";
 import { nuevaContrasena, recorrido } from "../maquinas/recorrido.js";
 import { secretValues } from "../maquinas/env.js";
@@ -65,6 +66,10 @@ maquinasRoutes.post("/:slug/maquinas/vaciar-y-sembrar", async (c) => {
 });
 
 maquinasRoutes.get("/:slug/maquinas/llaves", (c) => answer(c, (db) => llaves(db, c.req.param("slug"))));
+maquinasRoutes.post("/:slug/maquinas/llaves", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; value?: unknown };
+  return answer(c, (db) => ponerLlave(db, c.req.param("slug"), body.name, body.value));
+});
 maquinasRoutes.get("/:slug/maquinas/pruebas", (c) => answer(c, (db) => pruebasRead(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/pruebas", (c) => answer(c, (db) => correrPruebas(db, c.req.param("slug"))));
 maquinasRoutes.get("/:slug/maquinas/recorrido", (c) => answer(c, (db) => recorrido(db, c.req.param("slug"))));
