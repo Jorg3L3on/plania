@@ -1,0 +1,193 @@
+// PLA-I69-4: Estilo. The brand's colours, type and shapes are kept in Plania with every version, read from the repo
+// as it is, written as brand.css (Tailwind 4 @theme) and tokens.json (W3C), and brought to the repo by Taller.
+import assert from "node:assert/strict";
+import { after, before, beforeEach, test } from "node:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import sharp from "sharp";
+import { resetTestDb, useTestEnv } from "./helpers.js";
+
+useTestEnv();
+const STORE = mkdtempSync(path.join(tmpdir(), "plania-i69e-"));
+process.env.PLANIA_CAPTURES_DIR = STORE;
+
+const color = await import("../src/brand/color.js");
+const uiColor = await import("../ui/src/lib/color.js");
+const style = await import("../src/brand/style.js");
+const { stageUpload, useUpload } = await import("../src/brand/upload.js");
+const { makeDb } = await import("../src/db/client.js");
+
+const C1 = "1".repeat(40);
+const GLOBALS = `@import "tailwindcss";\n:root { --primary: oklch(0.55 0.2 25); --radius: 0.75rem; }\n`;
+const LAYOUT = `import { Inter, Fraunces } from "next/font/google";\nexport default function L() { return null; }`;
+let files: Record<string, Buffer> = {};
+const reset = () => {
+  files = {
+    "package.json": Buffer.from(`{"dependencies":{"next":"15"}}`),
+    "src/app/layout.tsx": Buffer.from(LAYOUT),
+    "src/app/globals.css": Buffer.from(GLOBALS),
+    "src/components/boton.tsx": Buffer.from(`export const B = () => <button style={{ background: "#8C2F39" }} className="text-[#8c2f39]" />;`),
+    "src/components/otro.tsx": Buffer.from(`export const O = () => <div style={{ color: "#123456" }} />;`),
+  };
+};
+reset();
+const git: import("../src/brand/logos.js").Git = async (_cwd, args) => {
+  const no = { code: 1, stdout: Buffer.alloc(0) };
+  if (args[0] === "rev-parse") return args[3] === "sandbox^{commit}" ? { code: 0, stdout: Buffer.from(C1) } : no;
+  if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from(Object.entries(files).map(([p, b]) => `100644 blob ${"a".repeat(40)} ${b.length}\t${p}`).join("\0") + "\0") };
+  if (args[0] === "cat-file") {
+    const b = files[args[2]!.split(/:(.+)/)[1]!];
+    return b ? { code: 0, stdout: b } : no;
+  }
+  return no;
+};
+const view = () => ({ paths: new Map(Object.entries(files).map(([k, v]) => [k, v.length])), read: async (p: string) => files[p] ?? null });
+const ACTOR = { agent: "test", session_id: "s-i69e" } as never;
+const tile = (fill: string) => sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${fill}"/><circle cx="50" cy="50" r="22" fill="#ffffff"/></svg>`), { density: 600 }).resize(1024, 1024).png().toBuffer();
+
+let raw: Awaited<ReturnType<typeof resetTestDb>>;
+let db: ReturnType<typeof makeDb>["db"];
+let project: import("../src/db/schema.js").Project;
+before(async () => {
+  raw = await resetTestDb();
+  db = makeDb().db;
+});
+after(async () => {
+  await raw.end();
+  rmSync(STORE, { recursive: true, force: true });
+});
+beforeEach(async () => {
+  reset();
+  style.forgetStyle();
+  rmSync(path.join(STORE, "_marca", "tienda"), { recursive: true, force: true });
+  await raw.query("delete from project_logos");
+  await raw.query("delete from tasks where project_id in (select id from projects where slug = 'tienda')");
+  await raw.query("delete from agents where project_id in (select id from projects where slug = 'tienda')");
+  await raw.query("delete from projects where slug = 'tienda'");
+  await raw.query("insert into projects (slug, title, key_prefix) values ('tienda', 'Tienda', 'TND')");
+  project = (await raw.query("select * from projects where slug = 'tienda'")).rows[0];
+  project.settings ??= {};
+});
+
+test("#1 the colour math: the server and the screen agree, contrast is WCAG's, scales keep their hue", () => {
+  for (const c of ["#8c2f39", "#0f766e", "#4f46e5", "#ffffff", "#000000", "#e5b80b"]) {
+    assert.deepEqual(uiColor.toLch(c), color.toLch(c), c);
+    assert.deepEqual(uiColor.scale(c), color.scale(c), c);
+    assert.equal(uiColor.onColor(c), color.onColor(c), c);
+  }
+  assert.equal(Math.round(color.contrast("#000000", "#ffffff") * 10) / 10, 21);
+  assert.equal(color.fromLch(...color.toLch("#8c2f39")), "#8c2f39", "a round trip keeps the colour");
+  const sc = color.scale("#0f766e");
+  assert.equal(sc.length, 11);
+  for (const s of sc.slice(2, 9)) assert.ok(Math.abs(color.toLch(s)[2] - color.toLch("#0f766e")[2]) < 6, `hue of ${s}`);
+  assert.equal(color.oklchCss("oklch(0.55 0.2 25)"), color.oklchCss("oklch(55% 0.2 25)"));
+});
+
+test("#2 the repo's style is read, not guessed: oklch brand, rem radius, next/font families", async () => {
+  const r = await style.readRepoStyle(view(), "");
+  assert.equal(r.brand, color.oklchCss("oklch(0.55 0.2 25)"));
+  assert.equal(r.radius, 12);
+  assert.equal(r.body, "Inter");
+  assert.equal(r.head, "Fraunces");
+  files["src/app/globals.css"] = Buffer.from(`@import "tailwindcss";`);
+  files["src/app/layout.tsx"] = Buffer.from("export default 1");
+  const none = await style.readRepoStyle(view(), "");
+  assert.deepEqual({ brand: none.brand, radius: none.radius, body: none.body }, { brand: undefined, radius: undefined, body: undefined }, "what is not found stays out");
+});
+
+test("#3 a sound style: unknown keys dropped, numbers bounded, bad colours and fonts refused", () => {
+  const base = style.startStyle({ files: [] }, null);
+  const s = style.sound({ brand: "#ABCDEF", radius: 400, base: 2, head: "Fraunces; } body{", lib: "Nope", evil: 1 } as never, base);
+  assert.equal(s.brand, "#abcdef");
+  assert.equal(s.radius, 48);
+  assert.equal(s.base, 12);
+  assert.equal(s.head, base.head, "a font name with code in it is refused");
+  assert.equal(s.lib, base.lib);
+  assert.ok(!("evil" in s));
+});
+
+test("#4 the files: brand.css has the theme, light and dark, the fonts; tokens.json is W3C; dark brand reads on dark", () => {
+  const s = { ...style.startStyle({ files: [] }, null), brand: "#1f2b5c", head: "Fraunces", body: "Inter", radius: 14, pill: true };
+  const css = style.brandCss(s);
+  assert.match(css, /@theme \{/);
+  assert.match(css, /--color-brand-500: #[0-9a-f]{6};/);
+  assert.match(css, /--font-heading: "Fraunces"/);
+  assert.match(css, /--font-sans: "Inter"/);
+  assert.match(css, /--radius-button: 999px;/);
+  assert.match(css, /\.dark \{/);
+  const t = style.tokens(s);
+  assert.ok(color.contrast(t.dark.brand!, t.dark.background!) >= 3, "the dark brand is visible on the dark background");
+  const j = JSON.parse(style.tokensJson(s));
+  assert.equal(j.color.brand.$type, "color");
+  assert.equal(j.font.heading.$value[0], "Fraunces");
+});
+
+test("#5 versions: each change is one; going back makes a new one; a brand that follows takes the logo's colour", async () => {
+  const s = await stageUpload("tienda", await tile("#8c2f39"), "logo.png");
+  await useUpload(db, project, { up: s.up, name: s.name, scale: 100, bg: "#8c2f39" }, ACTOR);
+  const first = (await style.styleRead(db, "tienda", { git }))!;
+  assert.equal(first.style, null, "nothing chosen yet");
+  assert.equal(first.base.body, "Inter", "it starts from the repo");
+  assert.equal(first.base.brandTie, "fijo", "the repo has its own brand colour");
+  const a = (await style.saveStyle(db, "tienda", { brandTie: "sigue", head: "Fraunces" }))!;
+  assert.equal(a.versions, 1);
+  assert.equal(a.base.brand, "#8c2f39", "follows the logo");
+  await style.saveStyle(db, "tienda", { radius: 4 });
+  const again = await style.saveStyle(db, "tienda", { radius: 4 });
+  assert.equal(again!.versions, 2, "the same values are not a new version");
+  const back = (await style.goBackStyle(db, "tienda", 1))!;
+  assert.equal(back.versions, 3);
+  assert.equal(back.base.radius, 12);
+  assert.deepEqual(style.styleVersions("tienda").map((v) => [v.v, v.current]), [[3, true], [2, false], [1, false]]);
+  await assert.rejects(style.goBackStyle(db, "tienda", 99), /version not found/);
+});
+
+test("#6 the request: files written as the repo will hold them, old colours listed, one at a time", async () => {
+  const s = await stageUpload("tienda", await tile("#8c2f39"), "logo.png");
+  await useUpload(db, project, { up: s.up, name: s.name, scale: 100, bg: "#8c2f39" }, ACTOR);
+  const s2 = await stageUpload("tienda", await tile("#0f766e"), "logo2.png");
+  await useUpload(db, project, { up: s2.up, name: s2.name, scale: 100, bg: "#0f766e" }, ACTOR);
+  await assert.rejects(style.requestStyle(db, project, { git }), /Todavía no hay un estilo elegido/);
+  await style.saveStyle(db, "tienda", { brandTie: "sigue", body: "DM Sans", head: "DM Sans" });
+  style.forgetStyle();
+  const r = (await style.styleRead(db, "tienda", { git }))!;
+  assert.deepEqual(r.old.map((o) => o.path), ["src/components/boton.tsx"], "the old logo's colour, written by hand (case-blind)");
+  assert.equal(r.old[0]!.n, 2);
+  assert.ok(r.changes.some((c) => c.part === "letra"));
+  const made = await style.requestStyle(db, project, { git });
+  assert.ok(existsSync(path.join(made.dir, "src/app/brand.css")));
+  assert.ok(existsSync(path.join(made.dir, "brand/tokens.json")));
+  assert.match(readFileSync(path.join(made.dir, "src/app/brand.css"), "utf8"), /"DM Sans"/);
+  const t = (await raw.query("select scope, status from tasks where key = $1", [made.key])).rows[0];
+  assert.match(t.scope, /<!-- plania:marca-estilo set=[0-9a-f]{16} -->/);
+  assert.match(t.scope, /src\/app\/globals\.css/);
+  assert.match(t.scope, /next\/font\/google/);
+  assert.match(t.scope, /src\/components\/boton\.tsx`: #8c2f39 \(2\)/);
+  assert.equal(t.status, "Ready");
+  assert.equal(((await style.styleRead(db, "tienda", { git }))!).pedido?.key, made.key);
+  await assert.rejects(style.requestStyle(db, project, { git }), /Taller ya trabaja en el estilo/);
+});
+
+test("#7 the screen makes the same files as the server, reads an expert's code back, and directions keep their scope", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  for (const over of [{}, { brand: "#0f766e", neutral: "calido", pill: true, motion: "vivo", head: "Fraunces" }, { brand: "#f2c14e", density: "compacto", shadow: "plana", radius: 0 }] as const) {
+    const s = { ...style.startStyle({ files: [] }, null), ...over } as import("../src/brand/style.js").Style;
+    assert.equal(ui.brandCss(s), style.brandCss(s));
+    assert.equal(ui.tokensJson(s), style.tokensJson(s));
+  }
+  const s = style.startStyle({ files: [] }, null);
+  const back = ui.fromCode(`:root { --primary: oklch(0.6 0.15 150); --radius: 0.75rem; }\n@theme { --font-heading: "Lora", serif; --font-sans: "Nope", serif; }`, s, style.FONTS);
+  assert.equal(back.n, 3, "brand, radius and a known heading font; an unknown font is left");
+  assert.equal(back.next.radius, 12);
+  assert.equal(back.next.head, "Lora");
+  assert.equal(back.next.brandTie, "fijo");
+  const [logo] = ui.directions({ theme: "#1f2b5c", colors: ["#1f2b5c", "#ffd36e"] }, s);
+  const colorsOnly = ui.applyDirection(s, logo!.s, "color");
+  assert.equal(colorsOnly.brand, "#1f2b5c");
+  assert.equal(colorsOnly.head, s.head, "colours only leaves the type");
+  const typeOnly = ui.applyDirection(s, logo!.s, "letra");
+  assert.equal(typeOnly.brand, s.brand);
+  assert.equal(typeOnly.head, "Bricolage Grotesque");
+  assert.deepEqual(Object.keys(ui.FONT_CAT).sort(), [...style.FONTS].sort(), "the screen knows every font the server offers");
+});

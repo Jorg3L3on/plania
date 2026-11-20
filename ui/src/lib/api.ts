@@ -19,6 +19,7 @@ import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
 import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, Surface, VersionRef } from "@/lib/marca";
+import type { Style, StyleRead } from "@/lib/estilo";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -246,6 +247,11 @@ export const api = {
   marcaUseMarkFor: (slug: string, id: string, mark: string, s: Surface) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${mark}?surface=${s}`),
   marcaVariant: (slug: string, s: Surface, body: { bg: string | null; scale: number }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/variant`, body),
   marcaSurfaceKeep: (slug: string, s: Surface) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/keep`),
+  // PLA-I69-4: Marca → Estilo (src/api/marca.ts).
+  marcaEstilo: (slug: string, fresh = false) => request<StyleRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/estilo${fresh ? "?fresh=1" : ""}`),
+  marcaEstiloSave: (slug: string, style: Partial<Style>) => request<StyleRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo`, style),
+  marcaEstiloBack: (slug: string, v: number) => request<StyleRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo/back`, { v }),
+  marcaEstiloPedido: (slug: string) => request<StyleRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

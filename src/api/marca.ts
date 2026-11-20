@@ -33,6 +33,7 @@ import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } fr
 import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
 import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
+import { FONTS, goBackStyle, requestStyle, saveStyle, styleRead, styleVersions } from "../brand/style.js";
 
 export const marcaRoutes = new Hono();
 const BASE = "/projects/:slug/logo";
@@ -402,6 +403,52 @@ marcaRoutes.post("/projects/:slug/marca/native", async (c) => {
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
     if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-4: Estilo. The style is Plania's (versions kept); the request brings it to the repo through Taller.
+const STYLE = "/projects/:slug/marca/estilo";
+marcaRoutes.use(STYLE, guard);
+marcaRoutes.use(`${STYLE}/*`, guard);
+marcaRoutes.get(STYLE, async (c) => {
+  try {
+    const r = await withDb((db) => styleRead(db, c.req.param("slug")!, { fresh: c.req.query("fresh") === "1" }));
+    return r ? c.json({ ...r, versionsList: styleVersions(c.req.param("slug")!), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(STYLE, async (c) => {
+  try {
+    const body = await json(c, z.record(z.string().max(20), z.union([z.string().max(60), z.number(), z.boolean()])).refine((o) => Object.keys(o).length <= 40));
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await withDb((db) => saveStyle(db, slug, body as never));
+    return r ? c.json({ ...r, versionsList: styleVersions(slug), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${STYLE}/back`, async (c) => {
+  try {
+    const body = await json(c, z.object({ v: z.number().int().min(1) }).strict());
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await withDb((db) => goBackStyle(db, slug, body.v));
+    return r ? c.json({ ...r, versionsList: styleVersions(slug), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${STYLE}/pedido`, async (c) => {
+  try {
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const made = await withDb((db) => requestStyle(db, p));
+    const r = await withDb((db) => styleRead(db, p.slug));
+    return c.json({ key: made.key, ...r, versionsList: styleVersions(p.slug), fonts: FONTS });
+  } catch (e) {
     return fail(c, e);
   }
 });

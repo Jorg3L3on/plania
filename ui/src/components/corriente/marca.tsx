@@ -13,6 +13,9 @@ import { Logo, ReadError, Switch } from "./parts";
 import { Link } from "react-router";
 import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
+import { useSearchParams } from "react-router";
+import { Estilo } from "./marca-estilo";
+import { estiloWords } from "@/lib/estilo";
 
 type Shape = "circle" | "squircle" | "drop";
 
@@ -26,6 +29,15 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const w = marcaWords();
   const q = useMarca(p.slug);
   const client = useQueryClient();
+  // PLA-I69-4: Marca's own doors (Caras · Estilo · Voz y nombre · Historial), kept in the address as ?m=.
+  const [params, setParams] = useSearchParams();
+  const door: Door = DOORS.includes(params.get("m") as Door) ? (params.get("m") as Door) : "caras";
+  const goDoor = (d: Door) => {
+    const next = new URLSearchParams(params);
+    if (d === "caras") next.delete("m");
+    else next.set("m", d);
+    setParams(next, { replace: true });
+  };
   const [sel, setSel] = useState<Face | null>(null);
   const [hover, setHover] = useState<Face | null>(null);
   const [rereading, setRereading] = useState(false);
@@ -76,6 +88,19 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         }}
       />
     );
+  const doors = <MarcaDoors door={door} onGo={goDoor} />;
+  if (door !== "caras")
+    return (
+      <div className="mk" data-marca={p.slug} data-door={door}>
+        <header className="mk-head">
+          <div className="mk-head-l">
+            <h2 className="cor-door-h">{w.title(p.title)}</h2>
+            {doors}
+          </div>
+        </header>
+        {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
+      </div>
+    );
   const c = counts(r.rows);
   const lit = hover ?? sel;
   const actions: CoreActions = {
@@ -93,6 +118,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       <header className="mk-head">
         <div className="mk-head-l">
           <h2 className="cor-door-h">{w.title(p.title)}</h2>
+          {doors}
           <p className="cor-text">
             {r.repo === "ok" ? (
               w.lead
@@ -191,6 +217,22 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         {r.repo === "ok" && <TripBar r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
       </div>
     </div>
+  );
+}
+
+const DOORS = ["caras", "estilo", "voz", "historial"] as const;
+type Door = (typeof DOORS)[number];
+/** PLA-I69-4: Marca's doors, as tabs under the title. */
+function MarcaDoors({ door, onGo }: { door: Door; onGo: (d: Door) => void }) {
+  const w = estiloWords();
+  return (
+    <nav className="mk-doors" role="tablist" aria-label={w.doorsLabel}>
+      {DOORS.map((d) => (
+        <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
+          {w.doors[d]}
+        </button>
+      ))}
+    </nav>
   );
 }
 
