@@ -13,6 +13,7 @@ import type { Language } from "@/lib/i18n";
 import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
+import type { LogoRef } from "@/lib/logos";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -190,6 +191,8 @@ export const api = {
   usage: () => request<UsageSummary>("GET", "/usage"),
   // PLA-I33 Compañía como organización: the contract in the Plan doc (61ad843a, "Contrato de API").
   company: () => request<OrgCompany>("GET", "/company"),
+  // PLA-I66-1: every project logo (src/brand/logos.ts).
+  logos: () => request<{ logos: Record<string, LogoRef> }>("GET", "/company/logos"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
