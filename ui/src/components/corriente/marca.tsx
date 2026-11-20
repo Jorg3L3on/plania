@@ -304,6 +304,15 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
   const l = r.logo;
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  // PLA-130: the menu opens upward when the window has no room for it under the button.
+  const menu = useRef<HTMLDivElement>(null);
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    if (!open || !box.current || !menu.current) return setUp(false);
+    const b = box.current.getBoundingClientRect();
+    const h = menu.current.offsetHeight + 12;
+    setUp(window.innerHeight - b.bottom < h && b.top > h);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const off = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
@@ -350,7 +359,7 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
           {w.change}
         </button>
         {open && (
-          <div className="mk-menu" role="menu">
+          <div className={`mk-menu${up ? " up" : ""}`} role="menu" ref={menu}>
             <button type="button" role="menuitem" onClick={pick(actions.upload)} data-control="marca-subir">
               <b>{w.menu.upload}</b>
               <span>{w.menu.uploadHint}</span>

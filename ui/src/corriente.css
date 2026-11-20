@@ -1805,7 +1805,9 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 
 /* PLA-I66-3: changing the logo: the menu, the repo's candidates and the versions, the upload view (frames C1, C2). */
 .mk-change { position: relative; }
-.mk-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: 280px; padding: 6px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); text-align: left; }
+/* PLA-130: anchored to the button's left edge; centred, half of it fell off the page at the left. */
+.mk-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 280px; max-width: calc(100vw - 32px); padding: 6px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); text-align: left; }
+.mk-menu.up { top: auto; bottom: calc(100% + 6px); } /* PLA-130 */
 .mk-menu button { display: flex; flex-direction: column; gap: 1px; width: 100%; min-height: 44px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--cor-text); text-align: left; cursor: pointer; }
 .mk-menu button:hover, .mk-menu button:focus-visible { background: rgba(255, 255, 255, 0.05); outline: none; }
 .mk-menu b { font-size: 13px; font-weight: 500; }
