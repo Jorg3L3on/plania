@@ -24,7 +24,6 @@ test("I3-2: the bar's words", () => {
   assert.deepEqual(words.barState(true), { label: "En pausa", pausar: null });
   assert.equal(words.reanudarLabel("Filmia"), "Reanudar Filmia");
   assert.equal(words.REANUDAR_LINE, "Nada arranca hasta que lo reanudes.");
-  assert.equal(words.switcherLabel("Filmia"), "Filmia: cambiar de proyecto");
   assert.equal(words.todoCount(0), null);
   assert.equal(words.todoCount(1), "1 ABIERTA");
   assert.equal(words.todoCount(7), "7 ABIERTAS");
@@ -92,7 +91,7 @@ test("I3-2: the page draws one bar for a project and keeps its keys", () => {
   assert.match(page, /e\.key === "ArrowUp" \|\| e\.key === "ArrowDown"/);
   assert.match(page, /k === "a" \? "archivo" : k === "e" \? "equipo" : k === "m" \? "maquinas"/);
   assert.match(page, /go\(escFrom\(at\), true\)/);
-  // The switcher closes its menu on Esc before the page steps out.
-  assert.match(strip, /addEventListener\("keydown", onKey, true\)/);
-  assert.match(strip, /stopImmediatePropagation\(\)/);
+  // PLA-129: no project menu in the bar any more (nothing to close on Esc): the name links to Todo.
+  assert.ok(!/aria-haspopup/.test(strip), "no menu");
+  assert.match(strip, /data-control="abrir-todo"/);
 });

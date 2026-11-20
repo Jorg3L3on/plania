@@ -284,10 +284,8 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-switch { position: relative; min-width: 0; flex: 0 1 auto; }
 .cor-switch-h { display: flex; min-width: 0; }
 .cor-switch-btn { display: inline-flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; margin-left: -10px; padding: 0 10px; border-radius: 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--cor-text); }
-.cor-switch-btn:hover, .cor-switch-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.05); }
+.cor-switch-btn:hover { background: rgba(255, 255, 255, 0.05); }
 .cor-switch-btn svg { flex: none; color: var(--cor-muted); }
-.cor-switch-menu { position: absolute; top: calc(100% + 6px); left: -10px; display: flex; flex-direction: column; gap: 2px; width: 300px; max-height: min(70vh, 520px); overflow: auto; padding: 6px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
-.cor-switch-menu .cor-chip { padding: 9px 12px; }
 .cor-topbar .cor-doors { margin-left: 8px; }
 .cor-topbar .cor-door { min-height: 55px; margin-bottom: -1px; white-space: nowrap; }
 .cor-topbar-end { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
@@ -2069,7 +2067,6 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
   .cor-topbar .cor-strip-back-t { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .cor-topbar .cor-switch { grid-area: switch; position: static; min-width: 0; }
   .cor-topbar .cor-switch-btn { max-width: 100%; margin-left: 0; padding: 0 8px; gap: 8px; font-size: 16px; }
-  .cor-topbar .cor-switch-menu { top: 54px; left: 16px; right: 16px; width: auto; }
   .cor-topbar-end { grid-area: end; gap: 8px; margin-left: 0; }
   .cor-topbar-state { letter-spacing: 0.1em; }
   .cor-topbar .cor-doors { grid-area: doors; margin: 2px -16px 0; padding: 0 16px; gap: 0 20px; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }

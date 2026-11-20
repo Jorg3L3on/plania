@@ -12,7 +12,7 @@ import { Link } from "react-router";
 import { DOORS, tabName, type Tab } from "@/lib/corriente";
 import { STRIP } from "@/lib/corriente-parts-words";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
-import { archivoCount, barState, peerTitle, switcherLabel, switcherMenu, teEspera, todoCount } from "@/lib/barra";
+import { archivoCount, barState, peerTitle, switcherMenu, teEspera, todoCount } from "@/lib/barra";
 import { words } from "@/lib/i18n";
 import { useFicha } from "./listas";
 import { Logo } from "./parts";
@@ -32,85 +32,23 @@ const ArchivoCount = ({ slug }: { slug: string }) => {
   return <span className="n">{archivoCount(f.data.counts.docs, f.data.counts.prs)}</span>;
 };
 
-/** One project in the switcher's menu: its mark and name, and its mini stream. */
-const LaneItem = ({ l, i, current, to, onPick }: { l: Lane; i: number; current: boolean; to: string; onPick: () => void }) => (
-  <li role="none">
-    <Link
-      role="menuitem"
-      to={to}
-      onClick={onPick}
-      className={`cor-chip ${l.pace !== "live" ? "quiet" : ""}`}
-      aria-current={current ? "page" : undefined}
-      aria-label={l.you.length > 0 ? `${l.title}${teEspera()}` : l.title}
-      data-chip={l.slug}
-      style={{ "--cor-speed": `${6 + (i % 3) * 2}s`, "--cor-delay": `-${i * 1.7}s` } as CSSProperties}
-    >
-      <span className="cor-chip-name">
-        <Logo slug={l.slug} title={l.title} size="sm" />
-        <span className="cor-ellipsis">{l.title}</span>
-        {l.you.length > 0 && <span className="sr-only">{teEspera()}</span>}
-      </span>
-      <span className={`cor-mini ${l.pace === "off" ? "off" : ""}`} aria-hidden>
-        {COLUMNS.map((c) => (
-          <span key={c} className={`t ${l.you.some((y) => y.col === c) ? "yo" : l.agents.some((a) => a.col === c) ? "ag" : l.cells[c].length ? "on" : ""}`} />
-        ))}
-      </span>
-    </Link>
-  </li>
-);
-
-/** The project's name as a button; its menu lists the projects in the order ↑/↓ walks them. */
-export const Switcher = ({ slug, title, lanes, href, initialOpen = false, logoTo }: { slug: string; title: string; lanes: Lane[]; href: (slug: string) => string; initialOpen?: boolean; logoTo?: string }) => {
-  const [open, setOpen] = useState(initialOpen);
-  const box = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    // Esc closes the menu before the page's Esc steps out of the project (capture, so the page never sees it).
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      setOpen(false);
-      button.current?.focus();
-    };
-    const onDown = (e: PointerEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("pointerdown", onDown);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("pointerdown", onDown);
-    };
-  }, [open]);
-  // A new project closes the menu.
-  useEffect(() => setOpen(false), [slug]);
-  return (
-    <div className="cor-switch" ref={box}>
-      <h1 className="cor-switch-h">
-        {/* PLA-I66-2: the logo opens the project's Marca door; the name keeps the project switcher. */}
-        {logoTo && (
-          <Link to={logoTo} className="cor-switch-logo" aria-label={marcaWords().title(title)} data-control="abrir-marca">
-            <Logo slug={slug} title={title} size="md" />
-          </Link>
-        )}
-        <button ref={button} type="button" className="cor-switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label={switcherLabel(title)} onClick={() => setOpen((o) => !o)} data-control="cambiar-proyecto">
-          {!logoTo && <Logo slug={slug} title={title} size="md" />}
-          <span className="cor-ellipsis">{title}</span>
-          <Chevron d="M4.5 6.5 8 10l3.5-3.5" />
-        </button>
-      </h1>
-      {open && (
-        <ul className="cor-switch-menu" role="menu" aria-label={switcherMenu()} data-switcher>
-          {lanes.map((l, i) => (
-            <LaneItem key={l.slug} l={l} i={i} current={l.slug === slug} to={href(l.slug)} onPick={() => setOpen(false)} />
-          ))}
-        </ul>
+/** PLA-129: the project's name is a link to its home (Todo), not a switcher; the strip above switches projects (on a
+ *  phone, back to Corriente). The logo beside it opens Marca (PLA-I66-2). */
+export const ProjectName = ({ slug, title, todoTo, logoTo }: { slug: string; title: string; todoTo: string; logoTo?: string }) => (
+  <div className="cor-switch">
+    <h1 className="cor-switch-h">
+      {logoTo && (
+        <Link to={logoTo} className="cor-switch-logo" aria-label={marcaWords().title(title)} data-control="abrir-marca">
+          <Logo slug={slug} title={title} size="md" />
+        </Link>
       )}
-    </div>
-  );
-};
+      <Link to={todoTo} className="cor-switch-btn" data-control="abrir-todo">
+        {!logoTo && <Logo slug={slug} title={title} size="md" />}
+        <span className="cor-ellipsis">{title}</span>
+      </Link>
+    </h1>
+  </div>
+);
 
 /** PLA-I3-2: the strip on top, as it was: back to Corriente and one chip per project (its mark, its name and its
  *  mini stream), the open one marked. A chip opens that project on the same door. Chips keep a set width, so one
@@ -162,15 +100,14 @@ export const ProjectBar = ({
   open,
   paused,
   pauseHref,
-  switcherOpen,
 }: {
   slug: string;
   title: string;
-  /** Every project, as the stream draws them (the switcher's menu). */
+  /** Every project, as the stream draws them (the strip above).  */
   lanes: Lane[];
   tab: Tab;
   href: (t: Tab) => string;
-  /** Where a project in the switcher opens (the same door). */
+  /** Where a project in the strip opens (the same door). */
   projectHref: (slug: string) => string;
   /** La corriente. */
   back: string;
@@ -181,8 +118,6 @@ export const ProjectBar = ({
   paused: boolean;
   /** Pausar's sheet (shown only while running). */
   pauseHref: string;
-  /** Tests: draw the switcher's menu open. */
-  switcherOpen?: boolean;
 }) => {
   const w = words(STRIP);
   const on = (t: Tab) => tab === t || (t === "equipo" && tab === "motores") || (t === "todo" && tab === "hecho");
@@ -198,7 +133,7 @@ export const ProjectBar = ({
         {/* PLA-I3-7: a phone shows the chevron alone; the word stays the link's name. */}
         <span className="cor-strip-back-t">{w.corriente}</span>
       </Link>
-      <Switcher slug={slug} title={title} lanes={lanes} href={projectHref} initialOpen={switcherOpen} logoTo={href("marca")} />
+      <ProjectName slug={slug} title={title} todoTo={href("todo")} logoTo={href("marca")} />
       <nav className="cor-doors" aria-label={w.doorsOf(title)}>
         {BAR_DOORS.map((t) => (
           <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
