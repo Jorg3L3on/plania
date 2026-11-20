@@ -184,9 +184,33 @@ export const blocking = (items: MachineItem[]): MachineItem[] => items.filter((i
  * The install command's check: it calls this before it changes anything and stops when proceed is false, printing
  * text. The installer (PLA-I2-1) injects it as its machine-check hook, so its own tests can pass a fake.
  */
-export async function installGate(deps: MachineCheckDeps = {}): Promise<{ proceed: boolean; items: MachineItem[]; text: string }> {
+export async function installGate(
+  deps: MachineCheckDeps = {},
+  o: { skip?: MachineItemId[] } = {},
+): Promise<{ proceed: boolean; items: MachineItem[]; text: string; later: MachineItem[] }> {
   const items = await machineCheck(deps);
-  return { proceed: blocking(items).length === 0, items, text: formatMachineCheck(items, deps.language ?? installLanguage(deps.env)) };
+  const notNow = new Set<MachineItemId>([...AFTER_INSTALL, ...(o.skip ?? [])]);
+  return {
+    proceed: blocking(items).every((i) => notNow.has(i.id)),
+    items,
+    text: formatMachineCheck(items, deps.language ?? installLanguage(deps.env)),
+    later: blocking(items).filter((i) => AFTER_INSTALL.includes(i.id)),
+  };
+}
+
+/**
+ * PLA-I2-4 (from zero): what the install goes on without. Claude Code and its session stay the owner's to install and
+ * sign in; the install names them again at the end, and the screen's list keeps them required.
+ */
+export const AFTER_INSTALL: MachineItemId[] = ["claude", "claude_session"];
+
+/**
+ * Items the install's gate ignores, from PLANIA_UNSUPPORTED_SKIP_CHECK (comma-separated ids). Only the clean-machine
+ * CI job sets it (a macOS runner has 7 GB of memory); unsupported for users.
+ */
+export function skippedChecks(env: NodeJS.ProcessEnv = process.env): MachineItemId[] {
+  const ids = (env.PLANIA_UNSUPPORTED_SKIP_CHECK ?? "").split(",").map((s) => s.trim());
+  return MACHINE_ITEMS.filter((id) => ids.includes(id));
 }
 
 /** One line per item, the fix under each one that has one. The text the install command and the CLI print. */

@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { test } from "node:test";
 import type { ExecFn, ExecResult } from "../src/brief/doctor.js";
-import { blocking, formatMachineCheck, installGate, machineCheck, type MachineCheckDeps } from "../src/machine-check/index.js";
+import { blocking, formatMachineCheck, installGate, machineCheck, skippedChecks, type MachineCheckDeps } from "../src/machine-check/index.js";
 import { machineCheckRoutes } from "../src/api/machine-check.js";
 import { isSignedOut } from "../src/runner/signed-out.js";
 import { parseStream } from "../src/runner/stream.js";
@@ -90,7 +90,9 @@ test("I2-12 #1: each required program missing in turn is named with its fix, and
     assert.ok(item.required, c.label);
     assert.ok(item.sentence.length > 10 && item.fix && item.fix.length > 10, `${c.label}: ${item.sentence} / ${item.fix}`);
     const gate = await installGate(c.deps);
-    assert.equal(gate.proceed, false, c.label);
+    // PLA-I2-4 (from zero): Claude Code is the owner's to install; the install goes on and names it at the end.
+    assert.equal(gate.proceed, c.id === "claude", c.label);
+    assert.deepEqual(gate.later.map((i) => i.id), c.id === "claude" ? ["claude", "claude_session"] : [], c.label);
     assert.ok(gate.text.includes(item.sentence) && gate.text.includes(item.fix!), c.label);
     assert.match(gate.text, new RegExp(`✗ ${item.name.replace(/[()]/g, "\\$&")}`), c.label);
   }
@@ -116,6 +118,17 @@ test("I2-12 #1: the install gate goes on when only the optional Chrome is missin
   assert.equal(new Set(deps.calls).size, deps.calls.length, deps.calls.join(" | "));
   // Only gh (F2: needed before the first project with code, not to install) and Chrome are optional.
   assert.deepEqual(MACHINE_ITEMS.filter((id) => !REQUIRED[id]), ["gh", "chrome"]);
+});
+
+test("PLA-I2-4: PLANIA_UNSUPPORTED_SKIP_CHECK (CI only) lets the gate pass an item; unknown ids are ignored", async () => {
+  const deps = { ...machine(), totalMemory: () => 7 * GB };
+  assert.equal((await installGate(deps)).proceed, false);
+  const skip = skippedChecks({ PLANIA_UNSUPPORTED_SKIP_CHECK: " memory, nonsense" });
+  assert.deepEqual(skip, ["memory"]);
+  const gate = await installGate(deps, { skip });
+  assert.equal(gate.proceed, true);
+  assert.equal(byId(gate.items).get("memory")!.state, "missing", "still reported");
+  assert.deepEqual(skippedChecks({}), []);
 });
 
 test("I2-12 #4: gh not installed, signed out, and signed in without write access are three different items", async () => {

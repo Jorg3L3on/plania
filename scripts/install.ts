@@ -17,12 +17,13 @@ import { findChrome } from "../src/captures/chrome.js";
 import { install, InstallError, INSTALL_WORDS, type MachineCheck } from "../src/db/install.js";
 import { withDatabase } from "../src/db/migrate.js";
 import { terminalAsk, workingAddress } from "../src/install/connect.js";
-import { browserCommand, finishInstall } from "../src/install/finish.js";
+import { browserCommand, finishInstall, FINISH_WORDS } from "../src/install/finish.js";
 import { followSystemLocale, installLanguage } from "../src/language.js";
 import { pgBinFolder } from "../src/lib/pg-bin.js";
-import { formatMachineCheck, installGate } from "../src/machine-check/index.js";
+import { formatMachineCheck, installGate, skippedChecks, type MachineItem } from "../src/machine-check/index.js";
 import { detectSystem, servicePlatform } from "../src/packaging/service.js";
 import { say } from "../src/words.js";
+import { words } from "../ui/src/lib/i18n.js";
 
 const repoDir = path.resolve(import.meta.dirname, "..");
 const envPath = path.join(repoDir, ".env");
@@ -58,9 +59,12 @@ url = (await workingAddress(url, { ask: terminalAsk(), log, language })).url;
 
 // PLA-I2-12: the machine check runs before anything changes. The database may not exist yet, so Postgres is
 // probed through the server's own `postgres` database. F3: when nothing blocks, only what is not ready is shown.
+// PLA-I2-4 (from zero): Claude Code missing does not stop the install; it is said again after the closing box.
+let later: MachineItem[] = [];
 const machineCheck: MachineCheck = async () => {
-  const gate = await installGate({ env: { ...process.env, DATABASE_URL: withDatabase(url, "postgres") }, language });
+  const gate = await installGate({ env: { ...process.env, DATABASE_URL: withDatabase(url, "postgres") }, language }, { skip: skippedChecks() });
   if (!gate.proceed) return { ok: false, lines: [gate.text] };
+  later = gate.later;
   const notReady = gate.items.filter((i) => i.state !== "ready");
   return { ok: true, lines: notReady.length ? [formatMachineCheck(notReady, language)] : [] };
 };
@@ -130,6 +134,7 @@ try {
     log,
   });
   console.log(`\n${done.box}`);
+  if (later.length) console.log(`\n${words(FINISH_WORDS, language).stillMissing}\n${formatMachineCheck(later, language)}`);
 } catch (e) {
   if (e instanceof InstallError) {
     console.error(e.message);

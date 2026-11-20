@@ -46,7 +46,7 @@ try {
     commit: dirty ? null : (git?.commit ?? null),
     now: new Date(),
     notices: (dir) => renderNotices(collectNotices(dir)),
-    // PLA-I2-4: where releases are downloaded from is a setting, not code; unset, the installers keep a placeholder.
+    // PLA-I2-4: where releases are downloaded from is a setting; unset, the installers keep the latest GitHub Release.
     downloadBase: process.env.PLANIA_DOWNLOAD_BASE ?? null,
     // Relative names with cwd set: tar on every system, no drive letters.
     archive: (outDir, dirName, archiveName) => execFileSync("tar", ["-czf", archiveName, dirName], { cwd: outDir, stdio: "inherit" }),
@@ -55,7 +55,6 @@ try {
   console.log(`  ${r.archive}`);
   console.log(`  sha256 ${r.sha256}`);
   for (const b of r.bootstrap) console.log(`  ${b}`);
-  if (!process.env.PLANIA_DOWNLOAD_BASE) console.warn("PLANIA_DOWNLOAD_BASE is unset: the installers name no download address and need --from.");
 } catch (e) {
   if (e instanceof PackError) {
     console.error(e.message);

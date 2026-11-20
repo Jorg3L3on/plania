@@ -37,11 +37,12 @@ describe("the installers parse", () => {
     assert.ok(bytes.every((b) => b < 0x80), "a byte above 0x7f");
   });
 
-  test("neither uses corepack, and both default to a placeholder address", () => {
+  test("neither uses corepack, and both default to the latest GitHub Release", () => {
     for (const f of [SH, PS1]) {
       const text = readFileSync(f, "utf8");
       assert.doesNotMatch(text.replace(/^#.*$/gm, ""), /corepack (enable|prepare)/);
-      assert.match(text, /downloads\.example\.invalid/);
+      assert.match(text, /^(DEFAULT_BASE="|\$DefaultBase = ')https:\/\/github\.com\/Jorg3L3on\/plania\/releases\/latest\/download["']$/m);
+      assert.match(text, /plania-latest\.tar\.gz/, "with no version, the asset every release carries");
       assert.match(text, /PLANIA_DOWNLOAD_BASE/);
     }
   });
@@ -66,7 +67,7 @@ describe("the pack ships them", () => {
       const beside = readFileSync(path.join(out, s), "utf8");
       assert.equal(readFileSync(path.join(r.dir, "scripts/bootstrap", s), "utf8"), beside);
       assert.match(beside, s.endsWith(".sh") ? new RegExp(`^DEFAULT_VERSION="${version}"$`, "m") : new RegExp(`^\\$DefaultVersion = '${version}'$`, "m"));
-      assert.match(beside, /downloads\.example\.invalid/, "no address given: the placeholder stays");
+      assert.match(beside, /releases\/latest\/download/, "no address given: the GitHub Release stays");
     }
   });
 
@@ -115,7 +116,7 @@ const runners: [string, string | false, Run][] = [
     ({ from, dir, bin, extra = [] }) => {
       const r = spawnSync("sh", [SH, "--from", from, "--dir", dir, "--yes", "--", ...extra], {
         encoding: "utf8",
-        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+        env: { ...process.env, PLANIA_BOOTSTRAP_SKIP_DEPS: "1", PATH: `${bin}${path.delimiter}${process.env.PATH}` },
       });
       return { status: r.status, out: r.stdout + r.stderr };
     },
@@ -127,7 +128,7 @@ const runners: [string, string | false, Run][] = [
       const r = spawnSync(
         "powershell",
         ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", PS1, "-From", from, "-Dir", dir, "-Yes", ...(extra.length ? ["-InstallArgs", extra.join(",")] : [])],
-        { encoding: "utf8", env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } },
+        { encoding: "utf8", env: { ...process.env, PLANIA_BOOTSTRAP_SKIP_DEPS: "1", PATH: `${bin}${path.delimiter}${process.env.PATH}` } },
       );
       return { status: r.status, out: r.stdout + r.stderr };
     },
