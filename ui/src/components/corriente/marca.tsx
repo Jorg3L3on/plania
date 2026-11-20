@@ -736,7 +736,8 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
                 {staged.checks.map((c, i) => (
                   <li key={i} className={c.ok === true ? "y" : c.ok === "warn" ? "w" : "n"}>{sentence(w.upCheck, c)}</li>
                 ))}
-                {preview && testLines(preview.tests, w).map((t, i) => (
+                {/* PLA-124: Android's circle is not a test for an iPhone or browser icon of its own. */}
+                {preview && testLines(preview.tests, w).filter((_, i) => !(surface && surface !== "android" && i === 1)).map((t, i) => (
                   <li key={`t${i}`} className={t.ok ? "y" : "n"}>{t.text}</li>
                 ))}
               </ul>
