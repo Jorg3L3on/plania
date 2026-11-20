@@ -15,6 +15,7 @@ import { agentRuns, agents, projects, type Actor, type Agent, type Project, type
 import { capturesDir } from "../captures/store.js";
 import { ToolError } from "../mcp/errors.js";
 import { enqueueWake } from "../runner/events.js";
+import { isSessionOf } from "../runner/run-session.js";
 import { ownerLanguage } from "../runner/owner-language.js";
 import { inspect, svgIsClean } from "./detect.js";
 import { addLogoVersion, putLogoFile } from "./logos.js";
@@ -150,7 +151,8 @@ export async function deliverMarks(db: Db, input: { project: string; id: string;
   if (!p || !r) throw new ToolError("MARKS_NOT_FOUND", { id: input.id });
   if (r.status === "ready") throw new ToolError("MARKS_NOT_FOUND", { id: input.id, hint: "already delivered" });
   const artist = await artistOf(db, p.id);
-  const runOk = !!r.runId && who.session_id === `run-${r.runId.slice(0, 8)}`;
+  // PLA-119: the run's session is run-<16 hex> since PLA-I60-1; the old 8-hex form still reads.
+  const runOk = !!r.runId && isSessionOf(who.session_id, r.runId);
   if (!runOk && (!artist || (who.agent !== artist.slug && who.agent !== artist.name))) throw new ToolError("MARKS_FORBIDDEN", { id: input.id, agent: who.agent });
   const dir = dirOf(p.slug, r.id);
   mkdirSync(dir, { recursive: true });
