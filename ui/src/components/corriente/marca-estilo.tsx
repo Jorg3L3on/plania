@@ -233,6 +233,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   const [code, setCode] = useState<string | null>(null);
   const [codeMsg, setCodeMsg] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
+  const [undoOpen, setUndoOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved">("idle");
   const [play, setPlay] = useState(0);
@@ -618,6 +619,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       </div>
     );
   };
+  const undoAll = (): Partial<Style> => Object.assign({}, ...ch.map((c) => undoOf(c.part as Sec) ?? {}));
+  const canUndo = ch.some((c) => undoOf(c.part as Sec));
   const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov, img: paneImg, logo: paneLogo };
 
   const repoSay = [r.repo.head ?? r.repo.body ?? w.caps.sys, (r.repo.brand ?? r.repo.theme)?.toUpperCase(), r.repo.radius !== undefined ? w.caps.corners(r.repo.radius) : null].filter(Boolean).join(" · ");
@@ -662,16 +665,38 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
         <button type="button" className="es-sw" role="switch" aria-checked={expert} onClick={() => { setExpert((e) => !e); setCode(null); setCodeMsg(""); }} aria-label={w.expert.label} data-control="estilo-experto" />
         {w.expert.label}
       </label>
-      <button type="button" className={`cor-btn ${ch.length && !r.pedido ? "primary" : "secondary"} small`} disabled={!!r.pedido} onClick={() => setSendOpen((o) => !o)} data-control="estilo-llevar">
+      {/* PLA-130: the way back for every part at once, next to the way forward; both ask before they act. */}
+      <button type="button" className="cor-btn secondary small" disabled={!canUndo || !!r.pedido} onClick={() => { setSendOpen(false); setUndoOpen((o) => !o); }} data-control="estilo-deshacer">
+        {w.undoAll.button}
+      </button>
+      <button type="button" className={`cor-btn ${ch.length && !r.pedido ? "primary" : "secondary"} small`} disabled={!!r.pedido} onClick={() => { setUndoOpen(false); setSendOpen((o) => !o); }} data-control="estilo-llevar">
         {r.pedido ? w.bar.way(r.pedido.key) : w.bar.sendNone}
       </button>
+      {undoOpen && (
+        <div className="es-send" role="dialog" aria-label={w.undoAll.title} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setUndoOpen(false); } }}>
+          <h4>{w.undoAll.title}</h4>
+          <p>{w.undoAll.lead}</p>
+          <ul>
+            {ch.map((c) => (
+              <li key={c.part}>
+                <b>{w.secs[c.part] ?? c.part}</b>
+                <span>{undoOf(c.part as Sec) ? w.undoAll.back(say(c.to), say(c.from)) : w.undoAll.stays}</span>
+              </li>
+            ))}
+          </ul>
+          <footer>
+            <button type="button" className="cor-btn secondary small" onClick={() => setUndoOpen(false)}>{w.send.cancel}</button>
+            <button type="button" className="cor-btn primary small" autoFocus onClick={() => { edit(undoAll()); setUndoOpen(false); toast(w.undoAll.done); }} data-control="estilo-deshacer-si">{w.undoAll.go}</button>
+          </footer>
+        </div>
+      )}
       {sendOpen && (
         <div className="es-send" role="dialog" aria-label={w.send.title(nFiles)} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setSendOpen(false); } }}>
           <h4>{w.send.title(nFiles)}</h4>
           <p>{w.send.lead}</p>
           <ul>
-            {w.send.items.slice(0, nFiles).map(([a, b]) => (
-              <li key={a}><b>{a}</b><span>{b}</span></li>
+            {w.send.items.slice(0, nFiles).map(([a, b], i) => (
+              <li key={a}><b>{a}</b><span>{i === 0 && !r.repo.dark ? w.send.cssLight : b}</span></li>
             ))}
             {r.old.length > 0 && <li><b>{r.old.length}</b><span>{w.send.old(r.old.length)}</span></li>}
           </ul>
