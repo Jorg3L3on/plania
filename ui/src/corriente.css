@@ -2253,16 +2253,6 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .es-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(380px, 450px) minmax(0, 1fr); gap: 16px; }
 .es-wrap.expert { grid-template-columns: minmax(360px, 430px) minmax(0, 1fr) minmax(300px, 380px); }
 .es-left { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.es-start { justify-content: space-between; flex-wrap: nowrap; }
-.es-start .es-seg button { padding: 3px 8px; font-size: 10.5px; }
-.es-dirs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: none; }
-.es-dir { all: unset; box-sizing: border-box; cursor: pointer; padding: 8px 9px; border-radius: 12px; border: 1px solid var(--cor-line); background: var(--cor-surface); display: grid; gap: 4px; min-width: 0; }
-.es-dir:hover { border-color: var(--cor-line-strong); }
-.es-dir[aria-pressed="true"] { border-color: var(--cor-violet-2); box-shadow: inset 0 0 0 1px rgba(167,139,250,.4); background: rgba(139,92,246,.06); }
-.es-dir .sw { display: flex; gap: 3px; } .es-dir .sw i { width: 15px; height: 15px; border-radius: 5px; }
-.es-dir .aa { font-size: 19px; line-height: 1; color: var(--cor-text); }
-.es-dir-r { width: 18px; height: 12px; border: 2px solid var(--cor-body); margin-left: auto; }
-.es-dir b { font-size: 12px; color: var(--cor-text); } .es-dir > span:last-child { font-size: 10.5px; color: var(--cor-muted); }
 .es-ed { flex: 1; min-height: 0; display: grid; grid-template-columns: 136px minmax(0, 1fr); border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); overflow: hidden; }
 .es-rail { display: flex; flex-direction: column; gap: 1px; padding: 6px; border-right: 1px solid var(--cor-line); overflow: auto; scrollbar-width: none; }
 .es-ri { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 1px; padding: 6px 8px; border-radius: 8px; }
@@ -2452,7 +2442,6 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 }
 @media (max-width: 639px) {
   .es-specs { grid-template-columns: 1fr; }
-  .es-dirs { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
   .es-ed { grid-template-columns: 1fr; }
   .es-rail { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--cor-line); overflow-x: auto; }
   .es-ri > span { display: none; }
@@ -2669,10 +2658,6 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
-/* PLA-130: the directions' scope, under the cards, with the line that says what a click changes. */
-.es-scope { display: grid; gap: 4px; flex: none; }
-.es-scope .es-seg button { padding: 3px 8px; font-size: 10.5px; }
-.es-scope .es-sub { min-height: 1.45em; }
 /* PLA-130: a theme the app does not have, locked in place of its preview. */
 .es-locked { display: grid; place-items: center; align-content: center; gap: 6px; aspect-ratio: 600 / 360; padding: 16px; border-radius: 16px; border: 1px dashed var(--cor-line-strong); background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px); color: var(--cor-muted); text-align: center; }
 .es-locked svg { color: var(--cor-body); }

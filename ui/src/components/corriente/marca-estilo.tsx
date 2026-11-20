@@ -1,5 +1,5 @@
-// PLA-I69-4: Marca → Estilo (design: PLA-IDEA33 pass 3). The left starts easy: three directions from the logo (all,
-// colours only, type only) and a rail of the style's parts, each with plain choices (swatches, a font list with
+// PLA-I69-4: Marca → Estilo (design: PLA-IDEA33 pass 3). The left is a rail of the style's parts (PLA-130 took out
+// the three directions that stood above it), each with plain choices (swatches, a font list with
 // search, tiles). The right shows a small app made with the style, light and dark, over the reflection of what the
 // repo has today. «Modo experto» adds every value's variable and the code (Tailwind 4, shadcn/ui, W3C tokens), which
 // can be edited and applied. Every change is a version kept in Plania; «Llevar al repo» asks Taller.
@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { contrast, scale, STEPS } from "@/lib/color";
 import {
-  FONT_CAT, LIBS, PAIRS, RATIOS, SECS, SYSTEM, applyDirection, changesOf, codeOf, directions, estiloWords, family, fontHref, fromCode, repoAsStyle, tokens,
+  FONT_CAT, LIBS, PAIRS, RATIOS, SECS, SYSTEM, changesOf, codeOf, estiloWords, family, fontHref, fromCode, repoAsStyle, tokens,
   type CodeFmt, type EstiloWords, type Sec, type Style, type StyleRead,
 } from "@/lib/estilo";
 import { ReadError } from "./parts";
@@ -223,9 +223,6 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   const q = useQuery({ queryKey: ["estilo", slug], queryFn: () => api.marcaEstilo(slug), staleTime: 30_000 });
   const [x, setX] = useState<Style | null>(null);
   const [sec, setSec] = useState<Sec>("color");
-  const [scope, setScope] = useState<"todo" | "color" | "letra">("todo");
-  const [dir, setDir] = useState<string | null>(null);
-  const [hoverDir, setHoverDir] = useState<string | null>(null);
   const [adv, setAdv] = useState(false);
   const [expert, setExpert] = useState(false);
   const [fmt, setFmt] = useState<CodeFmt>("tailwind");
@@ -263,13 +260,12 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       }
     }, 650);
   };
-  const edit = (patch: Partial<Style>, keepDir = false) => {
+  const edit = (patch: Partial<Style>) => {
     if (!x) return;
     const next = { ...x, ...patch };
     dirty.current = true;
     setX(next);
     setCode(null);
-    if (!keepDir) setDir(null);
     save(next);
   };
 
@@ -279,7 +275,6 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   const t = tokens(x);
   const ch = changesOf(x, r.repo);
   const nFiles = 2 + (x.head !== SYSTEM || x.body !== SYSTEM ? 1 : 0);
-  const dirs = directions(r.logo, x);
   const changed = (k: Sec) => ch.some((c) => c.part === k);
   const fromLogo = [...new Set([r.logo.theme, ...r.logo.colors].filter((c): c is string => !!c && /^#[0-9a-f]{6}$/i.test(c)))].slice(0, 3);
   const ideas = ["#0f766e", "#8c2f39", "#2563eb", "#7c3aed", "#ea580c"];
@@ -753,29 +748,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   return (
     <div className={`es-wrap${expert ? " expert" : ""}`} data-estilo={slug}>
       <div className="es-left">
-        <span className="es-h" style={{ margin: 0 }}>{w.start}</span>
-        <div className="es-dirs" onMouseLeave={() => setHoverDir(null)}>
-          <DirFonts dirs={dirs.map((d) => d.s.head!)} />
-          {dirs.map((d) => (
-            <button key={d.k} type="button" className="es-dir" aria-pressed={dir === d.k} onMouseEnter={() => setHoverDir(d.k)} onFocus={() => setHoverDir(d.k)} onBlur={() => setHoverDir(null)} onClick={() => { const next = applyDirection(x, d.s, scope); dirty.current = true; setX(next); setCode(null); setDir(scope === "todo" ? d.k : null); save(next); }} data-control={`estilo-dir-${d.k}`}>
-              <span className="es-row nowrap">
-                <span className="sw"><i style={{ background: d.s.brand }} /><i style={{ background: d.s.accent }} /></span>
-                <span className="aa" style={{ fontFamily: family(d.s.head!) }}>Aa</span>
-                <i className="es-dir-r" style={{ borderRadius: Math.min(d.s.radius ?? 6, 8) }} />
-              </span>
-              <b>{w.dirs[d.k]![0]}</b>
-              <span>{w.dirs[d.k]![1]}</span>
-            </button>
-          ))}
-        </div>
-        {/* PLA-130: the scope sits under the cards it applies to, and says what the next click changes. */}
-        <div className="es-scope">
-          <div className="es-row nowrap">
-            <span className="es-lbl wide">{w.apply}</span>
-            <Seg label={w.apply} value={scope} opts={(["todo", "color", "letra"] as const).map((k) => [k, w.scope[k]])} onPick={setScope} />
-          </div>
-          <p className="es-sub" role="status">{hoverDir ? w.willChange(w.dirs[hoverDir]![0], w.scopeSay[scope]!) : w.pickOne(w.scopeSay[scope]!)}</p>
-        </div>
+        {/* PLA-130: the three directions (Del logo, Sobria, Viva) and their scope are gone; the parts below are the editor. */}
         <div className="es-ed">
           <nav className="es-rail" aria-label={w.rail} role="tablist">
             {SECS.map((k) => (
@@ -866,10 +839,6 @@ export function Fit({ className, children }: { className: string; children: Reac
 /** The fonts the pair and direction buttons draw with. */
 const PairFonts = () => {
   useFonts([...new Set(PAIRS.flatMap(([, h, b]) => [h, b]))]);
-  return null;
-};
-const DirFonts = ({ dirs }: { dirs: string[] }) => {
-  useFonts(dirs);
   return null;
 };
 
