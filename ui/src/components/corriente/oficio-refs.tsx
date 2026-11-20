@@ -7,7 +7,8 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { words } from "@/lib/i18n";
 import { REFERENCE_UI_WORDS } from "@/lib/references-words";
-import { REFERENCE_ACCEPT, droppedFiles, pastedUrl, precheck, refsApi, refusal, refRows, type Reference, type ReferenceFields } from "@/lib/references";
+import { REFERENCE_ACCEPT, droppedFiles, pastedUrl, precheck, refusal, refRows, type Reference, type ReferenceFields } from "@/lib/references";
+import { refsApi } from "@/lib/references-api";
 import { dayLabel, threadWidth } from "@/lib/oficio";
 import { Btn, Label, Opt, Switch } from "./parts";
 

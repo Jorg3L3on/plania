@@ -18,7 +18,8 @@ import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord,
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
 // PLA-I67-4: the seat's references (threads, the side panel, the card, paste and drop).
 import { REFERENCE_UI_WORDS } from "@/lib/references-words";
-import { deliveryRefs, refRoom, refsApi, type Reference } from "@/lib/references";
+import { deliveryRefs, refRoom, type Reference } from "@/lib/references";
+import { refsApi } from "@/lib/references-api";
 import { REF_ROW, RefCard, RefPanel, RefThreads, refsHeight, useRefDrop, useRefUpload } from "./oficio-refs";
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
