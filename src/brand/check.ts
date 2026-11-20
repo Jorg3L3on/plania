@@ -111,17 +111,20 @@ export function parseManifest(file: string, text: string): Manifest {
       return { file, icons: [] };
     }
   }
+  // PLA-126: a key with or without quotes (name: …, "name": …), so the manifest.ts Plania writes reads back.
+  const K = (k: string) => `(?:\\b${k}|(['"])${k}\\1)`;
   const key = (k: string) => {
-    const m = text.match(new RegExp(`\\b${k}\\s*:\\s*(?:(['"\`])([^'"\`]*)\\1|([A-Za-z_$][\\w$.]*))`));
-    return m ? (m[2] ?? m[3]) : undefined; // a constant's name stands for a value set in code
+    const m = text.match(new RegExp(`${K(k)}\\s*:\\s*(?:(['"\`])([^'"\`]*)\\2|([A-Za-z_$][\\w$.]*))`));
+    return m ? (m[3] ?? m[4]) : undefined; // a constant's name stands for a value set in code
   };
-  const icons = [...text.matchAll(/\{[^{}]*?\bsrc\s*:\s*(['"`])([^'"`]+)\1[^{}]*\}/g)].map((m) => ({
-    src: m[2]!,
-    sizes: m[0].match(/\bsizes\s*:\s*(['"`])([^'"`]+)\1/)?.[2] ?? "",
-    purpose: m[0].match(/\bpurpose\s*:\s*(['"`])([^'"`]+)\1/)?.[2] ?? "any",
+  const field = (body: string, k: string) => body.match(new RegExp(`${K(k)}\\s*:\\s*(['"\`])([^'"\`]+)\\2`))?.[3];
+  const icons = [...text.matchAll(new RegExp(`\\{[^{}]*?${K("src")}\\s*:\\s*(['"\`])([^'"\`]+)\\2[^{}]*\\}`, "g"))].map((m) => ({
+    src: m[3]!,
+    sizes: field(m[0], "sizes") ?? "",
+    purpose: field(m[0], "purpose") ?? "any",
   }));
   // Shortcut icons live under "shortcuts"; only the top-level icons count.
-  const top = text.split(/\bshortcuts\s*:/)[0]!;
+  const top = text.split(/(?:\bshortcuts|["']shortcuts["'])\s*:/)[0]!;
   return { file, name: key("name"), shortName: key("short_name"), theme: key("theme_color"), background: key("background_color"), display: key("display"), icons: icons.filter((i) => top.includes(i.src)) };
 }
 
