@@ -35,6 +35,7 @@ import { caminoKey, useCamino } from "./camino-query";
 import { useCambios } from "./camino-store";
 import { CambiosBar } from "./camino-cambios";
 import { Codigo } from "./camino-codigo";
+import { Commits } from "./camino-commits";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 export type CaminoLinks = { hrefOf: (sec: SectionId) => string; prHref: (n: number) => string; ajustesHref: (sec: string) => string };
@@ -473,6 +474,8 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
         return <Historial r={r} />;
       case "codigo":
         return <Codigo r={r} cambios={cambios} />;
+      case "commits":
+        return <Commits r={r} cambios={cambios} />;
       default:
         return <Pronto s={current} />;
     }

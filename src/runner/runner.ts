@@ -3,6 +3,7 @@
 // `claude -p` in a worktree outside every repo. When it exits, its result is read: modelUsage goes
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
 // Summaries never carry paths, env values, tokens or money.
+import { commitHooks, commitInstructions } from "../camino/commits.js";
 import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
@@ -1280,7 +1281,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     promptVersion = doc.version;
     // AUDIT-9: the project's own context rides with the role prompt (not for the company's Asistente or a QA review,
     // which judges the change on its own).
-    const context = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
+    const base = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
+    // PLA-I68-4: the commit rules chosen in Camino, the text the page shows, for the builder.
+    const commitsText = role === "taller" ? await commitInstructions(db, project).catch(() => null) : null;
+    const context = base && commitsText ? `${base}\n\n${commitsText}` : (base ?? (commitsText ? `# Project context\n\n${commitsText}` : null));
     systemPromptPath = path.join(tmp, "role-prompt.md");
     // PLA-I67-2: «tu manera», the owner's text for this agent, after the role prompt and the context (not for QA or
     // a question from Preguntar, which run on the role alone).
@@ -1300,7 +1304,14 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const marksReq = !consulta && !trial && role === "artist" && !ctx.task ? marksRequestOfRun(project.slug, run.reason) : null;
   const readOnly = !!consulta || role === "qa" || asks || !!marksReq;
   // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
-  const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
+  const editHooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
+  // PLA-I68-4: Camino's commit rules, checked before a builder's run pushes or opens a PR (and after each commit when
+  // the owner asked); only once the owner chose them in Camino.
+  const commitHook = !readOnly && role === "taller" ? await commitHooks(db, project, tmp, startBranchOf(project.settings)).catch(() => null) : null;
+  const hooks =
+    editHooks || commitHook
+      ? { ...(commitHook?.PreToolUse ? { PreToolUse: commitHook.PreToolUse } : {}), ...(editHooks?.PostToolUse || commitHook?.PostToolUse ? { PostToolUse: [...(editHooks?.PostToolUse ?? []), ...(commitHook?.PostToolUse ?? [])] } : {}) }
+      : undefined;
   // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
   const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
   const laneRules = consulta ? CONSULTA_DENY_RULES : trial ? TRIAL_DENY_RULES : marksReq ? QA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];

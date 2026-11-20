@@ -167,6 +167,19 @@
 .cam-dl { display: block; padding: 0 12px; color: var(--cor-muted); }
 .cam-dl.add { background: rgba(110, 231, 160, 0.08); color: var(--cor-green); }
 .cam-dl.del { background: rgba(255, 122, 122, 0.08); color: var(--cor-red); }
+/* PLA-I68-4: commits */
+.cam-bars { display: flex; flex-direction: column; gap: 6px; }
+.cam-bar { display: grid; grid-template-columns: 150px 1fr 44px; gap: 10px; align-items: center; font-size: 12.5px; }
+.cam-bar-tr { height: 8px; border-radius: 4px; background: var(--cor-line); overflow: hidden; }
+.cam-bar-fl { display: block; height: 8px; border-radius: 4px; background: var(--cor-violet-3); }
+.cam-pill { border: 1px solid var(--cor-line-strong); background: transparent; border-radius: 999px; padding: 0 14px; min-height: 44px; font-size: 12.5px; color: var(--cor-body); cursor: pointer; font-family: var(--cor-mono); }
+.cam-pill[aria-pressed="true"] { background: var(--cor-violet-4); color: #1a1033; border-color: var(--cor-violet-4); font-weight: 600; }
+.cam-preview, .cam-instr { margin: 0; border: 1px solid var(--cor-line); border-radius: 10px; background: #08080c; padding: 12px 14px; font: 13px/1.6 var(--cor-mono); color: var(--cor-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cam-instr { border-color: rgba(196, 181, 253, 0.3); background: rgba(139, 92, 246, 0.06); font-size: 12.5px; color: var(--cor-body); max-height: 300px; overflow-y: auto; }
+.cam-ta { min-height: 110px; resize: vertical; line-height: 1.5; }
+.cam-ladder { display: flex; flex-direction: column; gap: 6px; }
+.cam-line { font-size: 13px; display: flex; gap: 7px; align-items: baseline; flex-wrap: wrap; }
+
 @media (max-width: 900px) {
   .cam-grid2, .cam-grid3 { grid-template-columns: 1fr; }
 }

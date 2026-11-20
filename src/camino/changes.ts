@@ -20,6 +20,8 @@ import type { BranchRule, CaminoConfig } from "./types.js";
 import { caminoSay } from "./words.js";
 
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
+// Only the project's own GitHub files: workflows, dependabot, templates. Never anything of Plania's.
+export const GITHUB_FILE = /^\.github\/(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
 const Rule = z.object({ on: z.boolean(), pr: z.boolean(), nodel: z.boolean(), agents: z.boolean() }).strict();
 const label = z.string().min(1).max(300);
 
@@ -39,13 +41,16 @@ export const ChangeSchema = z.discriminatedUnion("kind", [
   // GitHub: delete a branch that nobody uses, or a ruleset (by id) that blocks merges for nothing.
   z.object({ kind: z.literal("delete_branch"), label, branch: z.string().regex(BRANCH) }).strict(),
   z.object({ kind: z.literal("delete_ruleset"), label, id: z.number().int().positive(), name: z.string().min(1).max(200) }).strict(),
+  // PR (PLA-I68-4/5): one of the project's own workflow or config files under .github/, changed only by a PR opened
+  // with the owner's token on a new branch from base (so a new workflow runs on its own PR). content null deletes it.
+  z.object({ kind: z.literal("file_pr"), label, path: z.string().regex(GITHUB_FILE), content: z.string().max(200_000).nullable(), base: z.string().regex(BRANCH), title: z.string().min(1).max(200), body: z.string().max(5000) }).strict(),
 ]);
 export type Change = z.infer<typeof ChangeSchema>;
 export type ChangeKind = Change["kind"];
 
 /** Where a change is applied. A ruleset on a repo whose plan has no rules is Plania's own (it enforces it). */
 export const destOf = (c: Change, rulesAvailable = true): CaminoDest =>
-  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : "github";
+  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : c.kind === "file_pr" ? "pr" : "github";
 
 const ORDER: Record<CaminoDest, number> = { plania: 0, llavero: 0, proveedor: 1, github: 2, pr: 3 };
 /** The order changes are reviewed and applied in: Plania, the services, GitHub's API, then PRs; stable within each. */
@@ -53,7 +58,7 @@ export function ordered<T extends { dest: CaminoDest }>(items: T[]): T[] {
   return items.map((x, i) => [x, i] as const).sort(([a, i], [b, j]) => ORDER[a.dest] - ORDER[b.dest] || i - j).map(([x]) => x);
 }
 
-export type ApplyResult = { index: number; kind: ChangeKind; dest: CaminoDest; ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string };
+export type ApplyResult = { index: number; kind: ChangeKind; dest: CaminoDest; ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string; pr?: { number: number; url: string } };
 
 // ---- GitHub helpers
 async function ghCall(api: GhApi, method: string, path: string, step: string, body?: unknown): Promise<any> {
@@ -110,7 +115,7 @@ const needGithub = (x: Ctx): { api: GhApi; repo: string } => {
 };
 
 /** Applies one change. Returns its undo sentence (for Historial) and an optional note for the screen. */
-async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?: string }> {
+async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?: string; pr?: { number: number; url: string } }> {
   const w = caminoSay();
   const { db, p } = x;
   switch (c.kind) {
@@ -185,6 +190,27 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
       await ghCall(api, "DELETE", `/repos/${enc(repo)}/git/refs/heads/${enc(c.branch)}`, "delete_branch");
       return { undo: w.undoBranch(c.branch) };
     }
+    case "file_pr": {
+      const { api, repo } = needGithub(x);
+      const R = `/repos/${enc(repo)}`;
+      const ref = await ghCall(api, "GET", `${R}/git/ref/heads/${enc(c.base)}`, "base");
+      const branch = `camino/${c.path.replace(/^\.github\//, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 40)}-${x.deps.now().getTime().toString(36)}`;
+      await ghCall(api, "POST", `${R}/git/refs`, "branch", { ref: `refs/heads/${branch}`, sha: ref.object.sha });
+      let sha: string | undefined;
+      try {
+        sha = (await ghCall(api, "GET", `${R}/contents/${enc(c.path)}?ref=${encodeURIComponent(c.base)}`, "read"))?.sha;
+      } catch (e) {
+        if (!(e instanceof ToolError && (e.detail as { status?: number }).status === 404)) throw e;
+      }
+      if (c.content === null) {
+        if (!sha) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "path", reason: "missing_file" });
+        await ghCall(api, "DELETE", `${R}/contents/${enc(c.path)}`, "delete_file", { message: c.title, sha, branch });
+      } else {
+        await ghCall(api, "PUT", `${R}/contents/${enc(c.path)}`, "write_file", { message: c.title, content: Buffer.from(c.content, "utf8").toString("base64"), branch, ...(sha ? { sha } : {}) });
+      }
+      const pr = await ghCall(api, "POST", `${R}/pulls`, "pull", { title: c.title, head: branch, base: c.base, body: c.body });
+      return { undo: w.undoPr(pr.number), note: pr.html_url, pr: { number: pr.number, url: pr.html_url } };
+    }
     case "delete_ruleset": {
       const { api, repo } = needGithub(x);
       await ghCall(api, "DELETE", `/repos/${enc(repo)}/rulesets/${c.id}`, "delete_ruleset");
@@ -202,15 +228,15 @@ export async function applyChanges(db: Db, slug: string, input: { version: numbe
   const rulesAvailable = !gh || !gh.ok || gh.rules.available;
   const items = ordered(input.changes.map((c, index) => ({ c, index, dest: destOf(c, rulesAvailable) })));
   const results: ApplyResult[] = [];
-  const api = items.some((i) => i.dest === "github" || i.c.kind === "repo") ? await githubFor(p, deps) : null;
+  const api = items.some((i) => i.dest === "github" || i.dest === "pr" || i.c.kind === "repo") ? await githubFor(p, deps) : null;
   let stopped: ApplyResult | null = null;
   for (const it of items) {
     if (stopped) break;
     const fresh = await findProject(db, slug);
     try {
       const out = await applyOne({ db, p: fresh, deps, api, rulesAvailable }, it.c);
-      await addHistory(db, p.id, { who: "owner", label: it.c.label, dest: it.dest, undo: out.undo, detail: { kind: it.c.kind } });
-      results.push({ index: it.index, kind: it.c.kind, dest: it.dest, ok: true, ...(out.note ? { note: out.note } : {}) });
+      await addHistory(db, p.id, { who: "owner", label: it.c.label, dest: it.dest, undo: out.undo, detail: { kind: it.c.kind, ...(out.pr ? { pr: out.pr } : {}) } });
+      results.push({ index: it.index, kind: it.c.kind, dest: it.dest, ok: true, ...(out.note ? { note: out.note } : {}), ...(out.pr ? { pr: out.pr } : {}) });
     } catch (e) {
       const err = e instanceof ToolError ? { error: e.code, detail: e.detail } : { error: "CAMINO_GITHUB_REFUSED", detail: { message: e instanceof Error ? e.message.slice(0, 200) : "" } };
       stopped = { index: it.index, kind: it.c.kind, dest: it.dest, ok: false, ...err };

@@ -4,6 +4,7 @@
 // connection cards and the service catalog. Every value says where it came from (GitHub, Plania, this machine).
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import type { Badge, CaminoRead, ProviderId } from "./camino-types.js";
+import { COMMITS_PAGE_WORDS } from "./camino-commits-words.js";
 
 export type Sev = "bad" | "warn" | "info" | "ok";
 type Pair = readonly [string, string];
@@ -626,7 +627,7 @@ export function sections(r: CaminoRead, F: Finding[], language: Language = getLa
     { id: "resumen", name: w.sections.resumen, sub: isSetup(r) ? w.sub.resumenSetup : w.sub.resumen, dot: resumenDot },
     { id: "conn", name: w.sections.conn, sub: w.sub.conn(cards(r).length), dot: dot("conn") },
     { id: "codigo", name: w.sections.codigo, sub: w.models[r.config.model], dot: dot("codigo") },
-    { id: "commits", name: w.sections.commits, sub: conv ? conv : w.setup.noConvention, dot: dot("commits") },
+    { id: "commits", name: w.sections.commits, sub: conv ? words(COMMITS_PAGE_WORDS, language).conventions[conv].name : w.setup.noConvention, dot: dot("commits") },
     { id: "ci", name: w.sections.ci, sub: nWorkflows ? `${nWorkflows} ${language === "en" ? (nWorkflows === 1 ? "workflow" : "workflows") : nWorkflows === 1 ? "flujo" : "flujos"}` : w.setup.noneYet, dot: dot("ci") },
     { id: "propuestas", name: w.sections.propuestas, sub: w.sub.propuestas(open), dot: "ok" },
   ];
@@ -690,7 +691,7 @@ export function setupList(r: CaminoRead, language: Language = getLanguage()): Se
     { mark: r.settings.repo && g ? "✓" : "○", title: w.setup.repo, sub: r.settings.repo ?? w.setup.noneYet, go: "codigo" },
     { mark: c.source.branches === "default" ? "○" : "✓", title: w.setup.roles, sub: [c.branches.work_pattern, c.model === "integ" ? c.branches.integration : null, c.branches.published].filter(Boolean).join(" → "), go: "codigo" },
     { mark: g?.workflows.length ? "✓" : "○", title: w.setup.tests, sub: g?.workflows.length ? w.setup.onEach : w.setup.noneYet, go: "ci" },
-    { mark: c.commits.convention ? "✓" : "○", title: w.setup.commits, sub: c.commits.convention ?? w.setup.noConvention, go: "commits" },
+    { mark: c.commits.convention ? "✓" : "○", title: w.setup.commits, sub: c.commits.convention ? words(COMMITS_PAGE_WORDS, language).conventions[c.commits.convention].name : w.setup.noConvention, go: "commits" },
     { mark: "—", title: w.setup.where, sub: w.setup.later, go: c.envs[0] ? `env:${c.envs[0].id}` : "resumen" },
   ];
 }
