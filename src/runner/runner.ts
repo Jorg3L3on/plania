@@ -322,7 +322,7 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
 // PLA-I40-2: skipRest and pastGuard are the owner's "start now" from the screen, for one run: the rest between
 // runs is not counted, and the plan guard reads as with the override on. Every other check stands.
 // noCap (PLA-I60-2): admission checks the plan and the caps itself, inside its transaction.
-async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean; trial?: boolean; trigger?: RunTrigger; noCap?: boolean } = {}): Promise<Preflight> {
+async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean; trial?: boolean; marks?: boolean; trigger?: RunTrigger; noCap?: boolean } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
@@ -338,8 +338,9 @@ async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, o
   if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
   if (own?.code === "rest") return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
   // PLA-I67-6: a skill trial is the owner's own ask, about a delivery already made: no goal and no ticket needed.
-  if (own?.code === "no_goal" && !opts.consulta && !opts.trial) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
-  if (!task && role !== "product-owner" && role !== "asistente" && !opts.trial) return { ok: false, kind: "skipped", summary: "no ready work" };
+  // PLA-118: logo marks (Artist, «[marcas <id>]») are the owner's own ask too: no ticket and no goal needed.
+  if (own?.code === "no_goal" && !opts.consulta && !opts.trial && !opts.marks) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
+  if (!task && role !== "product-owner" && role !== "asistente" && !opts.trial && !opts.marks) return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
     // PLA-I2-5: the project's start branch is the only base (settings.start_branch, never a protected one).
@@ -456,7 +457,8 @@ export async function startNow(
     const task = queued ? (queued.taskKey ? await readyWorkOf(db, queued.projectId, queued.taskKey) : null) : input.task;
     const ctx = await loadContext(db, input.agent, task);
     if (!ctx.project && queued) ctx.project = (await db.select().from(projects).where(eq(projects.id, queued.projectId)).limit(1))[0] ?? null;
-    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard, consulta: queued?.lane === "consulta" });
+    const marksRun = !task && ctx.role === "artist" && queued?.lane === "work" && !!ctx.project && !!marksRequestOfRun(ctx.project.slug, queued.reason);
+    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard, consulta: queued?.lane === "consulta", marks: marksRun });
     if (!pre.ok && pre.kind !== "cap") return { kind: "held", summary: pre.summary };
     let run = queued;
     if (!run) {
@@ -652,7 +654,9 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
       const ctx = await loadContext(tx, agent, task);
       if (!ctx.project) ctx.project = (await tx.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
       const mine = opts.only === run.id;
-      const pre = await preflight(tx, ctx, now, deps, { fromQueue: run.id, consulta: run.lane === "consulta", trial: run.trigger === "trial", trigger: run.trigger, skipRest: mine && opts.skipRest, noCap: true });
+      // PLA-118: a task-less Artist run woken for a marks request still drawing.
+      const marksRun = !task && ctx.role === "artist" && run.lane === "work" && !!ctx.project && !!marksRequestOfRun(ctx.project.slug, run.reason);
+      const pre = await preflight(tx, ctx, now, deps, { fromQueue: run.id, consulta: run.lane === "consulta", trial: run.trigger === "trial", marks: marksRun, trigger: run.trigger, skipRest: mine && opts.skipRest, noCap: true });
       if (!pre.ok && pre.summary === "skipped: cooldown") {
         await hold(run, "rest", {});
         continue;
