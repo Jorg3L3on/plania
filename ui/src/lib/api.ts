@@ -14,6 +14,7 @@ import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
+import type { MarcaRead } from "@/lib/marca";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -193,6 +194,8 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I66-1: every project logo (src/brand/logos.ts).
   logos: () => request<{ logos: Record<string, LogoRef> }>("GET", "/company/logos"),
+  // PLA-I66-2: the Marca door (src/brand/marca.ts); fresh reads the repo again now.
+  marca: (slug: string, fresh = false) => request<MarcaRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca${fresh ? "?fresh=1" : ""}`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

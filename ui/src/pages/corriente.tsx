@@ -40,6 +40,7 @@ import { cosaOfPaso } from "@/lib/lado";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { Ajustes } from "@/components/corriente/ajustes";
+import { Marca } from "@/components/corriente/marca";
 import { cosasOf, fraseOf } from "@/lib/cosas";
 import { metaLine, teamWord } from "@/lib/barra";
 import { nowLine } from "@/lib/edificio";
@@ -477,6 +478,8 @@ export const CorrientePage = () => {
     // NEWPROJ-6: the project's settings.
     // PLA-I3-2: Borrar opens from here (the same ?hoja=borrar sheet), no longer from the bar.
     if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} />;
+    // PLA-I66-2: the project's logo, its six faces and the repo's icon files.
+    if (at.tab === "marca") return <Marca p={p} />;
     return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 
