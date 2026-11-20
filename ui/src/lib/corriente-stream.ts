@@ -32,6 +32,7 @@ export const STREAM_WORDS = defineWords({
     acceptRef: (ref: string) => `Aceptar ${ref}`,
     accept: "Aceptar",
     approvePlan: "Aprobar el plan",
+    reviewLesson: "Revisar una lección",
     choose: "Elegir",
     answer: "Responder",
     reviewFile: "Revisar el archivo",
@@ -59,6 +60,7 @@ export const STREAM_WORDS = defineWords({
     acceptRef: (ref: string) => `Accept ${ref}`,
     accept: "Accept",
     approvePlan: "Approve the plan",
+    reviewLesson: "Review a lesson",
     choose: "Choose",
     answer: "Answer",
     reviewFile: "Review the file",
@@ -141,6 +143,8 @@ export function youVerb(d: Decision, language: Language = getLanguage()): string
       return d.file_step ? w.reviewFile : w.doStep;
     case "release":
       return w.publish;
+    case "leccion":
+      return w.reviewLesson;
   }
 }
 

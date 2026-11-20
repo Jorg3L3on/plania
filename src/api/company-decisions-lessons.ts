@@ -27,8 +27,8 @@ export const LESSON_DECISION_WORDS = defineWords({
   },
 });
 
-const ACTION: Record<string, LessonAction> = { aprobar: "approve", solo_una_vez: "one-off", rechazar: "reject" };
-const BACK: Record<string, string> = { active: "aprobar", "one-off": "solo_una_vez", rejected: "rechazar" };
+const ACTION: Record<string, LessonAction> = { aprobar: "approve", once: "one-off", rechazar: "reject" };
+const BACK: Record<string, string> = { active: "aprobar", "one-off": "once", rejected: "rechazar" };
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 export async function lessonRows(db: Db, since: Date, byId: Map<string, Project>): Promise<Decision[]> {
@@ -56,7 +56,7 @@ export async function lessonRows(db: Db, since: Date, byId: Map<string, Project>
       title: l.text,
       kind: "leccion",
       options: null,
-      actions: decided ? [] : ["aprobar", "solo_una_vez", "rechazar"],
+      actions: decided ? [] : ["aprobar", "once", "rechazar"],
       state,
       at: l.createdAt.toISOString(),
       ref: l.taskKey,

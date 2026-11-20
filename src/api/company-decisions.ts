@@ -182,7 +182,7 @@ const KEEP_ACTED = 24 * HOUR;
 const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, leccion: 5, step: 6, action: 7, release: 8 };
 
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release" | "leccion";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "solo_una_vez" | "rechazar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
 export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
 // PLA-I36-8: a PO's plan for an order.

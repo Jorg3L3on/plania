@@ -290,7 +290,7 @@ companyRoutes.get("/projects/:slug/hecho", async (c) => {
 // PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
 const DecisionBody = z
   .object({
-    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "despues", "aplicar", "verificar"]),
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "despues", "aplicar", "verificar", "aprobar", "once", "rechazar"]), // PLA-I67-3: a lesson
     option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
     text: z.string().trim().min(1).max(2000).optional(),
     // PLA-I52-6, Devolver a Taller from El Probador: the pins the owner put on the pictures.

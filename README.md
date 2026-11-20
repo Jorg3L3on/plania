@@ -793,6 +793,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_STATUS` | 400 | status is not in the task kind's vocabulary, or not allowed at creation |
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research, decision-needed, bug or debt |
+| `LESSON_NOT_ALLOWED` | 400 | a lesson would hold a secret or personal data, or relax a test, review or check (detail: reason secret | relaxes_checks) |
 | `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
@@ -824,6 +825,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
+| `LESSON_OWNER_ONLY` | 403 | only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson) |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
@@ -834,6 +836,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FINDING_NOT_FOUND` | 404 | audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix |
 | `GOAL_NOT_FOUND` | 404 | no goal with that id, or the goal belongs to another project (detail: field goal_id or parent_id) |
 | `INITIATIVE_NOT_FOUND` | 404 | get_next initiative_key is not an initiative of this project |
+| `LESSON_NOT_FOUND` | 404 | no lesson with that id (detail: lesson) |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
@@ -865,6 +868,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
+| `LESSON_STATE` | 409 | the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |

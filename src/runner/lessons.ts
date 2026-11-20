@@ -30,6 +30,7 @@ import { scrub } from "../api/scoreboard.js";
 import { roleOf } from "./limits.js";
 import { inScope, seatOf, type ResolvedSkill } from "./skills.js";
 import { skillVersion } from "./kit.js";
+import { RELAX_WORDS } from "./lesson-words.js";
 
 export const CAPTURE_DAYS = 7;
 export const PROPOSAL_DAYS = 28;
@@ -41,7 +42,13 @@ export const REFLECT_PER_TICK = 2;
 // ---- What may never become a lesson
 
 const SECRET = /\b(?:sk|pk|rk|ghp|gho|ghs|github_pat|xox[abprs]|plania)[-_][A-Za-z0-9_-]{12,}|\bBearer\s+\S{12,}|\b[A-Z][A-Z0-9_]{2,}=\S+|\b[A-Za-z0-9+/_-]{32,}\b|[\w.+-]+@[\w-]+\.[\w.]+/;
-const RELAX = /\b(skip|omit|without|no|sin|omite|salta|quita|ignore|ignora|desactiva|disable)\b[^.]{0,40}\b(tests?|pruebas?|qa|review|revisi[oó]n|checks?|verificaci[oó]n|verify|lint|type-?check|aceptaci[oó]n)\b/i;
+// What leaving a check out sounds like, in every language the install speaks (RELAX_WORDS): a verb of leaving out
+// near the name of a check, in the lesson's own text.
+const anyOf = (xs: string[]) => xs.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+const RELAX = new RegExp(
+  `\\b(${anyOf([...RELAX_WORDS.es.leaveOut, ...RELAX_WORDS.en.leaveOut])})\\b[^.]{0,40}\\b(${anyOf([...RELAX_WORDS.es.checks, ...RELAX_WORDS.en.checks])})\\b`,
+  "iu",
+);
 export const lessonBlocked = (text: string): "secret" | "relaxes_checks" | null => (SECRET.test(text) ? "secret" : RELAX.test(text) ? "relaxes_checks" : null);
 
 // ---- Capture

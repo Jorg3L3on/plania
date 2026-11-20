@@ -273,7 +273,7 @@ test("PLA-I67-3: «solo esa vez» and reject store the verdict, and the same cor
   const decisions = (await (await app.request("/api/company", { headers: jorge })).json()) as { decisions: { id: string; kind: string; actions: string[]; detail: string }[] };
   const row = decisions.decisions.find((d) => d.id === `l-${b!.id}`)!;
   assert.equal(row.kind, "leccion");
-  assert.deepEqual(row.actions, ["aprobar", "solo_una_vez", "rechazar"]);
+  assert.deepEqual(row.actions, ["aprobar", "once", "rechazar"]);
   assert.match(row.detail, /Usa los colores de la marca/);
   const acted = await app.request(`/api/company/decisions/l-${b!.id}`, { method: "POST", headers: jorge, body: JSON.stringify({ action: "rechazar" }) });
   assert.equal(acted.status, 200);
@@ -320,7 +320,7 @@ test("PLA-I67-3: the reflector cannot make a lesson active, nothing but the owne
 
 test("PLA-I67-3: the block is bounded, newest confirmed first; a proposal nobody looked at in four weeks expires", async () => {
   for (let i = 0; i < 20; i += 1) {
-    await call("POST", "taller/lessons", { text: `Regla número ${i} ${"x".repeat(150)}` });
+    await call("POST", "taller/lessons", { text: `Regla número ${i} ${"para que la pantalla se lea entera y clara ".repeat(4).trim()}` });
     await raw.query(`update lessons set last_confirmed_at = now() - make_interval(mins => $1) where text like $2`, [100 - i, `Regla número ${i} %`]);
   }
   const carried = await lessonsMod.lessonsForRun(db, (await agentOf("taller")) as never);
@@ -343,7 +343,7 @@ test("PLA-I67-3: «Dile algo» and an idea sent back are read as corrections of 
   const { noteForAgent } = await import("../src/api/company-runs.js");
   await noteForAgent(db, "micasa", key, "Siempre corre las pruebas antes de entregar.");
   assert.equal(await lessonsMod.captureFeedback(db, new Date()), 1);
-  const fb = (await raw.query(`select kind, words, a.slug from feedback_events f join agents a on a.id = f.agent_id`)).rows;
+  const fb = (await raw.query(`select f.kind, f.words, a.slug from feedback_events f join agents a on a.id = f.agent_id`)).rows;
   assert.deepEqual(fb, [{ kind: "dile", words: "Siempre corre las pruebas antes de entregar.", slug: "taller" }]);
   assert.deepEqual(reflectorArgs({ prompt: "p", systemPromptPath: "s", settingsPath: "x", mcpConfigPath: "m", model: "haiku" }).slice(-2), ["--model", "haiku"]);
 });

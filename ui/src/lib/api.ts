@@ -1,5 +1,6 @@
 import type { Oficio } from "./oficio";
 import type { Puesto, SkillCard, SkillDraft } from "./oficio-skills";
+import type { LessonAction, LessonView, LessonsRead } from "./oficio-lessons";
 import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
@@ -241,6 +242,11 @@ export const api = {
   restoreSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/restore`),
   puesto: (slug: string, agent: string) => request<Puesto>("GET", `${seatPath(slug, agent)}/puesto`),
   setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
+  // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
+  lessons: (slug: string, agent: string) => request<LessonsRead>("GET", `${seatPath(slug, agent)}/lessons`),
+  teachRule: (slug: string, agent: string, text: string) => request<LessonView>("POST", `${seatPath(slug, agent)}/lessons`, { text }),
+  decideLesson: (slug: string, agent: string, id: string, action: LessonAction, edit: { text?: string; applies_when?: string | null } = {}) =>
+    request<LessonView>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/decide`, { action, ...edit }),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -598,7 +604,8 @@ export type OrgPlan = {
 // PLA-I36-4: the destination.
 export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
-export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
+// PLA-I67-3: leccion, a lesson proposed from the owner's correction.
+export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release" | "leccion";
 // PLA-I46-11: a plan for a leg also carries the leg, its closed questions (suggested: 0-based) and the PO's
 // check list; later_at once the owner said Después.
 export type PlanQuestion = { text: string; options: string[]; suggested: number };
@@ -619,7 +626,7 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
 export type QaAxisRead = { verdict: "pass" | "fail"; notes: string };

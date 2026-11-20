@@ -18,10 +18,13 @@ import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord,
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
 import { NewSkillPanel, PuestoPanel, SkillPanel } from "./oficio-skill";
 import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
+import { LessonsPanel, ProposalCard, Reading, TeachBar } from "./oficio-lessons";
+import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
+import { lessonRoom, lessonRowsOf, returnArc, waitingLine, type LessonView } from "@/lib/oficio-lessons";
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
 
-type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" };
+type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" } | { kind: "lessons" };
 
 const ROW = 30;
 const LABEL_W = 268;
@@ -56,10 +59,15 @@ const Mark = ({ d, x, y, on }: { d: OficioDelivery; x: number; y: number; on: bo
   </g>
 );
 
-const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks }) => {
+const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons = [] }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks; lessons?: LessonView[] }) => {
   const w = words(OFICIO_WORDS);
+  const wl = words(LESSON_WORDS);
   const [ref, { w: W, h: H }] = useSize<HTMLDivElement>();
-  const rows: Row[] = rowsOf(o.skills, Math.floor((H - 40) / ROW));
+  // PLA-I67-3: lessons take rows under the skills: every proposal, then active ones, up to half the room.
+  const maxRows = Math.floor((H - 40) / ROW);
+  const room = lessonRoom(lessons, maxRows - 1);
+  const rows: Row[] = rowsOf(o.skills, maxRows - room);
+  const lessonRows = lessonRowsOf(lessons, Math.min(room, maxRows - rows.length));
   const maxUsed = Math.max(0, ...o.skills.map((s) => s.deliveries_used));
   const x0 = LABEL_W + 12;
   const hubX = Math.round(x0 + Math.min(220, Math.max(120, W * 0.16)));
@@ -94,6 +102,20 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: 
             {dots.map(({ d, x }) => (
               <Mark key={d.key} d={d} x={x} y={hubY} on={d.key === pick} />
             ))}
+            {lessonRows.map((l, j) => {
+              const y = 8 + (rows.length + j) * ROW + ROW / 2;
+              if (l.state === "active") return <path key={l.id} d={thread(y)} className="ofi-thread-lesson" />;
+              // A proposal stops at the amber gate; a dashed arc comes back to it from the delivery it was learned from.
+              const gateX = x0 + 64;
+              const from = dots.find(({ d }) => d.key === l.task_key);
+              return (
+                <g key={l.id} data-gate={l.id}>
+                  <path d={`M ${x0} ${y} L ${gateX - 9} ${y}`} className="ofi-thread-waits" />
+                  {from && <path d={returnArc({ x: from.x, y: hubY }, { x: gateX, y }, Math.max(12, Math.min(34, H - 30 - Math.max(hubY, y))))} className="ofi-arc" data-arc={l.id} />}
+                  <rect x={gateX - 7} y={y - 7} width={14} height={14} transform={`rotate(45 ${gateX} ${y})`} className="ofi-gate" />
+                </g>
+              );
+            })}
           </svg>
           <ul className="ofi-rows" aria-label={w.groupSkills}>
             {rows.map((r, i) => {
@@ -120,9 +142,16 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: 
                 </li>
               );
             })}
+            {lessonRows.map((l, j) => (
+              <li key={l.id} className={`ofi-row lesson ${l.state === "proposed" ? "waits" : ""}`} style={{ top: 8 + (rows.length + j) * ROW }} data-lesson={l.id} title={l.text}>
+                <i className={`ofi-bullet lesson ${l.state === "proposed" ? "waits" : ""}`} aria-hidden />
+                <span className="ofi-row-name">{l.text}</span>
+                <span className="cor-cap">{l.state === "proposed" ? wl.waits : wl.carried(l.carried)}</span>
+              </li>
+            ))}
           </ul>
           {onCount === 0 && (
-            <div className="ofi-empty-skills" style={{ top: 8 + rows.length * ROW + 10 }} data-empty="skills">
+            <div className="ofi-empty-skills" style={{ top: 8 + (rows.length + lessonRows.length) * ROW + 10 }} data-empty="skills">
               <p className="cor-text">{w.noSkills}</p>
               <Btn kind="link" onClick={onShelf} data-control="abrir-estanteria">
                 {w.openShelf}
@@ -303,7 +332,7 @@ const Shelf = ({ o, seat, onClose, onOpen, onNew }: { o: Oficio; seat: string; o
   );
 };
 
-const NextRun = ({ o, onShelf, onPuesto }: { o: Oficio; onShelf: () => void; onPuesto: () => void }) => {
+const NextRun = ({ o, onShelf, onPuesto, onLessons, lessonCount = 0 }: { o: Oficio; onShelf: () => void; onPuesto: () => void; onLessons?: () => void; lessonCount?: number }) => {
   const w = words(OFICIO_WORDS);
   const on = o.skills.filter((s) => s.on);
   return (
@@ -329,6 +358,11 @@ const NextRun = ({ o, onShelf, onPuesto }: { o: Oficio; onShelf: () => void; onP
         <Btn kind="link" onClick={onPuesto} data-control="abrir-puesto">
           {words(PUESTO_WORDS).open}
         </Btn>
+        {onLessons && (
+          <Btn kind="link" onClick={onLessons} data-control="abrir-lecciones">
+            {words(LESSON_WORDS).open(lessonCount)}
+          </Btn>
+        )}
       </div>
     </section>
   );
@@ -342,6 +376,10 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   const [pick, setPick] = useState<string | null>(null);
   // PLA-I67-2: the side column shows one thing: the next run, the shelf, a skill's card, the new skill form or the puesto.
   const [side, setSide] = useState<Side>({ kind: "next" });
+  // PLA-I67-3: its lessons, and whether a correction is being read.
+  const lq = useQuery({ queryKey: ["lessons", p.slug, agent], queryFn: () => api.lessons(p.slug, agent), refetchInterval: 30_000 });
+  const lessonList = lq.data?.lessons ?? [];
+  const waiting = lessonList.filter((l) => l.state === "proposed");
   const shelf = side.kind !== "next";
   const setShelf = (open: boolean) => setSide(open ? { kind: "shelf" } : { kind: "next" });
   useEffect(() => {
@@ -388,9 +426,10 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
         <>
           <h2 className="ofi-head">
             {head!.lead} <span className="cor-muted">{head!.rest}</span>
+            {waitingLine(lessonList) && <span className="ofi-head-waits"> {waitingLine(lessonList)}</span>}
           </h2>
           <div className="ofi-body">
-            <Drawing o={o} seat={seat} pick={chosen} onPick={setPick} now={now} timeZone={timeZone} onShelf={() => setShelf(true)} links={links} />
+            <Drawing o={o} seat={seat} pick={chosen} onPick={setPick} now={now} timeZone={timeZone} onShelf={() => setShelf(true)} links={links} lessons={lessonList} />
             <aside className="ofi-side">
               <dl className="ofi-stats">
                 <div>
@@ -414,11 +453,31 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                 <NewSkillPanel o={o} seat={seat} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
               ) : side.kind === "puesto" ? (
                 <PuestoPanel o={o} seat={seat} motorLink={links.motor} onClose={() => setSide({ kind: "next" })} />
+              ) : side.kind === "lessons" ? (
+                <LessonsPanel o={o} l={lq.data} onClose={() => setSide({ kind: "next" })} />
               ) : (
-                <NextRun o={o} onShelf={() => setShelf(true)} onPuesto={() => setSide({ kind: "puesto" })} />
+                <>
+                  <Reading l={lq.data} />
+                  {waiting[0] ? (
+                    <>
+                      <ProposalCard key={waiting[0].id} o={o} seat={seat} lesson={waiting[0]} />
+                      <div className="ofi-actions ofi-side-links">
+                        <Btn kind="link" onClick={() => setSide({ kind: "puesto" })} data-control="abrir-puesto">
+                          {words(PUESTO_WORDS).open}
+                        </Btn>
+                        <Btn kind="link" onClick={() => setSide({ kind: "lessons" })} data-control="abrir-lecciones">
+                          {words(LESSON_WORDS).open(lessonList.filter((l) => l.state === "active").length)}
+                        </Btn>
+                      </div>
+                    </>
+                  ) : (
+                    <NextRun o={o} onShelf={() => setShelf(true)} onPuesto={() => setSide({ kind: "puesto" })} onLessons={() => setSide({ kind: "lessons" })} lessonCount={lessonList.filter((l) => l.state === "active").length} />
+                  )}
+                </>
               )}
             </aside>
           </div>
+          <TeachBar o={o} seat={seat} onSkill={() => setSide({ kind: "new" })} />
         </>
       )}
     </div>

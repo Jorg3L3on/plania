@@ -39,7 +39,7 @@ const FILE_PATH = /^[a-z0-9][a-z0-9._-]{0,60}(\/[a-z0-9][a-z0-9._-]{0,60}){0,2}$
 const TEXT_EXT = /\.(md|txt)$/i;
 const FORBIDDEN_KEYS = /^\s*(allowed-tools|hooks)\s*:/im;
 // Claude runs `!`command`` in a skill when it loads; a skill here is text only.
-const LOAD_COMMAND = /!`[^`\n]+`/;
+const LOAD_COMMAND = /!\x60[^\x60\n]+\x60/;
 
 export type SkillInput = { name: string; description: string; body: string; files?: SkillFile[] };
 export type SkillContent = { name: string; description: string; body: string; files: SkillFile[] };
@@ -55,7 +55,7 @@ export function validateSkill(input: SkillInput): SkillContent {
   const files = input.files ?? [];
   // What is not text is refused first, whatever else is wrong.
   if (FORBIDDEN_KEYS.test(body) || FORBIDDEN_KEYS.test(description)) return fail(notAllowed("body", "no hooks or allowed-tools: a skill is text"));
-  if (LOAD_COMMAND.test(body)) return fail(notAllowed("body", "no command run when the skill loads (!`…`)"));
+  if (LOAD_COMMAND.test(body)) return fail(notAllowed("body", "no command run when the skill loads"));
   for (const f of files) {
     if (!TEXT_EXT.test(f.path ?? "")) return fail(notAllowed("files", `only .md and .txt files: ${String(f.path).slice(0, 80)}`));
     if (/^#!/.test(f.content ?? "") || FORBIDDEN_KEYS.test(f.content ?? "") || LOAD_COMMAND.test(f.content ?? "")) return fail(notAllowed("files", `${f.path} is not plain text`));
@@ -358,7 +358,7 @@ export async function rollbackSkill(db: Db, slug: string, n: number, author = "o
   if (!target) throw new ToolError("SKILL_NOT_FOUND", { skill: slug, version: n });
   if (vs[0]!.n === n) return;
   await db.transaction(async (tx) => {
-    await addVersion(tx, row, { name: target.name, description: target.description, body: target.body, files: target.files }, author, `rollback:${n}`);
+    await addVersion(tx, row, { name: target.name, description: target.description, body: target.body, files: target.files }, author, "rollback:" + n);
   });
 }
 
@@ -367,8 +367,9 @@ export async function duplicateSkill(db: Db, project: string, agent: string, slu
   const taken = new Set([...(await listPacks(db, env)).map((p) => p.slug), ...(await db.select({ slug: skills.slug }).from(skills).where(ne(skills.state, "archived"))).map((r) => r.slug)]);
   let n = 2;
   const stem = slug.slice(0, 36).replace(/-+$/, "");
-  while (taken.has(`${stem}-${n}`)) n += 1;
-  return createSkill(db, project, agent, { slug: `${stem}-${n}`, name: `${card.name} (${n})`, description: card.when, body: card.body, files: card.files, scope: card.scope ?? "agent" }, env);
+  while (taken.has(stem + "-" + n)) n += 1;
+  const name = card.name + " (" + n + ")";
+  return createSkill(db, project, agent, { slug: stem + "-" + n, name, description: card.when, body: card.body, files: card.files, scope: card.scope ?? "agent" }, env);
 }
 
 export async function setSkillState(db: Db, slug: string, on: boolean): Promise<void> {
