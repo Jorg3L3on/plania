@@ -12,7 +12,6 @@ export const BARRA_WORDS = defineWords({
     pausar: "Pausar",
     reanudar: (title: string) => `Reanudar ${title}`,
     reanudarLine: "Nada arranca hasta que lo reanudes.",
-    switcherLabel: (title: string) => `${title}: cambiar de proyecto`,
     switcherMenu: "Proyectos",
     teEspera: ", te espera",
     todoCount: (open: number) => `${open} ${open === 1 ? "ABIERTA" : "ABIERTAS"}`,
@@ -34,7 +33,6 @@ export const BARRA_WORDS = defineWords({
     pausar: "Pause",
     reanudar: (title: string) => `Resume ${title}`,
     reanudarLine: "Nothing starts until you resume it.",
-    switcherLabel: (title: string) => `${title}: switch project`,
     switcherMenu: "Projects",
     teEspera: ", waiting on you",
     todoCount: (open: number) => `${open} OPEN`,
@@ -64,7 +62,6 @@ export const reanudarLine = (language: Language = getLanguage()): string => w(la
 export const REANUDAR_LINE = BARRA_WORDS.es.reanudarLine;
 
 /** The switcher's name for screen readers, and its menu's. */
-export const switcherLabel = (title: string, language: Language = getLanguage()): string => w(language).switcherLabel(title);
 export const switcherMenu = (language: Language = getLanguage()): string => w(language).switcherMenu;
 export const SWITCHER_MENU = BARRA_WORDS.es.switcherMenu;
 /** Said after a project's name in the menu when something waits on the owner there. */

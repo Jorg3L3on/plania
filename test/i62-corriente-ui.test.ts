@@ -198,8 +198,8 @@ test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switch
   assert.deepEqual(page.escFrom(lib.atOf("?v=tetoca")), { view: "corriente" });
   const lanes = [stream.laneOf(project("filmia", { team: [member("t", "taller", "running", { ticket: null })] }), undefined, [decision("d", "filmia", "deliverable")]), stream.laneOf(project("micasa"), undefined, [])];
   const base = { slug: "filmia", title: "Filmia", lanes, href: (t: string) => `/t/${t}`, projectHref: (s: string) => `/c?proyecto=${s}&t=archivo`, back: "/c", pedirTo: "/pedir", pauseHref: "/pausar" };
-  // PLA-I3-2: the strip's chips moved into the switcher's menu (open here), each with its mini stream.
-  const out = html(h(strip.ProjectBar, { ...base, tab: "archivo", paused: false, switcherOpen: true }));
+  // PLA-I3-2: the strip's chips, each with its mini stream. PLA-129: the bar has no project menu any more.
+  const out = html(h(strip.ProjectBar, { ...base, tab: "archivo", paused: false }));
   assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=archivo"|href="\/c\?proyecto=filmia&amp;t=archivo"[^>]*aria-current="page"/);
   assert.match(out, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
   assert.match(out, /class="t yo"/);
@@ -208,8 +208,9 @@ test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switch
   assert.ok(!out.includes("data-pedir") && !/>Pedir</.test(out), "no Pedir in the bar");
   assert.equal((out.match(/class="cor-topbar"/g) ?? []).length, 1, "one bar");
   const bar = html(h(strip.ProjectBar, { ...base, tab: "motores", team: "4 LIBRES", paused: false }));
-  assert.ok(!bar.includes("data-switcher"), "the menu starts closed");
-  assert.match(bar, /aria-haspopup="menu" aria-expanded="false"/);
+  // PLA-129: the project's name is a link to its Todo, not a menu.
+  assert.ok(!bar.includes("data-switcher") && !bar.includes("aria-haspopup"), "no project menu");
+  assert.match(bar, /<a class="cor-switch-btn" data-control="abrir-todo" href="\/t\/todo"[^>]*><span class="cor-ellipsis">Filmia<\/span><\/a>/);
   // PLA-I3-2: the strip on top is back: one chip per project, the open one marked, each a link to the same door.
   assert.match(bar, /data-strip/);
   assert.match(bar, /data-chip="micasa"/);

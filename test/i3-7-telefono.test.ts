@@ -96,7 +96,6 @@ test("I3-7 #1: the bar keeps back, the switcher and the state on one row; the do
   assert.match(rule(".cor-topbar .cor-strip-back-t"), /position: absolute; width: 1px; height: 1px;/);
   assert.match(rule(".cor-topbar .cor-doors"), /grid-area: doors;[^]*flex-wrap: nowrap; overflow-x: auto;/);
   assert.match(rule(".cor-topbar .cor-door"), /min-height: 44px;/);
-  assert.match(rule(".cor-topbar .cor-switch-menu"), /left: 16px; right: 16px; width: auto;/, "the switcher's menu stays inside the screen");
   assert.match(rule(".cor-cuentas"), /flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 6px 16px;/);
   assert.match(rule(".cor-cuenta"), /flex: none; height: 44px;/);
   // Nothing else scrolls sideways: the only overflow-x in the rule is the doors' and the counts'.
