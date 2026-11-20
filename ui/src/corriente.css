@@ -1520,3 +1520,74 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
+
+/* PLA-I67-1: «Oficio», one agent's page (sketch PLA-IDEA31). It fills the project body and never scrolls the page:
+   the drawing takes the room left and cuts its rows; the shelf scrolls inside its own card. */
+.cor-pbody:has(.cor-oficio) { display: flex; flex-direction: column; overflow: hidden; padding-top: 12px; padding-bottom: 16px; }
+.cor-oficio { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ofi-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ofi-seats { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--cor-line); background: var(--cor-surface); }
+.ofi-seat { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border-radius: 9px; font-size: 13.5px; color: var(--cor-body); }
+.ofi-seat:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.ofi-seat[aria-current="page"] { color: var(--cor-text); background: rgba(255, 255, 255, 0.08); }
+.ofi-seat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cor-muted); }
+.ofi-top .cor-btn.link { font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.4); }
+.ofi-head { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.3; }
+.ofi-body { flex: 1; min-height: 0; display: flex; gap: 24px; }
+.ofi-draw { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.ofi-svg { position: absolute; inset: 0; overflow: visible; }
+.ofi-thread { fill: none; stroke: var(--cor-violet-2); stroke-opacity: 0.85; stroke-linecap: round; }
+.ofi-thread-post { fill: none; stroke: #fff; stroke-opacity: 0.9; stroke-linecap: round; }
+.ofi-thread-off { fill: none; stroke: var(--cor-muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.ofi-line { stroke: var(--cor-violet-3); stroke-opacity: 0.45; stroke-width: 1.4; }
+.ofi-hub { fill: #fff; }
+.ofi-hub-halo { fill: rgba(139, 92, 246, 0.22); stroke: rgba(196, 181, 253, 0.5); stroke-width: 1; }
+.ofi-dot-first { fill: var(--cor-violet-2); }
+.ofi-dot-back { fill: var(--cor-bg); stroke: var(--cor-violet-3); stroke-width: 1.8; }
+.ofi-dot-waits { fill: var(--cor-bg); stroke: var(--cor-amber); stroke-width: 1.8; }
+.ofi-dot-live { fill: #fff; filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.9)); }
+.ofi-dot-open { fill: var(--cor-bg); stroke: var(--cor-muted); stroke-width: 1.4; }
+.ofi-pick { fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.2; }
+.ofi-rows { position: absolute; left: 0; top: 0; width: 268px; }
+.ofi-row { position: absolute; left: 0; right: 0; height: 30px; display: flex; align-items: center; gap: 12px; font-size: 13.5px; color: var(--cor-body); }
+.ofi-row.post { color: var(--cor-text); font-weight: 600; }
+.ofi-row.off { color: var(--cor-muted); }
+.ofi-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-row > .cor-cap { flex: none; }
+.ofi-bullet { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-2); }
+.ofi-bullet.post { background: #fff; }
+.ofi-bullet.off { background: transparent; border: 1px solid var(--cor-muted); }
+.ofi-empty-skills { position: absolute; left: 0; width: 268px; display: flex; flex-direction: column; gap: 2px; }
+.ofi-hub-label, .ofi-end-label { position: absolute; white-space: nowrap; pointer-events: none; }
+.ofi-end-label { transform: translateX(-50%); }
+.ofi-dot-btn { position: absolute; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.ofi-dot-btn:hover { background: rgba(255, 255, 255, 0.05); }
+.ofi-dot-btn:focus-visible { outline: 2px solid var(--cor-violet-3); outline-offset: -6px; }
+.ofi-day { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); white-space: nowrap; pointer-events: none; }
+.ofi-dot-btn[aria-pressed="true"] .ofi-day { color: var(--cor-text); }
+.ofi-card { position: absolute; overflow: hidden; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: rgba(12, 12, 16, 0.92); }
+.ofi-readout-title { font-size: 16px; font-weight: 500; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-readout-title a { display: flex; align-items: center; min-height: 44px; margin: -10px 0 -8px; color: var(--cor-text); overflow: hidden; text-overflow: ellipsis; }
+.ofi-quote { margin: 0; color: var(--cor-text); font-size: 13.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ofi-legend { position: absolute; right: 0; bottom: 0; display: flex; gap: 18px; }
+.ofi-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ofi-key { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.ofi-key.first { background: var(--cor-violet-2); }
+.ofi-key.back { border: 1.5px solid var(--cor-violet-3); }
+.ofi-key.waits { border: 1.5px solid var(--cor-amber); border-radius: 1px; transform: rotate(45deg); width: 7px; height: 7px; }
+.ofi-key.width { width: 18px; height: 3px; border-radius: 2px; background: var(--cor-violet-2); }
+.ofi-side { width: 320px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.ofi-stats { display: flex; gap: 28px; }
+.ofi-stats dd { margin-top: 4px; font-size: 22px; font-weight: 500; }
+.ofi-side-card { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.ofi-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -8px -8px -4px 0; }
+.ofi-next { display: flex; flex-direction: column; }
+.ofi-next > li { display: flex; justify-content: space-between; gap: 10px; min-height: 30px; align-items: center; font-size: 13.5px; border-bottom: 1px solid var(--cor-line); }
+.ofi-shelf { flex: 1 1 auto; }
+.ofi-shelf-hint { line-height: 1.5; }
+.ofi-shelf-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-right: -8px; padding-right: 8px; }
+.ofi-shelf-group { margin: 10px 0 2px; }
+.ofi-shelf-list > li { display: flex; flex-direction: column; padding: 2px 0 8px; border-bottom: 1px solid var(--cor-line); }
+.ofi-shelf-list .cor-switch { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
+.ofi-shelf-line { margin-top: -6px; line-height: 1.45; }
+.ofi-door { gap: 6px; }

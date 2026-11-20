@@ -18,6 +18,7 @@ import { agents, docs, projects, type Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { ALLOWED_BASE, defaultGit, type GitFn } from "./worktree.js";
 import { defaultSkills, repoSkills, sha } from "./kit.js";
+import { roleOf } from "./limits.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: the API hint for a seat that is not on the team, in the install's language; the Spanish is unchanged.
@@ -29,6 +30,10 @@ export const PACK_WORDS = defineWords({
 export const PACK_TITLE_PREFIX = "Pack: ";
 export const PACK_DIR = ".plania-packs";
 export const MAX_PACKS = 10;
+// PLA-I67-1: an empty list means "the role's default kit". A seat whose owner turned every skill off stores this one
+// value instead, so it carries nothing. It is not a slug, so no pack can have it and no client can send it.
+export const NO_SKILLS = "-";
+const ownList = (skillPacks: string[] | null | undefined): string[] => (skillPacks ?? []).filter((s) => s !== NO_SKILLS);
 const SLUG = /^[a-z][a-z0-9-]{0,39}$/;
 const WHEN_LINE = /^\s*(?:\*\*)?(?:cu[aá]ndo|when)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+?)\s*$/i;
 
@@ -85,14 +90,17 @@ export const packRef = ({ markdown: _m, dir: _d, ...ref }: Pack): PackRef => ref
 // The packs one role carries, in the order stored; slugs whose doc is gone are skipped. With role given, a seat
 // that lists none carries that role's default kit (kit/kits.json).
 export async function packsOf(db: Db | Q, agent: { skillPacks?: string[] | null }, env: NodeJS.ProcessEnv = process.env, role?: string | null): Promise<Pack[]> {
-  const own = agent.skillPacks ?? [];
+  if ((agent.skillPacks ?? []).includes(NO_SKILLS)) return [];
+  const own = ownList(agent.skillPacks);
   const wanted = own.length === 0 && role && env.PLANIA_DEFAULT_KITS !== "0" ? defaultSkills(role, env) : own;
   if (wanted.length === 0) return [];
   const bySlug = new Map((await listPacks(db, env)).map((p) => [p.slug, p]));
   return wanted.map((s) => bySlug.get(s)).filter((p): p is Pack => !!p);
 }
 
-export type RolePacks = { project: string; agent: string; packs: PackRef[] };
+// PLA-I67-1: packs is what the seat's next run carries (its role's default kit when it lists none); own says whether
+// the seat has its own list (false: it follows the default kit).
+export type RolePacks = { project: string; agent: string; packs: PackRef[]; own: boolean };
 export type RolePacksError = { error: "PROJECT_NOT_FOUND" | "AGENT_NOT_FOUND" | "UNKNOWN_PACK" | "TOO_MANY_PACKS"; status: 400 | 404; hint: string; packs?: string[] };
 
 async function memberOf(db: Db | Q, project: string, agent: string): Promise<{ agent: Agent } | RolePacksError> {
@@ -110,11 +118,12 @@ async function memberOf(db: Db | Q, project: string, agent: string): Promise<{ a
 export async function rolePacks(db: Db | Q, project: string, agent: string, env: NodeJS.ProcessEnv = process.env): Promise<RolePacks | RolePacksError> {
   const m = await memberOf(db, project, agent);
   if ("error" in m) return m;
-  return { project, agent, packs: (await packsOf(db, m.agent, env)).map(packRef) };
+  return { project, agent, packs: (await packsOf(db, m.agent, env, roleOf(m.agent))).map(packRef), own: (m.agent.skillPacks ?? []).length > 0 };
 }
 
-// Replaces the role's list (deduplicated, order kept). Every slug must name an existing pack.
-export async function setRolePacks(db: Db | Q, project: string, agent: string, slugs: string[], env: NodeJS.ProcessEnv = process.env): Promise<RolePacks | RolePacksError> {
+// Replaces the role's list (deduplicated, order kept). Every slug must name an existing pack. An empty list puts the
+// seat back on its role's default kit, unless opts.own: then the seat carries none (PLA-I67-1, La estantería).
+export async function setRolePacks(db: Db | Q, project: string, agent: string, slugs: string[], env: NodeJS.ProcessEnv = process.env, opts: { own?: boolean } = {}): Promise<RolePacks | RolePacksError> {
   const m = await memberOf(db, project, agent);
   if ("error" in m) return m;
   const list = [...new Set(slugs.map((s) => s.trim()))];
@@ -122,8 +131,9 @@ export async function setRolePacks(db: Db | Q, project: string, agent: string, s
   const known = new Set((await listPacks(db, env)).map((p) => p.slug));
   const unknown = list.filter((s) => !known.has(s));
   if (unknown.length) return { error: "UNKNOWN_PACK", status: 400, hint: `no pack doc for ${unknown.join(", ")}`, packs: unknown };
-  const [updated] = await db.update(agents).set({ skillPacks: list }).where(eq(agents.id, m.agent.id)).returning();
-  return { project, agent, packs: (await packsOf(db, updated!, env)).map(packRef) };
+  const stored = list.length === 0 && opts.own ? [NO_SKILLS] : list;
+  const [updated] = await db.update(agents).set({ skillPacks: stored }).where(eq(agents.id, m.agent.id)).returning();
+  return { project, agent, packs: (await packsOf(db, updated!, env, roleOf(updated!))).map(packRef), own: stored.length > 0 };
 }
 
 // ---- The run's working folder

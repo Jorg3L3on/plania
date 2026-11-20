@@ -3,6 +3,7 @@
 // (a note on what it does now, else an order to the PO for that seat). The rest are rows with their state and the
 // nudge the building gives (Que empiece ya, or Seguir de todos modos past the guard). Sumar: role, packs and motor,
 // the building's form (GET /company/projects/:slug for the free roles, GET /company/packs, POST …/team).
+// PLA-I67-1: every seat has an «Oficio» door (with how many skills it carries) to its own page (oficio.tsx).
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -14,6 +15,7 @@ import { linkHref } from "@/lib/org";
 import { firstFree, hireLabel, roleChoices, suggestedPacks } from "@/lib/sumar";
 import { words } from "@/lib/i18n";
 import { EQUIPO_WORDS } from "@/lib/equipo-words";
+import { OFICIO_WORDS } from "@/lib/oficio-words";
 import type { CorrienteActs } from "./acts";
 import { Agent, Btn, Key, Label, State } from "./parts";
 
@@ -66,7 +68,7 @@ const Say = ({ p, m, acts }: { p: OrgProject; m: OrgMember; acts: CorrienteActs 
   );
 };
 
-const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; now: number; acts: CorrienteActs; motorTo: string }) => {
+const LitCard = ({ p, m, now, acts, motorTo, oficioTo }: { p: OrgProject; m: OrgMember; now: number; acts: CorrienteActs; motorTo: string; oficioTo: (agent: string) => string }) => {
   const live = m.state === "running" && m.now?.run_id ? m.now.run_id : null;
   const stopped = !live && m.last?.status === "stopped" && m.last.run_id ? m.last.run_id : null;
   const href = m.produced ? linkHref(m.produced, p.slug) : null;
@@ -97,6 +99,9 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
             </span>
           )}
         </div>
+        <Link className="cor-btn quiet ofi-door" to={oficioTo(m.agent)} aria-label={words(OFICIO_WORDS).doorLabel(seatName(m.role), m.skills_on ?? 0)} data-control="oficio">
+          {words(OFICIO_WORDS).door} <span className="cor-cap">{m.skills_on ?? 0}</span>
+        </Link>
         <Link className="cor-btn quiet" to={motorTo} data-control="motor">
           {w.motor}
         </Link>
@@ -153,7 +158,7 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
   );
 };
 
-const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProject; m: OrgMember; now: number; acts: CorrienteActs; timeZone?: string; motorTo: string; open: boolean; onOpen: () => void }) => {
+const Row = ({ p, m, now, acts, timeZone, motorTo, oficioTo, open, onOpen }: { p: OrgProject; m: OrgMember; now: number; acts: CorrienteActs; timeZone?: string; motorTo: string; oficioTo: (agent: string) => string; open: boolean; onOpen: () => void }) => {
   const w = words(EQUIPO_WORDS);
   const n = m.next_start;
   const start = n && (n.hold === "rest" || n.hold === "usage" || n.hold === "unqueued") ? { label: n.hold === "usage" ? w.goAnyway : w.startNow, past: n.hold === "usage" } : null;
@@ -173,6 +178,9 @@ const Row = ({ p, m, now, acts, timeZone, motorTo, open, onOpen }: { p: OrgProje
           {start.label}
         </Btn>
       )}
+      <Link className="cor-btn quiet ofi-door" to={oficioTo(m.agent)} aria-label={words(OFICIO_WORDS).doorLabel(seatName(m.role), m.skills_on ?? 0)} data-control="oficio">
+        {words(OFICIO_WORDS).door} <span className="cor-cap">{m.skills_on ?? 0}</span>
+      </Link>
       <Link className="cor-btn quiet" to={motorTo} data-control="motor">
         {w.motor}
       </Link>
@@ -271,7 +279,7 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
   );
 };
 
-export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, sumarTo, motorDefault }: { p: OrgProject; now: number; timeZone?: string; companyPaused: boolean; acts: CorrienteActs; focus: string | null; motorTo: string; sumarTo: string; motorDefault?: { model: string | null; effort: string | null } }) => {
+export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, sumarTo, oficioTo, motorDefault }: { p: OrgProject; now: number; timeZone?: string; companyPaused: boolean; acts: CorrienteActs; focus: string | null; motorTo: string; sumarTo: string; oficioTo: (agent: string) => string; motorDefault?: { model: string | null; effort: string | null } }) => {
   const paused = companyPaused || p.paused;
   const lit = (focus && focus !== "sumar" ? p.team.find((m) => m.agent === focus) : null) ?? p.team.find((m) => m.state === "running" && !paused) ?? null;
   const rest = p.team.filter((m) => m !== lit);
@@ -291,7 +299,7 @@ export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, 
             </Link>
           )}
         </div>
-        {lit && <LitCard p={p} m={lit} now={now} acts={acts} motorTo={motorTo} />}
+        {lit && <LitCard p={p} m={lit} now={now} acts={acts} motorTo={motorTo} oficioTo={oficioTo} />}
         {!lit && (
           <div className="cor-card cor-empty" data-nadie>
             <p className="cor-text">{paused ? w.nothingStartsPaused : w.nobodyNow}</p>
@@ -302,7 +310,7 @@ export const Equipo = ({ p, now, timeZone, companyPaused, acts, focus, motorTo, 
             <Label as="h3">{lit ? w.restOfTeam : w.theTeam}</Label>
             <ul>
               {rest.map((m) => (
-                <Row key={m.agent} p={p} m={m} now={now} acts={acts} timeZone={timeZone} motorTo={motorTo} open={open === m.agent} onOpen={() => setOpen(open === m.agent ? null : m.agent)} />
+                <Row key={m.agent} p={p} m={m} now={now} acts={acts} timeZone={timeZone} motorTo={motorTo} oficioTo={oficioTo} open={open === m.agent} onOpen={() => setOpen(open === m.agent ? null : m.agent)} />
               ))}
             </ul>
             {open && (

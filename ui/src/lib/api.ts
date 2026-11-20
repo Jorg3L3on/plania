@@ -1,3 +1,4 @@
+import type { Oficio } from "./oficio";
 import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
@@ -221,6 +222,10 @@ export const api = {
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
   packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
+  // PLA-I67-1: one agent's page, and La estantería's save (own: an empty list means it carries none).
+  oficio: (slug: string, agent: string) => request<Oficio>("GET", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/oficio`),
+  setSeatPacks: (slug: string, agent: string, packs: string[]) =>
+    request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs, own: true }),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -454,6 +459,8 @@ export type OrgMember = {
   next_start?: OrgNextStart | null;
   // PLA-I46-12: the skill pack slugs this role carries.
   packs?: string[];
+  // PLA-I67-1: how many skills its next run carries (its own list, else its role's default kit).
+  skills_on?: number;
   // PLA-I59-2 (Motores): what this seat's next run asks for and whether each part is its own; a PO's Preguntar
   // motor; this week's input + output tokens and share of the project. Optional for older servers.
   motor?: MotorView;

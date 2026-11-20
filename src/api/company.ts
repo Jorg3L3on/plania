@@ -31,7 +31,10 @@
 // PLA-I46-12: skill packs (src/runner/packs.ts). A pack is a `Pack: <name>` doc; a role carries a list of slugs.
 //   GET  /api/company/packs                               → {packs: [{slug, name, when, doc_id}]}
 //   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
-//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug]} replaces the list → same shape
+//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug], own?} replaces the list → same shape
+//        PLA-I67-1: packs is what the next run carries (the role's default kit when the seat lists none) and own says
+//        whether the seat has its own list; own: true with an empty list means the seat carries none (La estantería)
+//   GET  /api/company/projects/:slug/team/:agent/oficio   PLA-I67-1: the agent's page (src/api/company-oficio.ts)
 //        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
 //   POST /api/company/projects/:slug/team                 {template, packs?, motor?} sets the new member's packs (and PLA-I59-2 motor) too
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
@@ -68,6 +71,7 @@ import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
+import { oficioRead } from "./company-oficio.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
@@ -398,12 +402,21 @@ companyRoutes.get("/projects/:slug/team/:agent/packs", async (c) => {
   return c.json(out);
 });
 
-const PacksBody = z.object({ packs: PackSlugs }).strict();
+companyRoutes.get("/projects/:slug/team/:agent/oficio", async (c) => {
+  const out = await withDb((db) => oficioRead(db, c.req.param("slug"), c.req.param("agent")));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+const PacksBody = z.object({ packs: PackSlugs, own: z.boolean().optional() }).strict();
 
 companyRoutes.put("/projects/:slug/team/:agent/packs", async (c) => {
   const input = await body(c, PacksBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs));
+  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs, process.env, { own: input.own }));
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);
