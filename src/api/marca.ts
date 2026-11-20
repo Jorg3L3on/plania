@@ -33,6 +33,7 @@ import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } fr
 import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
 import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
+import { goBackVoice, requestNames, saveVoice, voiceRead, voiceVersions } from "../brand/voz.js";
 import { FONTS, goBackStyle, requestStyle, saveStyle, styleRead, styleVersions } from "../brand/style.js";
 
 export const marcaRoutes = new Hono();
@@ -448,6 +449,61 @@ marcaRoutes.post(`${STYLE}/pedido`, async (c) => {
     const made = await withDb((db) => requestStyle(db, p));
     const r = await withDb((db) => styleRead(db, p.slug));
     return c.json({ key: made.key, ...r, versionsList: styleVersions(p.slug), fonts: FONTS });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-5: Voz y nombre. The voice rides in the project's runs; the name and texts go to the repo through Taller.
+const VOZ = "/projects/:slug/marca/voz";
+marcaRoutes.use(VOZ, guard);
+marcaRoutes.use(`${VOZ}/*`, guard);
+const voiceOut = async (slug: string, r: Awaited<ReturnType<typeof voiceRead>>) => (r ? { ...r, versionsList: voiceVersions(slug) } : null);
+marcaRoutes.get(VOZ, async (c) => {
+  try {
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => voiceRead(db, slug, { fresh: c.req.query("fresh") === "1" })));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+const VoiceBody = z
+  .object({
+    cerca: z.number(), humor: z.number(), breve: z.number(), sencillo: z.number(), trato: z.enum(["tu", "usted", "vos"]),
+    yes: z.array(z.string().max(60)).max(30), no: z.array(z.string().max(60)).max(30), guide: z.string().max(3000).nullable(),
+    name: z.string().max(200), short: z.string().max(100), desc: z.string().max(600), tag: z.string().max(200),
+  })
+  .partial()
+  .strict();
+marcaRoutes.post(VOZ, async (c) => {
+  try {
+    const body = await json(c, VoiceBody);
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => saveVoice(db, slug, body)));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${VOZ}/back`, async (c) => {
+  try {
+    const body = await json(c, z.object({ v: z.number().int().min(1) }).strict());
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => goBackVoice(db, slug, body.v)));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${VOZ}/pedido`, async (c) => {
+  try {
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const made = await withDb((db) => requestNames(db, p));
+    return c.json({ key: made.key, ...(await voiceOut(p.slug, await withDb((db) => voiceRead(db, p.slug)))) });
   } catch (e) {
     return fail(c, e);
   }

@@ -159,3 +159,71 @@ export const STYLE_WORDS = defineWords({
     checkBuild: "The build passes and the project's QA list passes",
   },
 });
+
+// PLA-I69-5: the voice guide runs receive, and the name request Taller reads.
+type GuideIn = { title: string; tone: readonly ("cerca" | "formal" | "humor" | "seria" | "breve" | "detalle" | "sencillo" | "tecnico")[]; trato: "tu" | "usted" | "vos"; yes: string[]; no: string[] };
+const list = (ws: string[]) => ws.map((x) => `«${x}»`).join(", ");
+export const VOZ_WORDS = defineWords({
+  es: {
+    blockTitle: "## La voz del proyecto (Marca → Voz y nombre)\nEscribe todo texto que vea la gente de la app con esta voz:",
+    guide: (g: GuideIn) => {
+      const tone = { cerca: "cercana", formal: "formal", humor: "con humor suave", seria: "seria", breve: "breve", detalle: "detallada", sencillo: "sin tecnicismos", tecnico: "precisa, con datos técnicos" };
+      const trato = { tu: "tú", usted: "usted", vos: "vos (voseo)" }[g.trato];
+      return [
+        `Voz de ${g.title}: ${g.tone.map((t) => tone[t]).join(", ")}. Trata a la gente de ${trato}.`,
+        "Primero di qué pasó, luego qué puede hacer la persona. Sin mayúsculas para gritar ni signos de admiración dobles.",
+        ...(g.yes.length ? [`Usa: ${list(g.yes)}.`] : []),
+        ...(g.no.length ? [`No uses: ${list(g.no)}.`] : []),
+      ].join("\n");
+    },
+    errors: {
+      open: (key: string) => `Taller ya trabaja en el nombre (${key}). Cuando lo aceptes, pide el siguiente cambio.`,
+      none: "Todavía no hay voz ni nombre elegidos: cambia algo en Voz y nombre primero.",
+      nothing: "El nombre y los textos ya son los del repo.",
+    },
+    title: "El nombre y los textos de la marca",
+    summary: "Poner en el repo el nombre, el nombre corto y la descripción que el dueño eligió en Plania.",
+    lead: "El dueño eligió el nombre y los textos de la app en Plania. Ponlos tal cual donde el repo los tiene.",
+    values: "Valores",
+    fields: { name: "Nombre", short: "Nombre corto (debajo del ícono)", desc: "Descripción", tag: "Frase" },
+    where: "Dónde van",
+    whereUnknown: "el manifiesto de la app y los metadatos de la página (título y descripción)",
+    og: "la imagen y la tarjeta para compartir toman el título y la descripción nuevos",
+    voiceTitle: "La voz, para cualquier texto que toques",
+    rules: "No cambies otros textos de la app en este pedido.",
+    checkManifest: "El manifiesto tiene el nombre, el nombre corto y la descripción nuevos",
+    checkMeta: "El título y la descripción de la página son los nuevos",
+    checkBuild: "El build pasa y la lista de QA del proyecto pasa",
+  },
+  en: {
+    blockTitle: "## The project's voice (Marca → Voice and name)\nWrite every text the app's people see in this voice:",
+    guide: (g: GuideIn) => {
+      const tone = { cerca: "warm", formal: "formal", humor: "with light humour", seria: "serious", breve: "brief", detalle: "detailed", sencillo: "jargon-free", tecnico: "precise, with technical data" };
+      const trato = { tu: "informally", usted: "formally", vos: "informally (voseo in Spanish)" }[g.trato];
+      return [
+        `${g.title}'s voice: ${g.tone.map((t) => tone[t]).join(", ")}. Address people ${trato}.`,
+        "First say what happened, then what the person can do. No shouting capitals, no double exclamation marks.",
+        ...(g.yes.length ? [`Use: ${list(g.yes)}.`] : []),
+        ...(g.no.length ? [`Do not use: ${list(g.no)}.`] : []),
+      ].join("\n");
+    },
+    errors: {
+      open: (key: string) => `Taller is already working on the name (${key}). Once you accept it, ask for the next change.`,
+      none: "No voice or name chosen yet: change something in Voice and name first.",
+      nothing: "The name and texts are already the repo's.",
+    },
+    title: "The brand's name and texts",
+    summary: "Bring the name, short name and description the owner chose in Plania into the repo.",
+    lead: "The owner chose the app's name and texts in Plania. Put them as they are where the repo has them.",
+    values: "Values",
+    fields: { name: "Name", short: "Short name (under the icon)", desc: "Description", tag: "Tagline" },
+    where: "Where they go",
+    whereUnknown: "the app's manifest and the page's metadata (title and description)",
+    og: "the share image and card take the new title and description",
+    voiceTitle: "The voice, for any text you touch",
+    rules: "Do not change other texts of the app in this request.",
+    checkManifest: "The manifest has the new name, short name and description",
+    checkMeta: "The page's title and description are the new ones",
+    checkBuild: "The build passes and the project's QA list passes",
+  },
+});

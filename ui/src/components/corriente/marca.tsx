@@ -15,6 +15,7 @@ import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
 import { useSearchParams } from "react-router";
 import { Estilo } from "./marca-estilo";
+import { Voz } from "./marca-voz";
 import { estiloWords } from "@/lib/estilo";
 
 type Shape = "circle" | "squircle" | "drop";
@@ -99,6 +100,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           </div>
         </header>
         {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
+        {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
       </div>
     );
   const c = counts(r.rows);

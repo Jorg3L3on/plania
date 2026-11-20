@@ -20,6 +20,7 @@ import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
 import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, Surface, VersionRef } from "@/lib/marca";
 import type { Style, StyleRead } from "@/lib/estilo";
+import type { Voice, VoiceRead } from "@/lib/voz";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -252,6 +253,11 @@ export const api = {
   marcaEstiloSave: (slug: string, style: Partial<Style>) => request<StyleRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo`, style),
   marcaEstiloBack: (slug: string, v: number) => request<StyleRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo/back`, { v }),
   marcaEstiloPedido: (slug: string) => request<StyleRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/estilo/pedido`),
+  // PLA-I69-5: Marca → Voz y nombre.
+  marcaVoz: (slug: string) => request<VoiceRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/voz`),
+  marcaVozSave: (slug: string, voice: Partial<Voice>) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz`, voice),
+  marcaVozBack: (slug: string, v: number) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/back`, { v }),
+  marcaVozPedido: (slug: string) => request<VoiceRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
