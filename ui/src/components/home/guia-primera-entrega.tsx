@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon } from "lucide-react";
+import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { falloWords, ofreceEjemplo, pasosDe, pedidoSugerido, primeraEntregaWords, type GuiaRead, type Paso } from "@/lib/primera-entrega";
+import { aReanudar, falloWords, ofreceEjemplo, pasosDe, pedidoSugerido, primeraEntregaWords, type GuiaRead, type Paso } from "@/lib/primera-entrega";
 import { cn } from "@/lib/utils";
 
 // PLA-I2-16: the guide to a first delivery, at the top of Inicio until the owner accepts one. Each step comes from
-// GET /api/guia and ticks itself; words and rules in lib/primera-entrega.ts.
+// GET /api/guia and ticks itself; words and rules in lib/primera-entrega.ts. F6: Reanudar resumes the company and the
+// first project in one press.
 
-function PasoRow({ paso, n, children }: { paso: Paso; n: number; children?: React.ReactNode }) {
+function PasoRow({ paso, n, children, onAccion, busy }: { paso: Paso; n: number; children?: React.ReactNode; onAccion?: () => void; busy?: boolean }) {
   const ahora = paso.estado === "ahora";
   const WORDS = primeraEntregaWords().guia;
   return (
@@ -29,9 +31,15 @@ function PasoRow({ paso, n, children }: { paso: Paso; n: number; children?: Reac
         <p className="text-sm text-muted-foreground">{paso.texto}</p>
         {ahora ? (
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button asChild size="sm">
-              <Link to={paso.href}>{paso.boton}</Link>
-            </Button>
+            {paso.accion && onAccion ? (
+              <Button size="sm" disabled={busy} onClick={onAccion} data-control={`guia-${paso.accion}`}>
+                {busy ? primeraEntregaWords().reanudar.reanudando : paso.boton}
+              </Button>
+            ) : (
+              <Button asChild size="sm">
+                <Link to={paso.href}>{paso.boton}</Link>
+              </Button>
+            )}
             {children}
           </div>
         ) : null}
@@ -56,6 +64,19 @@ export function GuiaPrimeraEntrega() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["guia"] }),
   });
 
+  // F6: one press resumes the first project and the company (the project first: a failure in between runs nothing).
+  const reanudar = useMutation({
+    mutationFn: async (what: ReturnType<typeof aReanudar>) => {
+      if (what.project) await api.setProjectPaused(what.project, false);
+      if (what.company) await api.setCompanyPaused(false);
+    },
+    onError: () => toast.error(primeraEntregaWords().reanudar.fallo),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["guia"] });
+      void client.invalidateQueries({ queryKey: ["company"] });
+    },
+  });
+
   const r: GuiaRead | undefined = guia.data;
   if (!r || !r.visible) return null;
   const pasos = pasosDe(r);
@@ -78,7 +99,7 @@ export function GuiaPrimeraEntrega() {
       ) : null}
       <ol className="divide-y border-t">
         {pasos.map((p, i) => (
-          <PasoRow key={p.id} paso={p} n={i + 1}>
+          <PasoRow key={p.id} paso={p} n={i + 1} onAccion={p.accion === "reanudar" ? () => reanudar.mutate(aReanudar(r)) : undefined} busy={reanudar.isPending}>
             {p.id === "proyecto" && ofreceEjemplo(r) ? (
               <Button size="sm" variant="outline" disabled={ejemplo.isPending} onClick={() => ejemplo.mutate()} title={WORDS.ejemploTexto}>
                 {WORDS.ejemplo}

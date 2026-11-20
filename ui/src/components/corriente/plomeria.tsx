@@ -2,7 +2,8 @@
 // plain words: the company's state with Detener la compañía (with what it closes) and Reanudar; the plan's brake
 // (Mover el freno, its own small form; «Seguir aunque el plan esté alto»); what the models spent this week; each
 // project with Pausar / Reanudar and its app's switch, Configurar su app and Apagar todas las apps (the building's
-// tablero); the last runs; the owner's code row. The calls are the ones /machine and the tablero make.
+// tablero); the last runs; the owner's code row. The calls are the ones /machine and the tablero make. P5: «Conectar
+// Claude Code», the line with a token of its own.
 import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,8 @@ import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
 import { LanguageSwitch } from "@/components/language-sync";
 import { LOCALE } from "@/lib/locale";
 import { LimitesCorrida } from "./limites-corrida";
+import { CopyCommand } from "@/components/copy-command";
+import { claudeMcpAddLine, conectarClaudeWords } from "@/lib/conectar-claude";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -50,6 +53,33 @@ const runWord = (status: string, language: Language = getLanguage()): [string, "
 };
 const hm = (iso: string | null, tz?: string) => (iso ? new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(new Date(iso)) : "");
 const mins = (a: string | null, b: string | null) => (a && b ? Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / 60_000)) : null);
+
+// P5: «Conectar Claude Code». A token of its own, made on the press and shown this once inside the line to run.
+const ConectarClaude = () => {
+  const w = conectarClaudeWords();
+  const make = useMutation({ mutationFn: api.connectClaudeCode, onError: () => toast.error(w.fallo) });
+  return (
+    <section className="cor-pl-foot" aria-label={w.titulo} data-block="conectar-claude">
+      <span className="cor-text">
+        <b>{w.titulo}</b> · {w.texto}
+      </span>
+      {make.data && (
+        <div className="grid gap-1" style={{ flexBasis: "100%" }}>
+          <CopyCommand command={claudeMcpAddLine(make.data.url, make.data.secret)} />
+          <span className="cor-cap">
+            {w.unaVez}{" "}
+            <Link to="/tokens" className="underline underline-offset-2">
+              {w.revocar}
+            </Link>
+          </span>
+        </div>
+      )}
+      <Btn kind="link" disabled={make.isPending} onClick={() => make.mutate()} data-control="conectar-claude">
+        {make.isPending ? w.creando : make.data ? w.otra : w.boton}
+      </Btn>
+    </section>
+  );
+};
 
 const OwnerCode = () => {
   const client = useQueryClient();
@@ -382,6 +412,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
           {LIMITS_LINK}
         </Link>
       </div>
+      <ConectarClaude />
       {/* PLA-I2-18: two downloads; the owner decides what to do with each file. */}
       <section className="cor-pl-foot" aria-label={ayuda.title} data-block="ayuda">
         <span className="cor-text">

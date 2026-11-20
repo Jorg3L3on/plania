@@ -1,0 +1,71 @@
+name: Release
+
+# PLA-I2-4 (from zero): a `v<version>` tag publishes the GitHub Release people download from. The version in
+# package.json must match the tag. First the clean-machine install (install.yml) on every system, then the package,
+# its .sha256 and the two installers go up as the release's assets:
+#   plania-<version>.tar.gz, plania-<version>.tar.gz.sha256   the package
+#   plania-latest.tar.gz, plania-latest.tar.gz.sha256         the same bytes under the name every release has
+#   install.sh, install.ps1                                   stamped with this version and this release's address
+# README's one-liners read https://github.com/Jorg3L3on/plania/releases/latest/download/install.sh (and install.ps1),
+# which GitHub serves from the newest release. Each release's installers download from that release's own address
+# (releases/download/v<version>), so an older installer keeps working once a newer release exists. An installer with
+# no version (one run from a checkout) takes plania-latest.tar.gz from releases/latest/download.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  install-test:
+    uses: ./.github/workflows/install.yml
+
+  release:
+    name: Publish ${{ github.ref_name }}
+    needs: install-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: The tag names package.json's version
+        run: |
+          v="$(node -p 'require("./package.json").version')"
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $v"
+            exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: pnpm release:pack
+        env:
+          PLANIA_DOWNLOAD_BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
+        run: pnpm release:pack
+
+      - name: The latest names
+        run: |
+          cd release
+          cp "plania-$VERSION.tar.gz" plania-latest.tar.gz
+          cp "plania-$VERSION.tar.gz.sha256" plania-latest.tar.gz.sha256
+
+      - name: Upload to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "Plania $VERSION" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "plania-$VERSION.tar.gz" "plania-$VERSION.tar.gz.sha256" \
+            plania-latest.tar.gz plania-latest.tar.gz.sha256 \
+            install.sh install.ps1

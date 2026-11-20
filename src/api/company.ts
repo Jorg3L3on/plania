@@ -48,6 +48,7 @@ import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { logoBytes, logosRead, refreshLogos } from "../brand/logos.js";
+import { marcaFile, marcaRead } from "../brand/marca.js";
 import { ToolError } from "../mcp/errors.js";
 import { NEW_PROJECT_GOAL_MAX, NEW_PROJECT_NAME_MAX, createProjectFromTemplate } from "../runner/new-project.js";
 import { deleteProject } from "../runner/delete-project.js";
@@ -139,6 +140,24 @@ companyRoutes.get("/projects/:slug/logo", async (c) => {
   return c.body(new Uint8Array(r.bytes), 200, {
     "Content-Type": r.mime,
     "Cache-Control": "private, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+  });
+});
+
+// PLA-I66-2: the Marca door's read (the original, the checklist of icon files on the start branch, the candidates),
+// and a file of the repo the read showed, for the cards. ?fresh=1 reads the repo again now.
+companyRoutes.get("/projects/:slug/marca", async (c) => {
+  const r = await withDb((db) => marcaRead(db, c.req.param("slug"), { fresh: c.req.query("fresh") === "1" }));
+  return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+});
+
+companyRoutes.get("/projects/:slug/marca/file", async (c) => {
+  const r = await withDb((db) => marcaFile(db, c.req.param("slug"), c.req.query("path") ?? ""));
+  if (!r) return c.json({ error: "FILE_NOT_FOUND" }, 404);
+  return c.body(new Uint8Array(r.bytes), 200, {
+    "Content-Type": r.mime,
+    "Cache-Control": "private, max-age=60",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
   });

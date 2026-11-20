@@ -17,7 +17,7 @@ import { bus } from "../events.js";
 import { detectLogo, looksLikeLogo, MAX_LOGO_BYTES, type RepoFile } from "./detect.js";
 
 export type Git = (cwd: string, args: string[]) => Promise<{ code: number; stdout: Buffer }>;
-export type LogoDeps = { git?: Git; now?: () => number; env?: NodeJS.ProcessEnv };
+export type LogoDeps = { git?: Git; now?: () => number; env?: NodeJS.ProcessEnv; fresh?: boolean };
 
 export const DETECTOR: Actor = { agent: "plania", session_id: "marca-detector" };
 // How often one project's repo is looked at, at most. The look itself is one rev-parse unless the branch moved.
@@ -58,25 +58,39 @@ export function readLogoFile(slug: string, file: string): Buffer | null {
 }
 
 /** The commit the logo is read from: the start branch, its remote twin, or HEAD when the repo has neither. */
-async function startCommit(git: Git, repo: string, branch: string): Promise<string | null> {
+export async function startCommit(git: Git, repo: string, branch: string): Promise<{ sha: string; ref: string } | null> {
   for (const ref of [branch, `origin/${branch}`, "HEAD"]) {
     const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     const sha = r.stdout.toString("utf8").trim();
-    if (r.code === 0 && /^[0-9a-f]{40}$/.test(sha)) return sha;
+    if (r.code === 0 && /^[0-9a-f]{40}$/.test(sha)) return { sha, ref };
   }
   return null;
 }
 
-/** The logo-looking files at a commit, with their bytes (only the few that pass the name rules are read). */
-export async function filesAt(git: Git, repo: string, commit: string, slug: string): Promise<RepoFile[]> {
+/** Every file at a commit with its size (PLA-I66-2: the checklist looks at paths before reading any). */
+export async function listTree(git: Git, repo: string, commit: string): Promise<Map<string, number>> {
   const ls = await git(repo, ["ls-tree", "-r", "-l", "-z", commit]);
-  if (ls.code !== 0) return [];
-  const out: RepoFile[] = [];
+  const out = new Map<string, number>();
+  if (ls.code !== 0) return out;
   for (const entry of ls.stdout.toString("utf8").split("\0")) {
     const m = entry.match(/^\d+ blob [0-9a-f]+\s+(\d+)\t(.+)$/);
-    if (!m || Number(m[1]) > MAX_LOGO_BYTES || !looksLikeLogo(m[2]!, slug)) continue;
-    const blob = await git(repo, ["cat-file", "blob", `${commit}:${m[2]}`]);
-    if (blob.code === 0) out.push({ path: m[2]!, bytes: blob.stdout });
+    if (m) out.set(m[2]!, Number(m[1]));
+  }
+  return out;
+}
+
+export async function readBlob(git: Git, repo: string, commit: string, file: string): Promise<Buffer | null> {
+  const blob = await git(repo, ["cat-file", "blob", `${commit}:${file}`]);
+  return blob.code === 0 ? blob.stdout : null;
+}
+
+/** The logo-looking files at a commit, with their bytes (only the few that pass the name rules are read). */
+export async function filesAt(git: Git, repo: string, commit: string, slug: string, tree?: Map<string, number>): Promise<RepoFile[]> {
+  const out: RepoFile[] = [];
+  for (const [p, size] of tree ?? (await listTree(git, repo, commit))) {
+    if (size > MAX_LOGO_BYTES || !looksLikeLogo(p, slug)) continue;
+    const bytes = await readBlob(git, repo, commit, p);
+    if (bytes) out.push({ path: p, bytes });
     if (out.length >= 40) break;
   }
   return out;
@@ -111,9 +125,10 @@ export async function scanProjectLogo(db: Db, project: Project, deps: LogoDeps =
   const current = await activeLogo(db, project.id);
   if (project.settings?.local?.no_code) return { status: "no_repo", logo: current, commit: null };
   const repo = repoPathOf(project.slug, project.settings, deps.env);
-  const commit = await startCommit(git, repo, startBranchOf(project.settings));
+  const commit = (await startCommit(git, repo, startBranchOf(project.settings)))?.sha ?? null;
   if (!commit) return { status: "no_repo", logo: current, commit: null };
-  if (current && current.source !== "repo") return { status: "kept", logo: current, commit };
+  // PLA-I66-3: a logo the owner chose (an upload, a candidate, an Artist mark, a version gone back to) stays.
+  if (current?.chosen) return { status: "kept", logo: current, commit };
   if (current?.sourceCommit === commit) return { status: "same", logo: current, commit };
   const { best } = detectLogo(await filesAt(git, repo, commit, project.slug), project.slug);
   if (!best) return { status: "none", logo: current, commit };

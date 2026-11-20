@@ -1,6 +1,7 @@
 // PLA-I2-4: which machine-bound parts can work on this system. Where a needed program is absent the part says
 // «No disponible en este sistema» (ui/src/lib/sistema.ts) instead of failing. Porting them is PLA-I2-19.
-//   test_copy   the test copy and Máquinas' test run: /bin/sh and process groups (macOS, Linux; not native Windows)
+//   test_copy   the test copy and Máquinas' test run: /bin/sh and process groups on macOS and Linux; cmd.exe and
+//               taskkill on native Windows (PLA-I2-19, audit B5: src/lib/proc-tree.ts)
 //   stills      the Ventana's stills, QA's captures and El Probador's pictures: Chrome or Chromium
 //   base_lever  Máquinas' base lever: `brew services`, or on Linux `systemctl --user` (PLA-I2-19)
 // Read once per process (the programs do not come and go while the server runs); tests replace the answer.
@@ -21,7 +22,7 @@ export function missingFor(feature: SystemFeature, deps: SupportDeps = {}): stri
   const env = deps.env ?? process.env;
   switch (feature) {
     case "test_copy":
-      if (platform === "win32") return "process groups and /bin/sh (native Windows)";
+      if (platform === "win32") return null;
       return exists("/bin/sh") ? null : "/bin/sh";
     case "stills":
       return (deps.chrome ? deps.chrome() : findChrome(env, exists)) ? null : "Chrome or Chromium";

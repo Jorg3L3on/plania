@@ -31,7 +31,7 @@ Node 22 or newer, pnpm through corepack, a local Postgres on `localhost:5432`.
   reason: `{ skip: needs({ posix: true }) }` from `test/platform.ts`.
 - `.gitattributes` keeps every text file LF. A checkout made before it may still hold CRLF files: run
   `git add --renormalize .` and check out again (`git rm -r --cached -q . && git reset -q --hard` on a clean tree).
-- `.env` comes from `.env.example`; README "Setup" lists every variable.
+- `.env` comes from `.env.example`; README "Setup by hand" lists every variable.
 
 ## Where things live
 
@@ -90,9 +90,10 @@ Node 22 or newer, pnpm through corepack, a local Postgres on `localhost:5432`.
 
 | For | Go to |
 |---|---|
-| Setup, env variables, the database | README "Setup", "Database" |
-| Dev commands, test databases, the diff scan | README "Dev", [docs/scan-diff.md](docs/scan-diff.md) |
-| Running as a service on the Mac, backups | README "Running locally as a service" |
+| Setup, env variables, the database | README "Install", "Setup by hand", "Database" |
+| Dev commands, test databases, the diff scan | [docs/developers.md](docs/developers.md), [docs/scan-diff.md](docs/scan-diff.md) |
+| Packing a release, the one-line installers, upgrade notes | [docs/releasing.md](docs/releasing.md), [docs/upgrading.md](docs/upgrading.md) |
+| Running as a service, backups | README "Running locally as a service" |
 | Every MCP tool and every error code | README "MCP" (generated tables) |
 | How an agent's loop goes, and proposals | [docs/bot-protocol.md](docs/bot-protocol.md), `src/mcp/protocol.ts` |
 | The screen, the phone, the JSON API | README "Screen", [docs/phone-access.md](docs/phone-access.md) |

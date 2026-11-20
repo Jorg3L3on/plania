@@ -4,6 +4,7 @@
 // checkout. A page that fails gets an error row; its last good still stays and the read shows both.
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { killTree, shellCommand } from "../lib/proc-tree.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -134,12 +135,16 @@ export type CaptureSummary = {
 const LOGIN_WAIT_MS = 15_000;
 
 // sh -c in the checkout, with stdin, killed after timeoutMs.
+// PLA-I2-19 (audit B5): cmd.exe on Windows, and the timeout stops the whole tree there (taskkill /T): killing cmd.exe
+// alone would leave the command running.
 export const shellExec: Exec = (command, { cwd, stdin, timeoutMs = 120_000, env }) =>
   new Promise((resolve) => {
-    const child = spawn("/bin/sh", ["-c", command], { cwd, env: env ?? checkoutEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    const e = env ?? checkoutEnv();
+    const sh = shellCommand(command, process.platform, e);
+    const child = spawn(sh.file, sh.args, { ...sh.options, cwd, env: e, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    const timer = setTimeout(() => (process.platform === "win32" && child.pid ? killTree(child.pid, "SIGKILL") : child.kill("SIGKILL")), timeoutMs);
     child.stdout.on("data", (d) => (stdout += String(d)));
     child.stderr.on("data", (d) => (stderr += String(d)));
     child.on("error", (e) => {

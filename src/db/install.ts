@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import pg from "pg";
+import { serverBinDir } from "../lib/pg-connect.js";
 import { newInstallSettings } from "../runner/isolation.js";
 import {
   assertDatabaseName,
@@ -31,9 +32,12 @@ export const INSTALL_WORDS = defineWords({
     created: (name: string) => `Base ${name} creada.`,
     exists: (name: string) => `La base ${name} ya existe y no la creó la instalación: si es la que quieres usar, nómbrala con --database ${name}.`,
     settings: (file: string, keys: string[]) => `Ajustes escritos en ${file}: ${keys.join(", ")}.`,
-    applied: (file: string) => `Migración ${file} aplicada.`,
+    // F3: one line for every migration applied.
+    migrated: (n: number) => (n === 0 ? "Las migraciones ya estaban al día." : n === 1 ? "1 migración aplicada." : `${n} migraciones aplicadas.`),
     needsBaseline: (name: string) => `La base ${name} tiene tablas y no tiene registro de migraciones: no se instala encima. Usa una base nueva.`,
     migrationFailed: (file: string, why: string) => `Falló la migración ${file}: ${why}`,
+    building: "Construyendo la pantalla…",
+    buildFailed: "No se pudo construir la pantalla; arriba está lo que dijo la herramienta.",
   },
   en: {
     machineCheck: "The machine check found something to fix before installing.",
@@ -42,9 +46,11 @@ export const INSTALL_WORDS = defineWords({
     created: (name: string) => `Database ${name} created.`,
     exists: (name: string) => `The database ${name} already exists and the install did not create it: if it is the one you want to use, name it with --database ${name}.`,
     settings: (file: string, keys: string[]) => `Settings written to ${file}: ${keys.join(", ")}.`,
-    applied: (file: string) => `Migration ${file} applied.`,
+    migrated: (n: number) => (n === 0 ? "The migrations were already up to date." : n === 1 ? "1 migration applied." : `${n} migrations applied.`),
     needsBaseline: (name: string) => `The database ${name} has tables and no migration record: the install does not go on top of it. Use a new database.`,
     migrationFailed: (file: string, why: string) => `Migration ${file} failed: ${why}`,
+    building: "Building the screen…",
+    buildFailed: "The screen could not be built; what the tool said is above.",
   },
 });
 
@@ -71,6 +77,9 @@ export type InstallOptions = {
   secret?: (bytes: number, encoding: "hex" | "base64") => string;
   // PLA-I2-2: the one-time code for the first-start screen (tests pass a fixed one).
   setupCode?: () => string;
+  // F1: the tool paths found on this machine (PLANIA_PG_BIN, PLANIA_CHROME_PATH), given the server's major and the
+  // folder it reports for its own programs (B4). Written to the settings file only where no value is set.
+  tools?: (server: { major: number; binDir: string | null }) => Record<string, string>;
   log?: (line: string) => void;
 };
 
@@ -98,10 +107,14 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
     throw new InstallError(w.noServer(why));
   }
   let created = false;
+  let tools: Record<string, string> = {};
   try {
     const { rows: v } = await admin.query("show server_version_num");
     if (Number(v[0].server_version_num) < MIN_PG_VERSION) {
       throw new InstallError(w.oldPostgres(String(v[0].server_version_num)));
+    }
+    if (opts.tools) {
+      tools = opts.tools({ major: Math.floor(Number(v[0].server_version_num) / 10000), binDir: await serverBinDir(admin, opts.url) });
     }
     const { rows } = await admin.query("select 1 from pg_database where datname = $1", [name]);
     if (rows.length === 0) {
@@ -122,10 +135,11 @@ export async function install(opts: InstallOptions): Promise<InstallResult> {
     if (!created && !opts.named && !(await hasRecord(c))) {
       throw new InstallError(w.exists(name));
     }
-    envKeys = writeSettings(opts.envPath, opts.examplePath, opts.url, opts.secret ?? defaultSecret);
+    envKeys = writeSettings(opts.envPath, opts.examplePath, opts.url, opts.secret ?? defaultSecret, tools);
     if (envKeys.length > 0) log(w.settings(opts.envPath, envKeys));
     try {
-      ({ applied } = await migrate(c, { files: opts.files, named: true, log: (f) => log(w.applied(f)) }));
+      ({ applied } = await migrate(c, { files: opts.files, named: true }));
+      log(w.migrated(applied.length));
     } catch (e) {
       if (e instanceof MigrateError && e.code === "NEEDS_BASELINE") {
         throw new InstallError(w.needsBaseline(name));
@@ -159,12 +173,14 @@ export async function issueSetupCode(c: pg.Client, envPath: string, make: () => 
 
 // Writes the settings file: starts from .env.example when there is no .env, sets DATABASE_URL to the installed
 // database, and generates the secrets that are empty. A value already set is never replaced (except DATABASE_URL).
+// F1: `tools` adds the paths the install found (PLANIA_PG_BIN, PLANIA_CHROME_PATH) under the same rule.
 // Returns the keys it wrote.
 export function writeSettings(
   envPath: string,
   examplePath: string | undefined,
   url: string,
   secret: (bytes: number, encoding: "hex" | "base64") => string,
+  tools: Record<string, string> = {},
 ): string[] {
   const text = existsSync(envPath)
     ? readFileSync(envPath, "utf8")
@@ -179,6 +195,9 @@ export function writeSettings(
     ["MCP_BEARER_TOKEN", (cur) => (cur ? null : secret(32, "hex"))],
     // PLA-I2-7: a new install starts with run isolation on; an existing .env is left as it is.
     ...Object.entries(newInstallSettings()).map(([key, value]): [string, (current: string) => string | null] => [key, (cur) => (isNew && !cur ? value : null)]),
+    ...Object.entries(tools)
+      .filter(([, value]) => value.trim())
+      .map(([key, value]): [string, (current: string) => string | null] => [key, (cur) => (cur ? null : value)]),
   ];
   const written: string[] = [];
   for (const [key, next] of wanted) {

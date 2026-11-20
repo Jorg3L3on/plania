@@ -87,6 +87,12 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>,
     const problem = startBranchProblem(next.start_branch);
     if (problem) throw new ToolError("INVALID_FILTER", { field: "settings.start_branch", hint: problem });
   }
+  if (next.marca !== undefined && next.marca !== null) {
+    const m = next.marca as { native?: unknown };
+    if (typeof m !== "object" || Array.isArray(m) || Object.keys(m).some((k) => k !== "native") || (m.native !== undefined && typeof m.native !== "boolean")) {
+      throw new ToolError("INVALID_FILTER", { field: "settings.marca", hint: "{native: true | false}" });
+    }
+  }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };
     if (typeof team !== "object" || team === null || Array.isArray(team)) throw new ToolError("INVALID_FILTER", { field: "settings.team" });

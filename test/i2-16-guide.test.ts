@@ -105,15 +105,23 @@ test("I2-16 #2: each step ticks from data as the owner goes, and the guide goes 
   assert.deepEqual(r.proyecto, { slug: "ejemplo", title: "Ejemplo" });
   assert.equal(estados(r).proyecto, "hecho");
   assert.equal(estados(r).reanudar, "ahora");
-  assert.equal(ui.pasosDe(r as never)[2]!.href, "/ceo?hoja=reanudar", "the company is paused first");
+  // F6: both paused; the guide's one Reanudar resumes the two, and its words say so.
+  const paso = ui.pasosDe(r as never, "es")[2]!;
+  assert.equal(paso.accion, "reanudar");
+  assert.equal(paso.texto, "La compañía y Ejemplo empiezan en pausa. Reanudar pone a andar las dos con un solo botón.");
+  assert.equal(paso.href, "/ceo?proyecto=ejemplo&hoja=reanudar:ejemplo");
+  assert.deepEqual(ui.aReanudar(r as never), { project: "ejemplo", company: true });
 
-  // Reanudar: the company, then the project; the step waits for both.
+  // Reanudar: the step waits for both.
   assert.equal((await post("/api/company/switch", { paused: false })).status, 200);
   r = await guia();
   assert.equal(estados(r).reanudar, "ahora");
-  assert.equal(ui.pasosDe(r as never)[2]!.href, "/ceo?hoja=reanudar:ejemplo");
+  assert.deepEqual(ui.aReanudar(r as never), { project: "ejemplo", company: false });
+  assert.equal(ui.pasosDe(r as never, "es")[2]!.texto, ui.PRIMERA_ENTREGA_WORDS.es.reanudar.proyecto);
   assert.equal((await post("/api/company/projects/ejemplo/switch", { paused: false })).status, 200);
-  assert.equal(estados(await guia()).reanudar, "hecho");
+  r = await guia();
+  assert.equal(estados(r).reanudar, "hecho");
+  assert.equal(ui.pasosDe(r as never)[2]!.accion, undefined, "nothing left to resume");
 
   // The suggested request, as the guide's button sends it.
   const ask = await post("/api/company/projects/ejemplo/ask", { text: ui.PEDIDO_SUGERIDO, now: false });
