@@ -13,10 +13,12 @@ export type Style = {
   img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
 export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
-export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string };
+// PLA-130: fields, the settings of a part that reach the files and differ from where the style started.
+export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string; fields?: (keyof Style)[] };
 export type StyleRead = {
   style: Style | null;
   base: Style;
+  start?: Style;
   repo: RepoStyle;
   changes: StyleChange[];
   old: { path: string; n: number; colors: string[] }[];
@@ -187,12 +189,30 @@ export function repoAsStyle(repo: RepoStyle, base: Style): Style {
 }
 
 /** What differs from the repo, part by part (the server's changesOf, plus the parts the repo cannot say). */
-export function changesOf(s: Style, repo: RepoStyle): StyleChange[] {
+export function changesOf(s: Style, repo: RepoStyle, start?: Style): StyleChange[] {
   const out: StyleChange[] = [];
   const rb = repo.brand ?? repo.theme;
   if (!rb || distance(rb, s.brand) > 0.02 || (repo.accent && distance(repo.accent, s.accent) > 0.02)) out.push({ part: "color", from: rb ?? "—", to: s.brand });
   if ((repo.body ?? SYSTEM) !== s.body || (repo.head ?? repo.body ?? SYSTEM) !== s.head) out.push({ part: "letra", from: repo.head ?? repo.body ?? SYSTEM, to: s.head === s.body ? s.head : `${s.head} + ${s.body}` });
   if ((repo.radius ?? -1) !== s.radius) out.push({ part: "forma", from: repo.radius === undefined ? "—" : `${repo.radius} px`, to: `${s.radius} px` });
+  if (!start) return out;
+  // PLA-130: the settings the repo cannot say, against where the style started; only those that reach brand.css,
+  // tokens.json or Taller's note (borders, icon fill and images only change the preview).
+  const extra: Record<StyleChange["part"], (keyof Style)[]> = {
+    color: ["neutral", ...(repo.accent ? [] : (["accent"] as (keyof Style)[]))],
+    letra: ["base", "ratio", "wHead", "lh", "mono"],
+    forma: ["pill", "shadow"],
+    espacio: ["density"],
+    iconos: ["lib", "stroke"],
+    mov: ["motion"],
+  };
+  for (const part of Object.keys(extra) as StyleChange["part"][]) {
+    const fields = extra[part].filter((k) => s[k] !== start[k]);
+    if (!fields.length) continue;
+    const had = out.find((c) => c.part === part);
+    if (had) had.fields = fields;
+    else out.push({ part, from: "", to: "", fields });
+  }
   return out;
 }
 
@@ -211,6 +231,10 @@ export const ESTILO_WORDS = defineWords({
     unset: "no lo define",
     undo: "Volver a lo del repo",
     undoNone: "El repo no lo define: Plania lo agrega.",
+    fields: { neutral: "grises", accent: "color secundario", base: "tamaño del texto", ratio: "escala de títulos", wHead: "grosor de títulos", lh: "interlineado", mono: "letra de código", pill: "botones píldora", shadow: "sombras", density: "aire", lib: "librería", stroke: "trazo", motion: "movimiento" } as Record<string, string>,
+    fieldsLine: (list: string) => `Cambia: ${list}`,
+    yes: "sí",
+    no: "no",
     undoAll: {
       button: "Deshacer cambios",
       title: "¿Volver todo a lo del repo?",
@@ -410,6 +434,10 @@ export const ESTILO_WORDS = defineWords({
     unset: "not set",
     undo: "Back to what the repo has",
     undoNone: "The repo does not set it: Plania adds it.",
+    fields: { neutral: "greys", accent: "secondary colour", base: "text size", ratio: "heading scale", wHead: "heading weight", lh: "line height", mono: "code font", pill: "pill buttons", shadow: "shadows", density: "spacing", lib: "library", stroke: "stroke", motion: "motion" } as Record<string, string>,
+    fieldsLine: (list: string) => `Changes: ${list}`,
+    yes: "yes",
+    no: "no",
     undoAll: {
       button: "Undo changes",
       title: "Put everything back to what the repo has?",

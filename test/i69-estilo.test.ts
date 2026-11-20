@@ -255,3 +255,20 @@ test("PLA-130: a repo with no dark mode gets none: no .dark block, no dark token
   assert.equal(ui.brandCss(s, { dark: false }), css);
   assert.equal(ui.tokensJson(s, { dark: false }), style.tokensJson(s, { dark: false }));
 });
+
+test("PLA-130: a setting the repo cannot say (spacing, motion, stroke, greys…) counts as a change against where the style started", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const repo = { brand: "#1f2b5c", head: "Inter", body: "Inter", radius: 8, files: [] };
+  const start = style.startStyle(repo, null);
+  assert.deepEqual(ui.changesOf(start, repo, start), [], "untouched: nothing to bring");
+  const roomy = ui.changesOf({ ...start, density: "amplio" }, repo, start);
+  assert.deepEqual(roomy.map((c) => [c.part, c.fields]), [["espacio", ["density"]]]);
+  const many = ui.changesOf({ ...start, motion: "vivo", stroke: 1.5, neutral: "calido", base: 18, shadow: "marcada" }, repo, start);
+  assert.deepEqual(many.map((c) => c.part).sort(), ["color", "forma", "iconos", "letra", "mov"]);
+  const preview = ui.changesOf({ ...start, border: 2, fill: true, img: "linea", people: true }, repo, start);
+  assert.deepEqual(preview, [], "borders, icon fill and images never reach the files");
+  const both = ui.changesOf({ ...start, radius: 12, pill: true }, repo, start).find((c) => c.part === "forma")!;
+  assert.equal(both.from, "8 px");
+  assert.deepEqual(both.fields, ["pill"], "the repo's value and Plania's own settings in one part");
+  assert.equal(ui.changesOf({ ...start, density: "amplio" }, repo).length, 0, "without a start only what the repo says is compared");
+});

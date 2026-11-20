@@ -308,6 +308,9 @@ const REQ = /<!-- plania:marca-estilo set=([0-9a-f]{16}) -->/;
 export type StyleRead = {
   style: Style | null;
   base: Style;
+  /** PLA-130: where the style starts before anyone touches it (the repo's values, then Plania's defaults), to tell
+   * what changed in the parts the repo cannot say (spacing, motion, icon stroke…). */
+  start: Style;
   repo: RepoStyle;
   changes: StyleChange[];
   old: { path: string; n: number; colors: string[] }[];
@@ -391,7 +394,8 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     olds.set(okey, old);
   }
   const c = { read: { repo, old, framework: part.framework, root: part.root } };
-  const base = current ?? startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
+  const start = startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
+  const base = current ?? start;
   const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn, dark: !!c.read.repo.dark };
   // A brand that follows the logo takes the logo's colour as it changes.
   const eff = base.brandTie === "sigue" && theme ? { ...base, brand: theme } : base;
@@ -403,6 +407,7 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   return {
     style: current,
     base: eff,
+    start,
     ...c.read,
     changes: current ? changesOf(eff, c.read.repo, { theme }) : [],
     versions: load(slug)?.versions.length ?? 0,

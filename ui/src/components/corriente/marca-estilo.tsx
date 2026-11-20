@@ -12,7 +12,7 @@ import { api, ApiError } from "@/lib/api";
 import { contrast, scale, STEPS } from "@/lib/color";
 import {
   FONT_CAT, LIBS, PAIRS, RATIOS, SECS, SYSTEM, changesOf, codeOf, estiloWords, family, fontHref, fromCode, repoAsStyle, tokens,
-  type CodeFmt, type EstiloWords, type Sec, type Style, type StyleRead,
+  type CodeFmt, type EstiloWords, type Sec, type Style, type StyleChange, type StyleRead,
 } from "@/lib/estilo";
 import { ReadError } from "./parts";
 
@@ -273,7 +273,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   if (!r || !x || !repoX) return <div className="cor-skel" style={{ flex: 1 }} role="status" aria-busy="true" aria-label={w.loading} />;
 
   const t = tokens(x);
-  const ch = changesOf(x, r.repo);
+  const ch = changesOf(x, r.repo, r.start);
   const nFiles = 2 + (x.head !== SYSTEM || x.body !== SYSTEM ? 1 : 0);
   const changed = (k: Sec) => ch.some((c) => c.part === k);
   const fromLogo = [...new Set([r.logo.theme, ...r.logo.colors].filter((c): c is string => !!c && /^#[0-9a-f]{6}$/i.test(c)))].slice(0, 3);
@@ -593,19 +593,37 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     );
   // PLA-130: what a part changes, from the repo's value to this style's, and the way back to the repo's for that part.
   const say = (v: string) => (v === "—" ? w.unset : v === SYSTEM ? w.caps.sys : v.startsWith("#") ? v.toUpperCase() : v);
-  const undoOf = (k: Sec): Partial<Style> | null => {
-    if (k === "color") { const b = r.repo.brand ?? r.repo.theme; return b ? { brand: b, accent: r.repo.accent ?? x.accent, brandTie: "fijo" } : null; }
+  const repoUndo = (k: Sec): Partial<Style> | null => {
+    if (k === "color") { const b = r.repo.brand ?? r.repo.theme; return b ? { brand: b, ...(r.repo.accent ? { accent: r.repo.accent } : {}), brandTie: "fijo" } : null; }
     if (k === "letra") return { head: r.repo.head ?? r.repo.body ?? SYSTEM, body: r.repo.body ?? SYSTEM };
     if (k === "forma") return r.repo.radius !== undefined ? { radius: r.repo.radius } : null;
     return null;
   };
+  // PLA-130: a part goes back whole: what the repo says, and every other setting to where the style started.
+  const undoOf = (k: Sec): Partial<Style> | null => {
+    const c = ch.find((y) => y.part === k);
+    if (!c) return null;
+    const back = c.from ? repoUndo(k) : null;
+    const fields = r.start && c.fields?.length ? Object.fromEntries(c.fields.map((f) => [f, r.start![f]])) : null;
+    return back || fields ? { ...(fields ?? {}), ...(back ?? {}) } : null;
+  };
+  const valOf = (f: keyof Style, v: unknown): string =>
+    f === "neutral" ? w.color.neutral[v as string] ?? String(v)
+    : f === "shadow" ? w.forma.shadow[v as string] ?? String(v)
+    : f === "density" ? w.espacio.density[v as string] ?? String(v)
+    : f === "motion" ? w.mov.motion[v as string] ?? String(v)
+    : f === "pill" ? (v ? w.yes : w.no)
+    : f === "base" ? `${v} px`
+    : typeof v === "string" ? say(v) : String(v);
+  const fieldsSay = (c: StyleChange): string => (c.fields ?? []).map((f) => `${w.fields[f] ?? f}: ${valOf(f, r.start?.[f])} → ${valOf(f, x[f])}`).join(" · ");
   const diffLine = (k: Sec): ReactNode => {
     const c = ch.find((y) => y.part === k);
     if (!c) return null;
     const undo = undoOf(k);
     return (
       <div className="es-diff" role="status">
-        <span>{w.diff(say(c.from), say(c.to))}</span>
+        {c.from && <span>{w.diff(say(c.from), say(c.to))}</span>}
+        {!!c.fields?.length && <span>{w.fieldsLine(fieldsSay(c))}</span>}
         {undo ? (
           <button type="button" className="es-more" onClick={() => edit(undo)} data-control={`estilo-deshacer-${k}`}>{w.undo}</button>
         ) : (
@@ -675,7 +693,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
             {ch.map((c) => (
               <li key={c.part}>
                 <b>{w.secs[c.part] ?? c.part}</b>
-                <span>{undoOf(c.part as Sec) ? w.undoAll.back(say(c.to), say(c.from)) : w.undoAll.stays}</span>
+                <span>{!undoOf(c.part as Sec) ? w.undoAll.stays : c.from && repoUndo(c.part as Sec) ? w.undoAll.back(say(c.to), say(c.from)) : (c.fields ?? []).map((f) => `${w.fields[f] ?? f}: ${valOf(f, x[f])} → ${valOf(f, r.start?.[f])}`).join(" · ")}</span>
               </li>
             ))}
           </ul>
