@@ -1,4 +1,5 @@
 import type { Oficio } from "./oficio";
+import type { Puesto, SkillCard, SkillDraft } from "./oficio-skills";
 import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
@@ -27,6 +28,9 @@ export class ApiError extends Error {
     super(code);
   }
 }
+
+// PLA-I67-2: one seat's routes under the company API.
+const seatPath = (slug: string, agent: string) => `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}`;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -226,6 +230,17 @@ export const api = {
   oficio: (slug: string, agent: string) => request<Oficio>("GET", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/oficio`),
   setSeatPacks: (slug: string, agent: string, packs: string[]) =>
     request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs, own: true }),
+  // PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
+  skillCard: (slug: string, agent: string, skill: string) => request<SkillCard>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
+  createSkill: (slug: string, agent: string, d: SkillDraft) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills`, d),
+  editSkill: (slug: string, agent: string, skill: string, d: Partial<SkillDraft>) => request<SkillCard>("PUT", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`, d),
+  setSkillOn: (slug: string, agent: string, skill: string, on: boolean) => request<SkillCard>("PUT", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/state`, { on }),
+  rollbackSkill: (slug: string, agent: string, skill: string, n: number) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/rollback`, { n }),
+  duplicateSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/duplicate`),
+  deleteSkill: (slug: string, agent: string, skill: string) => request<{ archived: string }>("DELETE", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
+  restoreSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/restore`),
+  puesto: (slug: string, agent: string) => request<Puesto>("GET", `${seatPath(slug, agent)}/puesto`),
+  setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),

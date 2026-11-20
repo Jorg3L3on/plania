@@ -16,8 +16,12 @@ import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { OFICIO_WORDS } from "@/lib/oficio-words";
 import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord, rowsOf, shelfNext, skillWords, threadWidth, type Oficio, type OficioDelivery, type Row } from "@/lib/oficio";
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
+import { NewSkillPanel, PuestoPanel, SkillPanel } from "./oficio-skill";
+import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
+
+type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" };
 
 const ROW = 30;
 const LABEL_W = 268;
@@ -195,10 +199,28 @@ const Readout = ({ d, o, now, timeZone, links, style }: { d: OficioDelivery; o: 
   );
 };
 
-const Shelf = ({ o, seat, onClose }: { o: Oficio; seat: string; onClose: () => void }) => {
+const Shelf = ({ o, seat, onClose, onOpen, onNew }: { o: Oficio; seat: string; onClose: () => void; onOpen: (slug: string) => void; onNew: () => void }) => {
   const w = words(OFICIO_WORDS);
+  const ws = words(SKILL_CARD_WORDS);
   const client = useQueryClient();
-  const carried = o.skills.filter((s) => s.on).map((s) => s.slug);
+  // PLA-I67-2: the seat's own list holds the factory skills only; an owner skill switches its own state.
+  const carried = o.skills.filter((s) => s.on && !s.owner).map((s) => s.slug);
+  const onCount = o.skills.filter((s) => s.on).length;
+  const puesto = useQuery({ queryKey: ["puesto", o.project, o.agent], queryFn: () => api.puesto(o.project, o.agent) });
+  const own = useMutation({
+    mutationFn: ({ slug, on }: { slug: string; on: boolean }) => api.setSkillOn(o.project, o.agent, slug, on),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
+      void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
+    },
+  });
+  const restore = useMutation({
+    mutationFn: (slug: string) => api.restoreSkill(o.project, o.agent, slug),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
+      void client.invalidateQueries({ queryKey: ["puesto", o.project, o.agent] });
+    },
+  });
   const save = useMutation({
     mutationFn: (list: string[]) => api.setSeatPacks(o.project, o.agent, list),
     onSuccess: () => {
@@ -208,6 +230,7 @@ const Shelf = ({ o, seat, onClose }: { o: Oficio; seat: string; onClose: () => v
   });
   const factory = o.skills.filter((s) => s.source === "kit");
   const docs = o.skills.filter((s) => s.source === "doc");
+  const mine = o.skills.filter((s) => s.source === "owner");
   const err = save.error instanceof ApiError ? (save.error.code === "TOO_MANY_PACKS" ? w.tooManyCode : w.saveFailed(save.error.code)) : save.isError ? words(EQUIPO_WORDS).notNow : null;
   const group = (label: string, list: typeof o.skills) =>
     list.length > 0 && (
@@ -220,8 +243,17 @@ const Shelf = ({ o, seat, onClose }: { o: Oficio; seat: string; onClose: () => v
             const sw = skillWords(s);
             return (
               <li key={s.slug} data-shelf={s.slug}>
-                <Switch on={s.on} label={sw.name} disabled={save.isPending} onChange={(on) => save.mutate(shelfNext(carried, s.slug, on))} data-control={`estante-${s.slug}`} />
-                <span className="cor-cap ofi-shelf-line">{sw.line}</span>
+                <Switch
+                  on={s.on}
+                  label={sw.name}
+                  disabled={save.isPending || own.isPending}
+                  onChange={(on) => (s.owner ? own.mutate({ slug: s.slug, on }) : save.mutate(shelfNext(carried, s.slug, on)))}
+                  data-control={`estante-${s.slug}`}
+                />
+                <button type="button" className="ofi-shelf-open cor-cap" onClick={() => onOpen(s.slug)} aria-label={ws.openCard(sw.name)} data-control={`ver-${s.slug}`}>
+                  <span className="ofi-shelf-line">{sw.line}</span>
+                  <span aria-hidden>›</span>
+                </button>
               </li>
             );
           })}
@@ -236,21 +268,42 @@ const Shelf = ({ o, seat, onClose }: { o: Oficio; seat: string; onClose: () => v
           ×
         </Btn>
       </div>
+      <Btn kind="secondary" className="ofi-wide" onClick={onNew} data-control="nueva-habilidad">
+        {ws.newSkill}
+      </Btn>
       <p className="cor-cap ofi-shelf-hint">
-        {w.onCount(numWord(carried.length, undefined, true), carried.length)} {w.focusHint} {carried.length > 6 ? w.tooMany : ""}
+        {w.onCount(numWord(onCount, undefined, true), onCount)} {w.focusHint} {onCount > 6 ? w.tooMany : ""}
       </p>
       <p className="cor-cap" role="status">
         {save.isPending ? w.saving : err ? <span className="cor-state bad">{err}</span> : save.isSuccess ? w.savedNext : o.own ? w.ownKit : w.defaultKit}
       </p>
       <div className="ofi-shelf-scroll">
+        {group(ws.groupYours(mine.length), mine)}
         {group(w.groupFactory(factory.length), factory)}
         {group(w.groupDocs(docs.length), docs)}
+        {!!puesto.data?.archived.length && (
+          <>
+            <Label as="p" className="ofi-shelf-group">
+              {ws.groupRemoved}
+            </Label>
+            <ul className="ofi-shelf-list">
+              {puesto.data.archived.map((a) => (
+                <li key={a.slug} className="ofi-shelf-removed" data-removed={a.slug}>
+                  <span className="cor-muted">{a.name}</span>
+                  <Btn kind="link" disabled={restore.isPending} onClick={() => restore.mutate(a.slug)} aria-label={ws.restoreOf(a.name)} data-control={`recuperar-${a.slug}`}>
+                    {ws.restore}
+                  </Btn>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </section>
   );
 };
 
-const NextRun = ({ o, onShelf }: { o: Oficio; onShelf: () => void }) => {
+const NextRun = ({ o, onShelf, onPuesto }: { o: Oficio; onShelf: () => void; onPuesto: () => void }) => {
   const w = words(OFICIO_WORDS);
   const on = o.skills.filter((s) => s.on);
   return (
@@ -269,9 +322,14 @@ const NextRun = ({ o, onShelf }: { o: Oficio; onShelf: () => void }) => {
         {on.length === 0 && <li className="cor-muted">{w.nextRunNone}</li>}
       </ul>
       <p className="cor-cap">{w.useRate(o.runs.total, o.runs.used_any)}</p>
-      <Btn kind="secondary" onClick={onShelf} data-control="abrir-estanteria">
-        {w.openShelf}
-      </Btn>
+      <div className="ofi-actions">
+        <Btn kind="secondary" onClick={onShelf} data-control="abrir-estanteria">
+          {w.openShelf}
+        </Btn>
+        <Btn kind="link" onClick={onPuesto} data-control="abrir-puesto">
+          {words(PUESTO_WORDS).open}
+        </Btn>
+      </div>
     </section>
   );
 };
@@ -282,10 +340,13 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   const member = p.team.find((m) => m.agent === agent) ?? null;
   const seat = seatName(member?.role ?? q.data?.role ?? agent);
   const [pick, setPick] = useState<string | null>(null);
-  const [shelf, setShelf] = useState(false);
+  // PLA-I67-2: the side column shows one thing: the next run, the shelf, a skill's card, the new skill form or the puesto.
+  const [side, setSide] = useState<Side>({ kind: "next" });
+  const shelf = side.kind !== "next";
+  const setShelf = (open: boolean) => setSide(open ? { kind: "shelf" } : { kind: "next" });
   useEffect(() => {
     setPick(null);
-    setShelf(false);
+    setSide({ kind: "next" });
   }, [agent]);
   const o = q.data;
   const chosen = o ? (o.deliveries.some((d) => d.key === pick) ? pick : firstPick(o.deliveries)) : null;
@@ -304,7 +365,7 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
             </Link>
           ))}
         </nav>
-        <Btn kind="link" onClick={() => setShelf(!shelf)} aria-expanded={shelf} data-control="estanteria">
+        <Btn kind="link" onClick={() => setShelf(side.kind !== "shelf")} aria-expanded={side.kind === "shelf"} data-control="estanteria">
           {w.shelf}
         </Btn>
         <Link to={links.motor} className="cor-btn link" data-control="motor">
@@ -345,7 +406,17 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                   </dd>
                 </div>
               </dl>
-              {shelf ? <Shelf o={o} seat={seat} onClose={() => setShelf(false)} /> : <NextRun o={o} onShelf={() => setShelf(true)} />}
+              {side.kind === "shelf" ? (
+                <Shelf o={o} seat={seat} onClose={() => setShelf(false)} onOpen={(slug) => setSide({ kind: "skill", slug })} onNew={() => setSide({ kind: "new" })} />
+              ) : side.kind === "skill" ? (
+                <SkillPanel o={o} seat={seat} slug={side.slug} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
+              ) : side.kind === "new" ? (
+                <NewSkillPanel o={o} seat={seat} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
+              ) : side.kind === "puesto" ? (
+                <PuestoPanel o={o} seat={seat} motorLink={links.motor} onClose={() => setSide({ kind: "next" })} />
+              ) : (
+                <NextRun o={o} onShelf={() => setShelf(true)} onPuesto={() => setSide({ kind: "puesto" })} />
+              )}
             </aside>
           </div>
         </>

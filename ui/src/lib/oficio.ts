@@ -9,10 +9,12 @@ export type OficioSkill = {
   slug: string;
   name: string;
   when: string;
-  source: "kit" | "doc";
+  source: "kit" | "doc" | "owner";
   version: string;
   on: boolean;
   factory: boolean;
+  // PLA-I67-2: the owner's skill (or copy of a factory one) in this agent's scope; null for the factory kit.
+  owner: { scope: string; state: string; origin: string; n: number } | null;
   runs_carried: number;
   runs_used: number;
   deliveries_carried: number;
@@ -43,11 +45,13 @@ export type Oficio = {
   runs: { total: number; with_kit: number; used_any: number };
   live: { key: string | null; since: string } | null;
   window_days: number;
+  too_many?: boolean;
 };
 
 /** A skill in the owner's language: Plania's own skills by slug, anything else by its own name and description. */
-export function skillWords(s: { slug: string; name: string; when: string }, language: Language = getLanguage()): SkillWords {
-  const known = (words(KIT_SKILL_WORDS, language) as Record<string, SkillWords | undefined>)[s.slug];
+export function skillWords(s: { slug: string; name: string; when: string; source?: string }, language: Language = getLanguage()): SkillWords {
+  // PLA-I67-2: the owner's own skill (or a copy they renamed) reads by its own name.
+  const known = s.source === "owner" && s.name !== s.slug ? undefined : (words(KIT_SKILL_WORDS, language) as Record<string, SkillWords | undefined>)[s.slug];
   if (known) return known;
   const line = s.when.length > 120 ? `${s.when.slice(0, 119).trimEnd()}…` : s.when;
   return { name: s.name, line };

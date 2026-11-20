@@ -44,6 +44,7 @@ import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings, selfR
 import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
+import { mannerBlock, mannerVersion, resolvedKit } from "./skills.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
 import { runSession } from "./run-session.js";
@@ -1215,6 +1216,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
   let systemPromptPath: string | null = null;
   let promptVersion: string | null = null;
+  let mannerStamp: string | null = null;
   if (!resume) {
     const doc = await promptDoc(db, role, env);
     if (!doc) {
@@ -1226,7 +1228,12 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     // which judges the change on its own).
     const context = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
     systemPromptPath = path.join(tmp, "role-prompt.md");
-    writeFileSync(systemPromptPath, context ? `${doc.markdown.trimEnd()}\n\n${context}\n` : doc.markdown, { mode: 0o600 });
+    // PLA-I67-2: «tu manera», the owner's text for this agent, after the role prompt and the context (not for QA or
+    // a question from Preguntar, which run on the role alone).
+    const manner = qa || consulta ? null : mannerBlock(ctx.agent.manner);
+    if (manner) mannerStamp = mannerVersion(ctx.agent.manner);
+    const parts = [doc.markdown.trimEnd(), context, manner].filter((x): x is string => !!x);
+    writeFileSync(systemPromptPath, parts.length > 1 ? `${parts.join("\n\n")}\n` : doc.markdown, { mode: 0o600 });
   }
   const settingsPath = path.join(tmp, "settings.json");
   // PLA-I52-6: a run that answers the owner's question about a delivery reads only, like QA.
@@ -1248,7 +1255,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
   // left alone (whatever an older run left there is cleared). PLANIA_KIT_MODE=worktree keeps the older delivery.
-  const carried = consulta ? [] : await packsOf(db, ctx.agent, env, role);
+  // PLA-I67-2: the factory kit merged with the owner's skills in scope (src/runner/skills.ts).
+  const carried = consulta ? [] : await resolvedKit(db, ctx.agent, env, role);
   const inWorktree = env.PLANIA_KIT_MODE === "worktree";
   const packs = inWorktree ? writePacks(cwd, carried) : [];
   if (!inWorktree && !consulta) clearPacks(cwd);
@@ -1350,6 +1358,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       // AUDIT-2: what this run was given (a resumed session keeps the prompt it started with, so none is named).
       promptVersion,
       skills: carried.map(skillVersion),
+      mannerVersion: mannerStamp,
     })
     .where(eq(agentRuns.id, run.id));
 

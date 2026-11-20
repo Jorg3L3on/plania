@@ -8,6 +8,13 @@ and every run is stamped with the version of the kit it ran with (`agent_runs.pr
 Nothing here is ever written into a product repo. The runner hands a run its kit from outside the
 repo's tracked files.
 
+This folder is the **factory kit**: Plania's own, the same in every installation. What an owner writes
+for their agents on the Oficio page (their own skills, an edited copy of a factory skill, «tu manera»)
+lives in versioned data in their Plania, not here ([ADR 0006](../docs/adr/0006-owner-written-knowledge-lives-in-versioned-data.md)).
+A run carries both, resolved per agent (`src/runner/skills.ts`), and is stamped `slug@hash` for each
+skill whichever source it came from. An owner copy replaces the factory skill only for the agents in
+its scope; the factory file is never written from the screen.
+
 ## Layout
 
 ```
@@ -54,6 +61,8 @@ is true of one project belongs in that project's context; what a command can enf
 check, not in prose.
 
 ## Adding a skill, or a line to one
+
+This section is about the factory kit. An owner's own skills follow the owner's judgement.
 
 Only after a failure seen in a real run. Not because a practice sounds good, and not in advance.
 

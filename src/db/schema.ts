@@ -877,6 +877,9 @@ export const agents = pgTable(
     consultaEffort: text("consulta_effort"),
     // PLA-I60 (0060): this seat's own «a la vez» (null: the project's «por agente»).
     maxParallel: integer("max_parallel"),
+    // PLA-I67-2 (0068): «tu manera», the owner's instruction for this agent, appended after the role prompt.
+    manner: text("manner"),
+    mannerUpdatedAt: timestamp("manner_updated_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -1135,6 +1138,8 @@ export const agentRuns = pgTable(
     skillsUsed: text("skills_used").array().notNull().default(sql`'{}'::text[]`),
     // AUDIT-7: the context the last turn carried (input + cache read + cache create of that turn), null when unknown.
     contextTokens: bigint("context_tokens", { mode: "number" }),
+    // PLA-I67-2 (0068): the first 8 of the sha256 of the «tu manera» the run carried (null: none).
+    mannerVersion: text("manner_version"),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
@@ -1732,3 +1737,57 @@ export const installState = pgTable(
   },
   (t) => [check("install_state_singleton", sql`${t.id} = 1`)],
 );
+
+// PLA-I67-2: skills the owner writes on screen and their immutable versions (migration 0068, ADR 0006).
+// src/runner/skills.ts resolves them with the factory kit; the newest version is what runs carry.
+export const SKILL_SCOPES = ["company", "seat", "project", "agent"] as const;
+export type SkillScope = (typeof SKILL_SCOPES)[number];
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    origin: text("origin").$type<"owner" | "factory-copy" | "imported">().notNull().default("owner"),
+    scope: text("scope").$type<SkillScope>().notNull().default("agent"),
+    role: text("role"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    state: text("state").$type<"on" | "off" | "archived">().notNull().default("on"),
+    factorySha: text("factory_sha"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull().default("owner"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("skills_slug_live_unique").on(t.slug).where(sql`${t.state} <> 'archived'`),
+    index("skills_agent_idx").on(t.agentId),
+    index("skills_project_idx").on(t.projectId),
+    check("skills_slug_check", sql`${t.slug} ~ '^[a-z][a-z0-9-]{0,39}$'`),
+    check("skills_origin_check", sql`${t.origin} in ('owner', 'factory-copy', 'imported')`),
+    check("skills_scope_check", sql`${t.scope} in ('company', 'seat', 'project', 'agent')`),
+    check("skills_state_check", sql`${t.state} in ('on', 'off', 'archived')`),
+  ],
+);
+export type OwnerSkillRow = typeof skills.$inferSelect;
+
+export type SkillFile = { path: string; content: string };
+export const skillVersions = pgTable(
+  "skill_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    body: text("body").notNull(),
+    files: jsonb("files").$type<SkillFile[]>().notNull().default([]),
+    hash: text("hash").notNull(),
+    author: text("author").notNull().default("owner"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("skill_versions_skill_n_unique").on(t.skillId, t.n), check("skill_versions_n_check", sql`${t.n} >= 1`)],
+);
+export type SkillVersionRow = typeof skillVersions.$inferSelect;

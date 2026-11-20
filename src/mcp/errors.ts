@@ -33,6 +33,9 @@ export const ERRORS = {
   REPO_GITHUB_NOT_FOUND: [400, "GitHub: no repository with that owner/name for this gh login"],
   REPO_GITHUB_NO_WRITE: [400, "GitHub: this gh login cannot write to the repository"],
   REPO_GITHUB_FAILED: [400, "GitHub: gh failed (detail: step)"],
+  // PLA-I67-2: skills the owner writes on screen (src/runner/skills.ts).
+  SKILL_INVALID: [400, "a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint)"],
+  SKILL_NOT_ALLOWED: [400, "a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint)"],
   INVALID_GOAL: [400, "a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal"],
   INVALID_PHASE: [400, "phase is not an integer 0..999"],
   INVALID_PRIORITY: [400, "priority is not P0, P1, P2 or P3"],
@@ -74,6 +77,7 @@ export const ERRORS = {
   FINDING_NOT_FOUND: [404, "audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix"],
   INITIATIVE_NOT_FOUND: [404, "get_next initiative_key is not an initiative of this project"],
   PROJECT_NOT_FOUND: [404, "unknown project slug"],
+  SKILL_NOT_FOUND: [404, "no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill)"],
   THREAD_NOT_FOUND: [404, "thread is not \"company\", a project slug with a thread, or a thread id"],
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
   RESULT_NOT_FOUND: [404, "evidence_id is not a result of this project"],
@@ -116,6 +120,7 @@ export const ERRORS = {
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],
   PING_PONG: [409, "this owner pair already assigned the other way (detail: from, to). The owner stays"],
+  SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;

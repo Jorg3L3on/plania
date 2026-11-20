@@ -23,7 +23,8 @@ import type { Db } from "../db/client.js";
 import { agents, projects } from "../db/schema.js";
 import { defaultSkills } from "../runner/kit.js";
 import { roleOf } from "../runner/limits.js";
-import { listPacks, packsOf } from "../runner/packs.js";
+import { listPacks } from "../runner/packs.js";
+import { ownerEntry, ownerSkillsFor, resolvedKit, SKILLS_WARN } from "../runner/skills.js";
 import { LEGACY_CHANGES_LIKE, LEGACY_CHANGES_PREFIX } from "../runner/runner.js";
 import { scrub } from "./scoreboard.js";
 
@@ -38,10 +39,12 @@ export type OficioSkill = {
   slug: string;
   name: string;
   when: string;
-  source: "kit" | "doc";
+  source: "kit" | "doc" | "owner";
   version: string;
   on: boolean;
   factory: boolean;
+  // PLA-I67-2: an owner skill (or an owner copy of a factory one) in this agent's scope; null for the factory kit.
+  owner: { scope: string; state: string; origin: string; n: number } | null;
   runs_carried: number;
   runs_used: number;
   deliveries_carried: number;
@@ -72,6 +75,8 @@ export type Oficio = {
   runs: { total: number; with_kit: number; used_any: number };
   live: { key: string | null; since: string } | null;
   window_days: number;
+  // PLA-I67-2: more skills on than the screen recommends.
+  too_many: boolean;
 };
 export type OficioError = { error: "PROJECT_NOT_FOUND" | "AGENT_NOT_FOUND"; status: 404; hint: string };
 
@@ -102,8 +107,12 @@ export async function oficioRead(db: Db, slug: string, agentSlug: string, env: N
     .limit(1);
   if (!a || a.status === "retired") return { error: "AGENT_NOT_FOUND", status: 404, hint: `${agentSlug} is not on ${slug}'s team` };
   const role = roleOf(a);
-  const shelf = await listPacks(db, env);
-  const on = new Set((await packsOf(db, a, env, role)).map((x) => x.slug));
+  // PLA-I67-2: the shelf is the factory kit and the owner's skills in this agent's scope; an owner copy takes its
+  // factory skill's place. on is what the next run carries (resolvedKit), in its order.
+  const mine = await ownerSkillsFor(db, a);
+  const owned = new Map(mine.map((m) => [m.row.slug, m]));
+  const shelf = [...(await listPacks(db, env)).filter((x) => !owned.has(x.slug)).map((x) => ({ ...x, owner: null })), ...mine.map((m) => ({ ...ownerEntry(m), owner: { scope: m.row.scope, state: m.row.state, origin: m.row.origin, n: m.version.n } }))];
+  const on = new Set((await resolvedKit(db, a, env, role)).map((x) => x.slug));
   const factory = new Set(role ? defaultSkills(role, env) : []);
 
   const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
@@ -178,6 +187,7 @@ export async function oficioRead(db: Db, slug: string, agentSlug: string, env: N
     version: `${x.slug}@${x.sha}`,
     on: on.has(x.slug),
     factory: factory.has(x.slug),
+    owner: x.owner,
     runs_carried: finished.filter((r) => r.skills.some((v) => slugOf(v) === x.slug)).length,
     runs_used: finished.filter((r) => r.skills_used.includes(x.slug)).length,
     deliveries_carried: deliveries.filter((d) => d.carried.includes(x.slug)).length,
@@ -201,5 +211,6 @@ export async function oficioRead(db: Db, slug: string, agentSlug: string, env: N
     runs: { total: finished.length, with_kit: finished.filter((r) => r.skills.length > 0).length, used_any: finished.filter((r) => r.skills_used.length > 0).length },
     live: live ? { key: live.task_key, since: new Date(live.started_at ?? live.at).toISOString() } : null,
     window_days: WINDOW_DAYS,
+    too_many: on.size > SKILLS_WARN,
   };
 }

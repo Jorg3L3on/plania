@@ -105,7 +105,8 @@ export function roleFile(role: string, env: NodeJS.ProcessEnv = process.env): st
   return text || null;
 }
 
-export type KitEntry = { slug: string; name: string; when: string; markdown: string; sha: string; dir?: string | null };
+// PLA-I67-2: files are an owner skill's supporting text files (src/runner/skills.ts), written next to its SKILL.md.
+export type KitEntry = { slug: string; name: string; when: string; markdown: string; sha: string; dir?: string | null; files?: { path: string; content: string }[] };
 export type KitWritten = { slug: string; name: string; when: string; file: string; version: string };
 
 export const skillVersion = (e: { slug: string; sha: string }): string => `${e.slug}@${e.sha}`;
@@ -125,6 +126,12 @@ export function writeKitPlugin(dir: string, entries: KitEntry[]): KitWritten[] {
       mkdirSync(target, { recursive: true });
       const body = frontmatter(e.markdown).body;
       writeFileSync(path.join(target, "SKILL.md"), `---\nname: ${e.slug}\ndescription: ${JSON.stringify(e.when)}\n---\n\n${body.endsWith("\n") ? body : `${body}\n`}`, { mode: 0o600 });
+      for (const f of e.files ?? []) {
+        const file = path.join(target, f.path);
+        if (!file.startsWith(target + path.sep)) continue;
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, f.content, { mode: 0o600 });
+      }
     }
     return { slug: e.slug, name: e.name, when: e.when, file: path.join(target, "SKILL.md"), version: skillVersion(e) };
   });

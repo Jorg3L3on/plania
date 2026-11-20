@@ -24,6 +24,7 @@ const skill = (slug: string, over: Partial<OficioSkill> = {}): OficioSkill => ({
   runs_used: 1,
   deliveries_carried: 3,
   deliveries_used: 1,
+  owner: null,
   ...over,
 });
 const delivery = (key: string, over: Partial<OficioDelivery> = {}): OficioDelivery => ({

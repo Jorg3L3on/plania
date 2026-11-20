@@ -813,6 +813,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `REPO_PUSH_FAILED` | 400 | prepare the code: pushing to origin was refused (access or network) |
 | `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
+| `SKILL_INVALID` | 400 | a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint) |
+| `SKILL_NOT_ALLOWED` | 400 | a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint) |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
@@ -835,6 +837,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
+| `SKILL_NOT_FOUND` | 404 | no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill) |
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
 | `THREAD_NOT_FOUND` | 404 | thread is not "company", a project slug with a thread, or a thread id |
 | `UNKNOWN_BRANCH` | 404 | get_context: no initiative or ticket is on that branch (detail: known) |
@@ -872,6 +875,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
+| `SKILL_EXISTS` | 409 | a live skill already has that slug (detail: slug) |
 | `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |
 | `VERIFY_FAILED` | 409 | finish: one of the project's checks (settings.qa.verify) fails in the ticket's workspace (detail: failed {name, command, exit_code, tail}, hint): fix it there and call finish again |

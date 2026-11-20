@@ -37,6 +37,8 @@
 //   GET  /api/company/projects/:slug/team/:agent/oficio   PLA-I67-1: the agent's page (src/api/company-oficio.ts)
 //        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
 //   POST /api/company/projects/:slug/team                 {template, packs?, motor?} sets the new member's packs (and PLA-I59-2 motor) too
+//   PLA-I67-2: …/team/:agent/skills[/:skill[/state|rollback|duplicate|restore]], …/puesto and …/manner: the owner's
+//        skills and «tu manera» (src/api/company-oficio-skills.ts)
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -72,6 +74,7 @@ import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
 import { oficioRead } from "./company-oficio.js";
+import { oficioSkillRoutes } from "./company-oficio-skills.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
@@ -616,6 +619,8 @@ companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
 });
 // AUDIT-8: the owner's pick on one of the PO's decisions (POST /projects/:slug/ideas/:key/decision).
 companyRoutes.route("/", ideaDecisionRoutes);
+// PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
+companyRoutes.route("/", oficioSkillRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
 companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {

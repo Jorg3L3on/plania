@@ -48,3 +48,4 @@ The files, rules and tests that hold the decision in place.
 | [0003](0003-runs-never-touch-main-and-never-merge.md) | Runs never touch main and never merge |
 | [0004](0004-qa-reviews-in-a-fresh-session.md) | QA reviews in a fresh session |
 | [0005](0005-the-kit-lives-in-git-and-runs-are-stamped.md) | The agents' kit lives in git, and every run is stamped with its version |
+| [0006](0006-owner-written-knowledge-lives-in-versioned-data.md) | What the owner writes for an agent lives in versioned data, and runs are stamped with it |

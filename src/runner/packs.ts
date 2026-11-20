@@ -145,7 +145,7 @@ export function clearPacks(cwd: string): void {
 }
 
 // Clears what an earlier run left, then writes this role's packs. Returns the relative file of each.
-export function writePacks(cwd: string, packs: Pack[]): { slug: string; name: string; when: string; file: string }[] {
+export function writePacks(cwd: string, packs: Pick<Pack, "slug" | "name" | "when" | "markdown">[]): { slug: string; name: string; when: string; file: string }[] {
   clearPacks(cwd);
   if (packs.length === 0) return [];
   const dir = path.join(cwd, PACK_DIR);

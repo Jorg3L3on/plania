@@ -1591,3 +1591,35 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-shelf-list .cor-switch { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
 .ofi-shelf-line { margin-top: -6px; line-height: 1.45; }
 .ofi-door { gap: 6px; }
+/* PLA-I67-2: the skill card, the new skill form and «Su puesto y tu manera» in the Oficio side column. */
+.ofi-side-tools { display: inline-flex; align-items: center; gap: 4px; }
+.ofi-side-tools .cor-switch span { font-size: 12px; color: var(--cor-muted); }
+.ofi-skill { flex: 1 1 auto; }
+.ofi-skill-body { display: flex; flex-direction: column; gap: 10px; }
+.ofi-field { display: flex; flex-direction: column; gap: 6px; }
+.ofi-field .cor-input, .ofi-field .cor-textarea, .ofi-field .cor-select { width: 100%; min-width: 0; font-size: 13.5px; }
+.ofi-field .cor-textarea { min-height: 64px; }
+.ofi-field-row { flex-direction: row; align-items: center; justify-content: space-between; }
+.ofi-field-row .cor-select { width: auto; }
+.ofi-mono { font-family: var(--cor-mono); font-size: 12.5px; }
+.ofi-wide { width: 100%; flex: none; }
+.ofi-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ofi-links { display: flex; flex-wrap: wrap; column-gap: 14px; }
+.ofi-links .cor-btn.link, .ofi-actions .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.5); }
+.ofi-links .cor-btn.link.bad { color: var(--cor-red, #f87171); text-decoration-color: rgba(248, 113, 113, 0.5); }
+.ofi-diff { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--cor-line); background: var(--cor-bg); font-family: var(--cor-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.ofi-diff-add { display: block; color: #a7f3d0; background: rgba(16, 185, 129, 0.1); }
+.ofi-diff-del { display: block; color: #fecaca; background: rgba(248, 113, 113, 0.1); text-decoration: line-through; text-decoration-color: rgba(254, 202, 202, 0.4); }
+.ofi-diff-same { display: block; color: var(--cor-body); }
+.ofi-diff-gap { display: block; color: var(--cor-muted); }
+.ofi-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(248, 113, 113, 0.35); }
+.ofi-shelf-open { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; margin-top: -8px; padding: 0; border: 0; background: transparent; text-align: left; color: var(--cor-muted); cursor: pointer; }
+.ofi-shelf-open:hover { color: var(--cor-text); }
+.ofi-shelf-open .ofi-shelf-line { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-shelf-removed { flex-direction: row !important; align-items: center; justify-content: space-between; }
+.ofi-puesto-seat { font-size: 17px; font-weight: 500; }
+.ofi-motor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ofi-inline-link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.ofi-limits { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; font-size: 13px; color: var(--cor-body); }
+.ofi-limits > li::before { content: "— "; color: var(--cor-muted); }
+.ofi-side-tools .cor-switch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
