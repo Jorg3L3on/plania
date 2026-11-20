@@ -149,7 +149,7 @@ function putFile(slug: string, buf: Buffer, mime: ReferenceMime): string {
 
 // ---- Text of a page
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "—", ndash: "–", hellip: "…", laquo: "«", raquo: "»", copy: "©" };
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", laquo: "\u00ab", raquo: "\u00bb", copy: "\u00a9" };
 
 function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
@@ -180,7 +180,7 @@ export function htmlToText(html: string): { title: string | null; text: string }
 }
 
 function decodeText(bytes: Buffer, contentType: string | null): string {
-  const charset = /charset=["']?([\w-]+)/i.exec(contentType ?? "")?.[1]?.toLowerCase();
+  const charset = /charset=\W?([\w-]+)/i.exec(contentType ?? "")?.[1]?.toLowerCase();
   try {
     return new TextDecoder(charset || "utf-8", { fatal: false }).decode(bytes);
   } catch {
