@@ -1,6 +1,7 @@
 // PLA-I69-6: Marca → Historial, the screen's logic and words. The logo's, the style's and the voice's versions and
 // Marca's requests to Taller in one list, newest first; one picked shows against what leads today.
 import { defineWords, words } from "./i18n.js";
+import { LOCALE } from "./locale.js";
 import type { Style } from "./estilo.js";
 import type { Voice } from "./voz.js";
 import type { VersionRef } from "./marca.js";
@@ -66,7 +67,7 @@ export const HISTORIAL_WORDS = defineWords({
     } as Record<string, string>,
     pr: "Ver el PR",
     guide: "La guía de entonces",
-    when: (iso: string) => new Date(iso).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    when: (iso: string) => new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
   },
   en: {
     loading: "Reading the history…",
@@ -93,7 +94,7 @@ export const HISTORIAL_WORDS = defineWords({
     } as Record<string, string>,
     pr: "See the PR",
     guide: "The guide back then",
-    when: (iso: string) => new Date(iso).toLocaleString("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    when: (iso: string) => new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
   },
 });
 export const historialWords = () => words(HISTORIAL_WORDS);

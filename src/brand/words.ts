@@ -166,7 +166,7 @@ export const STYLE_WORDS = defineWords({
 
 // PLA-I69-5: the voice guide runs receive, and the name request Taller reads.
 type GuideIn = { title: string; tone: readonly ("cerca" | "formal" | "humor" | "seria" | "breve" | "detalle" | "sencillo" | "tecnico")[]; trato: "tu" | "usted" | "vos"; yes: string[]; no: string[] };
-const list = (ws: string[]) => ws.map((x) => `«${x}»`).join(", ");
+const list = (ws: string[]) => ws.map((x) => `\u00ab${x}\u00bb`).join(", ");
 export const VOZ_WORDS = defineWords({
   es: {
     blockTitle: "## La voz del proyecto (Marca → Voz y nombre)\nEscribe todo texto que vea la gente de la app con esta voz:",

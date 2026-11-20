@@ -19,6 +19,9 @@ import { listTree, readBlob, realGit, startCommit, type LogoDeps } from "./logos
 import { repoPathOf } from "../runner/worktree.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { LogoError } from "./upload.js";
+import { TERMINAL } from "../mcp/lifecycle.js";
+// A request that is over: accepted, released, done or dropped.
+const CLOSED = ["Merged", "Released", ...TERMINAL] as const;
 import { VOZ_WORDS } from "./words.js";
 
 export type Trato = "tu" | "usted" | "vos";
@@ -183,7 +186,7 @@ export async function voiceRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   const [open] = await db
     .select({ key: tasks.key, status: tasks.status })
     .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), ilike(tasks.scope, MARK), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, p.id), ilike(tasks.scope, MARK), notInArray(tasks.status, [...CLOSED])))
     .limit(1);
   // Which texts differ from the repo (only when the owner has set them).
   // The name differs when either place the repo names the app (manifest, page title) says something else.
@@ -222,7 +225,7 @@ export async function requestNames(db: Db, project: Project, deps: LogoDeps = {}
   const [open] = await db
     .select({ key: tasks.key })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, MARK), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, MARK), notInArray(tasks.status, [...CLOSED])))
     .limit(1);
   if (open) throw new LogoError("LOGO_PEDIDO_OPEN", 409, w.errors.open(open.key));
   const r = await voiceRead(db, project.slug, deps);
@@ -230,7 +233,7 @@ export async function requestNames(db: Db, project: Project, deps: LogoDeps = {}
   if (!r.names.length) throw new LogoError("LOGO_NOTHING_TO_BRING", 409, w.errors.nothing);
   const v = r.voice;
   const id = createHash("sha256").update(JSON.stringify([v.name, v.short, v.desc, v.tag])).digest("hex").slice(0, 16);
-  const q = (s: string) => `«${s}»`;
+  const q = (s: string) => `\u00ab${s}\u00bb`;
   const lines = [
     `<!-- plania:marca-nombre set=${id} -->`,
     w.lead,

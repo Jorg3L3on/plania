@@ -21,6 +21,9 @@ import { repoPathOf } from "../runner/worktree.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { startCommit } from "./logos.js";
 import { LogoError } from "./upload.js";
+import { TERMINAL } from "../mcp/lifecycle.js";
+// A request that is over: accepted, released, done or dropped.
+const CLOSED = ["Merged", "Released", ...TERMINAL] as const;
 import { STYLE_WORDS } from "./words.js";
 
 export type Neutral = "frio" | "neutro" | "calido";
@@ -394,7 +397,7 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   const [open] = await db
     .select({ key: tasks.key, status: tasks.status })
     .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), ilike(tasks.scope, "%<!-- plania:marca-estilo set=%"), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, p.id), ilike(tasks.scope, "%<!-- plania:marca-estilo set=%"), notInArray(tasks.status, [...CLOSED])))
     .limit(1);
   return {
     style: current,
@@ -450,7 +453,7 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
   const [open] = await db
     .select({ key: tasks.key })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, "%<!-- plania:marca-estilo set=%"), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, "%<!-- plania:marca-estilo set=%"), notInArray(tasks.status, [...CLOSED])))
     .limit(1);
   const w = say(STYLE_WORDS);
   if (open) throw new LogoError("LOGO_PEDIDO_OPEN", 409, w.errors.open(open.key));
