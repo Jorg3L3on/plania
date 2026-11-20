@@ -73,11 +73,13 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
   const edits: Edit[] = [];
   const man = rows.find((r) => r.id === "man");
   const touches = (k: GenKey) => items.some((i) => i.key === k);
+  // PLA-124: a file replaced where it already is needs no new link; only a new one does.
+  const adds = (k: GenKey) => items.some((i) => i.key === k && i.op === "+");
   if (f.framework === "next-app") {
     const layout = `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root);
     if (touches("svg") && placeOf("svg", rows, f).includes("/public/")) edits.push({ path: layout, what: "layout_svg" });
-    if (man?.state === "ok" && (touches("a192") || touches("a512") || touches("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
-    if (man?.state === "ok" && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+    if (man?.state === "ok" && (adds("a192") || adds("a512") || adds("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
+    if (man?.state === "ok" && adds("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
     if (man?.state !== "ok" && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
   } else {
     const html = `${f.root}index.html`;
