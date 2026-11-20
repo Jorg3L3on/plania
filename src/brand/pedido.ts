@@ -11,6 +11,7 @@ import type { Db } from "../db/client.js";
 import { projectLogos, type Project, type ProjectLogo } from "../db/schema.js";
 import { capturesDir } from "../captures/store.js";
 import { createTask } from "../mcp/writes.js";
+import { serviceAgent } from "../runner/events.js";
 import { webCtx } from "../mcp/tx.js";
 import { say } from "../words.js";
 import { generate, planFor, setId, zip, type GenFile, type Original, type Plan } from "./generate.js";
@@ -75,10 +76,13 @@ export async function requestIcons(db: Db, project: Project, mode: "faltan" | "t
     "",
     w.rules,
   ];
+  // PLA-121: given to the project's Taller, so its creation wakes Taller (PLA-103); unowned, it waited for a move forever.
+  const taller = await serviceAgent(db, "taller", project);
   const made = (await createTask(
     db,
     {
       project: project.slug,
+      ...(taller ? { owner_agent: taller.slug } : {}),
       title: w.title,
       summary: w.summary(set.files.length),
       scope: lines.join("\n"),
