@@ -125,20 +125,20 @@ const Side = ({ title, t, side, versions, slug }: { title: string; t: TrialView;
   const s = t[side];
   const live = side === "after" && trialLive(t);
   return (
-    <section className="ofi-trial-col" aria-label={title} data-trial-side={side}>
+    <div className="ofi-trial-col" data-trial-side={side}>
       <div className="ofi-trial-col-head">
         <Label as="h3">{title}</Label>
         <p className="cor-cap" data-trial-version={s.version ?? ""}>
           {stampWords(s.version, versions)} · {w.others(othersCount(s.skills, slug))}
         </p>
       </div>
-      <div className="ofi-trial-scroll">
+      <div className="ofi-trial-scroll" tabIndex={0} role="region" aria-label={title}>
         <Label as="p">{w.answer}</Label>
         {live ? <p className="cor-cap" role="status">{trialLine(t)}</p> : <p className="cor-text ofi-trial-answer">{s.output ?? w.noAnswer}</p>}
         <Label as="p">{w.changes}</Label>
         {live ? <p className="cor-cap">{w.waiting}</p> : s.diff ? <pre className="ofi-diff ofi-trial-diff">{s.diff}</pre> : <p className="cor-cap">{w.noChanges}</p>}
       </div>
-    </section>
+    </div>
   );
 };
 
