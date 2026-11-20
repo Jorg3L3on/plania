@@ -1537,6 +1537,8 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-side-card > .ofi-actions, .ofi-side-card > .cor-cap { flex: none; }
 .ofi-proposal { flex: 1 1 auto; border-color: rgba(255, 180, 84, 0.45); }
 .ofi-proposal-text { font-size: 16px; font-weight: 500; line-height: 1.35; }
+.ofi-proposal > .ofi-shelf-scroll { flex: 1 1 auto; min-height: 48px; }
+.ofi-proposal-foot { flex: none; display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--cor-line); }
 .ofi-quote-amber { padding-left: 10px; border-left: 2px solid rgba(255, 180, 84, 0.5); -webkit-line-clamp: 4; }
 .ofi-actions-two { display: grid; grid-template-columns: 1fr 1fr; }
 .ofi-reading { display: flex; align-items: center; gap: 8px; }

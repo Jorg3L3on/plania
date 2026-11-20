@@ -9,7 +9,7 @@ import * as React from "react";
 import { atOf, hrefOf, isBuilt, legacyHref } from "../ui/src/lib/corriente.js";
 (globalThis as { React?: unknown }).React = React;
 const { escFrom } = (await import(new URL("../ui/src/pages/corriente.tsx", import.meta.url).href)) as { escFrom: (at: unknown) => unknown };
-import { carriedLine, dotsX, firstPick, headline, labelEvery, rowsOf, shelfNext, skillWords, threadWidth, type OficioDelivery, type OficioSkill } from "../ui/src/lib/oficio.js";
+import { carriedLine, dayMarks, dotsX, firstPick, headline, labelEvery, rowsOf, shelfNext, skillWords, threadWidth, type OficioDelivery, type OficioSkill } from "../ui/src/lib/oficio.js";
 import { KIT_SKILL_WORDS } from "../ui/src/lib/oficio-words.js";
 
 const skill = (slug: string, over: Partial<OficioSkill> = {}): OficioSkill => ({
@@ -129,3 +129,9 @@ test("I67-1: every skill that comes with Plania has a name and a line in both la
   assert.equal(carriedLine(delivery("A", { carried: [], used: ["idea-package"] }), skills, "es"), "No llevaba habilidades y no usó ninguna.");
 });
 
+
+test("I67-1 (live check): a date shows once per day, the newest always", () => {
+  assert.deepEqual(dayMarks(["18 nov", "18 nov", "18 nov", "18 nov"], 1), [false, false, false, true]);
+  assert.deepEqual(dayMarks(["14 nov", "15 nov", "15 nov", "16 nov", "hoy"], 1), [true, true, false, true, true]);
+  assert.deepEqual(dayMarks(["1 nov", "2 nov", "3 nov", "4 nov", "5 nov", "6 nov"], 2), [true, false, true, false, false, true]);
+});

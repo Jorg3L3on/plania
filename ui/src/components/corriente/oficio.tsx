@@ -14,7 +14,7 @@ import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
 import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { OFICIO_WORDS } from "@/lib/oficio-words";
-import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord, rowsOf, shelfNext, skillWords, threadWidth, type Oficio, type OficioDelivery, type Row } from "@/lib/oficio";
+import { carriedLine, dayLabel, dayMarks, dotsX, firstPick, headline, labelEvery, numWord, rowsOf, shelfNext, skillWords, threadWidth, type Oficio, type OficioDelivery, type Row } from "@/lib/oficio";
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
 import { NewSkillPanel, PuestoPanel, SkillPanel } from "./oficio-skill";
 // PLA-I67-6: «Probar» and «Traer de un enlace».
@@ -53,8 +53,6 @@ function useSize<T extends HTMLElement>(): [React.RefObject<T | null>, { w: numb
   return [ref, size];
 }
 
-// Every dot's date when there is room, else every other one; the newest always, so the one before it gives way.
-const showDay = (i: number, n: number, every: number) => i === n - 1 || (i % every === 0 && !(every > 1 && i === n - 2));
 
 const Mark = ({ d, x, y, on }: { d: OficioDelivery; x: number; y: number; on: boolean }) => (
   <g data-mark={d.outcome}>
@@ -96,6 +94,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
   const lineX1 = W - 44;
   const dots = dotsX(o.deliveries, lineX0, lineX1);
   const every = labelEvery(dots.length, lineX1 - lineX0);
+  const marks = dayMarks(dots.map(({ d }) => dayLabel(d.at, now, timeZone)), every);
   const picked = o.deliveries.find((d) => d.key === pick) ?? null;
   const onCount = o.skills.filter((s) => s.on).length;
   const thread = (y: number) => {
@@ -197,7 +196,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
               onClick={() => onPick(d.key)}
               data-delivery={d.key}
             >
-              {showDay(i, dots.length, every) && <span className="ofi-day">{dayLabel(d.at, now, timeZone)}</span>}
+              {marks[i] && <span className="ofi-day">{dayLabel(d.at, now, timeZone)}</span>}
             </button>
           ))}
           {o.deliveries.length === 0 ? (
