@@ -27,9 +27,10 @@ test("I3-2: the bar's words", () => {
   assert.equal(words.todoCount(0), null);
   assert.equal(words.todoCount(1), "1 ABIERTA");
   assert.equal(words.todoCount(7), "7 ABIERTAS");
-  assert.equal(words.archivoCount(0, 0), "VACÍO");
-  assert.equal(words.archivoCount(1, 1), "1 DOC · 1 PR");
-  assert.equal(words.archivoCount(24, 38), "24 DOCS · 38 PRS");
+  // PLA-I68-2: PRs moved to Camino; Archivo counts its docs.
+  assert.equal(words.archivoCount(0), "VACÍO");
+  assert.equal(words.archivoCount(1), "1 DOC");
+  assert.equal(words.archivoCount(24), "24 DOCS");
   assert.equal(words.teamWord(4, 0, true), "EN PAUSA");
   assert.equal(words.teamWord(4, 2, false), "2 TRABAJANDO");
   assert.equal(words.teamWord(1, 0, false), "1 LIBRE");

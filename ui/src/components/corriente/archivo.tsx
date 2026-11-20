@@ -1,6 +1,6 @@
 // PLA-I64-6 (PLA-IDEA28, boards B2 and B3): two doors of the project.
-//   Archivo  what was written, drawn and merged, together: the project's own docs and each thing's, the designs and
-//            the PRs. Every doc and PR is read (ficha ?todo=1), so the one opened is the one clicked; it opens in
+//   Archivo  what was written and drawn, together: the project's own docs and each thing's and the designs (PLA-I68-2:
+//            the PRs moved to Camino's Propuestas). Every doc and PR is read (ficha ?todo=1), so the one opened is the one clicked; it opens in
 //            today's detail (Docs, PRs, the idea's Diseño).
 //   Hecho    what happened, day by day: steps done per day for 14 days, the initiatives closed, and a summary per day
 //            capped at a few titles (the rest counted); «Ver antes» walks back 14 days at a time.
@@ -42,8 +42,6 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
   if (f.isError) return <ReadError what={w.readWhat} onRetry={() => void f.refetch()} />;
   if (!f.data) return <div className="cor-skel" role="status" style={{ height: 420, margin: "20px 32px" }} aria-busy="true" aria-label={w.reading} />;
   const { own, things } = docGroups(f.data.docs);
-  const prs = f.data.prs;
-  const openPrs = prs.filter((x) => x.state === "open");
   const lienzos = f.data.lienzos ?? [];
   const linkOnly = f.data.designs.filter((d) => !lienzos.some((l) => l.key === d.idea_key));
   const linkIdeas = [...new Set(linkOnly.map((d) => d.idea_key))];
@@ -52,7 +50,6 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
   const title = (key: string) => names.get(key) || f.data!.ideas.find((i) => i.key === key)?.summary || f.data!.ideas.find((i) => i.key === key)?.title || "";
   const ownShown = more.own ? own : own.slice(0, SHOW.own);
   const thingsShown = more.things ? things : things.slice(0, SHOW.things);
-  const prsShown = more.prs ? prs : prs.slice(0, SHOW.prs);
   return (
     <div className="cor-archivo" data-archivo={p.slug}>
       <header className="cor-door-head">
@@ -148,33 +145,6 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
                 </li>
               ))}
             </ul>
-          )}
-        </section>
-        <section aria-label="PRs" data-archivo-prs={f.data.counts.prs}>
-          <div className="cor-grp">
-            <h3 className="cor-label wh">{`PRs · ${f.data.counts.prs}`}</h3>
-            <span className="cor-label">{w.openPrs(openPrs.length)}</span>
-          </div>
-          {prs.length === 0 ? (
-            <p className="cor-text cor-muted cor-door-empty">{w.noPrs}</p>
-          ) : (
-            <ul className="cor-door-list">
-              {prsShown.map((x) => (
-                <li key={x.number}>
-                  <Link to={links.pr(x.number)} className="cor-door-row" data-pr={x.number}>
-                    <span className="cor-ellipsis">
-                      <span className="cor-key">#{x.number}</span> {x.title}
-                    </span>
-                    <span className={cls("cor-cap", x.state === "open" && "cor-state live")}>{x.merged_at ? dayShort(x.merged_at, timeZone) : x.state === "open" ? w.prOpen : w.prClosed}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          {prs.length > SHOW.prs && (
-            <Btn kind="link" aria-expanded={!!more.prs} onClick={() => setMore((m) => ({ ...m, prs: !m.prs }))} data-control="ver-prs">
-              {more.prs ? w.showLess : w.showOthers(prs.length - SHOW.prs)}
-            </Btn>
           )}
         </section>
       </div>

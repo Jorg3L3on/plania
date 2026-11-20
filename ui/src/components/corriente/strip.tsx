@@ -7,6 +7,8 @@
 // Reanudar lives under the sentence (todo.tsx) and Borrar in Ajustes. Words: @/lib/barra.
 // PLA-I3-7: on a phone (corriente.css) back, the switcher and the state share the first row and the doors scroll
 // sideways on a row of their own.
+import { doorState, findings } from "@/lib/camino";
+import { useCamino } from "./camino-query";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { DOORS, tabName, type Tab } from "@/lib/corriente";
@@ -26,10 +28,24 @@ const Chevron = ({ d }: { d: string }) => (
 );
 
 /** Archivo's count beside its door, from the ficha's counts. */
+// PLA-I68-2: PRs moved to Camino; Archivo counts its docs.
 const ArchivoCount = ({ slug }: { slug: string }) => {
   const f = useFicha(slug);
   if (!f.data) return null;
-  return <span className="n">{archivoCount(f.data.counts.docs, f.data.counts.prs)}</span>;
+  return <span className="n">{archivoCount(f.data.counts.docs)}</span>;
+};
+
+/** PLA-I68-2: Camino's dot and its word: «N POR RESOLVER» or «LISTO». */
+const CaminoCount = ({ slug }: { slug: string }) => {
+  const q = useCamino(slug);
+  if (!q.data) return null;
+  const s = doorState(findings(q.data, new Date()));
+  return (
+    <span className={`n cam-door-n ${s.dot}`} data-camino-count={s.n}>
+      <i className={`cam-dot ${s.dot}`} aria-hidden />
+      {s.text}
+    </span>
+  );
 };
 
 /** PLA-129: the project's name is a link to its home (Todo), not a switcher; the strip above switches projects (on a
@@ -142,6 +158,7 @@ export const ProjectBar = ({
             {t === "archivo" && <ArchivoCount slug={slug} />}
             {t === "equipo" && team && <span className="n">{team}</span>}
             {t === "marca" && <MarcaCount slug={slug} />}
+            {t === "camino" && <CaminoCount slug={slug} />}
           </Link>
         ))}
       </nav>

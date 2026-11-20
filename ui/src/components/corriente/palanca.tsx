@@ -13,6 +13,7 @@ import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { MoveButton, type AhoraLinks } from "./ahora";
 import { Btn } from "./parts";
+import { linkTo } from "@/lib/corriente";
 
 export type PalancaLinks = {
   entrega: (id: string) => string;
@@ -117,6 +118,8 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
         );
       case "publicar":
         return link(w.publish, links.publicar, "publicar");
+      case "ajustes":
+        return link(a.label, `${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-${a.seccion}`, "ir-ajustes");
       case "detener":
         return btn(w.stop, () => acts.stopRun(a.run), "detener", w.stopping, "secondary");
       case "primero":

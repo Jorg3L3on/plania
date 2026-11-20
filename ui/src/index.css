@@ -8,6 +8,7 @@
 @import "@fontsource/instrument-serif/400-italic.css";
 /* PLA-I62: La corriente, scoped under .cor. */
 @import "./corriente.css";
+@import "./camino.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

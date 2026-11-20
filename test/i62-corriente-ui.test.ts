@@ -28,7 +28,7 @@ test("I62-1: the address round-trips views, projects, tabs and what a tab has op
   assert.deepEqual(at, { view: "corriente", slug: "filmia", tab: "todo", ver: { kind: "paso", key: "FIL-42" } });
   assert.equal(lib.searchOf(at), "?proyecto=filmia&ver=paso%3AFIL-42");
   // A ver without a tab opens its own place.
-  assert.equal(lib.atOf("?proyecto=filmia&ver=pr:12").tab, "archivo");
+  assert.equal(lib.atOf("?proyecto=filmia&ver=pr:12").tab, "camino"); // PLA-I68-2
   assert.equal(lib.atOf("?proyecto=filmia&ver=miembro:taller-filmia").tab, "equipo");
   for (const v of [{ kind: "pr", n: 7 }, { kind: "doc", id: "x" }, { kind: "maq", what: "base" }, { kind: "tabla", name: "users" }, { kind: "entrega", id: "d1" }])
     assert.deepEqual(lib.verOf(lib.verParam(v)), v);
@@ -377,7 +377,7 @@ test("I62-9: each old building address opens its screen in La corriente", async 
     ["?decision=abc", "?v=tetoca&decision=abc"],
     ["?piso=filmia", "?proyecto=filmia"],
     ["?piso=filmia&nivel=maquinas", "?proyecto=filmia&t=maquinas"],
-    ["?piso=filmia&f=tab:prs", "?proyecto=filmia&t=archivo"],
+    ["?piso=filmia&f=tab:prs", "?proyecto=filmia&t=camino"],
     ["?piso=filmia&f=step:FIL-3", "?proyecto=filmia&ver=paso%3AFIL-3"],
     ["?piso=filmia&f=idea:FIL-IDEA2", "?proyecto=filmia&ver=idea%3AFIL-IDEA2"],
     ["?piso=filmia&f=maq:tabla:cortos", "?proyecto=filmia&t=maquinas&ver=tabla%3Acortos"],

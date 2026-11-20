@@ -42,6 +42,7 @@
 //   PLA-I67-3: …/team/:agent/lessons[/:id[/decide]]: lessons, the teach bar's rule, the owner's verdicts
 //        (src/api/company-oficio-lessons.ts); a proposal also shows in Te toca as kind leccion (id l-<uuid>)
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
+import { caminoRoutes } from "./company-camino.js";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -218,7 +219,7 @@ companyRoutes.get("/projects/:slug/settings", async (c) => {
 const Version = z.number().int().min(1);
 const CodeBody = z.object({ version: Version, repo_path: z.string().max(500).optional(), github_repo: z.string().max(140).optional(), no_code: z.boolean().optional() }).strict();
 const ReleaseBody = z
-  .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional() }).strict().nullable() })
+  .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional(), prod_migrations: z.enum(["deploy", "owner", "none"]).optional() }).strict().nullable() })
   .strict();
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
@@ -672,6 +673,8 @@ companyRoutes.route("/", oficioSkillRoutes);
 companyRoutes.route("/", oficioTrialRoutes);
 // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
 companyRoutes.route("/", oficioLessonRoutes);
+// PLA-I68: Camino, a project's path from code to people (src/api/company-camino.ts).
+companyRoutes.route("/", caminoRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
 companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {

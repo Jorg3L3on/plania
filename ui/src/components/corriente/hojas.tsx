@@ -10,7 +10,7 @@
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
 // Esc and Cancelar close; focus starts inside and returns where it was.
-import { migrationLine } from "@/lib/publicar";
+import { migrationLine, prodWaits, publicarWords } from "@/lib/publicar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -293,10 +293,46 @@ const publishError = (code: string, detail: Record<string, unknown> = {}): strin
     if (why === "before_steps") return w.beforeSteps;
     if (why === "merged" || why === "nothing_to_ship") return w.alreadyMerged;
     if (why === "mode_command") return w.byCommand;
+    if (why === "prod_migration_unhandled") return publicarWords().prodUnset("");
+    if (why === "freeze") return w.freeze;
     return w.notHere;
   }
   if (code === "RELEASE_MERGE_FAILED") return w.githubRefused(detail.output ? String(detail.output) : null);
+  if (code === "CAMINO_RULE_BLOCKS") return w.ruleBlocks(Array.isArray(detail.checks) ? detail.checks.join(", ") : "");
   return w.publishFailed(code);
+};
+
+// PLA-I68-6: Camino's production environment reviews the SQL and asks for the owner's approval of the exact file of a
+// destructive migration; the sheet lists them, approves each one, and Publicar can then run again.
+type HoldFile = { path: string; sha256?: string; statements?: string[]; issues?: { rule: string; message: string }[] };
+const MigrationHold = ({ slug, code, detail }: { slug: string; code: string; detail: Record<string, unknown> }) => {
+  const w = words(HOJAS_WORDS);
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const files = (Array.isArray(detail.files) ? detail.files : []) as HoldFile[];
+  return (
+    <div className="cor-state bad" role="alert" data-publish-hold={code}>
+      <p>{code === "CAMINO_SQL_REVIEW" ? w.sqlReview : w.needsApproval}</p>
+      <ul className="cor-hoja-list">
+        {files.map((f) => (
+          <li key={f.path} className="cor-row" data-migracion={f.path}>
+            <span className="cor-mono cor-ellipsis">{f.path}</span>
+            <span className="cor-cap">{(f.statements ?? f.issues?.map((i) => `${i.rule}: ${i.message}`) ?? []).join(" · ")}</span>
+            {code === "CAMINO_NEEDS_APPROVAL" && f.sha256 && (
+              <Btn
+                kind="secondary"
+                small
+                disabled={done.has(f.path)}
+                onClick={() => void api.caminoApprove(slug, f.path, f.sha256!).then(() => setDone((s) => new Set(s).add(f.path)))}
+                data-control={`aprobar-${f.path}`}
+              >
+                {done.has(f.path) ? w.approved : w.approveFile}
+              </Btn>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 };
 
 export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProject; release: Decision | null; first: Decision | null; firstTo: string | null; onClose: () => void }) => {
@@ -335,6 +371,9 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
     );
   const n = r.tickets.length;
   const blocked = r.open_checks > 0 || r.before > 0;
+  // PLA-I68-1: migrations with nobody named for production: the sheet offers the setting instead of Publicar.
+  const waits = prodWaits(r);
+  const pw = publicarWords();
   const done = ship.isSuccess ? ship.data : null;
   return (
     <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose} wide>
@@ -352,8 +391,8 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
         {n > 4 && <li className="cor-cap">{w.andMore(n - 4)}</li>}
       </ul>
       {!!r.migrations?.length && (
-        <p className="cor-text" data-publish-migrations={r.migrate ?? ""}>
-          {migrationLine(r.migrations, r.migrate ?? null, p.title)}
+        <p className="cor-text" data-publish-migrations={r.migrate ?? ""} data-publish-prod={r.prod_migrations ?? "unset"}>
+          {migrationLine(r.migrations, r.migrate ?? null, p.title, undefined, r.prod_migrations ?? null)}
         </p>
       )}
       {!!r.reel?.length && (
@@ -385,13 +424,18 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       {done && (
         <p className="cor-state ok" role="status" data-publish-done>
           {w.published(n, done.merge_sha.slice(0, 7))}
-          {done.migrate === "auto" ? w.migrateAuto : done.migrate === "manual" ? w.migrateManual : ""}{" "}
+          {done.migrate === "auto" ? w.migrateAuto : ""}
+          {done.prod_migrations ? ` ${pw.prod[done.prod_migrations]}` : ""}{" "}
           <a className="cor-inline" href={done.pr.url} target="_blank" rel="noreferrer">
             {w.seeGithub}
           </a>
         </p>
       )}
-      {ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>}
+      {ship.isError && ship.error instanceof ApiError && (ship.error.code === "CAMINO_NEEDS_APPROVAL" || ship.error.code === "CAMINO_SQL_REVIEW") ? (
+        <MigrationHold slug={p.slug} code={ship.error.code} detail={ship.error.detail} />
+      ) : (
+        ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>
+      )}
       <div className="cor-acts">
         {done ? (
           <Btn kind="primary" onClick={onClose} data-control="publicar-listo">
@@ -399,9 +443,15 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
           </Btn>
         ) : (
           <>
-            <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">
-              {ship.isPending ? w.publishing : w.publishChanges}
-            </Btn>
+            {waits ? (
+              <Link className="cor-btn primary" to={`${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-lanzamiento`} onClick={onClose} data-control="publicar-ajustes">
+                {pw.setIt}
+              </Link>
+            ) : (
+              <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">
+                {ship.isPending ? w.publishing : w.publishChanges}
+              </Btn>
+            )}
             <Btn kind="quiet" disabled={ship.isPending} onClick={onClose}>
               {w.close}
             </Btn>

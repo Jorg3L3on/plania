@@ -150,6 +150,38 @@ test("I32-4 #1: aceptar on a PR merges it into sandbox with gh pr merge --merge 
   assert.equal(((await failed.json()) as { error: string }).error, "MERGE_FAILED");
 });
 
+// PLA-I68-3: Camino's rule for the branch (required checks) holds in Aceptar too, and a squash chosen there is used.
+test("I68-3: aceptar refuses while the branch's Camino rule names a check that is not green; squash once chosen in Camino", async () => {
+  const p = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
+  await raw.query(
+    `insert into camino (project_id, config) values ($1, $2) on conflict (project_id) do update set config = excluded.config`,
+    [p, JSON.stringify({ rules: { sandbox: { on: true, pr: true, nodel: true, agents: false } }, required_checks: { sandbox: ["check"] }, merge: { squash: true } })],
+  );
+  let conclusion = "FAILURE";
+  const calls: string[][] = [];
+  releaseGh.run = async (args) => {
+    calls.push(args);
+    const n = args[2]!;
+    if (args[1] === "view" && args.includes("baseRefName,state,headRefOid,url")) return { ok: true, stdout: JSON.stringify({ baseRefName: "sandbox", state: "OPEN", headRefOid: "f".repeat(40), url: `https://github.com/example/micasa/pull/${n}` }), stderr: "" };
+    if (args[1] === "view" && args.includes("statusCheckRollup")) return { ok: true, stdout: JSON.stringify({ statusCheckRollup: [{ name: "check", conclusion }] }), stderr: "" };
+    if (args[1] === "view" && args.includes("mergeable")) return { ok: true, stdout: JSON.stringify({ mergeable: "MERGEABLE" }), stderr: "" };
+    if (args[1] === "merge") return { ok: true, stdout: "", stderr: "" };
+    if (args[1] === "view") return { ok: true, stdout: JSON.stringify({ mergeCommit: { oid: "c".repeat(40) }, url: `https://github.com/example/micasa/pull/${n}` }), stderr: "" };
+    return { ok: false, stdout: "", stderr: "unexpected" };
+  };
+  const t = await reviewTicket("Con regla", "code", { pr: "https://github.com/example/micasa/pull/31" });
+  const refused = await act({ message_id: t.message, action: "fusionar" });
+  assert.equal(refused.status, 409);
+  const body = (await refused.json()) as { error: string; checks: string[] };
+  assert.deepEqual([body.error, body.checks], ["CAMINO_RULE_BLOCKS", ["check"]]);
+  assert.equal(calls.some((a) => a[1] === "merge"), false);
+  conclusion = "SUCCESS";
+  const res = await act({ message_id: t.message, action: "fusionar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.ok(calls.find((a) => a[1] === "merge")!.includes("--squash"));
+  await raw.query(`delete from camino where project_id = $1`, [p]);
+});
+
 test("a PR already merged into sandbox (another card, or GitHub) is the accept itself, not an error; closed unmerged is refused in words", async () => {
   let state = "MERGED";
   const calls: string[][] = [];

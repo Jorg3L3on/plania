@@ -20,6 +20,7 @@ import {
   comandosAviso,
   contextoEstado,
   lanzamientoBody,
+  type LanzamientoForm,
   vistaPreviaOk,
   type Ajustes as AjustesRead,
   type AjustesContexto,
@@ -29,6 +30,7 @@ import { words } from "@/lib/i18n";
 import { AJUSTES_VIEW_WORDS } from "@/lib/ajustes-words";
 import { Arranque, Avanzado } from "./ajustes-avanzado";
 import { PrepararCodigo } from "./preparar-codigo";
+import { publicarWords } from "@/lib/publicar";
 
 const errorOf = (e: unknown) => (e instanceof ApiError ? ajustesError(e.code, e.detail) : ajustesError(null));
 
@@ -118,7 +120,8 @@ const Codigo = ({ a }: { a: AjustesRead }) => {
 };
 
 const Lanzamiento = ({ a }: { a: AjustesRead }) => {
-  const [form, setForm] = useState({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release ? a.release.mode === "merge" : true });
+  const [form, setForm] = useState<LanzamientoForm>({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release ? a.release.mode === "merge" : true, prod: a.release?.prod_migrations ?? "" });
+  const pw = publicarWords();
   const save = useGuardar(a.slug, (release: ReturnType<typeof lanzamientoBody>) => api.ajustesLanzamiento(a.slug, { version: a.version, release }));
   const body = lanzamientoBody(form);
   const w = words(AJUSTES_VIEW_WORDS);
@@ -144,6 +147,19 @@ const Lanzamiento = ({ a }: { a: AjustesRead }) => {
           {field("into")}
           {field("env")}
         </span>
+        {/* PLA-I68-1: who migrates production; the local test copy is never it. */}
+        <label>
+          <span className="cor-text">{pw.field}</span>
+          <select className="cor-input" value={form.prod ?? ""} onChange={(e) => setForm({ ...form, prod: e.target.value as LanzamientoForm["prod"] })} data-campo="prod_migrations">
+            <option value="">{pw.unsetOption}</option>
+            {(["deploy", "owner", "none"] as const).map((k) => (
+              <option key={k} value={k}>
+                {pw.options[k].label}
+              </option>
+            ))}
+          </select>
+          <span className="cor-cap">{form.prod ? pw.options[form.prod].hint : pw.waitWhy}</span>
+        </label>
         <span className="cor-ajustes-switch">
           <Switch on={form.merge} label={C.merge.label} onChange={(merge) => setForm({ ...form, merge })} data-campo="merge" />
           <span className="cor-cap">{C.merge.hint}</span>
@@ -160,7 +176,7 @@ const Lanzamiento = ({ a }: { a: AjustesRead }) => {
               disabled={save.isPending}
               onClick={() => {
                 save.mutate(null);
-                setForm({ from: "", into: "", env: "", merge: true });
+                setForm({ from: "", into: "", env: "", merge: true, prod: "" });
               }}
               data-control="quitar-lanzamiento"
             >

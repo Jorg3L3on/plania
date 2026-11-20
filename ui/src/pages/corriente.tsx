@@ -42,6 +42,7 @@ import { PasoLado } from "@/components/corriente/lado";
 import { cosaOfPaso } from "@/lib/lado";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
+import { Camino } from "@/components/corriente/camino";
 import { Ajustes } from "@/components/corriente/ajustes";
 import { Marca } from "@/components/corriente/marca";
 import { cosasOf, fraseOf } from "@/lib/cosas";
@@ -49,7 +50,7 @@ import { metaLine, teamWord } from "@/lib/barra";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
 import { ApiError, api, type Decision, type OrgCompany, type OrgProject } from "@/lib/api";
-import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, pasoAt, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
+import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, pasoAt, tabName, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { doneOf, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
@@ -435,16 +436,18 @@ export const CorrientePage = () => {
         />
       );
     // PLA-I64-6: the Archivo and Hecho doors; a doc or PR opened from Archivo shows today's detail and comes back.
-    if (at.tab === "archivo" && (at.ver?.kind === "doc" || at.ver?.kind === "pr")) {
+    // PLA-I68-2: a PR opens from Camino's Propuestas and comes back there (an old Archivo address still opens it).
+    if ((at.tab === "archivo" || at.tab === "camino") && (at.ver?.kind === "doc" || at.ver?.kind === "pr")) {
+      const home: Tab = at.ver.kind === "pr" && at.tab === "camino" ? "camino" : "archivo";
       const back = (
-        <Link to={linkTo({ slug: p.slug, tab: "archivo" })} className="cor-strip-back cor-door-back" data-control="volver-archivo">
+        <Link to={linkTo({ slug: p.slug, tab: home, ...(home === "camino" ? { ver: { kind: "camino", sec: "propuestas" } } : {}) })} className="cor-strip-back cor-door-back" data-control={`volver-${home}`}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9.5 3.5 5 8l4.5 4.5" />
           </svg>
-          {w.archive}
+          {home === "camino" ? tabName("camino") : w.archive}
         </Link>
       );
-      const arch = { slug: p.slug, tab: "archivo" as const };
+      const arch = { slug: p.slug, tab: home };
       return (
         <>
           {back}
@@ -515,6 +518,17 @@ export const CorrientePage = () => {
     if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} />;
     // PLA-I66-2: the project's logo, its six faces and the repo's icon files.
     if (at.tab === "marca") return <Marca p={p} />;
+    // PLA-I68-2: Camino, how the project's code reaches people.
+    if (at.tab === "camino")
+      return (
+        <Camino
+          p={p}
+          sec={at.ver?.kind === "camino" ? at.ver.sec : "resumen"}
+          hrefOf={(sec) => linkTo({ slug: p.slug, tab: "camino", ...(sec === "resumen" ? {} : { ver: { kind: "camino", sec } }) })}
+          prHref={(n) => linkTo({ slug: p.slug, tab: "camino", ver: { kind: "pr", n } })}
+          ajustesHref={(sec) => `${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-${sec}`}
+        />
+      );
     return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 

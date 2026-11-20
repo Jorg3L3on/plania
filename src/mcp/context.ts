@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { branchRoles } from "../camino/roles.js";
 import { branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { auditForKeys } from "./orden.js";
@@ -60,6 +61,8 @@ export async function getContext(
   return {
     project: p.slug,
     branch: branch ?? null,
+    // PLA-I68-3: the branch roles set in Camino: where work starts, where it collects, what is published.
+    branch_roles: await branchRoles(db, p),
     initiative: initiativeSummary,
     // PLA-I22: task → initiative → project goal → company goal, when the initiative has a goal.
     why_chain: initiativeSummary?.why_chain ?? ticketSummaries.find((t) => t.why_chain)?.why_chain ?? null,

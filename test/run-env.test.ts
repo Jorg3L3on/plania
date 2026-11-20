@@ -141,8 +141,9 @@ const CREDENTIAL_PATTERNS: { why: string; re: RegExp }[] = [
   { why: "Claude's stored key or account", re: /\b(primaryApiKey|oauthAccount|claudeAiOauth)\b/ },
 ];
 const KEYCHAIN_READ = /\b(find-generic-password|find-internet-password|dump-keychain)\b/;
-// The one keychain item Plania reads is its own owner code (service plania-owner).
-const OWN_KEYCHAIN_FILES = new Set(["auth/owner-store.ts"]);
+// The keychain items Plania reads are its own: the owner code (service plania-owner) and, PLA-I68-2, the keys the
+// owner saves in Camino (service plania-camino). Never Claude's.
+const OWN_KEYCHAIN_FILES = new Set(["auth/owner-store.ts", "camino/keys.ts"]);
 
 function credentialReads(rel: string, text: string): string[] {
   const out = CREDENTIAL_PATTERNS.filter((p) => p.re.test(text)).map((p) => `${rel}: ${p.why}`);
