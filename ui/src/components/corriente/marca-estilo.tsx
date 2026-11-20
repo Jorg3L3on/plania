@@ -17,7 +17,7 @@ import { ReadError } from "./parts";
 
 const loaded = new Set<string>();
 /** Loads a font from Google Fonts the first time the screen shows it. */
-function useFonts(names: string[]) {
+export function useFonts(names: string[]) {
   const key = names.join("|");
   useEffect(() => {
     for (const n of names) {
@@ -772,7 +772,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
 }
 
 /** The 600 × 360 sample scaled to the width it is given (and as tall as that makes it). */
-function Fit({ className, children }: { className: string; children: ReactNode }) {
+export function Fit({ className, children }: { className: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [k, setK] = useState(0.7);
   useEffect(() => {

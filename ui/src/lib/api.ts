@@ -21,6 +21,7 @@ import type { LogoRef } from "@/lib/logos";
 import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, Surface, VersionRef } from "@/lib/marca";
 import type { Style, StyleRead } from "@/lib/estilo";
 import type { Voice, VoiceRead } from "@/lib/voz";
+import type { Historial } from "@/lib/historial";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -257,6 +258,8 @@ export const api = {
   marcaVoz: (slug: string) => request<VoiceRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/voz`),
   marcaVozSave: (slug: string, voice: Partial<Voice>) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz`, voice),
   marcaVozBack: (slug: string, v: number) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/back`, { v }),
+  // PLA-I69-6: Marca → Historial.
+  marcaHistorial: (slug: string) => request<Historial>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/historial`),
   marcaVozPedido: (slug: string) => request<VoiceRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),

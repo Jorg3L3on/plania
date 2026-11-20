@@ -441,3 +441,9 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
   return { key: made.key, dir };
 }
 export const STYLE_MARKER = REQ;
+
+/** PLA-I69-6: every version with its values, newest first, for Marca → Historial. */
+export const styleHistory = (slug: string): { v: number; at: string; current: boolean; style: Style }[] => {
+  const f = load(slug);
+  return (f?.versions ?? []).map((v) => ({ ...v, current: v.v === f!.current })).reverse();
+};

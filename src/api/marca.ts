@@ -33,6 +33,7 @@ import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } fr
 import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
 import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
+import { historialOf } from "../brand/historial.js";
 import { goBackVoice, requestNames, saveVoice, voiceRead, voiceVersions } from "../brand/voz.js";
 import { FONTS, goBackStyle, requestStyle, saveStyle, styleRead, styleVersions } from "../brand/style.js";
 
@@ -507,4 +508,11 @@ marcaRoutes.post(`${VOZ}/pedido`, async (c) => {
   } catch (e) {
     return fail(c, e);
   }
+});
+
+// PLA-I69-6: Marca → Historial.
+marcaRoutes.use("/projects/:slug/marca/historial", guard);
+marcaRoutes.get("/projects/:slug/marca/historial", async (c) => {
+  const h = await withDb((db) => historialOf(db, c.req.param("slug")!));
+  return h ? c.json(h) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
 });

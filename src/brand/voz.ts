@@ -254,3 +254,9 @@ export async function requestNames(db: Db, project: Project, deps: LogoDeps = {}
   )) as { key: string };
   return { key: made.key };
 }
+
+/** PLA-I69-6: every version with its values, newest first, for Marca → Historial. */
+export const voiceHistory = (slug: string): { v: number; at: string; current: boolean; voice: Voice }[] => {
+  const f = load(slug);
+  return (f?.versions ?? []).map((v) => ({ ...v, current: v.v === f!.current })).reverse();
+};

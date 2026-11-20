@@ -2514,6 +2514,41 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .vz-names .cor-btn { align-self: flex-start; }
 @media (max-width: 1100px) { .vz-wrap { grid-template-columns: 1fr; overflow: auto; } .vz-voices { min-height: 420px; } }
 
+/* ---- PLA-I69-6 «Marca · Historial». */
+.hi-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 16px; }
+.hi-left { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.hi-list { list-style: none; margin: 0; padding: 4px; flex: 1; min-height: 0; overflow: auto; display: grid; gap: 2px; align-content: start; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); scrollbar-width: thin; }
+.hi-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; }
+.hi-row:hover { background: rgba(255,255,255,.03); }
+.hi-row[aria-pressed="true"] { background: var(--cor-raised); box-shadow: inset 2px 0 0 var(--cor-violet-2); }
+.hi-row:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: -2px; }
+.hi-lane { font-family: var(--cor-mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 6px; border-radius: 5px; width: max-content; color: var(--cor-body); background: rgba(255,255,255,.06); }
+.hi-lane.logo { color: var(--cor-violet-3); background: rgba(139,92,246,.12); }
+.hi-lane.estilo { color: #7dd3fc; background: rgba(125,211,252,.1); }
+.hi-lane.voz { color: var(--cor-green); background: rgba(110,231,160,.1); }
+.hi-lane.pedido { color: var(--cor-amber); background: rgba(255,180,84,.1); }
+.hi-what { min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--cor-text); }
+.hi-what img { width: 22px; height: 22px; border-radius: 6px; object-fit: contain; background: rgba(255,255,255,.06); }
+.hi-what .sw { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+.hi-what b { font-weight: 600; white-space: nowrap; }
+.hi-what small { color: var(--cor-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hi-when { font-size: 11px; color: var(--cor-muted); white-space: nowrap; }
+.hi-when em, .hi-cur { font-style: normal; font-size: 10.5px; padding: 1px 7px; border-radius: 99px; background: rgba(110,231,160,.1); color: var(--cor-green); }
+.hi-right { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); scrollbar-width: thin; }
+.hi-pick { margin: auto; font-size: 13px; color: var(--cor-muted); }
+.hi-head { display: flex; align-items: center; gap: 12px; }
+.hi-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--cor-text); flex: 1; min-width: 0; }
+.hi-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.hi-two figure { margin: 0; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.hi-two figcaption { font-family: var(--cor-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--cor-muted); }
+.hi-two figure > img { width: 100%; max-width: 220px; aspect-ratio: 1; object-fit: contain; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid var(--cor-line); }
+.hi-spec { position: relative; }
+.hi-spec .sc { position: absolute; left: 0; top: 0; width: 600px; height: 360px; transform-origin: 0 0; border-radius: 14px; overflow: hidden; }
+.hi-guide { margin: 0; white-space: pre-wrap; font-family: var(--cor-mono); font-size: 11px; line-height: 1.5; color: var(--cor-body); padding: 10px; border-radius: 10px; background: #0a0a0e; border: 1px solid var(--cor-line); }
+.hi-req { display: grid; gap: 8px; justify-items: start; font-size: 13px; color: var(--cor-body); }
+.hi-req p { margin: 0; }
+@media (max-width: 900px) { .hi-wrap { grid-template-columns: 1fr; overflow: auto; } .hi-list { max-height: 50vh; } .hi-two { grid-template-columns: 1fr; } }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
