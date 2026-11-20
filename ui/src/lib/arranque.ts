@@ -56,6 +56,18 @@ export const ARRANQUE_WORDS = defineWords({
         por: "Se perdió al arrancar",
         arregla: "Plania se reinició mientras arrancaba: vuelve a intentarlo.",
       },
+      "no such trial": {
+        por: "La prueba ya no existe",
+        arregla: "Se borró antes de arrancar: vuelve a pulsar «Probar» en la habilidad.",
+      },
+      "trial base": {
+        por: "No se encontró la entrega para la prueba",
+        arregla: "La entrega ya no tiene su commit: elige otra entrega para probar.",
+      },
+      "trial copy": {
+        por: "No se pudo hacer la copia para la prueba",
+        arregla: "Git no pudo preparar la copia aparte: revisa el repo del proyecto y vuelve a probar.",
+      },
       start: {
         por: "Algo falló mientras preparaba la corrida",
         arregla: "Vuelve a intentarlo; si se repite, míralo en Máquinas.",
@@ -113,6 +125,18 @@ export const ARRANQUE_WORDS = defineWords({
       "start lost": {
         por: "It got lost while starting",
         arregla: "Plania restarted while it was starting: try again.",
+      },
+      "no such trial": {
+        por: "The trial no longer exists",
+        arregla: "It was removed before it started: press Try on the skill again.",
+      },
+      "trial base": {
+        por: "The delivery for the trial was not found",
+        arregla: "The delivery no longer has its commit: pick another delivery to try.",
+      },
+      "trial copy": {
+        por: "The copy for the trial could not be made",
+        arregla: "Git could not prepare the separate copy: check the project's repo and try again.",
       },
       start: {
         por: "Something failed while the run was being prepared",
