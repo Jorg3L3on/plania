@@ -14,6 +14,11 @@ export const MAQUINA_ERRORS = {
   TESTS_RUNNING: 409,
   NOT_A_TEST_USER: 403, // a user outside the reserved test domains
   COMMAND_FAILED: 500,
+  // PLA-116: Poner una llave.
+  KEY_NOT_LISTED: 400, // a name Llaves does not list for this app
+  VALUE_NOT_WRITABLE: 400, // empty, more than one line, too long, or quotes an env file cannot hold
+  ENV_FILE_TRACKED: 409, // the env file is in git: a value there would be committed
+  NO_APP_DIR: 409, // neither the test copy nor the repo checkout exists on this machine
 } as const;
 export type MaquinaCode = keyof typeof MAQUINA_ERRORS;
 

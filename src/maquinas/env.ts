@@ -1,7 +1,8 @@
 // PLA-I48 (decision 5 of the Plan): how Plania learns a project's local base address and which variables are set.
 // The app's own env file (in the test copy, else in the repo checkout) is read here, inside the Plania process.
 // What leaves this module is names, set/missing flags and a connection object kept in memory for one query. No
-// value is ever stored, logged, put in an event or returned by a route. Product repos are never written.
+// value is ever stored, logged, put in an event or returned by a route. Product repos are never written, with one
+// exception (PLA-116): the owner's own value for one variable, into the app's untracked env file (llaves.ts).
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { repoPathOf, worktreeRoot } from "../runner/worktree.js";

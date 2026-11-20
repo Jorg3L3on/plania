@@ -121,6 +121,8 @@ export const api = {
   sembrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/sembrar`, {}),
   vaciarYSembrar: (slug: string, rows: number) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar`, { rows }),
   llaves: (slug: string) => request<LlavesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`),
+  // PLA-116: one value into the app's env file; the answer is the names-only read again.
+  ponerLlave: (slug: string, name: string, value: string) => request<LlavesRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`, { name, value }),
   pruebas: (slug: string) => request<PruebasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`),
   correrPruebas: (slug: string) => request<PruebasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`, {}),
   recorrido: (slug: string) => request<RecorridoRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/recorrido`),
