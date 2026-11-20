@@ -1528,12 +1528,12 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-history > li { display: grid; grid-template-columns: 56px 1fr; gap: 8px; }
 .ofi-history-at { padding-top: 1px; }
 .ofi-side-links { flex: none; column-gap: 12px; row-gap: 0; }
-.ofi-side-card > .ofi-next { min-height: 64px; }
 .ofi-next-shelf { flex: none; align-self: flex-start; }
 .ofi-stats { gap: 16px; }
 .ofi-stats dt { white-space: nowrap; }
 .ofi-side-links .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.5); }
-.ofi-side-card > .ofi-next { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The list scrolls inside the card and always keeps two rows in view (the budget and the links sit under it). */
+.ofi-side-card > .ofi-next { flex: 1 1 auto; min-height: 62px; overflow-y: auto; overscroll-behavior: contain; }
 .ofi-side-card > .ofi-actions, .ofi-side-card > .cor-cap { flex: none; }
 .ofi-proposal { flex: 1 1 auto; border-color: rgba(255, 180, 84, 0.45); }
 .ofi-proposal-text { font-size: 16px; font-weight: 500; line-height: 1.35; }

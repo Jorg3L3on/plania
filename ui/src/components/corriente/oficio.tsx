@@ -355,7 +355,8 @@ const Shelf = ({ o, seat, onClose, onOpen, onNew, onImport }: { o: Oficio; seat:
   );
 };
 
-const NextRun = ({ o, onShelf, l }: { o: Oficio; onShelf: () => void; l?: LessonsRead }) => {
+// The shelf opens from «Estantería» at the top of the page (and from the empty drawing); the card keeps its room for the list.
+const NextRun = ({ o, l }: { o: Oficio; onShelf?: () => void; l?: LessonsRead }) => {
   const w = words(OFICIO_WORDS);
   const on = o.skills.filter((s) => s.on);
   return (
@@ -373,11 +374,8 @@ const NextRun = ({ o, onShelf, l }: { o: Oficio; onShelf: () => void; l?: Lesson
         ))}
         {on.length === 0 && <li className="cor-muted">{w.nextRunNone}</li>}
       </ul>
-      <p className="cor-cap">{w.useRate(o.runs.total, o.runs.used_any)}</p>
+      {/* How often its runs used a skill is said per skill on the left («6 de 11»); the card keeps the room for the list. */}
       <BudgetBar b={l?.budget} />
-      <Btn kind="secondary" className="ofi-next-shelf" onClick={onShelf} data-control="abrir-estanteria">
-        {w.openShelf}
-      </Btn>
     </section>
   );
 };
