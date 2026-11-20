@@ -42,7 +42,10 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   };
   const [sel, setSel] = useState<Face | null>(null);
   const [hover, setHover] = useState<Face | null>(null);
-  const [rereading, setRereading] = useState(false);
+  // PLA-130: «Revisar el repo ahora» says it is reading, then that it finished (or failed), instead of only greying out.
+  const [reread_, setReread] = useState<"idle" | "busy" | "done">("idle");
+  const rereadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (rereadTimer.current) clearTimeout(rereadTimer.current); }, []);
   // PLA-I66-3: the aside shows the repo's candidates or the versions instead of the files; the upload takes the door.
   const [panel, setPanel] = useState<"repo" | "versiones" | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -57,11 +60,21 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
     void client.invalidateQueries({ queryKey: ["marca-versions", p.slug] });
   };
   const reread = async () => {
-    setRereading(true);
+    if (rereadTimer.current) clearTimeout(rereadTimer.current);
+    setReread("busy");
+    const t0 = Date.now();
     try {
-      client.setQueryData(["marca", p.slug], await api.marca(p.slug, true));
-    } finally {
-      setRereading(false);
+      const next = await api.marca(p.slug, true);
+      // A read from the cache answers in a blink; hold the working state long enough to be seen.
+      await new Promise((ok) => setTimeout(ok, Math.max(0, 700 - (Date.now() - t0))));
+      client.setQueryData(["marca", p.slug], next);
+      const c = counts(next.rows);
+      toast.success(w.rereadToast(c.ok, c.missing + c.wrong + c.old));
+      setReread("done");
+      rereadTimer.current = setTimeout(() => setReread("idle"), 4000);
+    } catch (e) {
+      setReread("idle");
+      toast.error(w.rereadFailed(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)));
     }
   };
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
@@ -94,11 +107,9 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   if (door !== "caras")
     return (
       <div className="mk" data-marca={p.slug} data-door={door}>
+        {/* PLA-130: no title or lead on the head; the doors are the head. */}
         <header className="mk-head">
-          <div className="mk-head-l">
-            <h2 className="cor-door-h">{w.title(p.title)}</h2>
-            {doors}
-          </div>
+          <div className="mk-head-l">{doors}</div>
         </header>
         {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
         {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
@@ -121,23 +132,23 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
     <div className={`mk${lit ? " hl" : ""}`} data-marca={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{w.title(p.title)}</h2>
           {doors}
-          <p className="cor-text">
-            {r.repo === "ok" ? (
-              w.lead
-            ) : r.repo === "none" && r.folder ? (
-              <>
-                {/* PLA-120: a folder Plania cannot read is not a project with no code. */}
-                {w.noRepoFound(r.folder)}{" "}
-                <Link className="cor-btn link small" to={linkTo({ slug: p.slug, tab: "ajustes" })} data-control="marca-elegir-carpeta">
-                  {w.noRepoLink}
-                </Link>
-              </>
-            ) : (
-              w.noRepo
-            )}
-          </p>
+          {/* PLA-130: the lead sentence is gone; only a repo Plania cannot read still says so here. */}
+          {r.repo !== "ok" && (
+            <p className="cor-text">
+              {r.repo === "none" && r.folder ? (
+                <>
+                  {/* PLA-120: a folder Plania cannot read is not a project with no code. */}
+                  {w.noRepoFound(r.folder)}{" "}
+                  <Link className="cor-btn link small" to={linkTo({ slug: p.slug, tab: "ajustes" })} data-control="marca-elegir-carpeta">
+                    {w.noRepoLink}
+                  </Link>
+                </>
+              ) : (
+                w.noRepo
+              )}
+            </p>
+          )}
         </div>
         <div className="mk-head-r">
           <p className="mk-sum" data-sum>
@@ -163,12 +174,24 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
             )}
           </p>
           {r.repo === "ok" && (
-            <button type="button" className="cor-btn secondary small" onClick={() => void reread()} disabled={rereading} data-control="marca-revisar">
-              {w.reread}
+            <button
+              type="button"
+              className={`cor-btn secondary small mk-reread ${reread_}`}
+              onClick={() => void reread()}
+              disabled={reread_ === "busy"}
+              aria-busy={reread_ === "busy"}
+              data-control="marca-revisar"
+              data-reread={reread_}
+            >
+              {reread_ === "busy" ? <i className="mk-spin" aria-hidden /> : reread_ === "done" ? <i className="mk-tick" aria-hidden>✓</i> : null}
+              {reread_ === "busy" ? w.rereadBusy : reread_ === "done" ? w.rereadDone : w.reread}
             </button>
           )}
+          {/* PLA-130: the request's buttons, once at the bottom of Caras, live here now. */}
+          {r.repo === "ok" && <TripActions r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
         </div>
       </header>
+      {reread_ === "busy" && <div className="mk-reread-line" role="progressbar" aria-label={w.rereadBusy} />}
 
       {r.drift && (
         <div className="mk-drift" role="status" data-drift={r.drift.path}>
@@ -217,8 +240,6 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
             )}
           </section>
         )}
-        {/* PLA-I69-1: what waits for the repo and why, and where the last request is on its way. */}
-        {r.repo === "ok" && <TripBar r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
       </div>
     </div>
   );
@@ -240,63 +261,40 @@ function MarcaDoors({ door, onGo }: { door: Door; onGo: (d: Door) => void }) {
   );
 }
 
-/** PLA-I69-1: the trip bar. What is pending and why (one sentence), the one button that brings it all, and the
- * stations of the request in flight or the last one: built, PR, QA, your acceptance, start branch, seen by Plania. */
-function TripBar({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
+/** PLA-130: the request's buttons in the head (the bar under the cards is gone): the last request's PR, the .zip, and
+ * the one button that brings what is pending, or the request on its way, its step as the button's title. */
+function TripActions({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
   const p = pending(r);
   const t = r.trip && !r.trip.cancelled ? r.trip : null;
   const open = !!r.pedido;
-  const state = open ? "go" : p.files ? "wait" : "ok";
   const step = t ? t.step : -1;
-  const head = open ? w.trip.open : p.files ? w.trip.pending(p.faces.length, p.files) : w.trip.allOk;
-  const why = open
-    ? `${w.trip.waiting[Math.min(step, 5)] ?? ""}${p.files ? ` ${w.trip.after(p.files)}` : ""}`
-    : p.files
-      ? pendingSay(p, w) || (r.trip ? "" : w.trip.notAsked)
-      : t && step >= 6 ? w.trip.seenWhy(t.rows.length) : w.trip.allOkWhy;
+  const why = p.files ? pendingSay(p, w) : "";
   return (
-    <section className={`mk-trip ${state}`} data-trip={state} aria-label={head}>
-      <p className="mk-trip-say" role="status">
-        <i className="mk-trip-dot" aria-hidden />
-        <b>{head}</b>
-        {why && <span>{why}</span>}
-      </p>
-      <div className="mk-trip-act">
-        {t?.pr && (
-          <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
-            {w.trip.pr}
-          </a>
-        )}
-        {r.logo && (
-          <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
-            {w.sheet.zip}
-          </a>
-        )}
-        {open ? (
-          <span className="cor-btn secondary small" aria-disabled="true" data-pedido={r.pedido!.key}>
-            {w.trip.onWay}
-          </span>
-        ) : (
-          p.files > 0 &&
-          r.logo && (
-            <button type="button" className="cor-btn primary small" onClick={onSend} data-control="marca-al-repo">
-              {w.trip.send(p.files)}
-            </button>
-          )
-        )}
-      </div>
-      {t && (
-        <ol className="mk-rail" aria-label={open ? w.trip.open : w.trip.last}>
-          <li className="lbl" aria-hidden>{open ? w.trip.open : w.trip.last}</li>
-          {w.trip.stations.map((s, i) => (
-            <li key={s} className={i < step ? "done" : i === step ? (i === 3 ? "you" : "now") : ""} aria-current={i === step ? "step" : undefined}>
-              <i aria-hidden />
-              {s}
-            </li>
-          ))}
-        </ol>
+    <>
+      {t?.pr && (
+        <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
+          {w.trip.pr}
+        </a>
       )}
-    </section>
+      {r.logo && (
+        <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
+          {w.sheet.zip}
+        </a>
+      )}
+      {open ? (
+        <span className="cor-btn secondary small mk-onway" aria-disabled="true" title={w.trip.waiting[Math.min(Math.max(step, 0), 5)]} data-pedido={r.pedido!.key}>
+          <i className="mk-trip-dot" aria-hidden />
+          {w.trip.onWay}
+        </span>
+      ) : (
+        p.files > 0 &&
+        r.logo && (
+          <button type="button" className="cor-btn primary small" onClick={onSend} title={why || undefined} data-control="marca-al-repo">
+            {w.trip.send(p.files)}
+          </button>
+        )
+      )}
+    </>
   );
 }
 

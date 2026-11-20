@@ -2015,28 +2015,20 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .mk-fi-st.viejo { color: var(--cor-amber); }
 
 /* PLA-I69-1: the trip bar. What is pending and why, the one button, and the request's stations. State by word and dot. */
-.mk-trip { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 9px 12px 9px 14px; border-radius: 14px; border: 1px solid var(--cor-line); background: linear-gradient(90deg, rgba(255, 180, 84, 0.07), rgba(255, 255, 255, 0.01) 60%); }
-.mk-trip.ok { background: linear-gradient(90deg, rgba(110, 231, 160, 0.07), rgba(255, 255, 255, 0.01) 60%); }
-.mk-trip.go { background: linear-gradient(90deg, rgba(167, 139, 250, 0.1), rgba(255, 255, 255, 0.01) 60%); }
-.mk-trip-say { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin: 0; font-size: 13.5px; color: var(--cor-body); }
-.mk-trip-say b { flex: none; font-weight: 600; color: var(--cor-text); }
-.mk-trip-say span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mk-trip-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--cor-amber); transform: translateY(-1px); }
-.mk-trip.ok .mk-trip-dot { background: var(--cor-green); }
-.mk-trip.go .mk-trip-dot { background: var(--cor-violet-2); animation: mk-ping 1.6s ease-out infinite; }
-.mk-trip-act { display: flex; align-items: center; gap: 8px; }
-.mk-rail { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin: 0; padding: 0; list-style: none; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--cor-muted); }
-.mk-rail li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.mk-rail li + li:not(.lbl + li)::before { content: ""; width: 20px; height: 1.5px; margin: 0 6px; background: rgba(255, 255, 255, 0.14); }
-.mk-rail li.lbl { margin-right: 10px; text-transform: uppercase; }
-.mk-rail li i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.3); }
-.mk-rail li.done { color: var(--cor-body); }
-.mk-rail li.done i { background: var(--cor-green); border-color: var(--cor-green); }
-.mk-rail li.now { color: var(--cor-violet-3); }
-.mk-rail li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); animation: mk-ping 1.6s ease-out infinite; }
-.mk-rail li.you { color: var(--cor-amber); }
-.mk-rail li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
-@media (prefers-reduced-motion: reduce) { .mk-trip-dot, .mk-rail li i { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .mk-trip-dot { animation: none !important; } }
+/* PLA-130: the request's buttons sit in the head; «Revisar el repo» shows it is reading, then a tick. */
+.mk-head-r { flex-wrap: wrap; justify-content: flex-end; }
+.mk-onway { display: inline-flex; align-items: center; gap: 8px; cursor: default; }
+.mk-onway .mk-trip-dot { width: 7px; height: 7px; background: var(--cor-violet-2); animation: mk-ping 1.6s ease-out infinite; transform: none; }
+.mk-reread { display: inline-flex; align-items: center; gap: 8px; }
+.mk-reread.busy, .mk-reread.busy:disabled { cursor: progress; opacity: 1; }
+.mk-reread.done { border-color: rgba(110, 231, 160, 0.45); color: var(--cor-green); }
+.mk-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); border-top-color: var(--cor-violet-3); animation: mk-spin 0.8s linear infinite; }
+.mk-tick { font-style: normal; font-weight: 700; }
+@keyframes mk-spin { to { transform: rotate(360deg); } }
+.mk-reread-line { flex: none; height: 2px; margin-top: -8px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--cor-violet-2), transparent) no-repeat; background-size: 30% 100%; animation: cor-hflow 1.1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .mk-spin, .mk-reread-line { animation-duration: 3s; } }
 
 /* PLA-I69-2: the waterline (design PLA-IDEA33). Each surface on top as Plania would make it, its mirrored reflection
    from the repo underneath; the light line from the original says how each follows the logo; a drawer per surface. */
@@ -2130,7 +2122,7 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 /* A surface opened: the surfaces shrink to their lower half and its drawer rises over the water. */
 .mk-world.open .mk-shore { --mk-dev: 118px; }
 .mk-world.open .mk-srcc .mk-orig { transform: scale(0.6); transform-origin: top center; margin-bottom: -48px; }
-.mk-world.open .mk-srcc .mk-src, .mk-world.open .mk-srcc .mk-colors, .mk-world.open .mk-shore::after, .mk-world.open .mk-hz, .mk-world.open .mk-refl, .mk-world.open .mk-cap, .mk-world.open .mk-trip { visibility: hidden; }
+.mk-world.open .mk-srcc .mk-src, .mk-world.open .mk-srcc .mk-colors, .mk-world.open .mk-shore::after, .mk-world.open .mk-hz, .mk-world.open .mk-refl, .mk-world.open .mk-cap { visibility: hidden; }
 .mk-drawer { position: absolute; left: 0; right: 0; top: calc(30px + 30px + 118px + 8px); bottom: 0; z-index: 7; display: flex; flex-direction: column; border-radius: 16px; border: 1px solid var(--cor-line-strong); background: rgba(12, 12, 16, 0.98); box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6); overflow: hidden; animation: mk-up 0.3s ease; }
 .mk-drawer.list { padding: 0; }
 .mk-drawer.list > .mk-x { position: absolute; right: 10px; top: 8px; z-index: 2; width: 32px; height: 32px; font-size: 16px; }
@@ -2246,10 +2238,6 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
   .mk-drawer { position: fixed; left: 0; right: 0; bottom: 0; top: 30%; border-radius: 16px 16px 0 0; }
   .mk-dcols { grid-template-columns: 1fr; overflow: auto; }
   .mk-dcol { overflow: visible; border-right: 0; border-bottom: 1px solid var(--cor-line); }
-  .mk-trip { grid-template-columns: minmax(0, 1fr); }
-  .mk-trip-say { flex-wrap: wrap; row-gap: 2px; }
-  .mk-trip-say span { white-space: normal; }
-  .mk-trip-act { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .mk-railsvg .sigue, .mk-railsvg .lit, .mk-dev.flip, .mk-drawer { animation: none !important; } }
 

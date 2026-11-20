@@ -236,6 +236,11 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean): string => (has ? "en carriles, tira y brief" : "hoy: una letra"),
     optional: "opcional",
     reread: "Revisar el repo ahora",
+    // PLA-130: the button says it is reading, then that it finished.
+    rereadBusy: "Revisando el repo…",
+    rereadDone: "Repo revisado",
+    rereadToast: (ok: number, todo: number) => (todo ? `Repo revisado: ${ok} al día, ${todo === 1 ? "1 por llevar" : `${todo} por llevar`}.` : `Repo revisado: todo al día (${ok === 1 ? "1 archivo" : `${ok} archivos`}).`),
+    rereadFailed: (why: string) => `No se pudo revisar el repo: ${why}`,
     native: "App nativa y pantallas de arranque",
     gen: {
       menu: "Pedir marcas a Artist",
@@ -641,6 +646,10 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
+    rereadBusy: "Checking the repo…",
+    rereadDone: "Repo checked",
+    rereadToast: (ok: number, todo: number) => (todo ? `Repo checked: ${ok} up to date, ${todo} to carry.` : `Repo checked: all up to date (${ok === 1 ? "1 file" : `${ok} files`}).`),
+    rereadFailed: (why: string) => `Could not check the repo: ${why}`,
     native: "Native app and launch screens",
     gen: {
       menu: "Ask Artist for marks",
