@@ -127,7 +127,7 @@ export const ERRORS = {
   NOT_CLAIMABLE: [409, "the ticket cannot be claimed (detail: status, or unsatisfied blocked_by)"],
   LEG_POSTPONED: [409, "propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status)"],
   REQUEST_ID_REUSED: [409, "request_id was already used by a different tool in this project"],
-  RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged)"],
+  RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged | prod_migration_unhandled: the release adds migrations and settings.release.prod_migrations names nobody)"],
   RELEASE_MERGE_FAILED: [409, "release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded"],
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],

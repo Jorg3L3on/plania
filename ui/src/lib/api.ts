@@ -257,7 +257,7 @@ export const api = {
   prepararCodigo: (slug: string, input: { version: number; repo_path?: string; github: { name?: string; private?: boolean } | null }) =>
     request<{ setup: Preparacion; saved: boolean; settings: Ajustes }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/preparar`, input),
   crearRama: (slug: string) => request<{ state: "done" | "already" | "failed"; code: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/rama`, {}),
-  ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge" } | null }) =>
+  ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
   ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
@@ -688,7 +688,7 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null; prod_migrations?: "deploy" | "owner" | "none" | null };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";

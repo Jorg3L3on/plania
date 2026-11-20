@@ -51,7 +51,7 @@ export type SettingsRead = {
   title: string;
   version: number;
   code: { repo_path: string | null; github_repo: string | null; no_code: boolean };
-  release: { from: string; into: string; env: string; mode: "command" | "merge" } | null;
+  release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations: "deploy" | "owner" | "none" | null } | null;
   verify: { name: string; command: string }[];
   preview_url: string | null;
   plan_approval: boolean;
@@ -73,7 +73,7 @@ export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> 
     title: p.title,
     version: p.version,
     code: { repo_path: s.local?.repo_path ?? null, github_repo: s.github?.repo ?? null, no_code: s.local?.no_code === true },
-    release: s.release ? { from: s.release.from, into: s.release.into, env: s.release.env, mode: s.release.mode ?? "command" } : null,
+    release: s.release ? { from: s.release.from, into: s.release.into, env: s.release.env, mode: s.release.mode ?? "command", prod_migrations: s.release.prod_migrations ?? null } : null,
     verify: (s.qa?.verify ?? []).map((v) => ({ name: v.name, command: v.command })),
     preview_url: s.preview_url ?? null,
     plan_approval: !!s.plan_approval,
@@ -130,7 +130,7 @@ export async function setCodeLocation(
 }
 
 /** The release step, validated by set_project (checkReleaseSettings); null takes it away. */
-export async function setReleaseStep(db: Db, slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "command" | "merge" } | null }): Promise<SettingsRead> {
+export async function setReleaseStep(db: Db, slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "command" | "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null }): Promise<SettingsRead> {
   await setProject(db, { project: slug, version: input.version, settings: { release: input.release } }, settingsCtx);
   return settingsRead(db, slug);
 }

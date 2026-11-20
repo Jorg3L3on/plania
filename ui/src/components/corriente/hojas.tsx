@@ -10,7 +10,7 @@
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
 // Esc and Cancelar close; focus starts inside and returns where it was.
-import { migrationLine } from "@/lib/publicar";
+import { migrationLine, prodWaits, publicarWords } from "@/lib/publicar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -293,6 +293,7 @@ const publishError = (code: string, detail: Record<string, unknown> = {}): strin
     if (why === "before_steps") return w.beforeSteps;
     if (why === "merged" || why === "nothing_to_ship") return w.alreadyMerged;
     if (why === "mode_command") return w.byCommand;
+    if (why === "prod_migration_unhandled") return publicarWords().prodUnset("");
     return w.notHere;
   }
   if (code === "RELEASE_MERGE_FAILED") return w.githubRefused(detail.output ? String(detail.output) : null);
@@ -335,6 +336,9 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
     );
   const n = r.tickets.length;
   const blocked = r.open_checks > 0 || r.before > 0;
+  // PLA-I68-1: migrations with nobody named for production: the sheet offers the setting instead of Publicar.
+  const waits = prodWaits(r);
+  const pw = publicarWords();
   const done = ship.isSuccess ? ship.data : null;
   return (
     <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose} wide>
@@ -352,8 +356,8 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
         {n > 4 && <li className="cor-cap">{w.andMore(n - 4)}</li>}
       </ul>
       {!!r.migrations?.length && (
-        <p className="cor-text" data-publish-migrations={r.migrate ?? ""}>
-          {migrationLine(r.migrations, r.migrate ?? null, p.title)}
+        <p className="cor-text" data-publish-migrations={r.migrate ?? ""} data-publish-prod={r.prod_migrations ?? "unset"}>
+          {migrationLine(r.migrations, r.migrate ?? null, p.title, undefined, r.prod_migrations ?? null)}
         </p>
       )}
       {!!r.reel?.length && (
@@ -385,7 +389,8 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       {done && (
         <p className="cor-state ok" role="status" data-publish-done>
           {w.published(n, done.merge_sha.slice(0, 7))}
-          {done.migrate === "auto" ? w.migrateAuto : done.migrate === "manual" ? w.migrateManual : ""}{" "}
+          {done.migrate === "auto" ? w.migrateAuto : ""}
+          {done.prod_migrations ? ` ${pw.prod[done.prod_migrations]}` : ""}{" "}
           <a className="cor-inline" href={done.pr.url} target="_blank" rel="noreferrer">
             {w.seeGithub}
           </a>
@@ -399,9 +404,15 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
           </Btn>
         ) : (
           <>
-            <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">
-              {ship.isPending ? w.publishing : w.publishChanges}
-            </Btn>
+            {waits ? (
+              <Link className="cor-btn primary" to={`${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-lanzamiento`} onClick={onClose} data-control="publicar-ajustes">
+                {pw.setIt}
+              </Link>
+            ) : (
+              <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">
+                {ship.isPending ? w.publishing : w.publishChanges}
+              </Btn>
+            )}
             <Btn kind="quiet" disabled={ship.isPending} onClick={onClose}>
               {w.close}
             </Btn>

@@ -198,6 +198,8 @@ export type ShipResult = {
   // PLA-82 (F-32)
   migration_files?: string[];
   migrate?: "auto" | "manual" | null;
+  // PLA-I68-1: who migrates production.
+  prod_migrations?: "deploy" | "owner" | "none" | null;
 };
 
 // 2.11 Orden (GET /api/projects/:slug/audit): the last audit run, with what each finding offers.

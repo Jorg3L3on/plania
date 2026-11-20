@@ -248,3 +248,17 @@ test("PLA-62 #4: a stuck pedido's clock is its «Constrúyelo», not the idea's 
   const f2 = { ideas: [fIdea("MIA-IDEA2", { origin: "owner", stop: "lista", state: "valvula", updated_at: "2026-11-17T12:00:00Z" })], promoted: [] };
   assert.equal(find(cosasOf({ p, decisions: [], ficha: f2 }), "MIA-IDEA2").since, "2026-11-17T12:00:00Z");
 });
+
+// PLA-I68-1: a release that carries migrations with nobody named to migrate production waits: its row says so and its
+// lever is the setting, never Publicar.
+test("Publicar espera: migrations and no production path turn the row's lever into the setting", () => {
+  const p = project("micasa");
+  const rel = (prod: string | null) => ({ ...delivery("r1", "", "micasa"), ref: null, kind: "release", actions: [], title: "Publicar MiCasa", release: { from: "sandbox", into: "main", env: "prod", ahead: 2, tickets: [], open_checks: 0, before: 0, migrations: ["0007"], migrate: null, prod_migrations: prod } });
+  const waits = cosasOf({ p, decisions: [rel(null)], ficha: { ideas: [], promoted: [] } }, "es").grupos[0].cosas.find((x: any) => x.key === "publicar");
+  assert.equal(waits.title, "Publicar espera");
+  assert.equal(waits.espera, "Lleva cambios a la base y nadie dijo quién migra producción.");
+  assert.deepEqual(waits.palanca, { kind: "ajustes", seccion: "lanzamiento", label: "Decir quién migra" });
+  const ok = cosasOf({ p, decisions: [rel("deploy")], ficha: { ideas: [], promoted: [] } }, "es").grupos[0].cosas.find((x: any) => x.key === "publicar");
+  assert.equal(ok.title, "Publicar MiCasa");
+  assert.deepEqual(ok.palanca, { kind: "publicar" });
+});

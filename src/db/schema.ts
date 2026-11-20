@@ -824,7 +824,11 @@ export type ProjectSettings = {
 
 // 2.13: mode "command" (default) shows the command the owner runs; "merge" lets him ship from the screen
 // (a PR from → into merged with gh pr merge --merge, POST /api/projects/:slug/release/ship).
-export type ReleaseSettings = { from: string; into: string; env: string; mode?: "command" | "merge" };
+// PLA-I68-1: who migrates the production database when a release carries migrations: the deploy (its own step),
+// the owner by hand, or nobody (the project has no production database). Unset blocks a release with migrations.
+export const PROD_MIGRATIONS = ["deploy", "owner", "none"] as const;
+export type ProdMigrations = (typeof PROD_MIGRATIONS)[number];
+export type ReleaseSettings = { from: string; into: string; env: string; mode?: "command" | "merge"; prod_migrations?: ProdMigrations };
 
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;

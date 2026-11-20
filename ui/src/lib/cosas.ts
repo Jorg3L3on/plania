@@ -12,6 +12,7 @@ import type { Decision, DecisionAction, EtapaHolder, EtapaId, FichaIdea, OrgFich
 import { etapaWord, wordOf } from "./etapas";
 import { seatName } from "./corriente";
 import { arranqueLine } from "./arranque";
+import { prodWaits, publicarWords } from "./publicar";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 // ---- words
@@ -280,6 +281,8 @@ export type Palanca =
   | { kind: "cerrar"; key: string; version: number | null }
   | { kind: "reenviar"; key: string }
   | { kind: "publicar" }
+  // PLA-I68-1: Publicar waits on a setting (who migrates production): the row links to it instead.
+  | { kind: "ajustes"; seccion: string; label: string }
   | { kind: "detener"; run: string }
   | { kind: "primero"; key: string }
   | { kind: "lista"; key: string };
@@ -626,17 +629,20 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
 
   // Publicar lo aceptado: one row while a release waits.
   const release = decisions.find((d) => d.project === p.slug && d.kind === "release" && d.state === null);
+  // PLA-I68-1: a release with migrations and nobody named to migrate production waits; its lever is the setting.
+  const waits = !!release && prodWaits(release.release);
+  const pw = publicarWords();
   if (release)
     out.push({
       key: "publicar",
       tipo: "publicar",
       idea_key: null,
-      title: release.title || w.publishTitle(p.title),
+      title: waits ? pw.waitTitle : release.title || w.publishTitle(p.title),
       grupo: "toca",
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "publicado" },
-      espera: release.detail ?? w.acceptedWaits,
+      espera: waits ? pw.waitWhy : (release.detail ?? w.acceptedWaits),
       cap: w.tipos.publicar,
-      palanca: { kind: "publicar" },
+      palanca: waits ? { kind: "ajustes", seccion: "lanzamiento", label: pw.setIt } : { kind: "publicar" },
       decisions: [release.id],
       since: release.at,
     });

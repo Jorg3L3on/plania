@@ -89,8 +89,9 @@ export function releaseBody(plan: ReleasePlan): string {
   return lines.join("\n");
 }
 
-/** PLA-82 (F-32): how a release's migrations reach the app's own database: auto (Plania runs them after a backup),
- * manual (someone has to: the project does not say how) or null (the release adds none). */
+/** PLA-82 (F-32): how a release's migrations reach the app's local test copy: auto (Plania runs them there after a
+ * backup), manual (Plania has no copy to migrate) or null (the release adds none). PLA-I68-1: this is never
+ * production; who migrates production is settings.release.prod_migrations (prodMigrationUnhandled blocks the ship). */
 export function migrateMode(p: { settings: { capture?: { database?: unknown } } }, plan: Pick<ReleasePlan, "migrations" | "migration_files">): "auto" | "manual" | null {
   if (!plan.migrations.length && !plan.migration_files.length) return null;
   return p.settings.capture?.database ? "auto" : "manual";
@@ -142,12 +143,12 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
   // background (src/captures/publicado.ts); the sheet already said so.
   const migrate = migrateMode(p, plan);
   await writeTx(db, p, ctx, async (_tx, emit) => {
-    await emit("release.merged", null, { ...record, migration_files: plan.migration_files, migrate });
+    await emit("release.merged", null, { ...record, migration_files: plan.migration_files, migrate, prod_migrations: plan.prod_migrations });
   });
   if (migrate === "auto") {
     void import("../captures/publicado.js")
       .then(({ migrarBaseDeLaApp }) => (shipDeps.migrar ?? migrarBaseDeLaApp)(db, p, plan.into.branch, [...plan.migrations, ...plan.migration_files]))
       .catch((e) => console.log(`[release] ${p.slug}: migration not run: ${e instanceof Error ? e.message : String(e)}`));
   }
-  return { merged: true, ...record, migration_files: plan.migration_files, migrate };
+  return { merged: true, ...record, migration_files: plan.migration_files, migrate, prod_migrations: plan.prod_migrations };
 }

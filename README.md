@@ -778,7 +778,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `REFERENCE_LIMIT` | 409 | the seat already has the most references it may keep (detail: max) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
-| `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged) |
+| `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged | prod_migration_unhandled: the release adds migrations and settings.release.prod_migrations names nobody) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |

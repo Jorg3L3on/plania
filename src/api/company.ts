@@ -218,7 +218,7 @@ companyRoutes.get("/projects/:slug/settings", async (c) => {
 const Version = z.number().int().min(1);
 const CodeBody = z.object({ version: Version, repo_path: z.string().max(500).optional(), github_repo: z.string().max(140).optional(), no_code: z.boolean().optional() }).strict();
 const ReleaseBody = z
-  .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional() }).strict().nullable() })
+  .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional(), prod_migrations: z.enum(["deploy", "owner", "none"]).optional() }).strict().nullable() })
   .strict();
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();

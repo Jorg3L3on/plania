@@ -55,8 +55,9 @@ describe("F-32: the release's migrations", () => {
   });
 
   test("the Publicar sheet says the release changes the database and who migrates it", () => {
-    assert.equal(hojas.migrationLine(["0003_seguimiento.sql"], "auto", "Mianovia"), "Lleva un cambio a la base de datos (0003_seguimiento.sql). Al publicar, Plania respalda la base de Mianovia y la migra.");
-    assert.match(hojas.migrationLine(["a.sql", "b.sql", "c.sql", "d.sql"], "manual", "Mianovia"), /^Lleva 4 cambios a la base de datos \(a\.sql, b\.sql, c\.sql y 1 más\)\. Después de publicar hay que migrar la base de Mianovia/);
+    // PLA-I68-1: the copy Plania migrates is the local test copy; production is said apart.
+    assert.equal(hojas.migrationLine(["0003_seguimiento.sql"], "auto", "Mianovia", "es", "deploy"), "Lleva un cambio a la base de datos (0003_seguimiento.sql). Al publicar, Plania respalda la copia de prueba de Mianovia en esta computadora y la migra. En producción, el despliegue corre las migraciones.");
+    assert.match(hojas.migrationLine(["a.sql", "b.sql", "c.sql", "d.sql"], "manual", "Mianovia"), /^Lleva 4 cambios a la base de datos \(a\.sql, b\.sql, c\.sql y 1 más\)\. Nadie dijo quién migra la base de producción de Mianovia/);
   });
 });
 

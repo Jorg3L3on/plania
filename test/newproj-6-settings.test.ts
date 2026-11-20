@@ -185,7 +185,7 @@ test("NEWPROJ-6: the release step is validated as set_project does, saved, and t
   assert.deepEqual(await eventsSince(ev), []);
   const res = await put("/release", { version, release: { from: "sandbox", into: "main", env: "prod", mode: "merge" } });
   assert.equal(res.status, 200, await res.clone().text());
-  assert.deepEqual(((await res.json()) as SettingsRead).release, { from: "sandbox", into: "main", env: "prod", mode: "merge" });
+  assert.deepEqual(((await res.json()) as SettingsRead).release, { from: "sandbox", into: "main", env: "prod", mode: "merge", prod_migrations: null });
   assert.deepEqual((await stored()).settings.release, { from: "sandbox", into: "main", env: "prod", mode: "merge" });
   // mode command is the default and is not stored.
   ({ version } = await stored());
