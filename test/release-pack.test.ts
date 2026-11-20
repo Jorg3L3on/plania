@@ -92,6 +92,7 @@ describe("release package", () => {
       "scripts/install.ts",
       "scripts/migrate.ts",
       "scripts/service.ts",
+      "scripts/service-win.ts",
       "scripts/restart.ts",
       "scripts/update.ts",
       "scripts/restore.ts",
@@ -283,7 +284,8 @@ describe("service", () => {
     const linux = { ...base, platform: "linux" as const, home: "/home/ana", root: "/home/ana/plania 0.1.0", node: "/usr/bin/node", systemd: true };
     const unit = systemdUnit(linux);
     assert.match(unit, /^ExecStart="\/usr\/bin\/node" "--env-file=\/home\/ana\/plania 0\.1\.0\/\.env" "--import" "tsx" "\/home\/ana\/plania 0\.1\.0\/scripts\/dev\.ts" "--port" "3737"$/m);
-    assert.match(unit, /^WorkingDirectory="\/home\/ana\/plania 0\.1\.0"$/m);
+    // Unquoted: systemd refuses a quoted WorkingDirectory as not absolute and never starts the unit.
+    assert.match(unit, /^WorkingDirectory=\/home\/ana\/plania 0\.1\.0$/m);
     assert.match(unit, /^Restart=on-failure$/m);
     assert.match(unit, /^WantedBy=default\.target$/m);
     const plan = installPlan(linux, { atBoot: true });
@@ -301,10 +303,10 @@ describe("service", () => {
     assert.deepEqual(log, ["systemctl --user disable --now plania.service", "rm /home/ana/.config/systemd/user/plania.service", "systemctl --user daemon-reload"]);
   });
 
-  test("WSL without systemd and Windows change nothing and say why", () => {
+  test("WSL without systemd and other systems change nothing and say why", () => {
     assert.equal(servicePlatform({ platform: "linux", systemd: false, wsl: true }), "wsl-no-systemd");
     assert.equal(servicePlatform({ platform: "linux", systemd: true, wsl: true }), "linux");
-    for (const env of [{ ...base, platform: "linux" as const, wsl: true }, { ...base, platform: "win32" as const }]) {
+    for (const env of [{ ...base, platform: "linux" as const, wsl: true }, { ...base, platform: "freebsd" as const }]) {
       const plan = installPlan(env);
       assert.deepEqual([plan.files, plan.commands], [[], []]);
       assert.ok(plan.lines.length > 0);
@@ -312,10 +314,16 @@ describe("service", () => {
     assert.match(installPlan({ ...base, platform: "linux", wsl: true }).lines.join("\n"), /systemd=true/);
   });
 
-  test("restart: kickstart on macOS, systemctl on Linux, none elsewhere", () => {
+  test("restart: kickstart on macOS, systemctl on Linux, the supervisor on Windows, none elsewhere", () => {
     assert.deepEqual(restartCommand({ platform: "darwin", uid: 501, systemd: false, wsl: false }), { cmd: "launchctl", args: ["kickstart", "-k", "gui/501/com.plania.server"] });
     assert.deepEqual(restartCommand({ platform: "linux", uid: 1000, systemd: true, wsl: true }), { cmd: "systemctl", args: ["--user", "restart", "plania.service"] });
+    // PLA-I2-19: Windows needs the Node and package that send the supervisor its request.
     assert.equal(restartCommand({ platform: "win32", uid: 0, systemd: false, wsl: false }), null);
+    assert.deepEqual(restartCommand({ platform: "win32", uid: 0, systemd: false, wsl: false, node: "C:\\node.exe", root: "C:\\plania" }), {
+      cmd: "C:\\node.exe",
+      args: ["--import", "tsx", "C:\\plania\\scripts\\service-win.ts", "restart"],
+    });
+    assert.equal(restartCommand({ platform: "freebsd", uid: 0, systemd: false, wsl: false }), null);
   });
 
   test("the service PATH drops pnpm's node_modules/.bin folders", () => {

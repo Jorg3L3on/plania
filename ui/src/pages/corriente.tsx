@@ -27,6 +27,8 @@ import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
 import { DocHoja, Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
 import { BorrarProyecto } from "@/components/corriente/hoja-borrar";
+import { pausaDe, pausasWords } from "@/lib/pausas";
+import { listedProjects } from "@/lib/proyectos-visibles";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -114,6 +116,17 @@ export const CorrientePage = () => {
       refresh();
     },
   });
+  // F6: the company and this project both paused: one button resumes the two, the project first.
+  const resumeBoth = useMutation({
+    mutationFn: async (p: { slug: string; title: string }) => {
+      await api.setProjectPaused(p.slug, false);
+      await api.setCompanyPaused(false);
+      return p.title;
+    },
+    onSuccess: (title) => toast(pausasWords().ambasHecho(title)),
+    onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
+    onSettled: refresh,
+  });
   const resumeCompany = useMutation({
     mutationFn: () => api.setCompanyPaused(false),
     onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
@@ -140,7 +153,9 @@ export const CorrientePage = () => {
   };
   const openHoja = (kind: HojaKind, slug?: string | null) => navigate(hojaHref(kind, slug));
 
-  const lanes = useMemo(() => (company ? lanesOf(company.projects, summaries.data, decisions, paused) : []), [company, summaries.data, decisions, paused]);
+  // F7: the lists leave out the home project while it holds no work; reads by slug below use every project.
+  const listed = useMemo(() => (company ? listedProjects(company.projects) : []), [company]);
+  const lanes = useMemo(() => (company ? lanesOf(listed, listedProjects(summaries.data ?? []), decisions, paused) : []), [company, listed, summaries.data, decisions, paused]);
   const project = at.slug ? (company?.projects.find((p) => p.slug === at.slug) ?? null) : null;
   const go = (to: Partial<At>, replace = false) => {
     const href = linkTo(to);
@@ -348,7 +363,7 @@ export const CorrientePage = () => {
           companyPaused={paused}
           actOf={(c, cosas) => <Palanca p={p} c={c} primary={!p.paused && c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}
           bottom={(cosas) => (
-            <PedirBar projects={company?.projects ?? [p]} fixed={p} primary={!p.paused && !cosas.grupos[0]?.cosas.length} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />
+            <PedirBar projects={company ? listed : [p]} fixed={p} primary={!p.paused && !cosas.grupos[0]?.cosas.length} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />
           )}
           plan={
             !p.paused && !paused && !(p.route && p.route.legs.length > 0) ? (
@@ -377,7 +392,7 @@ export const CorrientePage = () => {
                 f={fraseOf(p, cosas, line, { now, companyPaused: paused, totals })}
                 nudge={nudge}
                 meta={{ m: metaLine(r.goal, r.date, r.missing), href: hojaHref("meta", p.slug) }}
-                reanudar={p.paused ? { title: p.title, href: hojaHref("reanudar", p.slug) } : undefined}
+                reanudar={pausaDe(paused, p.paused) === "proyecto" ? { title: p.title, href: hojaHref("reanudar", p.slug) } : undefined}
               />
             );
           }}
@@ -505,13 +520,13 @@ export const CorrientePage = () => {
       return (
         <Stream
           headline={headlineOf(lanes, decisions, paused)}
-          totals={summaries.data ? totalsOf(company.projects, summaries.data) : null}
+          totals={summaries.data ? totalsOf(listed, summaries.data) : null}
           lanes={lanes}
           links={streamLinks}
           onResume={(slug) => openHoja("reanudar", slug)}
           onNew={() => openHoja("nuevo")}
           resuming={resuming}
-          pedir={<PedirBar projects={company.projects} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />}
+          pedir={<PedirBar projects={listed} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />}
         />
       );
     if (at.view === "tetoca")
@@ -529,7 +544,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.view === "pedir")
-      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} initialQuestion={new URLSearchParams(location.search).get("pregunta")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
+      return <Pedir projects={listedProjects(company.projects, new URLSearchParams(location.search).get("p"))} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} initialQuestion={new URLSearchParams(location.search).get("pregunta")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
     if (at.view === "asistente")
       return (
         <Asistente
@@ -573,7 +588,14 @@ export const CorrientePage = () => {
       {bar ?? (
         <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} briefToca={briefToca} closeTo={at.view === "pedir" ? hrefOf({ view: "corriente" }) : undefined} />
       )}
-      {paused && (
+      {project && pausaDe(paused, project.paused) === "ambas" ? (
+        <div className="cor-notice amber" role="status" data-banner="paused-both">
+          <span>{pausasWords().ambasAviso(project.title)}</span>
+          <Btn kind="amber" small disabled={resumeBoth.isPending} onClick={() => resumeBoth.mutate(project)} data-control="reanudar-ambas">
+            {resumeBoth.isPending ? w.resuming : pausasWords().ambasBoton(project.title)}
+          </Btn>
+        </div>
+      ) : paused && (
         <div className="cor-notice amber" role="status" data-banner="paused">
           <span>{w.companyStopped}</span>
           <Btn kind="amber" small disabled={resumeCompany.isPending} onClick={() => resumeCompany.mutate()} data-control="reanudar-compania">

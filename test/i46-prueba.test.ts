@@ -364,7 +364,8 @@ describe("Encenderla with a real process", () => {
     sh(["push", "-q", "origin", "sandbox"], seed);
     execFileSync("git", ["clone", "-q", origin, repo]);
     const port = 47_310;
-    await setCapture("filmia", SETTINGS(port, { start_command: `${process.execPath} server.mjs {port}` }), repo);
+    // Quoted: on Windows node lives under C:\Program Files (PLA-I2-19).
+    await setCapture("filmia", SETTINGS(port, { start_command: `"${process.execPath}" server.mjs {port}` }), repo);
     prueba.setPruebaDeps({
       env: { ...process.env, PLANIA_WORKTREES_ROOT: WT_ROOT },
       capture: async (_db, input) => (captures.push(input as Json), { run_id: "r", project: input.project, task_key: null, commit: null, branch: null, base_url: input.base_url!, ok: 1, failed: 0, stills: [] }),
@@ -385,9 +386,10 @@ describe("Encenderla with a real process", () => {
     assert.ok(fp, "registered");
     const pid = Number(fp.details.declared?.pid ?? fp.details.pid);
     await post("filmia", "apagar");
+    // The group on macOS and Linux; on Windows (no groups) the shell, and the closed port below shows its child went too.
     const gone = async () => {
       try {
-        process.kill(-pid, 0);
+        process.kill(process.platform === "win32" ? pid : -pid, 0);
         return false;
       } catch {
         return true;

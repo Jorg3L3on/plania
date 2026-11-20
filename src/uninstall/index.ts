@@ -6,12 +6,16 @@
 // Every outside call is injected (programs, the filesystem, the prompt, the database drop, the process list), so a
 // test sees exactly what would run. The service removal is its own function: PLA-I2-17 sets the service up and can
 // pass its own; the default looks for the launchd agent and the systemd user unit by the names the README uses.
+// PLA-I2-19 (audit B5): on native Windows, the Scheduled Task «Plania» and its supervisor, the processes found by
+// command line (CIM), stopped with taskkill /T, and %LOCALAPPDATA%\plania as Plania's log folder.
 import { existsSync, rmSync } from "node:fs";
 import { readlink } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import path from "node:path";
+import { killTree } from "../lib/proc-tree.js";
+import { supervisorArgs, WINDOWS_TASK, windowsPaths } from "../packaging/service.js";
 
-// macOS and Linux only (Windows through WSL): the paths below are POSIX on every machine, tests included.
+// The macOS and Linux paths below are POSIX on every machine, tests included; Windows' own use path.win32.
 const join = path.posix.join;
 import pg from "pg";
 import { defaultExec, type ExecFn } from "../brief/doctor.js";
@@ -99,14 +103,23 @@ export const systemdUnit = (home: string) => join(home, ".config", "systemd", "u
 /** The launchd agent on macOS, the systemd user unit on Linux; each only when its file is there. */
 export async function defaultRemoveService(ctx: UninstallContext): Promise<string[]> {
   const done: string[] = [];
-  const run = async (cmd: string, args: string[]) => {
+  const run = async (cmd: string, args: string[], cwd = ctx.home) => {
     try {
-      await ctx.exec(cmd, args, { env: ctx.env, cwd: ctx.home, timeoutMs: 30_000 });
+      await ctx.exec(cmd, args, { env: ctx.env, cwd, timeoutMs: 30_000 });
     } catch {
       // A service that is not loaded makes these fail; the file is removed all the same.
     }
   };
-  if (ctx.os === "darwin") {
+  if (ctx.os === "win32") {
+    const p = windowsPaths({ home: ctx.home, localAppData: ctx.env.LOCALAPPDATA });
+    if (ctx.exists(p.task) || ctx.exists(p.config)) {
+      // The supervisor lets the server drain and leaves; then the task goes.
+      await run(process.execPath, supervisorArgs({ root: ctx.root }, "stop"), ctx.root);
+      await run("schtasks", ["/Delete", "/TN", WINDOWS_TASK, "/F"]);
+      for (const f of [p.task, p.config, p.stopped]) if (ctx.exists(f)) ctx.remove(f);
+      done.push(say(UNINSTALL_WORDS).serviceRemoved(WINDOWS_TASK));
+    }
+  } else if (ctx.os === "darwin") {
     const plist = launchdPlist(ctx.home);
     if (ctx.exists(plist)) {
       await run("launchctl", ["bootout", `gui/${ctx.uid ?? ""}/${LAUNCHD_LABEL}`]);
@@ -136,6 +149,7 @@ const pidsOf = (text: string) =>
  * command line names this folder's wrapper.mjs by its full path). Another checkout's processes are left alone.
  */
 export async function defaultFindProcesses(ctx: UninstallContext): Promise<number[]> {
+  if (ctx.os === "win32") return windowsProcesses(ctx);
   const pgrep = async (pattern: string) => {
     try {
       const r = await ctx.exec("pgrep", ["-f", pattern], { env: ctx.env, cwd: ctx.root, timeoutMs: 10_000 });
@@ -157,6 +171,34 @@ export async function defaultFindProcesses(ctx: UninstallContext): Promise<numbe
   const out = new Set<number>();
   for (const pid of await pgrep("scripts/dev\\.ts")) if (path.resolve((await cwdOf(pid)) ?? "\0") === path.resolve(ctx.root)) out.add(pid);
   for (const pid of await pgrep(escape(join(ctx.root, "src", "runner", "wrapper.mjs")))) out.add(pid);
+  return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * Windows: Node processes whose command line names this folder and the server (scripts\dev.ts, which tsx's loader
+ * also names by this folder), the service's supervisor or a run's wrapper. There is no cwd to read there.
+ */
+async function windowsProcesses(ctx: UninstallContext): Promise<number[]> {
+  const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | ForEach-Object { "$($_.ProcessId)\`t$($_.CommandLine)" }`;
+  let stdout = "";
+  try {
+    const r = await ctx.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { env: ctx.env, cwd: ctx.root, timeoutMs: 20_000 });
+    if (r.code !== 0) return [];
+    stdout = r.stdout;
+  } catch {
+    return [];
+  }
+  const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
+  const root = norm(path.win32.resolve(ctx.root)).replace(/\/+$/, "");
+  const out = new Set<number>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    const pid = Number(line.slice(0, tab));
+    const cmd = norm(line.slice(tab + 1));
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    if (cmd.includes(root) && /scripts\/(dev|service-win)\.ts|src\/runner\/wrapper\.mjs/.test(cmd)) out.add(pid);
+  }
   return [...out].sort((a, b) => a - b);
 }
 
@@ -187,6 +229,13 @@ export async function defaultDropDatabase(url: string, name: string): Promise<vo
 
 /** Plania's own folders, outside its install folder. Never the backups. */
 export function dataFolders(home: string, os: string, env: NodeJS.ProcessEnv): { remove: string[]; keep: string[] } {
+  if (os === "win32") {
+    const w = path.win32.join;
+    return {
+      remove: [w(home, ".config", "plania"), env.PLANIA_CAPTURES_DIR?.trim() || w(home, "plania-captures"), path.win32.dirname(windowsPaths({ home, localAppData: env.LOCALAPPDATA }).logDir)],
+      keep: [env.PLANIA_BACKUP_DIR?.trim() || w(home, "plania-backups")],
+    };
+  }
   const remove = [
     join(home, ".config", "plania"),
     env.PLANIA_CAPTURES_DIR?.trim() || join(home, "plania-captures"),
@@ -210,7 +259,8 @@ export async function uninstall(opts: { deleteData: boolean }, deps: UninstallDe
   };
   const log = deps.log ?? ((line: string) => console.log(line));
   const w = say(UNINSTALL_WORDS);
-  const kill = deps.kill ?? ((pid, signal) => process.kill(pid, signal));
+  // Windows: the tree (taskkill /T /F), since a server or wrapper ended alone leaves its children running.
+  const kill = deps.kill ?? ((pid, signal) => (ctx.os === "win32" ? killTree(pid, signal) : process.kill(pid, signal)));
   const wait = deps.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
 
   // 1. The service, so nothing starts the server again.

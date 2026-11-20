@@ -21,6 +21,13 @@ export function defaultFolders(home: string = homedir()): Folders & { canvases: 
   return { projects: path.join(root, "projects"), worktrees: path.join(root, "worktrees"), canvases: path.join(root, "canvases") };
 }
 
+/** F5: the folders first start offers, written the way this machine writes paths: a variable set by hand wins,
+ * else the default under the home (on Windows C:\Users\<user>\plania\projects). */
+export function offeredFolders(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): Folders {
+  const d = defaultFolders(home);
+  return { projects: env.PLANIA_PROJECTS_ROOT?.trim() || d.projects, worktrees: env.PLANIA_WORKTREES_ROOT?.trim() || d.worktrees };
+}
+
 export const expandHome = (p: string, home: string = homedir()): string => p.replace(/^~(?=$|[\\/])/, home);
 
 /** A folder as the owner may type it: absolute, or starting with ~. */

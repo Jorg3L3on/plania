@@ -35,6 +35,7 @@ const SETTLE_MS = 600; // after load: fonts, client components, a streamed Suspe
 // downloaded chromium if one is on the machine. Null when there is none.
 // PLA-I2-4: on Linux too: the usual names on PATH (google-chrome, chromium, chromium-browser) and Playwright's
 // Linux cache (~/.cache/ms-playwright/chromium-*/chrome-linux/chrome).
+// P1: on Windows, Google Chrome under %ProgramFiles%, %ProgramFiles(x86)% and %LOCALAPPDATA% (a per-user install).
 export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
   const candidates = [
     env.PLANIA_CHROME_PATH,
@@ -42,6 +43,7 @@ export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: str
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
     "/usr/bin/google-chrome",
     "/usr/bin/chromium",
+    ...windowsChrome(env),
   ].filter((p): p is string => Boolean(p));
   for (const p of candidates) if (exists(p)) return p;
   for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]) {
@@ -69,6 +71,14 @@ export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: str
     for (const d of dirs) for (const sub of subs) if (exists(path.join(pw, d, sub))) return path.join(pw, d, sub);
   }
   return null;
+}
+
+// The variables are only set on Windows, so elsewhere this is empty.
+function windowsChrome(env: NodeJS.ProcessEnv): string[] {
+  return [env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA]
+    .map((dir) => dir?.trim())
+    .filter((dir): dir is string => Boolean(dir))
+    .map((dir) => path.win32.join(dir, "Google", "Chrome", "Application", "chrome.exe"));
 }
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void };

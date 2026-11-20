@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StageBoard } from "@/components/plan/stage-board";
 import { AhoraLine } from "@/components/plan/ahora-line";
 import { ahoraView } from "@/lib/ahora-piso";
+import { listedProjects } from "@/lib/proyectos-visibles";
 import {
   BranchGraph,
   FichaSheet,
@@ -210,7 +211,7 @@ function ProjectOrg({ slug }: { slug: string }) {
           open
           fixedProject={slug}
           goal={(goals.data?.goals ?? []).find((g) => g.project === slug && g.status === "active") ?? null}
-          projects={(comp.data?.projects ?? []).map((p) => ({ slug: p.slug, title: p.title }))}
+          projects={listedProjects(comp.data?.projects ?? [], slug).map((p) => ({ slug: p.slug, title: p.title }))}
           parents={(goals.data?.goals ?? []).filter((g) => g.project === null)}
           onOpenChange={(open) => {
             if (open) return;

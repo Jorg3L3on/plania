@@ -1,5 +1,6 @@
 // PLA-I2-17: Plania as a service (src/packaging/service.ts).
-//   pnpm service:install                 launchd agent on macOS, systemd user unit on Linux; starts it now
+//   pnpm service:install                 launchd agent on macOS, systemd user unit on Linux, a Scheduled Task at
+//                                        logon on Windows (PLA-I2-19); starts it now
 //   pnpm service:install --at-boot       Linux: also start before anyone logs in (loginctl enable-linger)
 //   pnpm service:install --port 3737     another port
 //   pnpm service:uninstall               stop it and remove the agent or unit; data and logs stay
@@ -32,6 +33,10 @@ const env: ServiceEnv = {
   path: servicePath(process.env.PATH ?? "", path.delimiter),
   port: Number(values.port),
   ...detectSystem(),
+  // Windows (PLA-I2-19): the task runs as this user; its log goes under %LOCALAPPDATA%.
+  localAppData: process.env.LOCALAPPDATA,
+  user: process.env.USERNAME ? [process.env.USERDOMAIN, process.env.USERNAME].filter(Boolean).join("\\") : undefined,
+  systemRoot: process.env.SystemRoot,
 };
 
 if (action === "install" && !existsSync(path.join(root, ".env"))) {
@@ -42,9 +47,9 @@ const plan = action === "install" ? installPlan(env, { atBoot: values["at-boot"]
 try {
   applyPlan(plan, {
     mkdir: (d) => mkdirSync(d, { recursive: true }),
-    write: (f, c) => writeFileSync(f, c),
+    write: (f, c, encoding) => writeFileSync(f, c, { encoding: encoding ?? "utf8" }),
     remove: (f) => rmSync(f, { force: true }),
-    run: (cmd, args) => execFileSync(cmd, args, { stdio: "inherit" }),
+    run: (cmd, args) => execFileSync(cmd, args, { stdio: "inherit", cwd: root }),
   });
 } catch (e) {
   console.error(`No se pudo terminar: ${e instanceof Error ? e.message : String(e)}`);

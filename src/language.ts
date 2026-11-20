@@ -12,12 +12,29 @@ export { LANGUAGES, DEFAULT_LANGUAGE, isLanguage, type Language };
 export const LANGUAGE_KEY = "language";
 
 let cached: Language | null = null;
+// P4: set by the command-line tools (the install, the machine check) before a language is chosen; null in the server.
+let systemFallback: Language | null = null;
 
-/** The language now: PLANIA_LANGUAGE, else the stored one, else Spanish. */
+/** The language now: PLANIA_LANGUAGE, else the stored one, else the system's (command-line tools only), else Spanish. */
 export function installLanguage(env: NodeJS.ProcessEnv = process.env): Language {
   const v = env.PLANIA_LANGUAGE?.trim().toLowerCase();
   if (isLanguage(v)) return v;
-  return cached ?? DEFAULT_LANGUAGE;
+  return cached ?? systemFallback ?? DEFAULT_LANGUAGE;
+}
+
+/**
+ * P4: the system's language from its locale: Spanish for es*, English for anything else. LC_ALL, LC_MESSAGES and LANG
+ * first (C and POSIX say nothing), then the locale Node reads from the system (on Windows, the user's region).
+ */
+export function localeLanguage(env: NodeJS.ProcessEnv = process.env, systemLocale: string = Intl.DateTimeFormat().resolvedOptions().locale): Language {
+  const named = [env.LC_ALL, env.LC_MESSAGES, env.LANG].map((x) => x?.trim()).find((x) => x && !/^(C|POSIX)(\.|$)/i.test(x));
+  return /^es([-_.@]|$)/i.test(named ?? systemLocale ?? "") ? "es" : "en";
+}
+
+/** P4: the install command's words follow the system locale until a language is chosen. */
+export function followSystemLocale(env: NodeJS.ProcessEnv = process.env, systemLocale?: string): Language {
+  systemFallback = localeLanguage(env, systemLocale);
+  return systemFallback;
 }
 
 /** True when the language was chosen (stored or set in PLANIA_LANGUAGE); false on an install before first start. */
@@ -51,4 +68,5 @@ export async function saveLanguage(db: Q, language: Language): Promise<Language>
 /** Tests: forget what was loaded. */
 export function resetLanguage(): void {
   cached = null;
+  systemFallback = null;
 }

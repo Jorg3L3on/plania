@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { test } from "node:test";
 import type { ExecFn, ExecResult } from "../src/brief/doctor.js";
-import { blocking, formatMachineCheck, installGate, machineCheck, type MachineCheckDeps } from "../src/machine-check/index.js";
+import { blocking, formatMachineCheck, installGate, machineCheck, skippedChecks, type MachineCheckDeps } from "../src/machine-check/index.js";
 import { machineCheckRoutes } from "../src/api/machine-check.js";
 import { isSignedOut } from "../src/runner/signed-out.js";
 import { parseStream } from "../src/runner/stream.js";
@@ -71,7 +71,6 @@ test("I2-12: a machine with everything is ready, item by item, in the shared ord
 test("I2-12 #1: each required program missing in turn is named with its fix, and the install gate stops", async () => {
   const cases: { label: string; deps: MachineCheckDeps; id: MachineItem["id"]; also?: MachineItem["id"][] }[] = [
     { label: "git", deps: machine({ missing: ["git"] }), id: "git" },
-    { label: "gh", deps: machine({ missing: ["gh"] }), id: "gh" },
     { label: "claude", deps: machine({ missing: ["claude"] }), id: "claude", also: ["claude_session"] },
     { label: "pg_dump", deps: machine({ missing: ["pg_dump"] }), id: "pg_dump" },
     { label: "postgres off", deps: { ...machine(), pgProbe: async () => ({ ok: false }) }, id: "postgres" },
@@ -91,13 +90,17 @@ test("I2-12 #1: each required program missing in turn is named with its fix, and
     assert.ok(item.required, c.label);
     assert.ok(item.sentence.length > 10 && item.fix && item.fix.length > 10, `${c.label}: ${item.sentence} / ${item.fix}`);
     const gate = await installGate(c.deps);
-    assert.equal(gate.proceed, false, c.label);
+    // PLA-I2-4 (from zero): Claude Code is the owner's to install; the install goes on and names it at the end.
+    assert.equal(gate.proceed, c.id === "claude", c.label);
+    assert.deepEqual(gate.later.map((i) => i.id), c.id === "claude" ? ["claude", "claude_session"] : [], c.label);
     assert.ok(gate.text.includes(item.sentence) && gate.text.includes(item.fix!), c.label);
     assert.match(gate.text, new RegExp(`✗ ${item.name.replace(/[()]/g, "\\$&")}`), c.label);
   }
   // The names a stranger reads, with the step that fixes each.
   const gone = byId(await machineCheck(machine({ missing: ["git", "gh", "claude", "pg_dump"] })));
   assert.equal(gone.get("git")!.fix, "Instala git: https://git-scm.com/downloads");
+  // F2: gh missing is named with its fix, but does not stop the install.
+  assert.equal(gone.get("gh")!.state, "optional");
   assert.equal(gone.get("gh")!.fix, "Instálala: https://cli.github.com");
   assert.match(gone.get("claude")!.fix!, /^Instálalo: https:\/\//);
   assert.equal(gone.get("claude_session")!.reason, "not_checked");
@@ -113,8 +116,20 @@ test("I2-12 #1: the install gate goes on when only the optional Chrome is missin
   assert.ok(gate.text.includes("· Chrome, para las fotos de pantalla:"));
   assert.ok(gate.text.includes("(opcional)"));
   assert.equal(new Set(deps.calls).size, deps.calls.length, deps.calls.join(" | "));
-  // Only Chrome is optional.
-  assert.deepEqual(MACHINE_ITEMS.filter((id) => !REQUIRED[id]), ["chrome"]);
+  // Only gh (F2: needed before the first project with code, not to install) and Chrome are optional.
+  assert.deepEqual(MACHINE_ITEMS.filter((id) => !REQUIRED[id]), ["gh", "chrome"]);
+});
+
+test("PLA-I2-4: PLANIA_UNSUPPORTED_SKIP_CHECK (CI only) lets the gate pass an item; unknown ids are ignored", async () => {
+  const deps = { ...machine(), totalMemory: () => 7 * GB };
+  assert.equal((await installGate(deps)).proceed, false);
+  const skip = skippedChecks({ GITHUB_ACTIONS: "true", PLANIA_UNSUPPORTED_SKIP_CHECK: " memory, nonsense" });
+  assert.deepEqual(skip, ["memory"]);
+  const gate = await installGate(deps, { skip });
+  assert.equal(gate.proceed, true);
+  assert.equal(byId(gate.items).get("memory")!.state, "missing", "still reported");
+  assert.deepEqual(skippedChecks({}), []);
+  assert.deepEqual(skippedChecks({ PLANIA_UNSUPPORTED_SKIP_CHECK: "memory" }), [], "off a GitHub Actions runner it is ignored");
 });
 
 test("I2-12 #4: gh not installed, signed out, and signed in without write access are three different items", async () => {
@@ -125,7 +140,10 @@ test("I2-12 #4: gh not installed, signed out, and signed in without write access
   const ok = await gh(machine({ gh: "ok" }));
   const fine = await gh(machine({ gh: "fine_grained" }));
   assert.deepEqual([absent.reason, out.reason, noWrite.reason, ok.reason, fine.reason], ["absent", "signed_out", "no_write", "ok", "ok"]);
-  assert.deepEqual([absent.state, out.state, noWrite.state, ok.state], ["missing", "missing", "missing", "ready"]);
+  // F2: none of them stops the install; each says gh is needed before the first project with code.
+  assert.deepEqual([absent.state, out.state, noWrite.state, ok.state], ["optional", "optional", "optional", "ready"]);
+  for (const i of [absent, out, noWrite]) assert.match(i.sentence, /antes del primer proyecto con código/);
+  assert.equal((await installGate(machine({ missing: ["gh"] }))).proceed, true);
   assert.equal(new Set([absent.sentence, out.sentence, noWrite.sentence]).size, 3);
   assert.equal(out.fix, "En una terminal corre: gh auth login");
   assert.equal(noWrite.fix, "En una terminal corre: gh auth refresh -s repo");
@@ -173,7 +191,7 @@ test("I2-12 #2: the runner's test reads the fake Claude's signed-out output, and
 });
 
 test("I2-12 #3: the screen's route returns the same items the install command prints; ten minutes, then fresh", async () => {
-  const deps = machine({ gh: "no_write", missing: ["pg_dump"] });
+  const deps = machine({ gh: "no_write", missing: ["pg_dump", "git"] });
   let runs = 0;
   let clock = Date.parse("2026-11-18T10:00:00Z");
   const app = machineCheckRoutes(
