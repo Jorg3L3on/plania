@@ -169,7 +169,8 @@ test("PLA-124 #3 files replaced where they are need no manifest edit; a new one 
   const rows = [ok("man", "src/app/manifest.ts"), ok("ico", "src/app/favicon.ico"), ok("a192", "public/icons/icon-192.png"), ok("a512", "public/icons/icon-512.png"), ok("mask", "public/icons/icon-512-maskable.png"), ok("mono", "public/icons/icon-monochrome.png")] as never;
   const same = gen.planFor(rows, { framework: "next-app", root: "" }, "faltan", true, false, gen.SURFACE_KEYS.android);
   assert.deepEqual(same.items.map((i) => i.op), ["~", "~", "~", "~"]);
-  assert.deepEqual(same.edits, []);
+  // PLA-I69-1: no new link, only the version on the icons' URLs so installed apps pick the new ones up.
+  assert.deepEqual(same.edits.map((e) => e.what), ["manifest_version"]);
   const missing = gen.planFor([...(rows as unknown as object[]).filter((r) => (r as { id: string }).id !== "mono"), { id: "mono", state: "falta", path: null, checks: [] }] as never, { framework: "next-app", root: "" }, "faltan", true);
   assert.ok(missing.edits.some((e) => e.what === "manifest_mono"));
 });

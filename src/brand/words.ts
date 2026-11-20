@@ -31,6 +31,8 @@ export const MARCA_WORDS = defineWords({
       code: "Código que enlaza",
       edit: {
         manifest_icons: "que los íconos 192, 512 y maskable del manifest apunten a estos archivos; el maskable en una entrada propia",
+        manifest_theme: "theme_color y background_color con el color del logo",
+        manifest_version: "agrega o cambia ?v= al final del src de cada ícono, para que los teléfonos que instalaron la app vean el nuevo",
         manifest_mono: "agrega el ícono monocromo con purpose monochrome",
         layout_svg: "metadata.icons enlaza el SVG (type image/svg+xml)",
         layout_theme: "themeColor y appleWebApp en la metadata, con el color del manifest",
@@ -76,6 +78,8 @@ export const MARCA_WORDS = defineWords({
       code: "Code that links them",
       edit: {
         manifest_icons: "the manifest's 192, 512 and maskable icons point to these files; the maskable one in its own entry",
+        manifest_theme: "theme_color and background_color set to the logo's colour",
+        manifest_version: "add or change ?v= at the end of each icon src, so phones that installed the app pick up the new one",
         manifest_mono: "add the monochrome icon with purpose monochrome",
         layout_svg: "metadata.icons links the SVG (type image/svg+xml)",
         layout_theme: "themeColor and appleWebApp in the metadata, with the manifest's colour",

@@ -21,6 +21,7 @@ import { readLogoFile } from "./logos.js";
 import { marcaRead, forgetMarcaOf, type MarcaRead } from "./marca.js";
 import { MARCA_WORDS } from "./words.js";
 import { LogoError } from "./upload.js";
+import { logoTheme } from "./theme.js";
 
 export const MARKER = (id: string, rows: string[]) => `<!-- plania:marca set=${id} rows=${rows.join(",")} -->`;
 
@@ -50,10 +51,12 @@ export async function staleRows(input: { slug: string; title: string; rows: Row[
   const own = surfaceOriginals(input.slug);
   const plan = planFor(input.rows, { framework: input.framework, root: input.root }, "todo", o.mime === "image/svg+xml", input.native);
   plan.items = plan.items.filter((i) => COMPARED.includes(i.key));
-  const key = `${input.slug}|${setId(o, plan, own)}|${themeOfRows(input.rows) ?? ""}`;
+  // PLA-I69-1: the colour comes from the logo the owner chose, so a share image on an older logo's colour reads old.
+  const theme = logoTheme(input.logo) ?? themeOfRows(input.rows);
+  const key = `${input.slug}|${setId(o, plan, own)}|${theme ?? ""}`;
   let files = made.get(key);
   if (!files) {
-    const gen = await generate(o, plan, { name: input.title, theme: themeOfRows(input.rows), rows: input.rows, root: input.root }, own);
+    const gen = await generate(o, plan, { name: input.title, theme, rows: input.rows, root: input.root }, own);
     files = new Map(gen.map((g) => [g.path, g.bytes]));
     if (made.size > 32) made.clear();
     made.set(key, files);
@@ -69,7 +72,7 @@ export async function staleRows(input: { slug: string; title: string; rows: Row[
   return out;
 }
 
-export type BuiltSet = { id: string; plan: Plan; files: GenFile[]; dir: string };
+export type BuiltSet = { id: string; plan: Plan; files: GenFile[]; dir: string; theme: string | null; version: string };
 
 /** Makes the set for a mode (faltan: what is missing or wrong; todo: every file) and keeps it in the store. */
 // PLA-122: surface, one surface's files only (each made from its own icon when it has one).
@@ -81,8 +84,11 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   if (!o) return null;
   const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml", r.native, surface ? SURFACE_KEYS[surface] : undefined);
   const own = surfaceOriginals(project.slug);
-  const files = await generate(o, plan, { name: project.title, theme: themeOf(r), rows: r.rows, root: r.root }, own);
   const id = setId(o, plan, own);
+  // PLA-I69-1: the logo's colour, and a version for the manifest's icon URLs (installed apps see a new URL).
+  const theme = logoTheme(l) ?? themeOf(r);
+  const version = id.slice(0, 8);
+  const files = await generate(o, plan, { name: project.title, theme, rows: r.rows, root: r.root, version }, own);
   const dir = path.join(capturesDir(), "_marca", project.slug, "sets", id);
   for (const f of files) {
     const target = path.join(dir, f.path);
@@ -90,7 +96,7 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, f.bytes);
   }
-  return { id, plan, files, dir };
+  return { id, plan, files, dir, theme, version };
 }
 
 export async function zipOf(db: Db, project: Project, mode: "faltan" | "todo", surface?: Surface | null): Promise<Buffer | null> {
@@ -109,16 +115,16 @@ export async function requestIcons(db: Db, project: Project, mode: "faltan" | "t
   if (open) throw new LogoError("LOGO_PEDIDO_OPEN", 409, say(MARCA_WORDS).errors.pedidoOpen(open.key));
   const set = await buildSet(db, project, mode, surface);
   if (!set) throw new LogoError("LOGO_NONE", 409, say(MARCA_WORDS).errors.noOriginal);
-  if (set.files.length === 0) throw new LogoError("LOGO_NOTHING_TO_BRING", 409, say(MARCA_WORDS).errors.nothing);
+  if (set.files.length === 0 && set.plan.edits.length === 0) throw new LogoError("LOGO_NOTHING_TO_BRING", 409, say(MARCA_WORDS).errors.nothing);
   const w = say(MARCA_WORDS).pedido;
   const lines = [
-    MARKER(set.id, set.plan.items.map((i) => (i.key === "manifest" ? "man" : i.key))),
+    MARKER(set.id, [...set.plan.items.map((i) => (i.key === "manifest" ? "man" : i.key)), ...(set.plan.edits.some((e) => e.what === "manifest_theme") ? ["man"] : [])]),
     w.lead(set.dir),
     ...(surface ? ["", w.surfaceLead(w.surface[surface]!)] : []),
     "",
     `## ${w.files}`,
     ...set.plan.items.map((i) => `- \`${i.path}\` (${i.op === "+" ? w.add : w.replace})`),
-    ...(set.plan.edits.length ? ["", `## ${w.code}`, ...set.plan.edits.map((e) => `- \`${e.path}\`: ${w.edit[e.what]}`)] : []),
+    ...(set.plan.edits.length ? ["", `## ${w.code}`, ...set.plan.edits.map((e) => `- \`${e.path}\`: ${w.edit[e.what]}${e.what === "manifest_theme" && set.theme ? ` (${set.theme})` : e.what === "manifest_version" ? ` (?v=${set.version})` : ""}`)] : []),
     "",
     w.rules,
   ];

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, pending, pendingSay, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
@@ -136,36 +136,10 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
               {w.reread}
             </button>
           )}
-          {r.logo && (
-            <a className="cor-btn secondary small" href={zipUrl(p.slug)} download data-control="marca-zip">
-              {w.sheet.zip}
-            </a>
-          )}
-          {r.pedido ? (
-            <span className="mk-live" data-pedido={r.pedido.key}>
-              <i aria-hidden />
-              {w.inPr(r.pedido.key)}
-            </span>
-          ) : (
-            r.logo &&
-            r.repo === "ok" &&
-            c.missing + c.wrong + c.old > 0 && (
-              <button type="button" className="cor-btn primary" onClick={() => setSheet(true)} data-control="marca-al-repo">
-                {w.sheet.open}
-              </button>
-            )
-          )}
         </div>
       </header>
-      {/* PLA-128: a new logo the repo does not have yet: say so, and say which surface keeps its own. */}
-      {c.old > 0 && (
-        <div className="mk-drift" role="status" data-old={c.old}>
-          <span>
-            {w.oldLogo(c.old)}
-            {Object.keys(r.surfaces ?? {}).length > 0 && ` ${w.oldKeeps((Object.keys(r.surfaces!) as Surface[]).map((s) => w.solo.name[s]).join(", "))}`}
-          </span>
-        </div>
-      )}
+      {/* PLA-I69-1: what waits for the repo and why, and where the last request is on its way. */}
+      {r.repo === "ok" && <TripBar r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
       {r.drift && (
         <div className="mk-drift" role="status" data-drift={r.drift.path}>
           <span>{w.drift.text(r.drift.path)}</span>
@@ -206,6 +180,66 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** PLA-I69-1: the trip bar. What is pending and why (one sentence), the one button that brings it all, and the
+ * stations of the request in flight or the last one: built, PR, QA, your acceptance, start branch, seen by Plania. */
+function TripBar({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
+  const p = pending(r);
+  const t = r.trip && !r.trip.cancelled ? r.trip : null;
+  const open = !!r.pedido;
+  const state = open ? "go" : p.files ? "wait" : "ok";
+  const step = t ? t.step : -1;
+  const head = open ? w.trip.open : p.files ? w.trip.pending(p.faces.length, p.files) : w.trip.allOk;
+  const why = open
+    ? `${w.trip.waiting[Math.min(step, 5)] ?? ""}${p.files ? ` ${w.trip.after(p.files)}` : ""}`
+    : p.files
+      ? pendingSay(p, w) || (r.trip ? "" : w.trip.notAsked)
+      : t && step >= 6 ? w.trip.seenWhy(t.rows.length) : w.trip.allOkWhy;
+  return (
+    <section className={`mk-trip ${state}`} data-trip={state} aria-label={head}>
+      <p className="mk-trip-say" role="status">
+        <i className="mk-trip-dot" aria-hidden />
+        <b>{head}</b>
+        {why && <span>{why}</span>}
+      </p>
+      <div className="mk-trip-act">
+        {t?.pr && (
+          <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
+            {w.trip.pr}
+          </a>
+        )}
+        {r.logo && (
+          <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
+            {w.sheet.zip}
+          </a>
+        )}
+        {open ? (
+          <span className="cor-btn secondary small" aria-disabled="true" data-pedido={r.pedido!.key}>
+            {w.trip.onWay}
+          </span>
+        ) : (
+          p.files > 0 &&
+          r.logo && (
+            <button type="button" className="cor-btn primary small" onClick={onSend} data-control="marca-al-repo">
+              {w.trip.send(p.files)}
+            </button>
+          )
+        )}
+      </div>
+      {t && (
+        <ol className="mk-rail" aria-label={open ? w.trip.open : w.trip.last}>
+          <li className="lbl" aria-hidden>{open ? w.trip.open : w.trip.last}</li>
+          {w.trip.stations.map((s, i) => (
+            <li key={s} className={i < step ? "done" : i === step ? (i === 3 ? "you" : "now") : ""} aria-current={i === step ? "step" : undefined}>
+              <i aria-hidden />
+              {s}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

@@ -14,13 +14,14 @@ import { createHash } from "node:crypto";
 import { looksSame } from "./same.js";
 import { surfacesOf } from "./surfaces.js";
 import { staleRows } from "./pedido.js";
-import { and, desc, ilike, notInArray } from "drizzle-orm";
+import { and, desc, gte, ilike, notInArray, or } from "drizzle-orm";
+import { logoTheme, sameColor } from "./theme.js";
 import { tasks } from "../db/schema.js";
 
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
   slug: string;
-  logo: (LogoRef & { versions: number; chosen: boolean }) | null;
+  logo: (LogoRef & { versions: number; chosen: boolean; at: string; theme: string | null }) | null;
   repo: "ok" | "none" | "no_code";
   /** PLA-120: the folder Plania reads the repo from (where it looked, when repo is "none"). */
   folder: string;
@@ -40,11 +41,17 @@ export type MarcaRead = {
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
   drift: { path: string; sha: string } | null;
   checkedAt: string;
-  /** PLA-122: the surfaces with their own icon (the tile file, to show on its card). */
-  surfaces: Partial<Record<"iphone" | "android" | "navegador", { file: string; bg: string | null; scale: number }>>;
+  /** PLA-122: the surfaces with their own icon (the tile file, to show on its card). PLA-I69-1: at, when it was made. */
+  surfaces: Partial<Record<"iphone" | "android" | "navegador", { file: string; bg: string | null; scale: number; at: string }>>;
+  /** PLA-I69-1: the icons request in flight, or the last one (14 days): where it is on its way to the repo. */
+  trip: Trip | null;
 };
 
-type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido" | "surfaces">; files: Set<string> };
+// PLA-I69-1: the stations of an icons request, in order. step is the one it waits at (6: every station passed).
+export const TRIP_STATIONS = ["armado", "pr", "qa", "aceptas", "rama", "visto"] as const;
+export type Trip = { key: string; status: string; step: number; cancelled: boolean; pr: string | null; rows: string[]; at: string; movedAt: string | null };
+
+type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido" | "surfaces" | "trip">; files: Set<string> };
 
 // PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
 // PLA-125: Merged or Released is delivered (on a branch-release project Done waits for the release to production).
@@ -59,6 +66,42 @@ async function openRequest(db: Db, projectId: string): Promise<{ key: string; st
   const m = t?.scope?.match(REQ);
   return t && m ? { key: t.key, status: t.status, rows: m[2]!.split(",").filter(Boolean) } : null;
 }
+const RECENT_MS = 14 * 24 * 3600_000;
+async function lastRequest(db: Db, projectId: string, now: number): Promise<Omit<Trip, "step"> & { merged: boolean; review: boolean } | null> {
+  const [t] = await db
+    .select({ key: tasks.key, status: tasks.status, scope: tasks.scope, prUrl: tasks.prUrl, createdAt: tasks.createdAt, movedAt: tasks.statusChangedAt })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), ilike(tasks.scope, "%<!-- plania:marca set=%"), or(notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"]), gte(tasks.updatedAt, new Date(now - RECENT_MS)))))
+    .orderBy(desc(tasks.createdAt))
+    .limit(1);
+  const m = t?.scope?.match(REQ);
+  if (!t || !m) return null;
+  return {
+    key: t.key,
+    status: t.status,
+    cancelled: t.status === "Won't do",
+    pr: t.prUrl ?? null,
+    rows: m[2]!.split(",").filter(Boolean),
+    at: t.createdAt.toISOString(),
+    movedAt: t.movedAt ? t.movedAt.toISOString() : null,
+    merged: ["Merged", "Released", "Done"].includes(t.status),
+    review: t.status === "In review",
+  };
+}
+/** Where a request is: built (0 passed), a PR, QA, the owner's acceptance, on the start branch, read back by Plania. */
+// A merged request whose files still differ after a while (the rules moved on, or Taller placed something else) is
+// seen anyway: the pending reasons say what differs, the trip does not wait forever.
+const SEEN_AFTER_MS = 10 * 60_000;
+export function tripStep(r: { pr: string | null; merged: boolean; review: boolean; movedAt?: string | null }, rowsNow: Row[], carried: string[], now = Date.now()): number {
+  if (r.merged) {
+    const seen = carried.every((id) => { const row = rowsNow.find((x) => x.id === id); return !row || row.state === "ok"; });
+    const long = !!r.movedAt && now - Date.parse(r.movedAt) > SEEN_AFTER_MS;
+    return seen || long ? 6 : 5;
+  }
+  if (r.review) return 3;
+  return r.pr ? 2 : 1;
+}
+
 const cache = new Map<string, Cached>();
 export const forgetMarca = (): void => cache.clear();
 
@@ -66,7 +109,7 @@ async function logoRef(db: Db, projectId: string): Promise<MarcaRead["logo"]> {
   const l = await activeLogo(db, projectId);
   if (!l) return null;
   const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(projectLogos).where(eq(projectLogos.projectId, projectId));
-  return { v: l.version, file: l.file, mime: l.mime, variant: l.variant, colors: l.colors, source: l.source, path: l.sourcePath, versions: Number(n), chosen: l.chosen };
+  return { v: l.version, file: l.file, mime: l.mime, variant: l.variant, colors: l.colors, source: l.source, path: l.sourcePath, versions: Number(n), chosen: l.chosen, at: l.createdAt.toISOString(), theme: logoTheme(l) };
 }
 
 async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
@@ -90,6 +133,13 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   if (current && check.framework) {
     const old = await staleRows({ slug: p.slug, title: p.title, rows: check.rows, framework: check.framework, root: check.root, native: !!p.settings?.marca?.native, logo: current, read: view.read });
     if (old.length) check.rows = check.rows.map((r) => (old.includes(r.id) ? { ...r, state: "viejo" as const, checks: [...r.checks, { k: "old_logo", ok: false }] } : r));
+    // PLA-I69-1: the manifest's colour follows a logo the owner chose; one still on another colour reads old.
+    const want = logoTheme(current);
+    check.rows = check.rows.map((r) => {
+      if (r.id !== "man" || r.state !== "ok" || !want) return r;
+      const have = r.checks.find((c) => c.k === "man_colors")?.v?.theme;
+      return typeof have === "string" && !sameColor(have, want) ? { ...r, state: "viejo" as const, checks: [...r.checks, { k: "old_color", ok: false, v: { have, want } }] } : r;
+    });
   }
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
   // PLA-I66-4: the owner's choice leads, and the repo's best logo is another picture (not the same logo regenerated).
@@ -136,8 +186,10 @@ export async function marcaRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     c = next;
   }
   const req = await openRequest(db, p.id);
-  const surfaces = Object.fromEntries(Object.entries(surfacesOf(p.slug)).map(([s, v]) => [s, { file: v!.file, bg: v!.bg, scale: v!.scale }]));
-  return { ...c.read, logo: await logoRef(db, p.id), pedido: req ? { key: req.key, status: req.status, rows: req.rows } : null, surfaces };
+  const surfaces = Object.fromEntries(Object.entries(surfacesOf(p.slug)).map(([s, v]) => [s, { file: v!.file, bg: v!.bg, scale: v!.scale, at: v!.at }]));
+  const last = await lastRequest(db, p.id, now);
+  const trip: Trip | null = last ? { key: last.key, status: last.status, cancelled: last.cancelled, pr: last.pr, rows: last.rows, at: last.at, movedAt: last.movedAt, step: last.cancelled ? 0 : tripStep(last, c.read.rows, last.rows, now) } : null;
+  return { ...c.read, logo: await logoRef(db, p.id), pedido: req ? { key: req.key, status: req.status, rows: req.rows } : null, surfaces, trip };
 }
 
 /** A file of the repo that the last read showed (a card's real file), at that read's commit. */

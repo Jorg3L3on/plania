@@ -2014,6 +2014,30 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .mk-fi-st.viejo { color: var(--cor-amber); }
 
+/* PLA-I69-1: the trip bar. What is pending and why, the one button, and the request's stations. State by word and dot. */
+.mk-trip { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 9px 12px 9px 14px; border-radius: 14px; border: 1px solid var(--cor-line); background: linear-gradient(90deg, rgba(255, 180, 84, 0.07), rgba(255, 255, 255, 0.01) 60%); }
+.mk-trip.ok { background: linear-gradient(90deg, rgba(110, 231, 160, 0.07), rgba(255, 255, 255, 0.01) 60%); }
+.mk-trip.go { background: linear-gradient(90deg, rgba(167, 139, 250, 0.1), rgba(255, 255, 255, 0.01) 60%); }
+.mk-trip-say { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin: 0; font-size: 13.5px; color: var(--cor-body); }
+.mk-trip-say b { flex: none; font-weight: 600; color: var(--cor-text); }
+.mk-trip-say span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-trip-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--cor-amber); transform: translateY(-1px); }
+.mk-trip.ok .mk-trip-dot { background: var(--cor-green); }
+.mk-trip.go .mk-trip-dot { background: var(--cor-violet-2); animation: mk-ping 1.6s ease-out infinite; }
+.mk-trip-act { display: flex; align-items: center; gap: 8px; }
+.mk-rail { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin: 0; padding: 0; list-style: none; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--cor-muted); }
+.mk-rail li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mk-rail li + li:not(.lbl + li)::before { content: ""; width: 20px; height: 1.5px; margin: 0 6px; background: rgba(255, 255, 255, 0.14); }
+.mk-rail li.lbl { margin-right: 10px; text-transform: uppercase; }
+.mk-rail li i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.3); }
+.mk-rail li.done { color: var(--cor-body); }
+.mk-rail li.done i { background: var(--cor-green); border-color: var(--cor-green); }
+.mk-rail li.now { color: var(--cor-violet-3); }
+.mk-rail li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); animation: mk-ping 1.6s ease-out infinite; }
+.mk-rail li.you { color: var(--cor-amber); }
+.mk-rail li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
+@media (prefers-reduced-motion: reduce) { .mk-trip-dot, .mk-rail li i { animation: none !important; } }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */

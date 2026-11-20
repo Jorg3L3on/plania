@@ -13,12 +13,12 @@ export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | 
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
   slug: string;
-  logo: (LogoRef & { versions: number; chosen: boolean }) | null;
+  logo: (LogoRef & { versions: number; chosen: boolean; at?: string; theme?: string | null }) | null;
   repo: "ok" | "none" | "no_code";
   /** PLA-120: the folder Plania reads the repo from. */
   folder?: string;
   /** PLA-122: the surfaces with their own icon. */
-  surfaces?: Partial<Record<Surface, { file: string; bg: string | null; scale: number }>>;
+  surfaces?: Partial<Record<Surface, { file: string; bg: string | null; scale: number; at?: string }>>;
   branch: string;
   commit: string | null;
   framework: "next-app" | "vite" | "static" | null;
@@ -33,7 +33,10 @@ export type MarcaRead = {
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
   drift: { path: string; sha: string } | null;
   checkedAt: string;
+  /** PLA-I69-1: the icons request in flight or the last one, and the station it waits at (6: all passed). */
+  trip?: Trip | null;
 };
+export type Trip = { key: string; status: string; step: number; cancelled: boolean; pr: string | null; rows: string[]; at: string; movedAt: string | null };
 export type PlanItem = { key: string; path: string; op: "+" | "~" };
 export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[]; kept: number; framework: "next-app" | "vite" | "static"; mode: "faltan" | "todo" };
 
@@ -139,7 +142,8 @@ export const MARCA_WORDS = defineWords({
     plState: { ok: "en Plania", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
     check: {
       exists: "Existe",
-      old_logo: "Es del logo anterior: «Ponerlos en el repo» lo rehace con el actual",
+      old_logo: "Es del logo anterior: «Llevar al repo» lo rehace con el actual",
+      old_color: (v: Record<string, string | number>) => `El color de la app es ${v.have}, el del logo anterior; el logo de hoy pide ${v.want}`,
       linked: "Enlazado",
       linked_conv: "El framework lo enlaza solo",
       ico_sizes: (v: Record<string, string | number>) => `Trae ${v.sizes} px`,
@@ -264,6 +268,8 @@ export const MARCA_WORDS = defineWords({
       edits: "Código que enlaza",
       edit: {
         manifest_icons: "íconos del manifest",
+        manifest_theme: "colores del manifest al color del logo",
+        manifest_version: "versión nueva en los íconos del manifest",
         manifest_mono: "ícono monocromo en el manifest",
         layout_svg: "enlaza el SVG en la metadata",
         layout_theme: "themeColor y appleWebApp",
@@ -288,6 +294,31 @@ export const MARCA_WORDS = defineWords({
       send: "Pedírselo a Taller",
       sent: (key: string) => `Taller tiene el pedido «Los íconos de la marca» (${key}). Las filas se ponen verdes cuando llega a la rama de inicio.`,
       loading: "Armando los archivos…",
+    },
+    trip: {
+      stations: ["Plania armó", "Taller abre el PR", "QA revisa", "Tú aceptas", "En la rama de inicio", "Plania lo vio"],
+      last: "Último pedido",
+      open: "Pedido en camino",
+      cancelled: "El último pedido se canceló",
+      pending: (faces: number, files: number) => `${faces === 1 ? "1 cara" : `${faces} caras`} por llevar · ${files === 1 ? "1 archivo" : `${files} archivos`}`,
+      allOk: "Todo al día en el repo",
+      allOkWhy: "Cada archivo del repo es el que Plania haría hoy.",
+      seenWhy: (n: number) => `El último pedido llegó a la rama de inicio y Plania lo vio: ${n === 1 ? "1 archivo" : `${n} archivos`}.`,
+      waiting: ["Plania armó los archivos; Taller todavía no empieza.", "Taller pone los archivos en una rama; no los redibuja.", "QA revisa el PR de Taller.", "Te toca: mira el antes y después y acepta. El repo no cambia hasta entonces.", "Ya está en la rama de inicio: Plania lo lee en menos de un minuto.", ""],
+      notAsked: "Nada pedido todavía.",
+      after: (n: number) => `Después: ${n === 1 ? "1 archivo más" : `${n} archivos más`}, en el siguiente pedido.`,
+      send: (n: number) => (n === 1 ? "Llevar 1 al repo" : `Llevar ${n} al repo`),
+      onWay: "En camino",
+      pr: "Ver el PR",
+      reasons: {
+        old_logo: (faces: string) => `${faces}: del logo anterior.`,
+        old_color: "El color de la app es el del logo anterior.",
+        own_old: (faces: string) => `${faces} tiene su propio ícono, hecho con el logo anterior.`,
+        not_carried: (faces: string) => `${faces} no iba en el último pedido.`,
+        falta: (faces: string) => `Faltan archivos de ${faces}.`,
+        mal: (faces: string) => `${faces}: un archivo no pasa la revisión.`,
+      },
+      why: { old_logo: "Del logo anterior", old_color: "Color del logo anterior", own_old: "Ícono propio del logo anterior", not_carried: "No iba en el último pedido", falta: "Falta", mal: "No pasa la revisión", camino: "Va en el pedido" } as Record<string, string>,
     },
     inPr: (key: string) => `Taller trabaja · ${key}`,
     camino: "en el PR de Taller",
@@ -415,7 +446,8 @@ export const MARCA_WORDS = defineWords({
     plState: { ok: "in Plania", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
     check: {
       exists: "Exists",
-      old_logo: "It is from the old logo: «Put them in the repo» makes it again from the current one",
+      old_logo: "It is from the old logo: «Bring to the repo» makes it again from the current one",
+      old_color: (v: Record<string, string | number>) => `The app's colour is ${v.have}, the old logo's; today's logo asks for ${v.want}`,
       linked: "Linked",
       linked_conv: "The framework links it by itself",
       ico_sizes: (v: Record<string, string | number>) => `Holds ${v.sizes} px`,
@@ -540,6 +572,8 @@ export const MARCA_WORDS = defineWords({
       edits: "Code that links them",
       edit: {
         manifest_icons: "the manifest's icons",
+        manifest_theme: "manifest colours set to the logo's colour",
+        manifest_version: "a new version on the manifest's icons",
         manifest_mono: "monochrome icon in the manifest",
         layout_svg: "links the SVG in the metadata",
         layout_theme: "themeColor and appleWebApp",
@@ -564,6 +598,31 @@ export const MARCA_WORDS = defineWords({
       send: "Ask Taller",
       sent: (key: string) => `Taller has the request «The brand's icons» (${key}). The rows turn green when it lands on the start branch.`,
       loading: "Making the files…",
+    },
+    trip: {
+      stations: ["Plania built", "Taller opens the PR", "QA checks", "You accept", "On the start branch", "Plania saw it"],
+      last: "Last request",
+      open: "Request on its way",
+      cancelled: "The last request was cancelled",
+      pending: (faces: number, files: number) => `${faces === 1 ? "1 surface" : `${faces} surfaces`} to bring · ${files === 1 ? "1 file" : `${files} files`}`,
+      allOk: "All up to date in the repo",
+      allOkWhy: "Every file in the repo is the one Plania would make today.",
+      seenWhy: (n: number) => `The last request reached the start branch and Plania saw it: ${n === 1 ? "1 file" : `${n} files`}.`,
+      waiting: ["Plania built the files; Taller has not started yet.", "Taller puts the files on a branch; it does not redraw them.", "QA checks Taller's PR.", "Your turn: look at the before and after and accept. The repo does not change until then.", "It is on the start branch: Plania reads it within a minute.", ""],
+      notAsked: "Nothing requested yet.",
+      after: (n: number) => `Then: ${n === 1 ? "1 more file" : `${n} more files`}, in the next request.`,
+      send: (n: number) => (n === 1 ? "Bring 1 to the repo" : `Bring ${n} to the repo`),
+      onWay: "On its way",
+      pr: "See the PR",
+      reasons: {
+        old_logo: (faces: string) => `${faces}: from the old logo.`,
+        old_color: "The app's colour is the old logo's.",
+        own_old: (faces: string) => `${faces} has its own icon, made from the old logo.`,
+        not_carried: (faces: string) => `${faces} was not in the last request.`,
+        falta: (faces: string) => `Files missing for ${faces}.`,
+        mal: (faces: string) => `${faces}: a file fails the check.`,
+      },
+      why: { old_logo: "From the old logo", old_color: "The old logo's colour", own_old: "Own icon from the old logo", not_carried: "Not in the last request", falta: "Missing", mal: "Fails the check", camino: "In the request" } as Record<string, string>,
     },
     inPr: (key: string) => `Taller is working · ${key}`,
     camino: "in Taller's PR",
@@ -707,3 +766,56 @@ export const has = (rows: MarcaRow[], id: RowId): boolean => rows.find((r) => r.
 /** A repo file's address for a card (the read lists which files may be fetched). */
 // PLA-125: the commit in the address, so a merge shows the new file at once instead of the cached one.
 export const fileUrl = (slug: string, p: string, commit?: string | null): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/file?path=${encodeURIComponent(p)}${commit ? `&c=${commit.slice(0, 12)}` : ""}`;
+
+
+// PLA-I69-1: why a row is not up to date, in one code, and what is pending, face by face.
+export type Why = "old_logo" | "old_color" | "own_old" | "not_carried" | "falta" | "mal" | "camino";
+const SURFACE_FACE: Record<Surface, Face> = { navegador: "nav", iphone: "ios", android: "and" };
+/** A surface whose own icon was made before the current logo. */
+export function ownOld(r: Pick<MarcaRead, "surfaces" | "logo">, face: Face): boolean {
+  const s = (Object.keys(SURFACE_FACE) as Surface[]).find((x) => SURFACE_FACE[x] === face);
+  const own = s ? r.surfaces?.[s] : undefined;
+  return !!own?.at && !!r.logo?.at && own.at < r.logo.at;
+}
+export function rowWhy(r: Pick<MarcaRead, "pedido" | "trip" | "surfaces" | "logo">, row: MarcaRow): Why | null {
+  if (row.state === "ok" || (row.optional && row.state === "falta")) return null;
+  if (onItsWay(r, row)) return "camino";
+  if (row.checks.some((c) => c.k === "old_color" && !c.ok)) return "old_color";
+  if (row.state === "viejo") return "old_logo";
+  if (row.state === "mal") return "mal";
+  return "falta";
+}
+/** What waits to go to the repo: the faces, the files, and why (the reasons the bar names, most telling first). */
+export function pending(r: Pick<MarcaRead, "rows" | "pedido" | "trip" | "surfaces" | "logo">): { faces: Face[]; files: number; why: { code: Why; faces: Face[] }[] } {
+  const rows = r.rows.filter((x) => x.face !== "cia" && x.id !== "pl" && rowWhy(r, x) && rowWhy(r, x) !== "camino");
+  const faces = [...new Set(rows.map((x) => x.face))].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+  const by = new Map<Why, Set<Face>>();
+  const add = (k: Why, f: Face) => (by.get(k) ?? by.set(k, new Set()).get(k)!).add(f);
+  const lastDone = r.trip && !r.trip.cancelled && r.trip.step >= 5;
+  // The share image is old because of the colour when the app's colour is the old logo's.
+  const oldColor = rows.some((x) => rowWhy(r, x) === "old_color");
+  for (const x of rows) {
+    const why = x.id === "og" && oldColor && rowWhy(r, x) === "old_logo" ? "old_color" : rowWhy(r, x)!;
+    if (lastDone && !r.trip!.rows.includes(x.id) && why !== "old_color") add("not_carried", x.face);
+    if (ownOld(r, x.face)) add("own_old", x.face);
+    add(why, x.face);
+  }
+  const order: Why[] = ["not_carried", "own_old", "old_logo", "old_color", "mal", "falta"];
+  return { faces, files: rows.length, why: order.filter((k) => by.has(k)).map((k) => ({ code: k, faces: [...by.get(k)!] })) };
+}
+/** The bar's reason sentence, from the pending reasons. */
+export function pendingSay(p: ReturnType<typeof pending>, w: MarcaWords = marcaWords()): string {
+  const name = (fs: Face[]) => fs.map((f) => w.face[f].name).join(", ");
+  const parts: string[] = [];
+  const seen = new Set<Face>();
+  for (const { code, faces } of p.why) {
+    if (code === "camino") continue;
+    if (code === "old_color") { parts.push(w.trip.reasons.old_color); continue; }
+    const fresh = faces.filter((f) => !seen.has(f));
+    if (!fresh.length) continue;
+    fresh.forEach((f) => seen.add(f));
+    parts.push((w.trip.reasons[code] as (f: string) => string)(name(fresh)));
+    if (parts.length >= 2) break;
+  }
+  return parts.join(" ");
+}

@@ -12,7 +12,7 @@ export type Original = { bytes: Buffer; mime: "image/svg+xml" | "image/png"; var
 export type GenKey = Exclude<RowId, "pl" | "man"> | "manifest";
 export type GenFile = { key: GenKey; path: string; bytes: Buffer };
 export type PlanItem = { key: GenKey; path: string; op: "+" | "~" };
-export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" | "layout_splash" | "html_splash" | "expo_icons" | "capacitor_assets"; value?: string };
+export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" | "layout_splash" | "html_splash" | "expo_icons" | "capacitor_assets" | "manifest_theme" | "manifest_version"; value?: string };
 export type Plan = { items: PlanItem[]; edits: Edit[]; kept: number; framework: Framework; mode: "faltan" | "todo" };
 
 const DARK = "#0c0c10";
@@ -57,6 +57,7 @@ const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", 
 export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean, native = false, only?: GenKey[]): Plan {
   const items: PlanItem[] = [];
   let kept = 0;
+  let colorOnly = false;
   const keys: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest", ...(native ? (["splash", "ios_app", "and_app"] as GenKey[]) : [])];
   for (const key of keys) {
     const row = rows.find((r) => r.id === ROW_OF[key]);
@@ -65,6 +66,8 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
     if (key === "svg" && !svgOriginal && !only) continue; // a raster original has no SVG to give (a surface's own icon gets one that wraps it)
     if (key === "og" && row.state === "ok" && row.path && /\.(tsx|ts|jsx|js)$/.test(row.path)) { kept++; continue; } // drawn in code
     if (key === "og" && row.state === "ok" && !row.path?.match(/\.(png|jpe?g)$/)) { kept++; continue; } // declared in metadata
+    // PLA-I69-1: a manifest whose only fault is the colour of an older logo gets an edit, not a new file.
+    if (key === "manifest" && row.state === "viejo" && mode === "faltan" && !only) { colorOnly = true; continue; }
     const need = !!only || mode === "todo" || row.state !== "ok";
     if (!need) { kept++; continue; }
     // A missing file is new where the framework expects it; one the repo has (wrong, or redone) is replaced in place.
@@ -72,21 +75,26 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
   }
   const edits: Edit[] = [];
   const man = rows.find((r) => r.id === "man");
+  const manHere = man?.state === "ok" || man?.state === "viejo"; // PLA-I69-1: a manifest with an older logo's colour is still there
   const touches = (k: GenKey) => items.some((i) => i.key === k);
   // PLA-124: a file replaced where it already is needs no new link; only a new one does.
   const adds = (k: GenKey) => items.some((i) => i.key === k && i.op === "+");
   if (f.framework === "next-app") {
     const layout = `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root);
     if (touches("svg") && placeOf("svg", rows, f).includes("/public/")) edits.push({ path: layout, what: "layout_svg" });
-    if (man?.state === "ok" && (adds("a192") || adds("a512") || adds("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
-    if (man?.state === "ok" && adds("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
-    if (man?.state !== "ok" && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
+    if (manHere && (adds("a192") || adds("a512") || adds("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
+    if (manHere && adds("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+    if (!manHere && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
   } else {
     const html = `${f.root}index.html`;
     if (items.some((i) => ["ico", "svg", "apple"].includes(i.key))) edits.push({ path: html, what: "html_links" });
     if (touches("manifest")) edits.push({ path: html, what: "html_manifest" });
-    if (man?.state === "ok" && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+    if (manHere && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
   }
+  // PLA-I69-1: the colour of the logo, written into the manifest the repo already has.
+  if (colorOnly && man?.path) edits.push({ path: man.path, what: "manifest_theme" });
+  // Installed apps only notice a new icon when its URL changes (Chrome 144+): a replaced Android icon bumps ?v= in the manifest.
+  if (man?.state !== "falta" && man?.path && !touches("manifest") && items.some((i) => ["a192", "a512", "mask", "mono"].includes(i.key) && i.op === "~")) edits.push({ path: man.path, what: "manifest_version" });
   if (touches("splash")) edits.push(f.framework === "next-app" ? { path: `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root), what: "layout_splash" } : { path: `${f.root}index.html`, what: "html_splash" });
   if (touches("ios_app") || touches("and_app")) {
     const cap = rows.some((r) => r.checks.some((c) => c.k === "native_capacitor"));
@@ -211,8 +219,8 @@ async function shareImage(t: Buffer, name: string, theme: string | null): Promis
 }
 
 /** A manifest for a project that has none: name, colours, display and the three icons where the plan puts them. */
-export function manifestText(f: Framework, name: string, theme: string, at: (k: GenKey) => string, pub: string): string {
-  const url = (k: GenKey) => `/${at(k).slice(pub.length + 1)}`;
+export function manifestText(f: Framework, name: string, theme: string, at: (k: GenKey) => string, pub: string, version?: string): string {
+  const url = (k: GenKey) => `/${at(k).slice(pub.length + 1)}${version ? `?v=${version}` : ""}`;
   const icons = [
     { src: url("a192"), sizes: "192x192", type: "image/png", purpose: "any" },
     { src: url("a512"), sizes: "512x512", type: "image/png", purpose: "any" },
@@ -262,7 +270,7 @@ export async function svgWrap(png: Buffer): Promise<Buffer> {
 }
 
 /** The plan's files, made. surfaces: a surface's own icon, for that surface's files (PLA-122). */
-export async function generate(main: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string }, surfaces: Partial<Record<Surface, Original>> = {}): Promise<GenFile[]> {
+export async function generate(main: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string; version?: string }, surfaces: Partial<Record<Surface, Original>> = {}): Promise<GenFile[]> {
   const tiles = new Map<Original, Buffer>();
   const tileOf = async (x: Original) => tiles.get(x) ?? (tiles.set(x, await tile(x)), tiles.get(x)!);
   const out: GenFile[] = [];
@@ -296,7 +304,7 @@ export async function generate(main: Original, plan: Plan, opts: { name: string;
       case "mask": bytes = await maskable(t); break;
       case "mono": bytes = await monochrome(o, t); break;
       case "og": bytes = await shareImage(t, opts.name, opts.theme); break;
-      case "manifest": bytes = Buffer.from(manifestText(plan.framework, opts.name, opts.theme ?? DARK, (k) => placeOf(k, opts.rows, f), `${opts.root}public`)); break;
+      case "manifest": bytes = Buffer.from(manifestText(plan.framework, opts.name, opts.theme ?? DARK, (k) => placeOf(k, opts.rows, f), `${opts.root}public`, opts.version)); break;
     }
     out.push({ key: it.key, path: it.path, bytes });
   }
