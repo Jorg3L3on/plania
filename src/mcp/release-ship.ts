@@ -1,4 +1,5 @@
 import type { Db } from "../db/client.js";
+import { mergeRules, missingChecks, type Rollup } from "../camino/guard.js";
 import { runInGroup } from "../jobs/gh-process.js";
 import { githubReleaseTokenFilePath, githubTokenFilePath, readTokenFile } from "../jobs/gh-token.js";
 import { commandPath } from "../jobs/machine/run.js";
@@ -124,6 +125,13 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
     pr = { number, url };
   }
 
+  // PLA-I68-3: Camino's rule for the published branch: its required checks must be green on the release PR.
+  const required = (await mergeRules(db, p)).required(plan.into.branch);
+  if (required.length) {
+    const rv = JSON.parse(await gh("view", ["pr", "view", String(pr.number), "--repo", repo, "--json", "statusCheckRollup"])) as { statusCheckRollup?: Rollup };
+    const missing = missingChecks(required, rv.statusCheckRollup);
+    if (missing.length) throw new ToolError("CAMINO_RULE_BLOCKS", { base: plan.into.branch, checks: missing });
+  }
   // --match-head-commit: merge exactly the head the plan showed the owner, never one that moved since.
   await gh("merge", ["pr", "merge", String(pr.number), "--repo", repo, "--merge", ...(plan.from.head_sha ? ["--match-head-commit", plan.from.head_sha] : [])]);
   const view = JSON.parse(await gh("view", ["pr", "view", String(pr.number), "--repo", repo, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };

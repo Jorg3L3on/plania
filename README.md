@@ -649,6 +649,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
+| `CAMINO_CHANGE_INVALID` | 400 | camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch |
+| `CAMINO_KEY_INVALID` | 400 | camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved |
+| `CAMINO_KEY_REJECTED` | 400 | camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words) |
+| `CAMINO_PROVIDER_UNKNOWN` | 400 | camino: no key can be saved for that service; it is Detected or Manual, or not a service Camino knows (detail: provider) |
 | `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_owner.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FETCH_ADDRESS_REFUSED` | 400 | safe fetch: the host is or resolves to a loopback, private, link-local, metadata or reserved address; nothing was sent (detail: address, reason) |
@@ -728,6 +732,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
+| `CAMINO_KEY_MISSING` | 404 | camino: no key is saved for that service on this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `CONSULTA_NOT_FOUND` | 404 | answer_consulta on an id that is not a question of this project |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
@@ -750,6 +755,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BATCH_FAILED` | 409 | an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...}) |
 | `BLOCKER_NOT_WITHDRAWABLE` | 409 | set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason) |
 | `BRANCH_IN_USE` | 409 | the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it |
+| `CAMINO_GITHUB_REFUSED` | 409 | camino: GitHub refused a change; the ones before it stay applied and the rest did not run (detail: step, status, message) |
+| `CAMINO_KEY_STORE` | 409 | camino: the keychain (or the 0600 file) did not take the key; nothing else changed |
+| `CAMINO_NO_GITHUB` | 409 | camino: the change needs GitHub and the project has no repository or no token (detail: repo, token) |
+| `CAMINO_RULE_BLOCKS` | 409 | Aceptar or Publicar: the branch's rule in Camino requires checks that are not green on this PR, on a repo where GitHub cannot enforce it (detail: base, checks) |
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
 | `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |

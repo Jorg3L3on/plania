@@ -160,6 +160,10 @@ export const ERRORS = {
   CAMINO_KEY_INVALID: [400, "camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved"],
   CAMINO_KEY_REJECTED: [400, "camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words)"],
   CAMINO_KEY_MISSING: [404, "camino: no key is saved for that service on this project"],
+  CAMINO_CHANGE_INVALID: [400, "camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch"],
+  CAMINO_NO_GITHUB: [409, "camino: the change needs GitHub and the project has no repository or no token (detail: repo, token)"],
+  CAMINO_GITHUB_REFUSED: [409, "camino: GitHub refused a change; the ones before it stay applied and the rest did not run (detail: step, status, message)"],
+  CAMINO_RULE_BLOCKS: [409, "Aceptar or Publicar: the branch's rule in Camino requires checks that are not green on this PR, on a repo where GitHub cannot enforce it (detail: base, checks)"],
   CAMINO_KEY_STORE: [409, "camino: the keychain (or the 0600 file) did not take the key; nothing else changed"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;
 

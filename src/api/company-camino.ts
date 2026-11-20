@@ -6,12 +6,15 @@
 //   PUT    /projects/:slug/camino/keys/:provider     {value}: tried, then saved in the keychain; only metadata returns
 //   POST   /projects/:slug/camino/keys/:provider/test  «Probar» with the saved key
 //   DELETE /projects/:slug/camino/keys/:provider     removes the key
+//   POST   /projects/:slug/camino/apply              {version, changes}: the change set, in order (src/camino/changes.ts);
+//                                                    answers the results, where it stopped, and the read
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { removeKey, saveKey, tryKey } from "../camino/connections.js";
+import { applyChanges, ChangeSchema } from "../camino/changes.js";
 import { caminoDeps, caminoRead, caminoRow, discoverOnce, STALE_MS } from "../camino/store.js";
 
 export const caminoRoutes = new Hono();
@@ -79,6 +82,21 @@ caminoRoutes.post("/projects/:slug/camino/keys/:provider/test", async (c) => {
 caminoRoutes.delete("/projects/:slug/camino/keys/:provider", async (c) => {
   try {
     return c.json(await withDb((db) => removeKey(db, c.req.param("slug"), c.req.param("provider"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/apply", async (c) => {
+  const input = await json(c, z.object({ version: z.number().int().min(0), changes: z.array(ChangeSchema).min(1).max(60) }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(
+      await withDb(async (db) => {
+        const out = await applyChanges(db, c.req.param("slug"), input);
+        return { ...out, read: await caminoRead(db, c.req.param("slug")) };
+      }),
+    );
   } catch (e) {
     return fail(c, e);
   }

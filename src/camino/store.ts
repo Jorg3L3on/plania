@@ -12,6 +12,7 @@ import { effectiveConfig, type EffectiveConfig } from "./config.js";
 import { discoverGithub, ghApi, type GhApi } from "./github.js";
 import { caminoKeys } from "./keys.js";
 import { discoverMac } from "./mac.js";
+import { caminoSay } from "./words.js";
 import type { HttpFetch } from "./providers.js";
 import type { CaminoConfig, Discovery, ProviderId } from "./types.js";
 
@@ -79,6 +80,16 @@ export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps
   const folder = p.settings.local?.no_code ? null : repoPathOf(p.slug, p.settings, deps.env);
   const mac = await discoverMac(folder, repo, { listDatabases: deps.listDatabases, projectsRoot: projectsRoot(deps.env) });
   const d: Discovery = { checked_at: now.toISOString(), took_ms: Date.now() - t0, github, mac };
+  // PLA-I68-3: what changed on GitHub since the last read and was not Plania's own doing goes to Historial.
+  if (row.discovery) {
+    // A merge-option change Plania itself applied since the last read is not someone else's.
+    const [mine] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(caminoHistory)
+      .where(and(eq(caminoHistory.projectId, p.id), eq(caminoHistory.who, "owner"), eq(caminoHistory.dest, "github"), sql`${caminoHistory.at} >= ${row.discovery.checked_at}::timestamptz`));
+    const ours = (mine?.n ?? 0) > 0;
+    for (const h of outsideChanges(row.discovery, d)) if (!(ours && h === caminoSay().outsideMerge)) await addHistory(db, p.id, { who: "outside", label: h, dest: "github" });
+  }
   await db
     .insert(camino)
     .values({ projectId: p.id, discovery: d, checkedAt: now })
@@ -199,4 +210,25 @@ export async function caminoRead(db: Db, slug: string): Promise<CaminoRead> {
     })),
     history: hist.map((h) => ({ at: h.at.toISOString(), who: h.who, label: h.label, dest: h.dest, undo: h.undo })),
   };
+}
+
+/** PLA-I68-3: the differences between two reads that someone made on GitHub outside Plania: rulesets that are not
+ * Plania's (plania-*) created, deleted or changed, the default branch, and the merge options. */
+export function outsideChanges(before: Discovery, after: Discovery): string[] {
+  const a = before.github;
+  const b = after.github;
+  if (!a.ok || !b.ok || a.repo.full_name !== b.repo.full_name) return [];
+  const w = caminoSay();
+  const out: string[] = [];
+  const key = (r: { enforcement: string; required_checks: string[]; branches: string[] }) => JSON.stringify([r.enforcement, [...r.required_checks].sort(), [...r.branches].sort()]);
+  const was = new Map(a.rules.list.filter((r) => !r.plania).map((r) => [r.id, r]));
+  const now = new Map(b.rules.list.filter((r) => !r.plania).map((r) => [r.id, r]));
+  if (a.rules.available && b.rules.available) {
+    for (const [id, r] of now) if (!was.has(id)) out.push(w.outsideRuleset(r.name, w.created));
+    for (const [id, r] of was) if (!now.has(id)) out.push(w.outsideRuleset(r.name, w.removed));
+    for (const [id, r] of now) if (was.has(id) && key(was.get(id)!) !== key(r)) out.push(w.outsideRuleset(r.name, w.changed));
+  }
+  if (a.repo.default_branch !== b.repo.default_branch) out.push(w.outsideDefault(b.repo.default_branch));
+  if (a.repo.merge && b.repo.merge && JSON.stringify(a.repo.merge) !== JSON.stringify(b.repo.merge)) out.push(w.outsideMerge);
+  return out;
 }

@@ -297,6 +297,7 @@ const publishError = (code: string, detail: Record<string, unknown> = {}): strin
     return w.notHere;
   }
   if (code === "RELEASE_MERGE_FAILED") return w.githubRefused(detail.output ? String(detail.output) : null);
+  if (code === "CAMINO_RULE_BLOCKS") return w.ruleBlocks(Array.isArray(detail.checks) ? detail.checks.join(", ") : "");
   return w.publishFailed(code);
 };
 

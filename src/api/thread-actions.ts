@@ -8,6 +8,7 @@
 //   responder answers the message's question (the screen's answer, as on Solo tú).
 // Each writes action_state {action, at, result} on the message, so the buttons go away. A refusal is 409 with
 // a reason and changes nothing; a message already acted on is 409 ALREADY_ACTED.
+import { mergeRules, missingChecks, type Rollup } from "../camino/guard.js";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, projects, pullRequests, questions, results, tasks, threadMessages, type ActionState, type Task, type ThreadMessage } from "../db/schema.js";
@@ -33,6 +34,7 @@ export const THREAD_ACTION_WORDS = defineWords({
     prNotOpen: (n: unknown) => `El PR #${n} está cerrado sin fusionar: pide cambios o abre otro.`,
     noMergeCommit: "GitHub no muestra el commit de fusión.",
     mergeFailed: "No se pudo fusionar el PR.",
+    ruleBlocks: (checks: string) => `La regla de esta rama en Camino pide pruebas en verde que este PR no tiene: ${checks}.`,
     conflict: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
     conflictNote: (n: number) => `El PR #${n} choca con la rama de trabajo: vuelve a Taller para ponerlo al día con lo último aceptado.`,
     noTicket: "El mensaje no enlaza un ticket de este hilo.",
@@ -53,6 +55,7 @@ export const THREAD_ACTION_WORDS = defineWords({
     prNotOpen: (n: unknown) => `PR #${n} was closed without merging: ask for changes or open another.`,
     noMergeCommit: "GitHub does not show the merge commit.",
     mergeFailed: "The PR could not be merged.",
+    ruleBlocks: (checks: string) => `This branch's rule in Camino requires green checks this PR does not have: ${checks}.`,
     conflict: "It clashes with the last thing you accepted: it went back to Taller to catch up and will reach you again.",
     conflictNote: (n: number) => `PR #${n} clashes with the working branch: it goes back to Taller to catch up with the latest accepted work.`,
     noTicket: "The message does not link a ticket in this thread.",
@@ -133,8 +136,14 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     // branch up to date, and the owner is told so.
     const { mergeable } = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeable"])) as { mergeable?: string };
     if (mergeable === "CONFLICTING") return conflictBack(db, t, Number(number), by);
+    // PLA-I68-3: Camino's rule for this branch (required checks) and how ticket PRs merge (squash once chosen there).
+    const rules = await mergeRules(db, await projectOf(db, t));
+    const required = rules.required(base);
+    const rollup = required.length ? (JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "statusCheckRollup"])) as { statusCheckRollup?: Rollup }).statusCheckRollup : [];
+    const missing = missingChecks(required, rollup);
+    if (missing.length) return refuse("CAMINO_RULE_BLOCKS", w().ruleBlocks(missing.join(", ")), { base, checks: missing });
     try {
-      await gh("merge", ["pr", "merge", number!, "--repo", repo!, "--merge", "--match-head-commit", view.headRefOid]);
+      await gh("merge", ["pr", "merge", number!, "--repo", repo!, rules.squash ? "--squash" : "--merge", "--match-head-commit", view.headRefOid]);
     } catch (e) {
       // PLA-108: right after another PR lands on sandbox GitHub answers mergeable UNKNOWN, and the merge itself is
       // what says «not mergeable: the merge commit cannot be cleanly created». That is the same conflict.

@@ -32,6 +32,9 @@ import type { CaminoRead } from "@/lib/camino-types";
 import { LOCALE } from "@/lib/locale";
 import { Btn, ReadError } from "./parts";
 import { caminoKey, useCamino } from "./camino-query";
+import { useCambios } from "./camino-store";
+import { CambiosBar } from "./camino-cambios";
+import { Codigo } from "./camino-codigo";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 export type CaminoLinks = { hrefOf: (sec: SectionId) => string; prHref: (n: number) => string; ajustesHref: (sec: string) => string };
@@ -445,6 +448,7 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
   const client = useQueryClient();
   const recheck = useMutation({ mutationFn: () => api.caminoRecheck(p.slug), onSuccess: (d) => client.setQueryData(caminoKey(p.slug), d) });
   const links: CaminoLinks = { hrefOf, prHref, ajustesHref };
+  const cambios = useCambios(p.slug);
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
   const r = q.data;
   if (!r) return <div className="cor-skel" style={{ height: 420 }} role="status" aria-busy="true" aria-label={w.reading} />;
@@ -467,6 +471,8 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
         return <Propuestas r={r} links={links} />;
       case "hist":
         return <Historial r={r} />;
+      case "codigo":
+        return <Codigo r={r} cambios={cambios} />;
       default:
         return <Pronto s={current} />;
     }
@@ -510,6 +516,7 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
         </nav>
         <div className="cam-main">{body}</div>
       </div>
+      <CambiosBar r={r} cambios={cambios} />
     </div>
   );
 };

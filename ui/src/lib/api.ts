@@ -259,6 +259,12 @@ export const api = {
     request<{ provider: string; meta: unknown }>("PUT", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`, { value }),
   caminoTestKey: (slug: string, provider: string) =>
     request<{ provider: string; ok: boolean; status: number | null; message: string; account: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}/test`, {}),
+  caminoApply: (slug: string, input: { version: number; changes: { kind: string; label: string; [k: string]: unknown }[] }) =>
+    request<{ results: { index: number; kind: string; dest: string; ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string }[]; stopped: { index: number; error?: string; detail?: Record<string, unknown> } | null; applied: number; skipped: number; read: CaminoRead }>(
+      "POST",
+      `/company/projects/${encodeURIComponent(slug)}/camino/apply`,
+      input,
+    ),
   caminoRemoveKey: (slug: string, provider: string) => request<{ removed: true }>("DELETE", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`),
   ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),

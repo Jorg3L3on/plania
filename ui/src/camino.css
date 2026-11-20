@@ -110,6 +110,67 @@
 .cam-tbl th { text-align: left; font-weight: 500; color: var(--cor-muted); font-size: 12px; padding: 7px 9px; border-bottom: 1px solid var(--cor-line); }
 .cam-tbl td { padding: 8px 9px; border-bottom: 1px solid var(--cor-line); vertical-align: top; }
 
+/* PLA-I68-3: toggles, choices, the change bar and its review */
+.cam-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cam-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cam-lab i { font-style: normal; color: var(--cor-muted); font-size: 12px; margin-left: 6px; }
+.cam-tg { display: flex; gap: 12px; align-items: flex-start; text-align: left; border: 1px solid var(--cor-line); border-radius: 10px; padding: 10px 12px; background: #09090d; width: 100%; min-height: 44px; color: var(--cor-text); font: inherit; cursor: pointer; }
+.cam-tg:hover:not(:disabled) { border-color: var(--cor-line-strong); }
+.cam-tg:disabled { opacity: 0.5; cursor: not-allowed; }
+.cam-sw { flex: none; width: 32px; height: 19px; border-radius: 999px; background: var(--cor-line-strong); position: relative; margin-top: 2px; transition: background 0.2s; }
+.cam-sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+.cam-tg[aria-pressed="true"] .cam-sw { background: var(--cor-violet); }
+.cam-tg[aria-pressed="true"] .cam-sw::after { left: 16px; }
+.cam-tg b { display: block; font-weight: 500; font-size: 13.5px; }
+.cam-tg-s { display: block; color: var(--cor-muted); font-size: 12.5px; }
+.cam-choice { display: flex; flex-direction: column; gap: 4px; text-align: left; border: 1px solid var(--cor-line-strong); border-radius: 12px; padding: 11px 12px; background: #09090d; min-width: 0; color: var(--cor-text); font: inherit; cursor: pointer; min-height: 44px; }
+.cam-choice[aria-pressed="true"] { border-color: var(--cor-violet-3); background: #16132a; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15); }
+.cam-choice:disabled { opacity: 0.45; cursor: not-allowed; }
+.cam-choice b { font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cam-choice span { font-size: 12.5px; color: var(--cor-body); }
+.cam-choice .cam-ex { font: 12px var(--cor-mono); color: var(--cor-violet-4); overflow-wrap: anywhere; }
+.cam-box { border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.cam-box.warn { border: 1px solid rgba(255, 180, 84, 0.45); background: rgba(255, 180, 84, 0.06); color: #ffe2b8; }
+.cam-box.ok { border: 1px solid rgba(110, 231, 160, 0.4); background: rgba(110, 231, 160, 0.06); color: var(--cor-body); }
+.cam-box.info { border: 1px solid var(--cor-line-strong); background: #09090d; color: var(--cor-body); }
+.cam-why { font-size: 12.5px; color: var(--cor-body); }
+.cam-why summary { cursor: pointer; color: var(--cor-violet-3); list-style: none; min-height: 44px; display: inline-flex; align-items: center; }
+.cam-why summary::-webkit-details-marker { display: none; }
+.cam-why p { margin: 6px 0 0; max-width: 72ch; }
+.cam-why a { color: var(--cor-violet-3); }
+.cam-tbl .cam-chip { margin-left: 8px; }
+
+.cam-pbar { position: sticky; bottom: 12px; z-index: 20; display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap; padding: 8px 12px 8px 16px; border: 1px solid rgba(221, 214, 254, 0.45); border-radius: 14px; background: rgba(21, 20, 29, 0.97); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
+.cam-pbar-c { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.cam-wtag { font: 11px var(--cor-mono); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--cor-line-strong); color: var(--cor-body); }
+.cam-wtag.plania { border-color: rgba(196, 181, 253, 0.5); color: var(--cor-violet-4); }
+.cam-wtag.github { border-color: rgba(94, 200, 255, 0.5); color: #bfe8ff; }
+.cam-wtag.proveedor { border-color: rgba(255, 180, 84, 0.5); color: var(--cor-amber); }
+.cam-wtag.pr { border-color: rgba(110, 231, 160, 0.5); color: var(--cor-green); }
+.cam-review { position: fixed; inset: 0; z-index: 60; background: rgba(5, 5, 7, 0.75); display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; overflow-y: auto; }
+.cam-rv { width: min(860px, 100%); border: 1px solid rgba(221, 214, 254, 0.35); border-radius: 16px; background: #0e0d15; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7); color: var(--cor-text); }
+.cam-rv-h { display: flex; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--cor-line); }
+.cam-rv-h h3 { font-size: 19px; font-weight: 600; }
+.cam-rv-b { padding: 14px 18px; display: flex; flex-direction: column; gap: 16px; }
+.cam-rv-f { padding: 12px 18px; border-top: 1px solid var(--cor-line); display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+.cam-rv-f .cam-hint { flex: 1 1 280px; }
+.cam-rvs h4 { margin: 0 0 8px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cam-rvs h4 span { font-weight: 400; font-size: 12.5px; color: var(--cor-muted); }
+.cam-rvs ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cam-rvs li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px 10px; padding: 9px 11px; border: 1px solid var(--cor-line); border-radius: 9px; background: var(--cor-surface); font-size: 13.5px; align-items: center; }
+.cam-st { grid-row: 1 / span 2; color: var(--cor-muted); font: 12px var(--cor-mono); align-self: start; padding-top: 2px; }
+.cam-d { grid-column: 2 / -1; font-size: 12.5px; color: var(--cor-muted); overflow-wrap: anywhere; }
+.cam-rvs li.done .cam-st { color: var(--cor-green); }
+.cam-rvs li.fail .cam-st, .cam-rvs li.fail .cam-d { color: var(--cor-red); }
+.cam-rvs li.skip .cam-d { color: var(--cor-amber); }
+.cam-diff { grid-column: 1 / -1; margin: 6px 0 0; border: 1px solid var(--cor-line); border-radius: 8px; background: #08080c; padding: 6px 0; font: 12px/1.55 var(--cor-mono); overflow-x: auto; max-height: 360px; white-space: pre; }
+.cam-dl { display: block; padding: 0 12px; color: var(--cor-muted); }
+.cam-dl.add { background: rgba(110, 231, 160, 0.08); color: var(--cor-green); }
+.cam-dl.del { background: rgba(255, 122, 122, 0.08); color: var(--cor-red); }
+@media (max-width: 900px) {
+  .cam-grid2, .cam-grid3 { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 900px) {
   .cam-cfg { grid-template-columns: 1fr; }
   .cam-secs { position: static; }
