@@ -137,3 +137,29 @@ test("PLA-124 #2 a second icons request while one is open is refused with its ke
   const second = await pedido.requestIcons(db, project, "faltan", "android");
   assert.notEqual(second.key, first.key, "once the first is closed the next one goes");
 });
+
+test("PLA-125 #1 a fresh read fetches the start branch; otherwise at most once a minute", async () => {
+  const logos = await import("../src/brand/logos.js");
+  logos.forgetLogoLooks();
+  const calls: string[][] = [];
+  const spy: import("../src/brand/logos.js").Git = async (cwd, args) => (calls.push(args), git(cwd, args));
+  await logos.scanProjectLogo(db, project, { git: spy, now: () => 1_000 });
+  await logos.scanProjectLogo(db, project, { git: spy, now: () => 2_000 });
+  const fetches = () => calls.filter((c) => c[0] === "fetch");
+  assert.equal(fetches().length, 1);
+  assert.deepEqual(fetches()[0], ["fetch", "--quiet", "--no-tags", "origin", "+refs/heads/sandbox:refs/remotes/origin/sandbox"]);
+  await logos.scanProjectLogo(db, project, { git: spy, now: () => 3_000, fresh: true });
+  assert.equal(fetches().length, 2, "«Revisar el repo ahora» fetches right away");
+});
+
+test("PLA-125 #2 an accepted (Merged) icons ticket is delivered: the door drops it and the next request goes", async () => {
+  const first = await pedido.requestIcons(db, project, "faltan");
+  marca.forgetMarca();
+  assert.equal((await marca.marcaRead(db, "tienda", { git }))!.pedido?.key, first.key);
+  await raw.query("update tasks set status = 'Merged' where key = $1", [first.key]);
+  marca.forgetMarca();
+  assert.equal((await marca.marcaRead(db, "tienda", { git }))!.pedido, null);
+  await ownAndroid();
+  const next = await pedido.requestIcons(db, project, "faltan", "android");
+  assert.notEqual(next.key, first.key);
+});

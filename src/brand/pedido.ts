@@ -69,7 +69,7 @@ export async function requestIcons(db: Db, project: Project, mode: "faltan" | "t
   const [open] = await db
     .select({ key: tasks.key })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
     .limit(1);
   if (open) throw new LogoError("LOGO_PEDIDO_OPEN", 409, say(MARCA_WORDS).errors.pedidoOpen(open.key));
   const set = await buildSet(db, project, mode, surface);

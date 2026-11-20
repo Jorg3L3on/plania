@@ -46,12 +46,13 @@ export type MarcaRead = {
 type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido" | "surfaces">; files: Set<string> };
 
 // PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
+// PLA-125: Merged or Released is delivered (on a branch-release project Done waits for the release to production).
 const REQ = /<!-- plania:marca set=([0-9a-f]{16}) rows=([a-z0-9_,]*) -->/;
 async function openRequest(db: Db, projectId: string): Promise<{ key: string; status: string; rows: string[] } | null> {
   const [t] = await db
     .select({ key: tasks.key, status: tasks.status, scope: tasks.scope })
     .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Done", "Won't do"])))
+    .where(and(eq(tasks.projectId, projectId), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
     .orderBy(desc(tasks.createdAt))
     .limit(1);
   const m = t?.scope?.match(REQ);

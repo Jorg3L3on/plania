@@ -68,6 +68,17 @@ export async function startCommit(git: Git, repo: string, branch: string): Promi
   return null;
 }
 
+// PLA-125: the start branch as GitHub has it. Only that branch's remote-tracking ref moves (never the working tree), at
+// most once a minute per repo, or right away when the owner asks («Revisar el repo ahora»). A repo with no origin, or
+// no network, just fails the fetch and is read as it is.
+const lastFetch = new Map<string, number>();
+export async function fetchStart(git: Git, repo: string, branch: string, now: number, force = false): Promise<void> {
+  const at = lastFetch.get(repo);
+  if (!force && at !== undefined && now - at < RECHECK_MS) return;
+  lastFetch.set(repo, now);
+  await git(repo, ["fetch", "--quiet", "--no-tags", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+}
+
 /** Every file at a commit with its size (PLA-I66-2: the checklist looks at paths before reading any). */
 export async function listTree(git: Git, repo: string, commit: string): Promise<Map<string, number>> {
   const ls = await git(repo, ["ls-tree", "-r", "-l", "-z", commit]);
@@ -126,6 +137,7 @@ export async function scanProjectLogo(db: Db, project: Project, deps: LogoDeps =
   const current = await activeLogo(db, project.id);
   if (project.settings?.local?.no_code) return { status: "no_repo", logo: current, commit: null };
   const repo = repoPathOf(project.slug, project.settings, deps.env);
+  await fetchStart(git, repo, startBranchOf(project.settings), (deps.now ?? Date.now)(), !!deps.fresh);
   const commit = (await startCommit(git, repo, startBranchOf(project.settings)))?.sha ?? null;
   if (!commit) return { status: "no_repo", logo: current, commit: null };
   // PLA-I66-3: a logo the owner chose (an upload, a candidate, an Artist mark, a version gone back to) stays.
@@ -179,7 +191,10 @@ export async function refreshLogos(db: Db, deps: LogoDeps = {}): Promise<void> {
   });
   return running;
 }
-export const forgetLogoLooks = (): void => lastLook.clear();
+export const forgetLogoLooks = (): void => {
+  lastLook.clear();
+  lastFetch.clear();
+};
 
 export type LogoRef = { v: number; file: string; mime: ProjectLogo["mime"]; variant: ProjectLogo["variant"]; colors: string[]; source: ProjectLogo["source"]; path: string | null };
 
