@@ -272,3 +272,17 @@ test("PLA-130: a setting the repo cannot say (spacing, motion, stroke, greys…)
   assert.deepEqual(both.fields, ["pill"], "the repo's value and Plania's own settings in one part");
   assert.equal(ui.changesOf({ ...start, density: "amplio" }, repo).length, 0, "without a start only what the repo says is compared");
 });
+
+test("PLA-130: every icon library Estilo offers draws the preview's eleven icons, outline and filled, shapes only", async () => {
+  const { ICON_LIBS } = await import("../ui/src/lib/icon-sets.js");
+  const { LIBS } = await import("../ui/src/lib/estilo.js");
+  const keys = ["bell", "search", "heart", "plus", "cal", "home", "user", "check", "alert", "star", "gear"];
+  assert.deepEqual(Object.keys(ICON_LIBS).sort(), LIBS.filter((l) => l !== "Lucide").sort(), "each choice but Lucide (built in) has its shapes");
+  for (const [name, lib] of Object.entries(ICON_LIBS)) {
+    const sets = [lib.solid, ...(lib.weights ? [lib.weights.light, lib.weights.regular, lib.weights.bold] : [lib.outline!])];
+    for (const set of sets) {
+      assert.deepEqual(Object.keys(set).sort(), [...keys].sort(), `${name} has all eleven`);
+      for (const svg of Object.values(set)) assert.match(svg, /^(<(path|circle|rect|line|polyline|polygon)\b[^<]*\/>)+$/, `${name}: drawing tags only`);
+    }
+  }
+});

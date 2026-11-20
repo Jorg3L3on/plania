@@ -179,14 +179,14 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
         <div className="vz-voices" style={vars} tabIndex={0} aria-label={w.sounds}>
           <div className="vx">
             <span className="vx-k">{w.moments.err}</span>
-            <div className="vx-t"><Icon n="alert" s={{ stroke: style?.stroke ?? 2, fill: false }} size={18} /><p>{moment("err")}</p></div>
+            <div className="vx-t"><Icon n="alert" s={{ stroke: style?.stroke ?? 2, fill: false, lib: style?.lib }} size={18} /><p>{moment("err")}</p></div>
           </div>
           <div className="vx">
             <span className="vx-k">{w.moments.vacio}</span>
             <div className="vx-e">
               {style && <span className="vx-ill"><Illus x={style} /></span>}
               <p>{moment("vacio")}</p>
-              <span className="vx-btn"><Icon n="plus" s={{ stroke: style?.stroke ?? 2, fill: false }} size={14} />{x.cerca >= 50 ? w.emptyBtn[1] : w.emptyBtn[0]}</span>
+              <span className="vx-btn"><Icon n="plus" s={{ stroke: style?.stroke ?? 2, fill: false, lib: style?.lib }} size={14} />{x.cerca >= 50 ? w.emptyBtn[1] : w.emptyBtn[0]}</span>
             </div>
           </div>
           <div className="vx">

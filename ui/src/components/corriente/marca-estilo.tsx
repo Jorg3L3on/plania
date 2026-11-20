@@ -4,6 +4,7 @@
 // repo has today. «Modo experto» adds every value's variable and the code (Tailwind 4, shadcn/ui, W3C tokens), which
 // can be edited and applied. Every change is a version kept in Plania; «Llevar al repo» asks Taller.
 // Logic and words: @/lib/estilo. Styles: corriente.css («Marca · Estilo»).
+import { ICON_LIBS } from "@/lib/icon-sets";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -50,9 +51,18 @@ const IC: Record<string, string> = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
 const FILLABLE = new Set(["bell", "heart", "star", "home", "user", "cal"]);
-export const Icon = ({ n, s, size = 16 }: { n: string; s: Pick<Style, "stroke" | "fill">; size?: number }) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} fill={s.fill && FILLABLE.has(n) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={s.stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden dangerouslySetInnerHTML={{ __html: IC[n] ?? "" }} />
-);
+// PLA-130: the icon in the library the style names (Lucide when none): an outline library takes «Trazo» as its
+// stroke; Phosphor takes it as a weight; «Relleno» uses each library's filled set for the shapes that have one.
+export const Icon = ({ n, s, size = 16 }: { n: string; s: Pick<Style, "stroke" | "fill"> & { lib?: string }; size?: number }) => {
+  const lib = s.lib ? ICON_LIBS[s.lib] : undefined;
+  const solid = s.fill && FILLABLE.has(n);
+  if (!lib)
+    return <svg viewBox="0 0 24 24" width={size} height={size} fill={solid ? "currentColor" : "none"} stroke="currentColor" strokeWidth={s.stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden dangerouslySetInnerHTML={{ __html: IC[n] ?? "" }} />;
+  const weight = s.stroke <= 1.5 ? "light" : s.stroke >= 2.5 ? "bold" : "regular";
+  const shape = solid ? lib.solid[n] : lib.weights ? lib.weights[weight][n] : lib.outline?.[n];
+  const line = lib.line && !solid;
+  return <svg viewBox={lib.box} width={size} height={size} fill={line ? "none" : "currentColor"} stroke={line ? "currentColor" : "none"} strokeWidth={line ? s.stroke : undefined} strokeLinecap="round" strokeLinejoin="round" aria-hidden dangerouslySetInnerHTML={{ __html: shape ?? "" }} />;
+};
 
 /** A small drawing in the chosen illustration style, for the Imágenes part and the empty state. */
 export function Illus({ x, kind = x.img }: { x: Style; kind?: Style["img"] }) {
