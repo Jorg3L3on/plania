@@ -13,7 +13,7 @@ import type { Db } from "../db/client.js";
 import { projectLogos, projects, type Actor, type LogoAdjust, type Project, type ProjectLogo } from "../db/schema.js";
 import { capturesDir } from "../captures/store.js";
 import { say } from "../words.js";
-import { inspect, svgIsClean } from "./detect.js";
+import { inspect, stripSvgBackground, svgIsClean } from "./detect.js";
 import { addLogoVersion, activeLogo, putLogoFile, readBlob, realGit, type LogoDeps } from "./logos.js";
 import { marcaCandidates, forgetMarcaOf } from "./marca.js";
 import { palette, pixelTests, SIZE, type PixelTests } from "./pixels.js";
@@ -157,6 +157,8 @@ export const HEX = /^#[0-9a-f]{6}$/i;
 
 /** The upload fitted into a square tile: scale % of the side, centred, on the background (null keeps it see-through). */
 export async function compose(raw: Buffer, kind: UploadKind, scale: number, bg: string | null, side = TILE): Promise<Buffer> {
+  // PLA-123: a picked background replaces an SVG's own instead of framing it.
+  if (kind === "svg" && bg) raw = Buffer.from(stripSvgBackground(raw.toString("utf8")));
   const inner = Math.max(1, Math.round((side * Math.min(100, Math.max(40, scale))) / 100));
   const fitted = await sharp(raw, { density: density(kind) }).resize(inner, inner, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
   return sharp({ create: { width: side, height: side, channels: 4, background: bg ? rgba(bg) : { r: 0, g: 0, b: 0, alpha: 0 } } })

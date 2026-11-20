@@ -91,6 +91,23 @@ function svgVariant(s: string, w: number | null, h: number | null): LogoVariant 
   return "mark";
 }
 
+/** PLA-123: the SVG without its own background (rects the size of the canvas, outside masks and defs), so a background
+ * the owner picks replaces it instead of framing it. Unchanged when it has none. */
+export function stripSvgBackground(s: string): string {
+  const { width, height } = svgSize(s);
+  const hidden: [number, number][] = [];
+  for (const m of s.matchAll(/<(mask|clipPath|defs|symbol)\b[\s\S]*?<\/\1>/gi)) hidden.push([m.index!, m.index! + m[0].length]);
+  const full = (v: string | undefined, d: number | null) => v === "100%" || (v !== undefined && d !== null && Math.abs(Number(v) - d) < 0.5);
+  return s.replace(/<rect\b([^>]*?)(\/>|>\s*<\/rect>)/gi, (whole, a: string, _end: string, at: number) => {
+    if (hidden.some(([x, y]) => at >= x && at < y)) return whole;
+    if (/\smask\s*=|fill\s*=\s*["']none/i.test(a)) return whole;
+    const rw = a.match(/\swidth\s*=\s*["']([\d.]+%?)/i)?.[1];
+    const rh = a.match(/\sheight\s*=\s*["']([\d.]+%?)/i)?.[1];
+    const x = Number(a.match(/\sx\s*=\s*["']([-\d.]+)/i)?.[1] ?? 0), y = Number(a.match(/\sy\s*=\s*["']([-\d.]+)/i)?.[1] ?? 0);
+    return full(rw, width) && full(rh, height) && Math.abs(x) < 0.5 && Math.abs(y) < 0.5 ? "" : whole;
+  });
+}
+
 function svgColors(s: string): string[] {
   const out: string[] = [];
   for (const m of s.matchAll(HEX)) {
