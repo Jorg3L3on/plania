@@ -46,7 +46,7 @@ export const LESSON_WORDS = defineWords({
     teachBtn: "Enseñar",
     taught: "Lista. La lleva desde su próxima corrida.",
     // The drawing
-    gate: (text: string) => `Te espera: ${text}`,
+    stop: (text: string) => `Te espera: ${text}`,
     // PLA-I67-5
     repeated: (n: number) => (n === 1 ? "1 repetida" : `${n} repetidas`),
     unused: "sin usar",
@@ -129,7 +129,7 @@ export const LESSON_WORDS = defineWords({
     ruleLabel: (seat: string) => `A rule for ${seat}`,
     teachBtn: "Teach",
     taught: "Done. Its next run carries it.",
-    gate: (text: string) => `Waiting on you: ${text}`,
+    stop: (text: string) => `Waiting on you: ${text}`,
     repeated: (n: number) => (n === 1 ? "1 repeat" : `${n} repeats`),
     unused: "unused",
     notHolding: (n: number) => `It is not holding: it came back ${n} times.`,

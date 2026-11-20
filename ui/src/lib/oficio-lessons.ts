@@ -41,11 +41,11 @@ export function lessonRoom(lessons: LessonView[], rows: number): number {
   return Math.min(waiting + active, Math.max(waiting, Math.floor(rows / 2)));
 }
 
-/** The return arc: from the delivery's dot, down under the line, back left to the gate on the lesson's thread. */
-export function returnArc(from: { x: number; y: number }, gate: { x: number; y: number }, floor: number): string {
+/** The return arc: from the delivery's dot, down under the line, back left to the stop on the lesson's thread. */
+export function returnArc(from: { x: number; y: number }, stop: { x: number; y: number }, floor: number): string {
   const r = 14;
-  const low = Math.max(from.y, gate.y) + floor;
-  return [`M ${from.x} ${from.y + 8}`, `L ${from.x} ${low - r}`, `Q ${from.x} ${low} ${from.x - r} ${low}`, `L ${gate.x + r} ${low}`, `Q ${gate.x} ${low} ${gate.x} ${low - r}`, `L ${gate.x} ${gate.y + 9}`].join(" ");
+  const low = Math.max(from.y, stop.y) + floor;
+  return [`M ${from.x} ${from.y + 8}`, `L ${from.x} ${low - r}`, `Q ${from.x} ${low} ${from.x - r} ${low}`, `L ${stop.x + r} ${low}`, `Q ${stop.x} ${low} ${stop.x} ${low - r}`, `L ${stop.x} ${stop.y + 9}`].join(" ");
 }
 
 /** The amber end of the headline: one lesson waits, or how many. Null when none. */
