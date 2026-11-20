@@ -47,6 +47,7 @@ import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
+import { logoBytes, logosRead, refreshLogos } from "../brand/logos.js";
 import { ToolError } from "../mcp/errors.js";
 import { NEW_PROJECT_GOAL_MAX, NEW_PROJECT_NAME_MAX, createProjectFromTemplate } from "../runner/new-project.js";
 import { deleteProject } from "../runner/delete-project.js";
@@ -118,6 +119,29 @@ companyRoutes.get("/", async (c) => {
   const out = await withDb((db) => companyRead(db, new Date(), prof));
   c.header("Server-Timing", serverTiming(prof, performance.now() - t0));
   return c.json(out);
+});
+
+// PLA-I66-1: every project's logo (src/brand/logos.ts). Asking also looks at the repos whose last look is over a
+// minute old; a slow look does not hold the screen: it answers with what it has and the event bus brings the rest.
+export const LOGO_WAIT_MS = 1500;
+companyRoutes.get("/logos", async (c) => {
+  const logos = await withDb(async (db) => {
+    await Promise.race([refreshLogos(db), new Promise((r) => setTimeout(r, LOGO_WAIT_MS))]);
+    return logosRead(db);
+  });
+  return c.json({ logos });
+});
+
+companyRoutes.get("/projects/:slug/logo", async (c) => {
+  const r = await withDb((db) => logoBytes(db, c.req.param("slug")));
+  if (!r) return c.json({ error: "LOGO_NOT_FOUND" }, 404);
+  // The URL carries the version (?v=), so a cached copy is never stale. An SVG is an image here: nothing in it runs.
+  return c.body(new Uint8Array(r.bytes), 200, {
+    "Content-Type": r.mime,
+    "Cache-Control": "private, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+  });
 });
 
 companyRoutes.get("/projects/:slug", async (c) => {

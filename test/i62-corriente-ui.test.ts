@@ -407,14 +407,18 @@ test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone,
   assert.ok(!index.includes(".bc-"), ".bc- rules are gone");
 });
 
-// PLA-59: La corriente draws each project's own mark, as Inicio does; a project with no logo gets its monogram.
-test("PLA-59: a project's logo is its own mark (Filmia's film strip); Mianovia, with none, its monogram", async () => {
+// PLA-59, PLA-I66-1: La corriente draws each project's own logo when Plania has one (found in its repo); a project
+// with none gets its monogram. No logo lives in the product's code (PLA-I2-3).
+test("PLA-59/I66-1: a project's logo is its real logo when Plania has one; without one, its monogram", async () => {
   const parts = await load("components/corriente/parts.tsx");
-  const filmia = html(h(parts.Logo, { slug: "filmia", title: "Filmia" }));
-  assert.match(filmia, /^<svg[^>]*class="[^"]*cor-logo/);
-  assert.match(filmia, /stop-color="#FF6A3D"/);
-  assert.doesNotMatch(filmia, /<text/);
-  const zig = html(h(parts.Logo, { slug: "mianovia", title: "Mianovia", size: "sm" }));
-  assert.match(zig, /class="[^"]*cor-logo sm"/);
-  assert.match(zig, /<text[^>]*>M<\/text>/);
+  const client = new QueryClient();
+  client.setQueryData(["logos"], { tienda: { v: 2, file: `${"a".repeat(64)}.svg`, mime: "image/svg+xml", variant: "icon", colors: ["#ff6a3d", "#c4237f"], source: "repo", path: "public/logo.svg" } });
+  const withLogo = (el: React.ReactElement) => renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, { initialEntries: ["/corriente"] }, el)));
+  const tienda = withLogo(h(parts.Logo, { slug: "tienda", title: "Tienda" }));
+  assert.match(tienda, /<img[^>]*src="\/api\/company\/projects\/tienda\/logo\?v=2"/);
+  assert.match(tienda, /class="[^"]*cor-logo/);
+  assert.match(tienda, /data-logo="repo"/);
+  const none = withLogo(h(parts.Logo, { slug: "otra", title: "Otra", size: "sm" }));
+  assert.match(none, /class="[^"]*cor-logo sm"/);
+  assert.match(none, /<text[^>]*>O<\/text>/);
 });

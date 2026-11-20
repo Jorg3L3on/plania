@@ -1975,3 +1975,41 @@ export const agentReferenceUses = pgTable(
   },
   (t) => [uniqueIndex("agent_reference_uses_run_ref_unique").on(t.runId, t.referenceId), index("agent_reference_uses_ref_idx").on(t.referenceId)],
 );
+
+// PLA-I66-1 (0067): a project's logo, versioned. The active row is the original the screen shows and every icon will
+// come from (src/brand/logos.ts). The file lives in the local capture store, never in a repo.
+export type LogoMime = "image/svg+xml" | "image/png";
+export type LogoVariant = "icon" | "mark"; // icon: drawn on its own background; mark: the bare drawing
+export type LogoSource = "repo" | "upload" | "artist";
+export const projectLogos = pgTable(
+  "project_logos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    file: text("file").notNull(), // <sha256>.<svg|png> in the store
+    mime: text("mime").$type<LogoMime>().notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    variant: text("variant").$type<LogoVariant>().notNull(),
+    source: text("source").$type<LogoSource>().notNull(),
+    sourcePath: text("source_path"),
+    sourceCommit: text("source_commit"),
+    colors: text("colors").array().notNull().default(sql`'{}'::text[]`),
+    active: boolean("active").notNull().default(true),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_logos_version_unique").on(t.projectId, t.version),
+    uniqueIndex("project_logos_one_active").on(t.projectId).where(sql`${t.active}`),
+    check("project_logos_mime_check", sql`${t.mime} in ('image/svg+xml', 'image/png')`),
+    check("project_logos_variant_check", sql`${t.variant} in ('icon', 'mark')`),
+    check("project_logos_source_check", sql`${t.source} in ('repo', 'upload', 'artist')`),
+    check("project_logos_bytes_check", sql`${t.bytes} > 0 and ${t.bytes} <= 2097152`),
+  ],
+);
+export type ProjectLogo = typeof projectLogos.$inferSelect;

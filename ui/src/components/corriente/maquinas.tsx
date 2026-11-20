@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, type OrgProject } from "@/lib/api";
-import { bytes, filas, maqView, pedirFallo, setupLine, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
+import { bytes, filas, maqView, pedirFallo, serverUp, setupLine, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
 import type { CapturesRead } from "@/lib/ventana";
 import { Btn, Label, Opt, ReadError } from "./parts";
 import { noDisponible } from "@/lib/sistema";
@@ -33,6 +33,90 @@ const Light = ({ on, word, tone }: { on: boolean; word: string; tone: "ok" | "ba
     {word}
   </span>
 );
+
+// PLA-116: one key of Llaves. Falta offers Poner, Puesta offers Cambiar; the field is a password field (Mostrar
+// toggles it) and the value leaves the browser once, in the save. Nothing reads it back.
+const LlaveRow = ({ slug, name, set, file, serverUp: up }: { slug: string; name: string; set: boolean; file: string | null; serverUp: boolean }) => {
+  const w = words(MAQUINAS_WORDS);
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [show, setShow] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) field.current?.focus();
+  }, [open]);
+  const close = () => {
+    setOpen(false);
+    setValue("");
+    setShow(false);
+  };
+  const save = useMutation({
+    mutationFn: () => api.ponerLlave(slug, name, value),
+    onSuccess: (read) => {
+      client.setQueryData(["maq-llaves", slug], read);
+      close();
+      toast.success(w.keySaved(name), up ? { description: w.keyRestart, duration: 8000 } : undefined);
+    },
+    onError: (e) => toast.error(e instanceof ApiError && typeof e.detail.hint === "string" ? `${w.keyErr}: ${e.detail.hint}` : ERR(e, w.keyErr)),
+  });
+  return (
+    <li className="cor-row cor-llave" data-llave={name} data-open={open ? "1" : undefined}>
+      <div className="cor-llave-line">
+        <span className="cor-mono cor-ellipsis" style={{ flex: 1 }}>
+          {name}
+        </span>
+        <span className={`cor-state ${set ? "ok" : "bad"}`}>{set ? w.keySet : w.keyMissing}</span>
+        {!open && (
+          <Btn kind="link" small onClick={() => setOpen(true)} data-control="llave-poner" aria-label={`${set ? w.keyChange : w.keyPut} ${name}`}>
+            {set ? w.keyChange : w.keyPut}
+          </Btn>
+        )}
+      </div>
+      {open && (
+        <form
+          className="cor-llave-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (value.trim() && !save.isPending) save.mutate();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              close();
+            }
+          }}
+        >
+          <div className="cor-llave-field">
+            <input
+              ref={field}
+              className="cor-input cor-mono"
+              type={show ? "text" : "password"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              autoComplete="new-password"
+              spellCheck={false}
+              aria-label={w.keyField(name)}
+              data-campo="llave-valor"
+            />
+            <Btn kind="link" small onClick={() => setShow(!show)} aria-pressed={show} data-control="llave-mostrar">
+              {show ? w.keyHide : w.keyShow}
+            </Btn>
+          </div>
+          <span className="cor-cap">{w.keyWhere(file)}</span>
+          <div className="cor-llave-actions">
+            <Btn kind="primary" small type="submit" disabled={!value.trim() || save.isPending} data-control="llave-guardar">
+              {w.keySave}
+            </Btn>
+            <Btn small onClick={close} data-control="llave-cancelar">
+              {w.keyCancel}
+            </Btn>
+          </div>
+        </form>
+      )}
+    </li>
+  );
+};
 
 export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedir: (text: string) => void; focus: string | null; onFocus: (what: string | null) => void }) => {
   const client = useQueryClient();
@@ -219,12 +303,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
               {focus === "llaves" && (
                 <ul>
                   {(llaves.data?.llaves ?? []).map((l) => (
-                    <li key={l.name} className="cor-row">
-                      <span className="cor-mono cor-ellipsis" style={{ flex: 1 }}>
-                        {l.name}
-                      </span>
-                      <span className={`cor-state ${l.set ? "ok" : "bad"}`}>{l.set ? w.keySet : w.keyMissing}</span>
-                    </li>
+                    <LlaveRow key={l.name} slug={s} name={l.name} set={l.set} file={llaves.data?.env_file ?? null} serverUp={serverUp(r.server.phase)} />
                   ))}
                   {llaves.data && !llaves.data.llaves.length && <li className="cor-text">{w.noKeys}</li>}
                 </ul>

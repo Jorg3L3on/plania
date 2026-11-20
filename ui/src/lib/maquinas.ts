@@ -71,6 +71,8 @@ export type MaqView = {
 };
 
 const LIVE = new Set(["live", "running", "capturing"]);
+// PLA-116: a server that is up reads its env file only when it starts.
+export const serverUp = (phase: string): boolean => LIVE.has(phase) || phase === "starting";
 
 export const MAQ = defineWords({
   es: {
