@@ -1399,135 +1399,6 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-paso.open i { outline: 2px solid var(--cor-violet-4); outline-offset: 2px; }
 @media (max-width: 639px) { .cor-lado { display: none; } }
 
-/* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
-   below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
-/* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
-.cor-tramos { display: none; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 10px 0 12px; border: 1px solid var(--cor-line); border-radius: 10px; background: rgba(255, 255, 255, 0.025); color: var(--cor-body); font: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
-.cor-tramos[aria-expanded="true"] { border-color: rgba(167, 139, 250, 0.55); }
-.cor-tramos-sg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; }
-.cor-tramos-sg i { flex: 1; min-width: 2px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.2); }
-.cor-tramos-sg i.hecho { background: #7c6ad6; }
-.cor-tramos-sg i.fila { background: #4a4270; }
-.cor-tramos-sg i.vivo { background: #fff; box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
-.cor-tramos-sg i.toca { background: var(--cor-amber); box-shadow: 0 0 10px 2px rgba(255, 180, 84, 0.45); }
-.cor-tramos-sg i.fin { background: #3f8f63; }
-.cor-tramos-n { flex: none; font-family: var(--cor-mono); font-size: 12px; color: var(--cor-text); font-variant-numeric: tabular-nums; }
-.cor-tramos svg { flex: none; color: var(--cor-muted); }
-/* The sheet it opens, from the foot (Hoja bottom): key and «N DE M PASOS», the title, one row per step. */
-.cor-hoja-back:has(> .cor-hoja.abajo) { place-items: end stretch; padding: 0; }
-.cor-hoja.abajo { position: relative; width: 100%; max-height: calc(100svh - 49px - 57px - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); gap: 6px; padding: 14px 16px 12px; border-bottom: 0; border-radius: 18px 18px 0 0; overscroll-behavior: contain; }
-.cor-hoja.abajo > .cor-label { padding: 8px 52px 0 0; }
-.cor-hoja.abajo > .cor-h2 { padding-right: 8px; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
-.cor-hoja-x { position: absolute; top: 8px; right: 8px; }
-.cor-tramos-list { display: flex; flex-direction: column; gap: 2px; margin: 8px -8px 0; }
-.cor-tramo { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 8px 8px 12px; border-radius: 12px; color: var(--cor-text); -webkit-tap-highlight-color: transparent; }
-.cor-tramo:active { background: rgba(255, 255, 255, 0.04); }
-.cor-tramo.vivo { background: rgba(139, 92, 246, 0.14); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.32); }
-.cor-tramo-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.cor-tramo-tx b { font-size: 15px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.cor-tramo-st { font-size: 12.5px; line-height: 1.3; color: var(--cor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cor-tramo.vivo .cor-tramo-st { color: var(--cor-violet-3); }
-.cor-tramo.toca .cor-tramo-st { color: var(--cor-amber); }
-.cor-tramo svg { flex: none; color: var(--cor-muted); }
-/* The pulse as one small line. */
-.cor-pulso-line { display: none; margin: 0; font-family: var(--cor-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--cor-muted); }
-/* Pedir's mode as one chip and its menu (the three modes, the picture button, «Lo pedido»); send's arrow. */
-.cor-pedir-chip-box { position: relative; display: none; flex: none; min-width: 0; }
-.cor-pedir-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 136px; min-height: 44px; padding: 0 10px 0 12px; border: 1px solid rgba(167, 139, 250, 0.6); border-radius: 10px; background: rgba(139, 92, 246, 0.14); color: var(--cor-violet-4); font-size: 13px; font-weight: 500; white-space: nowrap; }
-.cor-pedir-chip svg { flex: none; }
-.cor-pedir-menu { position: absolute; z-index: 20; left: -6px; bottom: calc(100% + 12px); width: min(320px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
-.cor-pedir-mi { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 44px; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-text); font: inherit; text-align: left; }
-.cor-pedir-mi b { font-size: 14px; font-weight: 500; }
-.cor-pedir-mi small { font-size: 12px; line-height: 1.35; color: var(--cor-muted); }
-.cor-pedir-mi[aria-checked="true"] { background: rgba(139, 92, 246, 0.14); }
-.cor-pedir-mi[aria-checked="true"] b { color: var(--cor-violet-4); }
-.cor-pedir-mi.row { flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; font-size: 14px; color: var(--cor-body); }
-.cor-pedir-mi.row svg { flex: none; color: var(--cor-muted); }
-.cor-pedir-menu-sep { height: 1px; margin: 6px 4px; background: var(--cor-line); }
-.cor-pedir-send-i { display: none; }
-@media (max-width: 639px) {
-  /* The bar: back (its chevron), the switcher and the state on one row; the doors scroll sideways on their own row. */
-  .cor-topbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "back switch end" "doors doors doors"; align-items: center; column-gap: 6px; height: auto; padding: 6px 16px 0; }
-  .cor-topbar .cor-strip-back { grid-area: back; justify-content: center; width: 44px; margin-left: -12px; padding: 0; }
-  .cor-topbar .cor-strip-back-t { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-  .cor-topbar .cor-switch { grid-area: switch; position: static; min-width: 0; }
-  .cor-topbar .cor-switch-btn { max-width: 100%; margin-left: 0; padding: 0 8px; gap: 8px; font-size: 16px; }
-  .cor-topbar .cor-switch-menu { top: 54px; left: 16px; right: 16px; width: auto; }
-  .cor-topbar-end { grid-area: end; gap: 8px; margin-left: 0; }
-  .cor-topbar-state { letter-spacing: 0.1em; }
-  .cor-topbar .cor-doors { grid-area: doors; margin: 2px -16px 0; padding: 0 16px; gap: 0 20px; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .cor-topbar .cor-doors::-webkit-scrollbar { display: none; }
-  .cor-topbar .cor-door { flex: none; min-height: 44px; margin-bottom: 0; }
-  /* The list scrolls with the page (the .cor phone rule keeps room for the tab bar); Pedir stays at its foot. */
-  .cor-pbody:has(.cor-todo) { display: flex; flex-direction: column; overflow: visible; }
-  .cor-todo { flex: 1 0 auto; height: auto; }
-  .cor-todo-mid { flex: 1 0 auto; }
-  .cor-todo-scroll { flex: 1 0 auto; overflow: visible; }
-  /* The head: the sentence at 34 px; the pulse as one small line. */
-  .cor-cabeza { gap: 10px; padding: 14px 0 12px; }
-  .cor-frase-h.cor-h1 { font-size: 34px; line-height: 1.08; overflow-wrap: anywhere; }
-  .cor-pmeta .cor-btn.link { min-height: 44px; }
-  .cor-pulso { min-width: 0; }
-  .cor-pulso-n, .cor-pulso-chart { display: none; }
-  .cor-pulso-line { display: block; }
-  /* The counts scroll sideways in one row. */
-  .cor-cuentas { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 6px 16px; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .cor-cuentas::-webkit-scrollbar { display: none; }
-  .cor-cuenta { flex: none; height: 44px; }
-  .cor-grp { padding-top: 10px; }
-  /* Each thing is a card. Te toca and Se mueve keep their amber and violet borders; quiet ones use the surface and a
-     hairline. Kind, key and tokens on one line, the title at 17 px on up to two, the steps as one control (an idea keeps
-     its small thread), the caps line and the sentence, the lever full width. */
-  .cor-cosa, .cor-cosa.you, .cor-cosa.liv, .cor-cosa.ghost { grid-template-columns: minmax(0, 1fr); row-gap: 12px; min-height: 0; margin: 0 0 10px; padding: 14px; }
-  .cor-cosa { border: 1px solid var(--cor-line); border-radius: 14px; background: var(--cor-surface); }
-  .cor-cosa.ghost { background: transparent; }
-  .cor-cosa.you + .cor-cosa.you { margin-top: 0; }
-  .cor-cosa-nm:not(.row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "ids tok" "t t"; align-items: center; gap: 6px 12px; padding: 0; }
-  .cor-cosa-nm:not(.row) > .cor-cosa-ids { grid-area: ids; }
-  .cor-cosa-nm:not(.row) > .cor-tokens { grid-area: tok; justify-self: end; }
-  .cor-cosa-nm:not(.row) > b { grid-area: t; font-size: 17px; line-height: 1.3; letter-spacing: -0.015em; }
-  .cor-cosa:has(> .cor-tramos) > .cor-hilo { display: none; }
-  .cor-tramos { display: flex; }
-  .cor-cosa-que { flex-direction: column; align-items: stretch; gap: 12px; padding: 0; }
-  .cor-cosa-tx { flex: none; gap: 4px; }
-  .cor-cosa-espera { font-size: 14px; -webkit-line-clamp: 3; }
-  .cor-palanca { width: 100%; max-width: none; align-items: stretch; }
-  .cor-palanca-btns { flex-wrap: wrap; }
-  .cor-palanca-btns > .cor-btn { flex: 1 1 auto; min-height: 48px; }
-  .cor-palanca-btns > .cor-btn.quiet { border-color: var(--cor-line-strong); }
-  .cor-palanca .cor-ajuste { width: auto; }
-  .cor-palanca .cor-state.bad { text-align: left; }
-  .cor-vacio-plan { flex-direction: column; align-items: flex-start; gap: 12px; }
-  /* The steps' sheet stops above the app's tab bar (56 px and its line). */
-  .cor-hoja.abajo { margin-bottom: calc(57px + env(safe-area-inset-bottom)); }
-  /* Pedir: the mode as one chip, the input, send as an arrow; it stays at the foot, above the tab bar. */
-  .cor-todo .cor-pedir { position: sticky; bottom: calc(57px + env(safe-area-inset-bottom)); z-index: 3; padding: 10px 16px; }
-  .cor-pedir-shell { flex-wrap: nowrap; gap: 4px; }
-  .cor-pedir-modes, .cor-pedir-shell > .cor-pedir-icon, .cor-pedir-shell > .cor-pedir-past, .cor-pedir-key { display: none; }
-  .cor-pedir-chip-box { display: inline-flex; }
-  .cor-pedir-field { flex: 1 1 0; order: 0; min-width: 0; }
-  /* 16 px: a phone does not zoom into the field. */
-  .cor-pedir-text { padding: 0 8px; font-size: 16px; }
-  .cor-pedir-shell > .cor-btn[data-pedir-send] { width: 44px; min-width: 44px; padding: 0; }
-  .cor-pedir-send-t { display: none; }
-  .cor-pedir-send-i { display: block; }
-  .cor-pedir-said a { display: inline-flex; align-items: center; min-height: 44px; }
-  /* Paused: the one sentence, «Lo pedido» under it. */
-  .cor-pedir-shell.held { flex-wrap: wrap; row-gap: 0; padding: 8px 6px 4px 16px; }
-  .cor-pedir-held { flex: 1 1 100%; }
-  .cor-pedir-shell.held > .cor-pedir-past { display: inline-flex; margin-left: -10px; }
-  /* The stream's bar keeps its project picker, on a row of its own. */
-  .cor-pedir-shell:has(> .cor-pedir-pick) { flex-wrap: wrap; }
-  .cor-pedir-shell > .cor-pedir-pick { flex: 1 1 100%; }
-}
-/* No hover tooltips on touch: a tap shows no step's tooltip and leaves no step grown. */
-@media (hover: none) {
-  .cor-tip { display: none; }
-  .cor-paso:hover i, .cor-paso.on i { transform: none; }
-  .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
-  .cor-lado-sg:not(.open):hover i { height: 8px; }
-}
-
 /* PLA-I66-2: Marca, the project's logo and its icon files (design PLA-IDEA30). The original in the middle, six cards
    joined to it by threads (lit: in the repo and passing; dotted: missing; red: wrong), the list of files at the right. */
 .cor-switch-logo { display: inline-flex; align-items: center; flex: none; min-width: 44px; min-height: 44px; margin-left: -7px; padding: 0 7px; border-radius: 10px; }
@@ -1708,4 +1579,133 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 }
 @media (prefers-reduced-motion: reduce) {
   .mk-thread .flow, .mk-glow { animation: none; }
+}
+
+/* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
+   below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
+/* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
+.cor-tramos { display: none; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 10px 0 12px; border: 1px solid var(--cor-line); border-radius: 10px; background: rgba(255, 255, 255, 0.025); color: var(--cor-body); font: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
+.cor-tramos[aria-expanded="true"] { border-color: rgba(167, 139, 250, 0.55); }
+.cor-tramos-sg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; }
+.cor-tramos-sg i { flex: 1; min-width: 2px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.2); }
+.cor-tramos-sg i.hecho { background: #7c6ad6; }
+.cor-tramos-sg i.fila { background: #4a4270; }
+.cor-tramos-sg i.vivo { background: #fff; box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
+.cor-tramos-sg i.toca { background: var(--cor-amber); box-shadow: 0 0 10px 2px rgba(255, 180, 84, 0.45); }
+.cor-tramos-sg i.fin { background: #3f8f63; }
+.cor-tramos-n { flex: none; font-family: var(--cor-mono); font-size: 12px; color: var(--cor-text); font-variant-numeric: tabular-nums; }
+.cor-tramos svg { flex: none; color: var(--cor-muted); }
+/* The sheet it opens, from the foot (Hoja bottom): key and «N DE M PASOS», the title, one row per step. */
+.cor-hoja-back:has(> .cor-hoja.abajo) { place-items: end stretch; padding: 0; }
+.cor-hoja.abajo { position: relative; width: 100%; max-height: calc(100svh - 49px - 57px - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); gap: 6px; padding: 14px 16px 12px; border-bottom: 0; border-radius: 18px 18px 0 0; overscroll-behavior: contain; }
+.cor-hoja.abajo > .cor-label { padding: 8px 52px 0 0; }
+.cor-hoja.abajo > .cor-h2 { padding-right: 8px; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+.cor-hoja-x { position: absolute; top: 8px; right: 8px; }
+.cor-tramos-list { display: flex; flex-direction: column; gap: 2px; margin: 8px -8px 0; }
+.cor-tramo { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 8px 8px 12px; border-radius: 12px; color: var(--cor-text); -webkit-tap-highlight-color: transparent; }
+.cor-tramo:active { background: rgba(255, 255, 255, 0.04); }
+.cor-tramo.vivo { background: rgba(139, 92, 246, 0.14); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.32); }
+.cor-tramo-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cor-tramo-tx b { font-size: 15px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cor-tramo-st { font-size: 12.5px; line-height: 1.3; color: var(--cor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cor-tramo.vivo .cor-tramo-st { color: var(--cor-violet-3); }
+.cor-tramo.toca .cor-tramo-st { color: var(--cor-amber); }
+.cor-tramo svg { flex: none; color: var(--cor-muted); }
+/* The pulse as one small line. */
+.cor-pulso-line { display: none; margin: 0; font-family: var(--cor-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--cor-muted); }
+/* Pedir's mode as one chip and its menu (the three modes, the picture button, «Lo pedido»); send's arrow. */
+.cor-pedir-chip-box { position: relative; display: none; flex: none; min-width: 0; }
+.cor-pedir-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 136px; min-height: 44px; padding: 0 10px 0 12px; border: 1px solid rgba(167, 139, 250, 0.6); border-radius: 10px; background: rgba(139, 92, 246, 0.14); color: var(--cor-violet-4); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.cor-pedir-chip svg { flex: none; }
+.cor-pedir-menu { position: absolute; z-index: 20; left: -6px; bottom: calc(100% + 12px); width: min(320px, calc(100vw - 32px)); display: flex; flex-direction: column; padding: 6px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
+.cor-pedir-mi { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 44px; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-text); font: inherit; text-align: left; }
+.cor-pedir-mi b { font-size: 14px; font-weight: 500; }
+.cor-pedir-mi small { font-size: 12px; line-height: 1.35; color: var(--cor-muted); }
+.cor-pedir-mi[aria-checked="true"] { background: rgba(139, 92, 246, 0.14); }
+.cor-pedir-mi[aria-checked="true"] b { color: var(--cor-violet-4); }
+.cor-pedir-mi.row { flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; font-size: 14px; color: var(--cor-body); }
+.cor-pedir-mi.row svg { flex: none; color: var(--cor-muted); }
+.cor-pedir-menu-sep { height: 1px; margin: 6px 4px; background: var(--cor-line); }
+.cor-pedir-send-i { display: none; }
+@media (max-width: 639px) {
+  /* The bar: back (its chevron), the switcher and the state on one row; the doors scroll sideways on their own row. */
+  .cor-topbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "back switch end" "doors doors doors"; align-items: center; column-gap: 6px; height: auto; padding: 6px 16px 0; }
+  .cor-topbar .cor-strip-back { grid-area: back; justify-content: center; width: 44px; margin-left: -12px; padding: 0; }
+  .cor-topbar .cor-strip-back-t { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .cor-topbar .cor-switch { grid-area: switch; position: static; min-width: 0; }
+  .cor-topbar .cor-switch-btn { max-width: 100%; margin-left: 0; padding: 0 8px; gap: 8px; font-size: 16px; }
+  .cor-topbar .cor-switch-menu { top: 54px; left: 16px; right: 16px; width: auto; }
+  .cor-topbar-end { grid-area: end; gap: 8px; margin-left: 0; }
+  .cor-topbar-state { letter-spacing: 0.1em; }
+  .cor-topbar .cor-doors { grid-area: doors; margin: 2px -16px 0; padding: 0 16px; gap: 0 20px; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .cor-topbar .cor-doors::-webkit-scrollbar { display: none; }
+  .cor-topbar .cor-door { flex: none; min-height: 44px; margin-bottom: 0; }
+  /* The list scrolls with the page (the .cor phone rule keeps room for the tab bar); Pedir stays at its foot. */
+  .cor-pbody:has(.cor-todo) { display: flex; flex-direction: column; overflow: visible; }
+  .cor-todo { flex: 1 0 auto; height: auto; }
+  .cor-todo-mid { flex: 1 0 auto; }
+  .cor-todo-scroll { flex: 1 0 auto; overflow: visible; }
+  /* The head: the sentence at 34 px; the pulse as one small line. */
+  .cor-cabeza { gap: 10px; padding: 14px 0 12px; }
+  .cor-frase-h.cor-h1 { font-size: 34px; line-height: 1.08; overflow-wrap: anywhere; }
+  .cor-pmeta .cor-btn.link { min-height: 44px; }
+  .cor-pulso { min-width: 0; }
+  .cor-pulso-n, .cor-pulso-chart { display: none; }
+  .cor-pulso-line { display: block; }
+  /* The counts scroll sideways in one row. */
+  .cor-cuentas { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 6px 16px; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .cor-cuentas::-webkit-scrollbar { display: none; }
+  .cor-cuenta { flex: none; height: 44px; }
+  .cor-grp { padding-top: 10px; }
+  /* Each thing is a card. Te toca and Se mueve keep their amber and violet borders; quiet ones use the surface and a
+     hairline. Kind, key and tokens on one line, the title at 17 px on up to two, the steps as one control (an idea keeps
+     its small thread), the caps line and the sentence, the lever full width. */
+  .cor-cosa, .cor-cosa.you, .cor-cosa.liv, .cor-cosa.ghost { grid-template-columns: minmax(0, 1fr); row-gap: 12px; min-height: 0; margin: 0 0 10px; padding: 14px; }
+  .cor-cosa { border: 1px solid var(--cor-line); border-radius: 14px; background: var(--cor-surface); }
+  .cor-cosa.ghost { background: transparent; }
+  .cor-cosa.you + .cor-cosa.you { margin-top: 0; }
+  .cor-cosa-nm:not(.row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "ids tok" "t t"; align-items: center; gap: 6px 12px; padding: 0; }
+  .cor-cosa-nm:not(.row) > .cor-cosa-ids { grid-area: ids; }
+  .cor-cosa-nm:not(.row) > .cor-tokens { grid-area: tok; justify-self: end; }
+  .cor-cosa-nm:not(.row) > b { grid-area: t; font-size: 17px; line-height: 1.3; letter-spacing: -0.015em; }
+  .cor-cosa:has(> .cor-tramos) > .cor-hilo { display: none; }
+  .cor-tramos { display: flex; }
+  .cor-cosa-que { flex-direction: column; align-items: stretch; gap: 12px; padding: 0; }
+  .cor-cosa-tx { flex: none; gap: 4px; }
+  .cor-cosa-espera { font-size: 14px; -webkit-line-clamp: 3; }
+  .cor-palanca { width: 100%; max-width: none; align-items: stretch; }
+  .cor-palanca-btns { flex-wrap: wrap; }
+  .cor-palanca-btns > .cor-btn { flex: 1 1 auto; min-height: 48px; }
+  .cor-palanca-btns > .cor-btn.quiet { border-color: var(--cor-line-strong); }
+  .cor-palanca .cor-ajuste { width: auto; }
+  .cor-palanca .cor-state.bad { text-align: left; }
+  .cor-vacio-plan { flex-direction: column; align-items: flex-start; gap: 12px; }
+  /* The steps' sheet stops above the app's tab bar (56 px and its line). */
+  .cor-hoja.abajo { margin-bottom: calc(57px + env(safe-area-inset-bottom)); }
+  /* Pedir: the mode as one chip, the input, send as an arrow; it stays at the foot, above the tab bar. */
+  .cor-todo .cor-pedir { position: sticky; bottom: calc(57px + env(safe-area-inset-bottom)); z-index: 3; padding: 10px 16px; }
+  .cor-pedir-shell { flex-wrap: nowrap; gap: 4px; }
+  .cor-pedir-modes, .cor-pedir-shell > .cor-pedir-icon, .cor-pedir-shell > .cor-pedir-past, .cor-pedir-key { display: none; }
+  .cor-pedir-chip-box { display: inline-flex; }
+  .cor-pedir-field { flex: 1 1 0; order: 0; min-width: 0; }
+  /* 16 px: a phone does not zoom into the field. */
+  .cor-pedir-text { padding: 0 8px; font-size: 16px; }
+  .cor-pedir-shell > .cor-btn[data-pedir-send] { width: 44px; min-width: 44px; padding: 0; }
+  .cor-pedir-send-t { display: none; }
+  .cor-pedir-send-i { display: block; }
+  .cor-pedir-said a { display: inline-flex; align-items: center; min-height: 44px; }
+  /* Paused: the one sentence, «Lo pedido» under it. */
+  .cor-pedir-shell.held { flex-wrap: wrap; row-gap: 0; padding: 8px 6px 4px 16px; }
+  .cor-pedir-held { flex: 1 1 100%; }
+  .cor-pedir-shell.held > .cor-pedir-past { display: inline-flex; margin-left: -10px; }
+  /* The stream's bar keeps its project picker, on a row of its own. */
+  .cor-pedir-shell:has(> .cor-pedir-pick) { flex-wrap: wrap; }
+  .cor-pedir-shell > .cor-pedir-pick { flex: 1 1 100%; }
+}
+/* No hover tooltips on touch: a tap shows no step's tooltip and leaves no step grown. */
+@media (hover: none) {
+  .cor-tip { display: none; }
+  .cor-paso:hover i, .cor-paso.on i { transform: none; }
+  .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
+  .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
