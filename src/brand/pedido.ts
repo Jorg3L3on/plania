@@ -14,7 +14,8 @@ import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
 import { webCtx } from "../mcp/tx.js";
 import { say } from "../words.js";
-import { generate, planFor, setId, SURFACE_KEYS, zip, type GenFile, type Original, type Plan, type Surface } from "./generate.js";
+import { generate, planFor, setId, SURFACE_KEYS, zip, type GenFile, type GenKey, type Original, type Plan, type Surface } from "./generate.js";
+import type { Framework, Row, RowId } from "./check.js";
 import { surfaceOriginals } from "./surfaces.js";
 import { readLogoFile } from "./logos.js";
 import { marcaRead, forgetMarcaOf, type MarcaRead } from "./marca.js";
@@ -29,10 +30,44 @@ export function originalOf(slug: string, l: ProjectLogo): Original | null {
   return bytes ? { bytes, mime: l.mime, variant: l.variant, colors: l.colors, bg: l.adjust?.bg ?? null } : null;
 }
 
-const themeOf = (r: MarcaRead): string | null => {
-  const t = r.rows.find((x) => x.id === "man")?.checks.find((c) => c.k === "man_colors")?.v?.theme;
+const themeOfRows = (rows: Row[]): string | null => {
+  const t = rows.find((x) => x.id === "man")?.checks.find((c) => c.k === "man_colors")?.v?.theme;
   return typeof t === "string" && /^#[0-9a-f]{6}$/i.test(t) ? t : null;
 };
+const themeOf = (r: MarcaRead): string | null => themeOfRows(r.rows);
+
+// PLA-128: which icons in the repo come from an older logo. Plania's files are deterministic, so a sound file the repo
+// has that differs from the one Plania makes now (from the logo, or a surface's own icon) was made from another one.
+// Only for a logo the owner chose (upload, Artist, a version gone back to): one found in the repo leaves its icons be.
+// The manifest and code edits are not compared (Taller may format them); the generated set is kept per logo + plan.
+const COMPARED: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "ios_app"];
+const ROW_OF_KEY = (k: GenKey): RowId => (k === "manifest" ? "man" : (k as RowId));
+const made = new Map<string, Map<string, Buffer>>();
+export async function staleRows(input: { slug: string; title: string; rows: Row[]; framework: Framework; root: string; native: boolean; logo: ProjectLogo; read: (path: string) => Promise<Buffer | null> }): Promise<RowId[]> {
+  if (input.logo.source === "repo") return [];
+  const o = originalOf(input.slug, input.logo);
+  if (!o) return [];
+  const own = surfaceOriginals(input.slug);
+  const plan = planFor(input.rows, { framework: input.framework, root: input.root }, "todo", o.mime === "image/svg+xml", input.native);
+  plan.items = plan.items.filter((i) => COMPARED.includes(i.key));
+  const key = `${input.slug}|${setId(o, plan, own)}|${themeOfRows(input.rows) ?? ""}`;
+  let files = made.get(key);
+  if (!files) {
+    const gen = await generate(o, plan, { name: input.title, theme: themeOfRows(input.rows), rows: input.rows, root: input.root }, own);
+    files = new Map(gen.map((g) => [g.path, g.bytes]));
+    if (made.size > 32) made.clear();
+    made.set(key, files);
+  }
+  const out: RowId[] = [];
+  for (const it of plan.items) {
+    const row = input.rows.find((r) => r.id === ROW_OF_KEY(it.key));
+    if (!row || row.state !== "ok" || row.path !== it.path) continue;
+    const want = files.get(it.path);
+    const have = want ? await input.read(it.path) : null;
+    if (want && have && !want.equals(have)) out.push(row.id);
+  }
+  return out;
+}
 
 export type BuiltSet = { id: string; plan: Plan; files: GenFile[]; dir: string };
 

@@ -9,7 +9,8 @@ import { readPng } from "./png.js";
 import { looksLikeLogo } from "./detect.js";
 
 export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
-export type RowState = "ok" | "falta" | "mal";
+// PLA-128: viejo, a sound file made from an older logo than the one Plania keeps now (set by the read, src/brand/marca.ts).
+export type RowState = "ok" | "falta" | "mal" | "viejo";
 export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
 // A check or a note is a code and its values; the screen words them in the install's language (ui/src/lib/marca.ts).
 export type Check = { k: string; ok: boolean; v?: Record<string, string | number> };

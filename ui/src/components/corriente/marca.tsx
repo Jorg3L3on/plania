@@ -125,6 +125,11 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
                 <b className="r">{c.wrong}</b> {w.count.wrong}
               </span>
             )}
+            {c.old > 0 && (
+              <span>
+                <b className="a">{c.old}</b> {w.count.old}
+              </span>
+            )}
           </p>
           {r.repo === "ok" && (
             <button type="button" className="cor-btn secondary small" onClick={() => void reread()} disabled={rereading} data-control="marca-revisar">
@@ -144,7 +149,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           ) : (
             r.logo &&
             r.repo === "ok" &&
-            c.missing + c.wrong > 0 && (
+            c.missing + c.wrong + c.old > 0 && (
               <button type="button" className="cor-btn primary" onClick={() => setSheet(true)} data-control="marca-al-repo">
                 {w.sheet.open}
               </button>
@@ -152,6 +157,15 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           )}
         </div>
       </header>
+      {/* PLA-128: a new logo the repo does not have yet: say so, and say which surface keeps its own. */}
+      {c.old > 0 && (
+        <div className="mk-drift" role="status" data-old={c.old}>
+          <span>
+            {w.oldLogo(c.old)}
+            {Object.keys(r.surfaces ?? {}).length > 0 && ` ${w.oldKeeps((Object.keys(r.surfaces!) as Surface[]).map((s) => w.solo.name[s]).join(", "))}`}
+          </span>
+        </div>
+      )}
       {r.drift && (
         <div className="mk-drift" role="status" data-drift={r.drift.path}>
           <span>{w.drift.text(r.drift.path)}</span>
@@ -835,7 +849,7 @@ export function MarcaCount({ slug }: { slug: string }) {
   const q = useMarca(slug);
   if (!q.data) return null;
   const c = counts(q.data.rows);
-  const bad = c.missing + c.wrong;
+  const bad = c.missing + c.wrong + c.old;
   return <span className={`n${bad ? "" : " ok"}`}>{bad ? marcaWords().doorCount(bad) : marcaWords().doorComplete}</span>;
 }
 

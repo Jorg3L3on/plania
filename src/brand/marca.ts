@@ -13,6 +13,7 @@ import { activeLogo, filesAt, listTree, readBlob, readLogoFile, realGit, RECHECK
 import { createHash } from "node:crypto";
 import { looksSame } from "./same.js";
 import { surfacesOf } from "./surfaces.js";
+import { staleRows } from "./pedido.js";
 import { and, desc, ilike, notInArray } from "drizzle-orm";
 import { tasks } from "../db/schema.js";
 
@@ -85,6 +86,11 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const view = { paths: tree, read: (f: string) => readBlob(git, repo, commit, f) };
   const check = await checkRepo(view, { hasOriginal, slug: p.slug, native: !!p.settings?.marca?.native });
   const current = await activeLogo(db, p.id);
+  // PLA-128: a sound icon made from an older logo reads «viejo» («del logo anterior»), so the door offers to redo it.
+  if (current && check.framework) {
+    const old = await staleRows({ slug: p.slug, title: p.title, rows: check.rows, framework: check.framework, root: check.root, native: !!p.settings?.marca?.native, logo: current, read: view.read });
+    if (old.length) check.rows = check.rows.map((r) => (old.includes(r.id) ? { ...r, state: "viejo" as const, checks: [...r.checks, { k: "old_logo", ok: false }] } : r));
+  }
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
   // PLA-I66-4: the owner's choice leads, and the repo's best logo is another picture (not the same logo regenerated).
   let drift: MarcaRead["drift"] = null;

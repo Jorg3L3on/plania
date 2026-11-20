@@ -5,7 +5,8 @@ import { defineWords, words } from "./i18n.js";
 import type { LogoRef } from "./logos.js";
 
 export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
-export type RowState = "ok" | "falta" | "mal";
+// PLA-128: viejo, a sound file in the repo made from an older logo.
+export type RowState = "ok" | "falta" | "mal" | "viejo";
 export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
 export type Coded = { k: string; v?: Record<string, string | number> };
 export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | null; optional?: boolean; size?: string; note?: Coded; checks: (Coded & { ok: boolean })[] };
@@ -102,7 +103,7 @@ export const FACES: { id: Face; side: "l" | "r" }[] = [
   { id: "cia", side: "r" },
 ];
 const ORDER: Face[] = FACES.map((f) => f.id);
-const RANK: Record<RowState, number> = { mal: 3, falta: 2, ok: 1 };
+const RANK: Record<RowState, number> = { mal: 4, viejo: 3, falta: 2, ok: 1 };
 
 export const MARCA_WORDS = defineWords({
   es: {
@@ -134,10 +135,11 @@ export const MARCA_WORDS = defineWords({
       ios_app: { name: "Ícono de la app de iOS", spec: "1024 × 1024, opaco" },
       and_app: { name: "Ícono adaptable de Android", spec: "frente, fondo y monocromo" },
     } as Record<RowId, { name: string; spec: string }>,
-    state: { ok: "en el repo", falta: "falta", mal: "mal" } as Record<RowState, string>,
-    plState: { ok: "en Plania", falta: "falta", mal: "mal" } as Record<RowState, string>,
+    state: { ok: "en el repo", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
+    plState: { ok: "en Plania", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
     check: {
       exists: "Existe",
+      old_logo: "Es del logo anterior: «Ponerlos en el repo» lo rehace con el actual",
       linked: "Enlazado",
       linked_conv: "El framework lo enlaza solo",
       ico_sizes: (v: Record<string, string | number>) => `Trae ${v.sizes} px`,
@@ -176,7 +178,9 @@ export const MARCA_WORDS = defineWords({
       pl_none: "Sin original, Compañía dibuja la inicial del proyecto.",
       web_only: "El repo no tiene app nativa todavía: Plania deja listos los archivos en assets/.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
-    count: { ok: "en el repo", missing: (n: number): string => (n === 1 ? "falta" : "faltan"), wrong: "mal" },
+    count: { ok: "en el repo", missing: (n: number): string => (n === 1 ? "falta" : "faltan"), wrong: "mal", old: "del logo anterior" },
+    oldLogo: (n: number) => (n === 1 ? "Tu logo cambió: 1 archivo del repo es del logo anterior." : `Tu logo cambió: ${n} archivos del repo son del logo anterior.`),
+    oldKeeps: (list: string) => `${list} sigue con su propio ícono.`,
     doorCount: (n: number) => (n === 1 ? "1 FALTA" : `${n} FALTAN`),
     doorComplete: "COMPLETA",
     faceCount: (ok: number, n: number) => `${ok} de ${n}`,
@@ -253,7 +257,7 @@ export const MARCA_WORDS = defineWords({
       lead: "Plania arma los archivos desde el original, en esta máquina. Taller solo los pone donde van y los enlaza; no los redibuja.",
       changes: "Lo que cambia",
       framework: { "next-app": "Next.js · App Router", vite: "Vite", static: "Sitio estático" } as Record<string, string>,
-      faltan: "Solo lo que falta",
+      faltan: "Lo que falta o quedó viejo",
       todo: "Rehacer todo desde el original",
       kept: (n: number) => `${n} ya están bien: no se tocan`,
       edits: "Código que enlaza",
@@ -406,10 +410,11 @@ export const MARCA_WORDS = defineWords({
       ios_app: { name: "iOS app icon", spec: "1024 × 1024, opaque" },
       and_app: { name: "Android adaptive icon", spec: "foreground, background and monochrome" },
     } as Record<RowId, { name: string; spec: string }>,
-    state: { ok: "in the repo", falta: "missing", mal: "wrong" } as Record<RowState, string>,
-    plState: { ok: "in Plania", falta: "missing", mal: "wrong" } as Record<RowState, string>,
+    state: { ok: "in the repo", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
+    plState: { ok: "in Plania", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
     check: {
       exists: "Exists",
+      old_logo: "It is from the old logo: «Put them in the repo» makes it again from the current one",
       linked: "Linked",
       linked_conv: "The framework links it by itself",
       ico_sizes: (v: Record<string, string | number>) => `Holds ${v.sizes} px`,
@@ -448,7 +453,9 @@ export const MARCA_WORDS = defineWords({
       pl_none: "Without an original, Company draws the project's initial.",
       web_only: "The repo has no native app yet: Plania leaves the files ready in assets/.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
-    count: { ok: "in the repo", missing: (_n: number) => "missing", wrong: "wrong" },
+    count: { ok: "in the repo", missing: (_n: number) => "missing", wrong: "wrong", old: "from the old logo" },
+    oldLogo: (n: number) => (n === 1 ? "Your logo changed: 1 file in the repo is from the old logo." : `Your logo changed: ${n} files in the repo are from the old logo.`),
+    oldKeeps: (list: string) => `${list} keeps its own icon.`,
     doorCount: (n: number) => `${n} MISSING`,
     doorComplete: "COMPLETE",
     faceCount: (ok: number, n: number) => `${ok} of ${n}`,
@@ -525,7 +532,7 @@ export const MARCA_WORDS = defineWords({
       lead: "Plania makes the files from the original, on this machine. Taller only puts them where they go and links them; it never redraws them.",
       changes: "What changes",
       framework: { "next-app": "Next.js · App Router", vite: "Vite", static: "Static site" } as Record<string, string>,
-      faltan: "Only what is missing",
+      faltan: "What is missing or old",
       todo: "Redo everything from the original",
       kept: (n: number) => `${n} are already right: left alone`,
       edits: "Code that links them",
@@ -665,14 +672,15 @@ export function sentence(table: Record<string, string | ((v: Record<string, stri
 export const sortedRows = (rows: MarcaRow[]): MarcaRow[] => [...rows].sort((a, b) => ORDER.indexOf(a.face) - ORDER.indexOf(b.face));
 
 /** Missing counts what the app needs: an optional file that is absent is not a gap. */
-export function counts(rows: MarcaRow[]): { ok: number; missing: number; wrong: number } {
-  let ok = 0, missing = 0, wrong = 0;
+export function counts(rows: MarcaRow[]): { ok: number; missing: number; wrong: number; old: number } {
+  let ok = 0, missing = 0, wrong = 0, old = 0;
   for (const r of rows) {
     if (r.state === "ok") ok++;
     else if (r.state === "mal") wrong++;
+    else if (r.state === "viejo") old++; // PLA-128
     else if (!r.optional) missing++;
   }
-  return { ok, missing, wrong };
+  return { ok, missing, wrong, old };
 }
 
 /** A card's worst state among its required files (an optional absent file leaves it as it is) and its tally. */
@@ -686,7 +694,7 @@ export function faceState(rows: MarcaRow[], face: Face): { worst: RowState; ok: 
 /** The door's count: what is missing or wrong, or complete. */
 export function doorCount(rows: MarcaRow[], w: MarcaWords = marcaWords()): string {
   const c = counts(rows);
-  const bad = c.missing + c.wrong;
+  const bad = c.missing + c.wrong + c.old;
   return bad ? w.doorCount(bad) : w.doorComplete;
 }
 
