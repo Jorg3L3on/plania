@@ -1839,6 +1839,9 @@ export const lessons = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     lastConfirmedAt: timestamp("last_confirmed_at", { withTimezone: true }),
+    // PLA-I67-5 (0072): «mantener» on a 90-day retirement proposal, and the skill a lesson was merged into.
+    keptAt: timestamp("kept_at", { withTimezone: true }),
+    mergedInto: text("merged_into"),
     ...timestamps,
   },
   (t) => [
@@ -1879,4 +1882,23 @@ export const runKnowledge = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.runId, t.kind, t.item] }), index("run_knowledge_item_idx").on(t.kind, t.item)],
+);
+
+// PLA-I67-5: each time a lesson's correction came back (migration 0072). A reflector suggestion counts once confirmed.
+export const lessonRepeats = pgTable(
+  "lesson_repeats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    feedbackId: uuid("feedback_id").references(() => feedbackEvents.id, { onDelete: "set null" }),
+    taskKey: text("task_key"),
+    words: text("words"),
+    by: text("by").$type<"owner" | "reflector">().notNull().default("owner"),
+    confirmed: boolean("confirmed").notNull().default(false),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("lesson_repeats_lesson_idx").on(t.lessonId, t.createdAt), uniqueIndex("lesson_repeats_feedback_unique").on(t.feedbackId).where(sql`${t.feedbackId} is not null`)],
 );

@@ -868,6 +868,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
+| `LESSON_CONFLICT` | 409 | approving a lesson that clashes with an active one: say which stays with keep new | old (detail: lesson, text, other {id, text}) |
 | `LESSON_STATE` | 409 | the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |

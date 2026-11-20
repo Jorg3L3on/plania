@@ -6,23 +6,26 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
 import { words } from "@/lib/i18n";
-import type { Oficio } from "@/lib/oficio";
+import { dayLabel, skillWords, type Oficio } from "@/lib/oficio";
 import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
-import { lessonError, type LessonAction, type LessonView, type LessonsRead } from "@/lib/oficio-lessons";
+import { budgetShare, historyLine, lessonError, type Budget, type LessonAction, type LessonView, type LessonsRead } from "@/lib/oficio-lessons";
 import { Btn, Label, Opt } from "./parts";
 
 function useDecide(o: Oficio) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, action, text, applies_when }: { id: string; action: LessonAction; text?: string; applies_when?: string | null }) =>
-      api.decideLesson(o.project, o.agent, id, action, text !== undefined ? { text, applies_when } : {}),
+    mutationFn: ({ id, action, text, applies_when, keep }: { id: string; action: LessonAction; text?: string; applies_when?: string | null; keep?: "new" | "old" }) =>
+      api.decideLesson(o.project, o.agent, id, action, { ...(text !== undefined ? { text, applies_when } : {}), ...(keep ? { keep } : {}) }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["lessons", o.project, o.agent] });
       void client.invalidateQueries({ queryKey: ["company"] });
     },
   });
 }
-const errOf = (e: unknown) => (e instanceof ApiError ? lessonError(e.code) : e ? lessonError("NETWORK") : null);
+const errOf = (e: unknown) => (e instanceof ApiError ? (e.code === "LESSON_CONFLICT" ? null : lessonError(e.code)) : e ? lessonError("NETWORK") : null);
+// PLA-I67-5: the active lesson a proposal clashes with, from the refusal.
+const conflictOf = (e: unknown): { id: string; text: string } | null =>
+  e instanceof ApiError && e.code === "LESSON_CONFLICT" && e.detail.other && typeof e.detail.other === "object" ? (e.detail.other as { id: string; text: string }) : null;
 
 export const Reading = ({ l }: { l: LessonsRead | undefined }) => {
   const w = words(LESSON_WORDS);
@@ -82,7 +85,20 @@ export const ProposalCard = ({ o, seat, lesson, onClose }: { o: Oficio; seat: st
         <p className="cor-cap" role="status">
           {busy ? w.deciding : err ? <span className="cor-state bad">{err}</span> : ""}
         </p>
-        {editing ? (
+        {conflictOf(decide.error) ? (
+          <div className="ofi-confirm" role="group" aria-label={w.conflictAsk} data-conflict>
+            <p className="cor-text">{w.conflictAsk}</p>
+            <blockquote className="ofi-quote">{w.quote(conflictOf(decide.error)!.text)}</blockquote>
+            <div className="ofi-actions ofi-actions-two">
+              <Btn kind="primary" disabled={busy} onClick={() => decide.mutate({ id: lesson.id, action: "approve", keep: "new", ...(editing ? { text, applies_when: when } : {}) })} data-control="queda-nueva">
+                {w.keepNew}
+              </Btn>
+              <Btn kind="secondary" disabled={busy} onClick={() => decide.mutate({ id: lesson.id, action: "approve", keep: "old" })} data-control="queda-antes">
+                {w.keepOld}
+              </Btn>
+            </div>
+          </div>
+        ) : editing ? (
           <div className="ofi-actions">
             <Btn kind="primary" disabled={busy || text.trim().length < 3} onClick={() => decide.mutate({ id: lesson.id, action: "approve", text, applies_when: when })} data-control="aprobar-editada">
               {w.approveEdited}
@@ -116,10 +132,101 @@ export const ProposalCard = ({ o, seat, lesson, onClose }: { o: Oficio; seat: st
   );
 };
 
+// PLA-I67-5: each lesson with its repeats (a suggestion to confirm, the owner's own mark), the flag after two with
+// «Unirla a» a skill or «Volverla habilidad», and the 90-day retirement proposal with «Mantener».
+const LessonItem = ({ o, x, skills }: { o: Oficio; x: LessonView; skills: { slug: string; name: string }[] }) => {
+  const w = words(LESSON_WORDS);
+  const client = useQueryClient();
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["lessons", o.project, o.agent] });
+    void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
+  };
+  const decide = useDecide(o);
+  const [target, setTarget] = useState(skills[0]?.slug ?? "");
+  const repeat = useMutation({ mutationFn: () => api.markRepeat(o.project, o.agent, x.id), onSuccess: refresh });
+  const confirm = useMutation({ mutationFn: ({ rid, yes }: { rid: string; yes: boolean }) => api.confirmRepeat(o.project, o.agent, rid, yes), onSuccess: refresh });
+  const merge = useMutation({ mutationFn: (skill: string | null) => api.mergeLesson(o.project, o.agent, x.id, skill), onSuccess: refresh });
+  const keep = useMutation({ mutationFn: () => api.keepLesson(o.project, o.agent, x.id), onSuccess: refresh });
+  const busy = decide.isPending || repeat.isPending || confirm.isPending || merge.isPending || keep.isPending;
+  const err = errOf(decide.error ?? repeat.error ?? confirm.error ?? merge.error ?? keep.error);
+  const r = x.repeats;
+  return (
+    <li data-lesson-item={x.id}>
+      <span className="ofi-lesson-text">{x.text}</span>
+      <span className="ofi-lesson-foot">
+        <span className="cor-cap">
+          {x.proposed_by === "owner" ? w.byYou : w.byCorrection} · {w.carried(x.carried)}
+          {r?.confirmed ? ` · ${w.repeated(r.confirmed)}` : ""}
+        </span>
+        <span className="ofi-lesson-acts">
+          <Btn kind="link" disabled={busy} onClick={() => repeat.mutate()} aria-label={w.markRepeatOf(x.text)} data-control={`repetida-${x.id}`}>
+            {w.markRepeat}
+          </Btn>
+          <Btn kind="link" disabled={busy} onClick={() => decide.mutate({ id: x.id, action: "retire" })} aria-label={w.retireOf(x.text)} data-control={`retirar-${x.id}`}>
+            {w.retire}
+          </Btn>
+        </span>
+      </span>
+      {r?.suggested.map((s) => (
+        <span key={s.id} className="ofi-lesson-ask" data-suggested={s.id}>
+          <span className="cor-cap">{w.suggested(s.task_key)}</span>
+          <Btn kind="link" disabled={busy} onClick={() => confirm.mutate({ rid: s.id, yes: true })} data-control={`repite-si-${s.id}`}>
+            {w.yes}
+          </Btn>
+          <Btn kind="link" disabled={busy} onClick={() => confirm.mutate({ rid: s.id, yes: false })} data-control={`repite-no-${s.id}`}>
+            {w.no}
+          </Btn>
+        </span>
+      ))}
+      {r?.flagged && (
+        <div className="ofi-flag" data-flagged={x.id}>
+          <p className="cor-cap">
+            <b>{w.notHolding(r.confirmed)}</b>
+          </p>
+          <div className="ofi-actions">
+            {skills.length > 0 && (
+              <>
+                <select className="cor-select ofi-merge-pick" aria-label={w.mergeInto} value={target} onChange={(e) => setTarget(e.target.value)} data-control={`unir-a-${x.id}`}>
+                  {skills.map((s) => (
+                    <option key={s.slug} value={s.slug}>
+                      {`${w.mergeInto} ${s.name}`}
+                    </option>
+                  ))}
+                </select>
+                <Btn kind="secondary" disabled={busy || !target} onClick={() => merge.mutate(target)} data-control={`unir-${x.id}`}>
+                  {w.mergeBtn}
+                </Btn>
+              </>
+            )}
+            <Btn kind="link" disabled={busy} onClick={() => merge.mutate(null)} data-control={`habilidad-${x.id}`}>
+              {w.toSkill}
+            </Btn>
+          </div>
+        </div>
+      )}
+      {x.retire_due && (
+        <div className="ofi-flag" data-retire-due={x.id}>
+          <p className="cor-cap">{w.unusedLong}</p>
+          <div className="ofi-actions">
+            <Btn kind="secondary" disabled={busy} onClick={() => decide.mutate({ id: x.id, action: "retire" })} data-control={`retirar-viejo-${x.id}`}>
+              {w.retire}
+            </Btn>
+            <Btn kind="link" disabled={busy} onClick={() => keep.mutate()} data-control={`mantener-${x.id}`}>
+              {w.keep}
+            </Btn>
+          </div>
+        </div>
+      )}
+      {merge.isSuccess && <span className="cor-cap" role="status">{w.merged(merge.data.skill)}</span>}
+      {err && <span className="cor-state bad">{err}</span>}
+    </li>
+  );
+};
+
 export const LessonsPanel = ({ o, l, onClose }: { o: Oficio; l: LessonsRead | undefined; onClose: () => void }) => {
   const w = words(LESSON_WORDS);
-  const decide = useDecide(o);
   const active = (l?.lessons ?? []).filter((x) => x.state === "active");
+  const skills = o.skills.filter((s) => s.on).map((s) => ({ slug: s.slug, name: skillWords(s).name }));
   return (
     <section className="cor-card ofi-side-card ofi-skill" aria-label={w.listTitle} data-lessons-panel>
       <div className="ofi-side-head">
@@ -128,22 +235,60 @@ export const LessonsPanel = ({ o, l, onClose }: { o: Oficio; l: LessonsRead | un
           ×
         </Btn>
       </div>
+      {l?.budget?.over && <p className="cor-cap cor-state warn" data-over>{w.budgetOver}</p>}
       <div className="ofi-shelf-scroll">
         {active.length === 0 ? (
           <p className="cor-text cor-muted">{w.none}</p>
         ) : (
           <ul className="ofi-shelf-list">
             {active.map((x) => (
-              <li key={x.id} data-lesson-item={x.id}>
-                <span className="ofi-lesson-text">{x.text}</span>
-                <span className="ofi-lesson-foot">
-                  <span className="cor-cap">
-                    {x.proposed_by === "owner" ? w.byYou : w.byCorrection} · {w.carried(x.carried)}
-                  </span>
-                  <Btn kind="link" disabled={decide.isPending} onClick={() => decide.mutate({ id: x.id, action: "retire" })} aria-label={w.retireOf(x.text)} data-control={`retirar-${x.id}`}>
-                    {w.retire}
-                  </Btn>
-                </span>
+              <LessonItem key={x.id} o={o} x={x} skills={skills} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+};
+
+export const BudgetBar = ({ b }: { b: Budget | undefined }) => {
+  const w = words(LESSON_WORDS);
+  if (!b) return null;
+  return (
+    <div className="ofi-budget" data-budget={`${b.used}/${b.budget}`}>
+      <span className="ofi-budget-head">
+        <Label>{w.budget}</Label>
+        <span className="cor-cap">{w.budgetLine(b.used, b.budget)}</span>
+      </span>
+      <span className={`ofi-budget-bar ${b.over ? "over" : ""}`} role="img" aria-label={w.budgetLine(b.used, b.budget)}>
+        <i style={{ width: `${Math.round(budgetShare(b) * 100)}%` }} />
+      </span>
+      <span className="cor-cap">{w.budgetParts(b.role, b.manner, b.skills, b.lessons)}</span>
+      {b.over && <span className="cor-cap cor-state warn">{w.budgetOver}</span>}
+    </div>
+  );
+};
+
+export const HistoryPanel = ({ l, onClose, now, timeZone }: { l: LessonsRead | undefined; onClose: () => void; now: number; timeZone?: string }) => {
+  const w = words(LESSON_WORDS);
+  const list = l?.history ?? [];
+  return (
+    <section className="cor-card ofi-side-card ofi-skill" aria-label={w.historyTitle} data-history>
+      <div className="ofi-side-head">
+        <Label as="h3">{w.historyTitle}</Label>
+        <Btn kind="quiet" small onClick={onClose} aria-label="×" data-control="cerrar-panel">
+          ×
+        </Btn>
+      </div>
+      <div className="ofi-shelf-scroll" tabIndex={0} role="region" aria-label={w.historyTitle}>
+        {list.length === 0 ? (
+          <p className="cor-text cor-muted">{w.historyNone}</p>
+        ) : (
+          <ul className="ofi-history">
+            {list.map((h, i) => (
+              <li key={i}>
+                <span className="cor-cap ofi-history-at">{dayLabel(h.at, now, timeZone)}</span>
+                <span>{historyLine(h)}</span>
               </li>
             ))}
           </ul>

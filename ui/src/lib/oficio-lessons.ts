@@ -17,8 +17,13 @@ export type LessonView = {
   conflicts_with: { id: string; text: string } | null;
   at: string;
   carried: number;
+  // PLA-I67-5
+  repeats?: { confirmed: number; flagged: boolean; suggested: { id: string; task_key: string | null; words: string | null }[]; last: { task_key: string | null; words: string | null; at: string } | null };
+  retire_due?: boolean;
 };
-export type LessonsRead = { project: string; agent: string; lessons: LessonView[]; reading: { task_key: string | null; at: string }[] };
+export type Budget = { budget: number; role: number; manner: number; skills: number; references: number; lessons: number; lessons_wanted: number; used: number; room_for_lessons: number; over: boolean };
+export type HistoryItem = { at: string; kind: string; what: string; n?: number; by: "owner" | "plania" | "factory" };
+export type LessonsRead = { project: string; agent: string; lessons: LessonView[]; reading: { task_key: string | null; at: string }[]; budget?: Budget; history?: HistoryItem[]; repeat_counter?: "owner" };
 export type LessonAction = "approve" | "one-off" | "reject" | "retire";
 
 /** Proposals first (oldest waiting first), then active lessons (newest first), cut to max rows. */
@@ -57,4 +62,25 @@ export function lessonError(code: string | null, language: Language = getLanguag
   if (code === "LESSON_NOT_ALLOWED") return w.notAllowed;
   if (code === "TOO_LARGE") return w.tooLong;
   return w.failed(code);
+}
+
+/** PLA-I67-5: the budget bar's width, 0..1, and whether it is past the cap. */
+export const budgetShare = (b: Pick<Budget, "used" | "budget">): number => (b.budget > 0 ? Math.min(1, Math.max(0, b.used / b.budget)) : 0);
+
+/** A lesson row's right-hand word: «te toca», «2 repetidas», «sin usar» or how many runs carried it. */
+export function lessonCap(l: LessonView, language: Language = getLanguage()): { text: string; tone: "amber" | null } {
+  const w = words(LESSON_WORDS, language);
+  if (l.state === "proposed") return { text: w.waits, tone: "amber" };
+  if (l.repeats?.flagged) return { text: w.repeated(l.repeats.confirmed), tone: "amber" };
+  if (l.retire_due) return { text: w.unused, tone: "amber" };
+  if (l.repeats?.confirmed) return { text: w.repeated(l.repeats.confirmed), tone: null };
+  return { text: w.carried(l.carried), tone: null };
+}
+
+/** One change in the agent's history, in words. */
+export function historyLine(h: HistoryItem, language: Language = getLanguage()): string {
+  const w = words(LESSON_WORDS, language).history;
+  const f = (w as Record<string, (what: string, n?: number) => string>)[h.kind];
+  const what = h.what.replace(/\.$/, "");
+  return f ? f(what, h.n) : what;
 }

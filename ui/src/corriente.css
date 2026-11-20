@@ -1505,7 +1505,26 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-bullet.lesson { background: transparent; border: 1.4px solid var(--cor-violet-3); }
 .ofi-bullet.waits { border-color: var(--cor-amber); border-radius: 1px; transform: rotate(45deg); }
 .ofi-head-waits { color: var(--cor-amber); }
-.ofi-side-links { flex: none; column-gap: 14px; }
+/* PLA-I67-5: repeats, the flag with merge, the 90-day proposal, the budget bar and the change history. */
+.ofi-cap-amber { color: var(--cor-amber); }
+.ofi-lesson-acts { display: inline-flex; gap: 10px; }
+.ofi-lesson-acts .cor-btn.link, .ofi-lesson-ask .cor-btn.link, .ofi-flag .cor-btn.link, .ofi-lesson-foot .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.ofi-lesson-ask { display: flex; align-items: center; gap: 10px; }
+.ofi-flag { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255, 180, 84, 0.4); }
+.ofi-merge-pick { flex: 1 1 140px; min-width: 0; font-size: 13px; }
+.ofi-budget { flex: none; display: flex; flex-direction: column; gap: 4px; }
+.ofi-budget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ofi-budget-bar { display: block; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.ofi-budget-bar > i { display: block; height: 100%; background: var(--cor-violet-2); }
+.ofi-budget-bar.over > i { background: var(--cor-amber); }
+.ofi-history { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--cor-body); }
+.ofi-history > li { display: grid; grid-template-columns: 56px 1fr; gap: 8px; }
+.ofi-history-at { padding-top: 1px; }
+.ofi-side-links { flex: none; column-gap: 12px; row-gap: 0; }
+.ofi-side-card > .ofi-next { min-height: 64px; }
+.ofi-next-shelf { flex: none; align-self: flex-start; }
+.ofi-stats { gap: 16px; }
+.ofi-stats dt { white-space: nowrap; }
 .ofi-side-links .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.5); }
 .ofi-side-card > .ofi-next { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .ofi-side-card > .ofi-actions, .ofi-side-card > .cor-cap { flex: none; }

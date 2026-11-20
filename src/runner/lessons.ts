@@ -31,6 +31,8 @@ import { roleOf } from "./limits.js";
 import { inScope, seatOf, type ResolvedSkill } from "./skills.js";
 import { skillVersion } from "./kit.js";
 import { RELAX_WORDS } from "./lesson-words.js";
+import { budgetOf, fixedWords, historyOf, lastCarried, lessonLineWords, lessonRoomOf, repeatsOf, retirementDue, suggestRepeat, type Budget, type HistoryItem, type RepeatView } from "./lesson-watch.js";
+import { resolvedKit } from "./skills.js";
 
 export const CAPTURE_DAYS = 7;
 export const PROPOSAL_DAYS = 28;
@@ -163,6 +165,8 @@ export async function applyVerdict(db: Db, fb: FeedbackEvent, raw: unknown): Pro
   const text = (v.lesson ?? "").replace(/\s+/g, " ").trim().slice(0, LESSON_TEXT_MAX);
   const blocked = text ? lessonBlocked(text) : null;
   const record = { ...v, lesson_id: ref, ...(blocked ? { blocked } : {}) };
+  // PLA-I67-5: «repeats lesson X» on an active lesson is a suggestion the owner confirms (lesson-watch.ts).
+  if (v.verdict === "repeats" && ref && known.find((l) => l.id === ref)?.state === "active") await suggestRepeat(db, ref, fb);
   // Already proposed from this correction: never twice.
   const [already] = await db.select({ id: lessons.id }).from(lessons).where(eq(lessons.feedbackId, fb.id)).limit(1);
   if (already || (v.verdict !== "new" && v.verdict !== "conflicts") || text.length < 3 || blocked) {
@@ -252,11 +256,17 @@ async function newVersion(tx: Q, l: Lesson, edit: LessonEdit, author: string, no
 }
 
 // Only the owner's screen may decide; an agent (or any caller that is not the owner) gets LESSON_OWNER_ONLY.
-export async function decideLesson(db: Db, id: string, action: LessonAction, by: Decider, edit: LessonEdit = {}, now: Date = new Date()): Promise<Lesson> {
+// PLA-I67-5: approving a lesson that clashes with an active one asks which stays (LESSON_CONFLICT with both); keep
+// "new" approves it and retires the other, keep "old" rejects it.
+export async function decideLesson(db: Db, id: string, action: LessonAction, by: Decider, edit: LessonEdit = {}, now: Date = new Date(), keep?: "new" | "old"): Promise<Lesson> {
   if (!by.owner) throw new ToolError("LESSON_OWNER_ONLY", { lesson: id });
   const [l] = await db.select().from(lessons).where(eq(lessons.id, id)).limit(1);
   if (!l) throw new ToolError("LESSON_NOT_FOUND", { lesson: id });
   if (!FROM[action].includes(l.state)) throw new ToolError("LESSON_STATE", { lesson: id, state: l.state, action });
+  const [other] = action === "approve" && l.conflictsWith ? await db.select().from(lessons).where(and(eq(lessons.id, l.conflictsWith), eq(lessons.state, "active"))).limit(1) : [];
+  if (other && !keep) throw new ToolError("LESSON_CONFLICT", { lesson: id, text: l.text, other: { id: other.id, text: other.text } });
+  if (other && keep === "old") return decideLesson(db, id, "reject", by, {}, now);
+  if (other && keep === "new") await db.update(lessons).set({ state: "retired", decidedAt: now, updatedAt: now }).where(eq(lessons.id, other.id));
   return db.transaction(async (tx) => {
     const changed = action === "approve" ? await newVersion(tx, l, edit, "owner", now) : {};
     const [out] = await tx
@@ -312,15 +322,19 @@ export async function expireProposals(db: Db, now: Date = new Date()): Promise<n
 export type CarriedLesson = { id: string; text: string; applies_when: string | null; version: number };
 
 // The active lessons a run of this agent carries, newest confirmed first, cut to the bound.
-export async function lessonsForRun(db: Db | Q, a: Agent): Promise<CarriedLesson[]> {
+// PLA-I67-5: wordsRoom is what the always-on budget leaves after the role, «tu manera» and the skill list.
+export async function lessonsForRun(db: Db | Q, a: Agent, wordsRoom = Number.POSITIVE_INFINITY): Promise<CarriedLesson[]> {
   const rows = (await db.select().from(lessons).where(eq(lessons.state, "active"))).filter((l) => inScope(l, a));
   rows.sort((x, y) => (y.lastConfirmedAt ?? y.approvedAt ?? y.createdAt).getTime() - (x.lastConfirmedAt ?? x.approvedAt ?? x.createdAt).getTime());
   const out: CarriedLesson[] = [];
   let size = 0;
+  let words = 0;
   for (const l of rows) {
     const line = lessonLine({ id: l.id, text: l.text, applies_when: l.appliesWhen, version: l.version });
-    if (out.length >= LESSONS_MAX || size + line.length > LESSON_BLOCK_MAX) break;
+    const w = lessonLineWords({ text: l.text, applies_when: l.appliesWhen });
+    if (out.length >= LESSONS_MAX || size + line.length > LESSON_BLOCK_MAX || words + w > wordsRoom) break;
     size += line.length;
+    words += w;
     out.push({ id: l.id, text: l.text, applies_when: l.appliesWhen, version: l.version });
   }
   return out;
@@ -358,10 +372,13 @@ export type LessonView = {
   conflicts_with: { id: string; text: string } | null;
   at: string;
   carried: number;
+  // PLA-I67-5
+  repeats: RepeatView;
+  retire_due: boolean;
 };
-export type LessonsRead = { project: string; agent: string; lessons: LessonView[]; reading: { task_key: string | null; at: string }[] };
+export type LessonsRead = { project: string; agent: string; lessons: LessonView[]; reading: { task_key: string | null; at: string }[]; budget: Budget; history: HistoryItem[]; repeat_counter: "owner" };
 
-export async function lessonsRead(db: Db, project: string, agent: string): Promise<LessonsRead> {
+export async function lessonsRead(db: Db, project: string, agent: string, now: Date = new Date(), env: NodeJS.ProcessEnv = process.env): Promise<LessonsRead> {
   const a = await seatOf(db, project, agent);
   const rows = await db.select().from(lessons).where(and(eq(lessons.agentId, a.id), inArray(lessons.state, ["proposed", "active"]))).orderBy(desc(lessons.createdAt));
   const keys = [...new Set(rows.map((l) => l.taskKey).filter((k): k is string => !!k))];
@@ -379,9 +396,19 @@ export async function lessonsRead(db: Db, project: string, agent: string): Promi
     .where(and(eq(feedbackEvents.agentId, a.id), inArray(feedbackEvents.status, ["queued", "reflecting"])))
     .orderBy(desc(feedbackEvents.createdAt))
     .limit(5);
+  const reps = await repeatsOf(db, rows.map((l) => l.id));
+  const lastRun = await lastCarried(db, rows.map((l) => l.id));
+  const kit = await resolvedKit(db, a, env);
+  const fixed = await fixedWords(db, a, kit, env);
+  const carriedNow = await lessonsForRun(db, a, lessonRoomOf(fixed));
+  const wanted = rows.filter((l) => l.state === "active").map((l) => ({ text: l.text, applies_when: l.appliesWhen }));
   return {
     project,
     agent: a.slug,
+    budget: budgetOf(fixed, carriedNow, wanted),
+    history: await historyOf(db, project, agent),
+    // The trial was not run (decision on PLA-I67-5): the counter shows the owner's confirmed marks.
+    repeat_counter: "owner",
     lessons: rows.map((l) => ({
       id: l.id,
       text: l.text,
@@ -395,6 +422,8 @@ export async function lessonsRead(db: Db, project: string, agent: string): Promi
       conflicts_with: l.conflictsWith && byId.get(l.conflictsWith) ? { id: l.conflictsWith, text: byId.get(l.conflictsWith)!.text } : null,
       at: (l.approvedAt ?? l.createdAt).toISOString(),
       carried: counts.find((c) => c.item === l.id)?.n ?? 0,
+      repeats: reps.get(l.id)!,
+      retire_due: retirementDue(l, lastRun.get(l.id), now),
     })),
     reading: reading.map((r) => ({ task_key: r.taskKey, at: r.at.toISOString() })),
   };

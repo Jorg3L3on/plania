@@ -46,6 +46,7 @@ import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.j
 import { rolePrompt } from "./prompts.js";
 import { mannerBlock, mannerVersion, resolvedKit } from "./skills.js";
 import { lessonBlock, lessonsForRun, recordKnowledge } from "./lessons.js";
+import { fixedWords, lessonRoomOf } from "./lesson-watch.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
 import { runSession } from "./run-session.js";
@@ -1287,7 +1288,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
   // PLA-I67-3: the owner's approved lessons ride in the prompt, bounded (not for QA, a question, or a delivery question).
-  const carriedLessons = consulta || qa || asks ? [] : await lessonsForRun(db, ctx.agent).catch(() => []);
+  // PLA-I67-5: within what the always-on budget leaves after the role prompt, «tu manera» and the skill list.
+  const carriedLessons = consulta || qa || asks ? [] : await lessonsForRun(db, ctx.agent, lessonRoomOf(await fixedWords(db, ctx.agent, carried, env))).catch(() => []);
   const lessonText = lessonBlock(carriedLessons);
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
   const motor = resolveMotor({

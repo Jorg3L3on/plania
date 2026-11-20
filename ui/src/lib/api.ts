@@ -245,8 +245,13 @@ export const api = {
   // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
   lessons: (slug: string, agent: string) => request<LessonsRead>("GET", `${seatPath(slug, agent)}/lessons`),
   teachRule: (slug: string, agent: string, text: string) => request<LessonView>("POST", `${seatPath(slug, agent)}/lessons`, { text }),
-  decideLesson: (slug: string, agent: string, id: string, action: LessonAction, edit: { text?: string; applies_when?: string | null } = {}) =>
+  decideLesson: (slug: string, agent: string, id: string, action: LessonAction, edit: { text?: string; applies_when?: string | null; keep?: "new" | "old" } = {}) =>
     request<LessonView>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/decide`, { action, ...edit }),
+  // PLA-I67-5: repeats, merge into a skill, «mantener».
+  markRepeat: (slug: string, agent: string, id: string) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/repeat`, {}),
+  confirmRepeat: (slug: string, agent: string, rid: string, confirm: boolean) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/repeats/${encodeURIComponent(rid)}`, { confirm }),
+  mergeLesson: (slug: string, agent: string, id: string, skill: string | null) => request<{ skill: string }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/merge`, { skill }),
+  keepLesson: (slug: string, agent: string, id: string) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/keep`, {}),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),

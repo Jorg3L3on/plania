@@ -124,6 +124,7 @@ export const ERRORS = {
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],
   PING_PONG: [409, "this owner pair already assigned the other way (detail: from, to). The owner stays"],
+  LESSON_CONFLICT: [409, "approving a lesson that clashes with an active one: say which stays with keep new | old (detail: lesson, text, other {id, text})"],
   LESSON_STATE: [409, "the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action)"],
   SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
