@@ -106,11 +106,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # The image ships Postgres with an initialized data folder; a new install would reuse it and keep its
+          # password, so it is uninstalled and its folder removed.
           Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "service $($_.Name)"
             Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $_.Name -StartupType Disabled
-            & sc.exe delete $_.Name | Out-Null
           }
+          Get-ChildItem "$env:ProgramFiles\PostgreSQL" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "removing $($_.FullName)"
+            $un = Join-Path $_.FullName 'uninstall-postgresql.exe'
+            if (Test-Path $un) { Start-Process -FilePath $un -ArgumentList '--mode', 'unattended' -Wait }
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { & sc.exe delete $_.Name | Out-Null }
+          winget list --id PostgreSQL --accept-source-agreements --disable-interactivity
           winget --version
       - name: Nothing answers on 5432
         run: |

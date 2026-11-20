@@ -154,8 +154,18 @@ function Install-Plania {
         Start-Sleep -Seconds 1
       }
       if (-not $up) { Stop-Install 'Postgres se instal{o} pero no responde en localhost:5432.' }
-      $pgUrl = "postgres://postgres:$password@localhost:5432/plania"
-      Say 'Postgres qued{o} instalado y encendido.'
+      # A Postgres installed before (its data folder still there) keeps its own superuser password and ignores the
+      # one given here. Then the install command asks for it, as it does for any Postgres already on the machine.
+      $psql = Join-Path $env:ProgramFiles 'PostgreSQL\17\bin\psql.exe'
+      $env:PGPASSWORD = $password
+      try { & $psql -w -h localhost -U postgres -d postgres -tAc 'select 1' *> $null; $accepted = ($LASTEXITCODE -eq 0) } catch { $accepted = $false }
+      finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue }
+      if ($accepted) {
+        $pgUrl = "postgres://postgres:$password@localhost:5432/plania"
+        Say 'Postgres qued{o} instalado y encendido.'
+      } else {
+        Say 'Postgres ya estaba instalado en esta computadora con otra contrase{n}a: la instalaci{o}n te la pedir{a}.'
+      }
     }
   }
 

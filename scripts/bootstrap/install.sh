@@ -145,14 +145,20 @@ brew_path() {
   eval "$("$brew" shellenv)"
   hash -r 2>/dev/null || true
 }
+# A package manager's output only when it fails.
+quiet() {
+  if "$@" >"$work/step.log" 2>&1; then return 0; fi
+  tail -n 20 "$work/step.log" >&2
+  return 1
+}
 apt_updated=0
 apt_update() {
   [ "$apt_updated" = 1 ] && return 0
-  $SUDO apt-get update -q >/dev/null || fail "apt-get update falló."
+  quiet $SUDO apt-get update -q || fail "apt-get update falló."
   apt_updated=1
 }
-apt_install() { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" >/dev/null || fail "apt-get no pudo instalar $*."; }
-dnf_install() { $SUDO dnf install -y -q "$@" >/dev/null || fail "dnf no pudo instalar $*."; }
+apt_install() { quiet $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" || fail "apt-get no pudo instalar $*."; }
+dnf_install() { quiet $SUDO dnf install -y -q "$@" || fail "dnf no pudo instalar $*."; }
 fetch() { # <url> <file>
   if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"
   elif command -v wget >/dev/null 2>&1; then wget -q "$1" -O "$2"
@@ -177,7 +183,7 @@ if [ "$need_node" = 1 ]; then
           # The distribution's Node is older: NodeSource's Node 22 package, which carries npm.
           apt_install ca-certificates curl gnupg
           fetch https://deb.nodesource.com/setup_22.x "$work/nodesource.sh" || fail "No se pudo bajar el instalador de Node (deb.nodesource.com)."
-          $SUDO bash "$work/nodesource.sh" >/dev/null 2>&1 || fail "No se pudo agregar el repositorio de Node (deb.nodesource.com)."
+          quiet $SUDO bash "$work/nodesource.sh" || fail "No se pudo agregar el repositorio de Node (deb.nodesource.com)."
           apt_install nodejs
         fi
       else
@@ -186,7 +192,7 @@ if [ "$need_node" = 1 ]; then
           dnf_install nodejs npm
         else
           fetch https://rpm.nodesource.com/setup_22.x "$work/nodesource.sh" || fail "No se pudo bajar el instalador de Node (rpm.nodesource.com)."
-          $SUDO bash "$work/nodesource.sh" >/dev/null 2>&1 || fail "No se pudo agregar el repositorio de Node (rpm.nodesource.com)."
+          quiet $SUDO bash "$work/nodesource.sh" || fail "No se pudo agregar el repositorio de Node (rpm.nodesource.com)."
           dnf_install nodejs
         fi
       fi
