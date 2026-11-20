@@ -217,9 +217,9 @@ export async function previewImport(db: Db, project: string, agent: string, url:
 export async function importSkill(db: Db, project: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }, deps: ImportDeps = {}, now: Date = new Date()): Promise<string> {
   const a = await seatOf(db, project, agent);
   const f = await fetchSkill(input.url, deps);
+  const c = readSkillMd(f);
   const hash = sourceHash(f);
   if (hash !== input.source_hash) throw new ToolError("SKILL_IMPORT_CHANGED", { source_hash: hash });
-  const c = readSkillMd(f);
   const slug = slugOf(c.name);
   if (await slugTaken(db, slug)) throw new ToolError("SKILL_EXISTS", { slug });
   return db.transaction(async (tx) => {
@@ -272,9 +272,9 @@ export async function applyUpdate(db: Db, project: string, agent: string, slug: 
   await seatOf(db, project, agent);
   const row = await importedRow(db, slug);
   const f = await fetchSkill(row.sourceUrl!, deps);
+  const c = readSkillMd(f);
   const hash = sourceHash(f);
   if (hash !== input.source_hash) throw new ToolError("SKILL_IMPORT_CHANGED", { source_hash: hash });
-  const c = readSkillMd(f);
   await db.transaction(async (tx) => {
     const latest = (await versionsOf(tx, row.id))[0]!;
     if (!sameContent(latest, c)) await addVersion(tx, row, c, "link", `link:${hash.slice(0, 12)}`);
