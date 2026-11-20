@@ -83,6 +83,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
     repo: () => { setSel(null); setPanel("repo"); },
     versions: () => { setSel(null); setPanel("versiones"); },
     solo: (s) => setSoloFor(s),
+    send: (s) => { setSheetSurface(s); setSheet(true); },
     reset: async (s) => { took(await api.marcaSurfaceReset(p.slug, s)); toast(w.solo.reset(w.solo.name[s])); },
     release: async () => took(await api.marcaRelease(p.slug)),
   };
@@ -194,7 +195,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   );
 }
 
-type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void>; solo: (s: Surface) => void; reset: (s: Surface) => Promise<void> };
+type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void>; solo: (s: Surface) => void; reset: (s: Surface) => Promise<void>; send: (s: Surface) => void };
 
 function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void; actions: CoreActions }) {
   const scene = useRef<HTMLDivElement>(null);
@@ -286,6 +287,11 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
     return r.surfaces?.[s] ? (
       <>
         <span className="mk-own" data-own={s}>{w.solo.own}</span>
+        {!r.pedido && (
+          <button type="button" className="mk-mini" onClick={() => actions.send(s)} data-control={`marca-enviar-${s}`}>
+            {w.solo.send}
+          </button>
+        )}
         <button type="button" className="mk-mini" onClick={() => void actions.reset(s)} data-control={`marca-volver-${s}`}>
           {w.solo.back}
         </button>
