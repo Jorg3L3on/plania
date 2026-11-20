@@ -629,7 +629,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   const bar = (
     <div className="es-bar">
       <div className="say">
-        {r.pedido ? <b>{w.bar.way(r.pedido.key)}</b> : ch.length ? <><b>{w.bar.pending(ch.length)}</b> · {w.bar.files(nFiles)}</> : <b>{w.bar.same}</b>}
+        {r.pedido ? <b>{w.bar.way(r.pedido.key)}</b> : ch.length ? <><b>{w.bar.pending(ch.map((c) => (w.secs[c.part] ?? c.part).toLowerCase()))}</b> · {w.bar.files(nFiles)}</> : <b>{w.bar.same}</b>}
         {saving !== "idle" && <span className="es-saving" role="status"> · {saving === "saving" ? w.bar.saving : w.bar.saved}</span>}
       </div>
       <label className="es-exp">
@@ -637,7 +637,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
         {w.expert.label}
       </label>
       <button type="button" className={`cor-btn ${ch.length && !r.pedido ? "primary" : "secondary"} small`} disabled={!!r.pedido} onClick={() => setSendOpen((o) => !o)} data-control="estilo-llevar">
-        {r.pedido ? w.bar.way(r.pedido.key) : ch.length ? w.bar.send(ch.length) : w.bar.sendNone}
+        {r.pedido ? w.bar.way(r.pedido.key) : w.bar.sendNone}
       </button>
       {sendOpen && (
         <div className="es-send" role="dialog" aria-label={w.send.title(nFiles)} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setSendOpen(false); } }}>
