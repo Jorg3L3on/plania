@@ -2,6 +2,7 @@
 //   pnpm plania:install                       database `plania` on localhost:5432, created here
 //   pnpm plania:install --database <name>     another database name (an existing one is used only when named)
 //   pnpm plania:install --url postgres://user@host:5432/<name>
+//   PLANIA_INSTALL_URL=<address> pnpm plania:install   the same, from the one-line installer (never printed)
 //   pnpm plania:install --port <n>            the port Plania answers on (3737)
 //   pnpm plania:install --no-start            do not start Plania at the end
 //   pnpm plania:install --no-open             do not open the browser at the end
@@ -51,7 +52,10 @@ const log = (line: string) => console.log(line);
 
 // The URL: --url, else the one already in .env (a re-run), else the default; --database renames it.
 const existing = existsSync(envPath) ? parseEnv(readFileSync(envPath, "utf8")).DATABASE_URL : undefined;
-let url = values.url ?? (existing || DEFAULT_URL);
+// PLA-I2-4 (from zero): a Postgres the one-line installer just installed comes in PLANIA_INSTALL_URL, not --url, so its
+// password is never echoed (pnpm prints a script's command line) nor seen in the process list. --url still wins.
+const handed = process.env.PLANIA_INSTALL_URL?.trim() || undefined;
+let url = values.url ?? handed ?? (existing || DEFAULT_URL);
 if (values.database) url = withDatabase(url, values.database);
 
 // B3: an address that fails on credentials gets the user and password asked here, and the one that works is used.
@@ -87,7 +91,7 @@ const port = Number(values.port ?? process.env.PORT ?? 3737);
 try {
   const r = await install({
     url,
-    named: Boolean(values.database || values.url),
+    named: Boolean(values.database || values.url || handed),
     envPath,
     examplePath,
     machineCheck,

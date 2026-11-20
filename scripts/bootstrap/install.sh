@@ -216,7 +216,7 @@ if [ "$need_git" = 1 ]; then
 fi
 
 # Postgres: installed and started here, with a role `plania` that may create databases and a generated password. The
-# address goes to pnpm plania:install (--url), which keeps it in .env only; it is never printed.
+# address goes to pnpm plania:install in PLANIA_INSTALL_URL, which keeps it in .env only; it is never printed.
 pg_url=""
 if [ "$need_pg" = 1 ]; then
   say "Instalando Postgres..."
@@ -332,8 +332,9 @@ else
 fi
 
 # 6. Dependencies from the lockfile, then the install command (database, .env, migrations, the service). The address
-# of a Postgres installed here goes first, so one given after -- still wins.
-[ -z "$pg_url" ] || set -- --url "$pg_url" "$@"
+# of a Postgres installed here goes in PLANIA_INSTALL_URL; a --url given after -- still wins.
+# In the environment, not on the command line: pnpm prints a script's command line.
+if [ -n "$pg_url" ]; then PLANIA_INSTALL_URL="$pg_url"; export PLANIA_INSTALL_URL; fi
 say "Instalando lo que Plania necesita..."
 # shellcheck disable=SC2086
 $pnpm_cmd install --prod --frozen-lockfile || fail "pnpm install falló. Corre pnpm help:report en $dir y manda el informe."

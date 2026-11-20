@@ -88,8 +88,9 @@ In order:
    After each install the script puts the new folders on its own PATH (the saved system and user PATH and the
    install folders on Windows, `brew shellenv` and the keg's `bin` on macOS), so the next step finds `node`,
    `psql` and `pg_dump`. A Postgres installed here gets a generated password: on macOS and Linux a role `plania`
-   that may create databases, on Windows the superuser `postgres`. Its address goes to `pnpm plania:install` as
-   `--url` (ahead of anything after `--`, which still wins) and ends up only in `.env`; it is never printed. When a
+   that may create databases, on Windows the superuser `postgres`. Its address goes to `pnpm plania:install` in
+   `PLANIA_INSTALL_URL`, not on the command line (pnpm echoes that), and ends up only in `.env`; it is never printed.
+   A `--url` after `--` still wins. When a
    Postgres already answers, nothing is installed for it, and the install command asks for a user and password only
    when it cannot connect on its own.
 3. Downloads the package and its `.sha256`, and refuses a package that does not match. `--from <file>` (`-From`)

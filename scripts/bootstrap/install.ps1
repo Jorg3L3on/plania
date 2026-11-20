@@ -243,14 +243,15 @@ function Install-Plania {
     $pnpmPre = @($pnpm | Select-Object -Skip 1)
 
     # 6. Dependencies from the lockfile, then the install command (database, .env, migrations, the service). The
-    # address of a Postgres installed here goes first, so one given in -InstallArgs still wins.
+    # address of a Postgres installed here goes in PLANIA_INSTALL_URL; a --url in -InstallArgs still wins.
     Say 'Instalando lo que Plania necesita...'
     & $pnpmExe @pnpmPre install --prod --frozen-lockfile
     if ($LASTEXITCODE -ne 0) { Stop-Install "pnpm install fall{o}. Corre pnpm help:report en $target y manda el informe." }
     $rest = @('plania:install')
     if (-not $NoService) { $rest += '--service' }
     if ($NoOpen) { $rest += '--no-open' }
-    if ($pgUrl) { $rest += @('--url', $pgUrl) }
+    # In the environment, not on the command line: pnpm prints a script's command line.
+    if ($pgUrl) { $env:PLANIA_INSTALL_URL = $pgUrl }
     & $pnpmExe @pnpmPre @rest @InstallArgs
     if ($LASTEXITCODE -ne 0) { Stop-Install 'La instalaci{o}n no termin{o}: arriba dice qu{e} falta.' }
   } finally {
