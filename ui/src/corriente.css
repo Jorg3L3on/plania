@@ -2119,3 +2119,7 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
 
+
+/* PLA-122: a surface with its own icon, and the original shown faded where the repo has nothing yet (PLA-120). */
+.mk-own { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--cor-violet-2) 22%, transparent); color: var(--cor-text); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.mk-pre { opacity: 0.55; filter: saturate(0.85); }

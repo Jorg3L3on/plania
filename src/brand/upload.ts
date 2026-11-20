@@ -87,7 +87,7 @@ function upDir(slug: string): string {
 }
 const UP = /^[0-9a-f]{64}\.(svg|png|jpeg|webp)$/;
 
-function readUp(slug: string, up: string): Buffer {
+export function readUp(slug: string, up: string): Buffer {
   const p = path.join(upDir(slug), up);
   if (!UP.test(up) || !existsSync(p)) throw fail("upNotFound", 404);
   return readFileSync(p);
@@ -186,8 +186,8 @@ export async function testTile(png: Buffer, bg: string | "corners" | null): Prom
   return pixelTests({ width: SIZE, height: SIZE, data: new Uint8Array(t) }, b ? { width: SIZE, height: SIZE, data: new Uint8Array(b) } : null);
 }
 
-const kindOf = (up: string) => up.split(".").pop() as UploadKind;
-const checkAdjust = (scale: number, bg: string | null) => {
+export const kindOf = (up: string) => up.split(".").pop() as UploadKind;
+export const checkAdjust = (scale: number, bg: string | null) => {
   if (!Number.isFinite(scale) || scale < 40 || scale > 100) throw fail("adjust", 400);
   if (bg !== null && !HEX.test(bg)) throw fail("adjust", 400);
 };

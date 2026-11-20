@@ -16,6 +16,8 @@ export type MarcaRead = {
   repo: "ok" | "none" | "no_code";
   /** PLA-120: the folder Plania reads the repo from. */
   folder?: string;
+  /** PLA-122: the surfaces with their own icon. */
+  surfaces?: Partial<Record<Surface, { file: string; bg: string | null; scale: number }>>;
   branch: string;
   commit: string | null;
   framework: "next-app" | "vite" | "static" | null;
@@ -42,7 +44,11 @@ export const markUrl = (slug: string, id: string, file: string): string => `/api
 export const passesAll = (t: PixelTests): boolean => t.small.ok && t.circle.ok && t.contrast.ok;
 /** Up to six slots around the ring (x, y as a share of the radius), clockwise from the top. */
 export const RING: [number, number][] = [[0, -1], [0.87, -0.5], [0.87, 0.5], [0, 1], [-0.87, 0.5], [-0.87, -0.5]];
-export const zipUrl = (slug: string, mode: "faltan" | "todo" = "todo"): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/zip?mode=${mode}`;
+export const zipUrl = (slug: string, mode: "faltan" | "todo" = "todo", surface?: Surface | null): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/zip?mode=${mode}${surface ? `&surface=${surface}` : ""}`;
+// PLA-122: a surface's own icon. The browser card is nav, iPhone ios, Android and.
+export type Surface = "iphone" | "android" | "navegador";
+export const SURFACE_OF: Partial<Record<Face, Surface>> = { nav: "navegador", ios: "iphone", and: "android" };
+export const surfaceUrl = (slug: string, s: Surface, file: string): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}?v=${file.slice(0, 12)}`;
 
 // PLA-I66-3: an upload as the server staged it, the pixel tests, a version.
 export type UpCheck = Coded & { ok: boolean | "warn" };
@@ -305,6 +311,19 @@ export const MARCA_WORDS = defineWords({
     goBack: "Volver a esta",
     active: "activa",
     when: (iso: string) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    solo: {
+      btn: "Solo este",
+      own: "Propio",
+      back: "Volver al original",
+      name: { navegador: "el navegador", iphone: "iPhone", android: "Android" } as Record<Surface, string>,
+      title: (s: string, name: string) => `El ícono de ${s} para ${name}`,
+      lead: (s: string) => `Ajusta el tamaño y el fondo, o suelta otra imagen. Solo cambian los archivos de ${s}; los demás siguen con el original.`,
+      use: (s: string) => `Usar solo en ${s}`,
+      saved: (s: string) => `${s} ya tiene su propio ícono. Ponlo en el repo para que llegue a la app.`,
+      reset: (s: string) => `${s} vuelve a usar el original.`,
+      sheet: (s: string) => `Solo ${s}`,
+      preview: "así se verá",
+    },
     up: {
       title: (name: string) => `Subir un logo para ${name}`,
       lead: "SVG o PNG de 1024 px o más. Plania lo revisa al momento y te muestra cómo queda en cada lugar.",
@@ -560,6 +579,19 @@ export const MARCA_WORDS = defineWords({
     goBack: "Go back to this one",
     active: "active",
     when: (iso: string) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    solo: {
+      btn: "Only this one",
+      own: "Own",
+      back: "Back to the original",
+      name: { navegador: "the browser", iphone: "iPhone", android: "Android" } as Record<Surface, string>,
+      title: (s: string, name: string) => `The ${s} icon for ${name}`,
+      lead: (s: string) => `Change the size and background, or drop another picture. Only ${s}'s files change; the rest keep the original.`,
+      use: (s: string) => `Use only on ${s}`,
+      saved: (s: string) => `${s} has its own icon now. Put it in the repo so the app gets it.`,
+      reset: (s: string) => `${s} uses the original again.`,
+      sheet: (s: string) => `${s} only`,
+      preview: "how it will look",
+    },
     up: {
       title: (name: string) => `Upload a logo for ${name}`,
       lead: "SVG or a PNG of 1024 px or more. Plania checks it right away and shows how it looks everywhere.",

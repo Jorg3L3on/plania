@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, counts, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
@@ -33,6 +33,9 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const [uploading, setUploading] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [drawing, setDrawing] = useState(false);
+  // PLA-122: «Solo este» on a card, and the sheet for that surface only.
+  const [soloFor, setSoloFor] = useState<Surface | null>(null);
+  const [sheetSurface, setSheetSurface] = useState<Surface | null>(null);
   const took = (next: MarcaRead) => {
     client.setQueryData(["marca", p.slug], next);
     void client.invalidateQueries({ queryKey: ["logos"] });
@@ -51,6 +54,23 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   if (!r) return <div className="cor-skel" style={{ flex: 1 }} role="status" aria-busy="true" aria-label={w.loading} />;
   if (drawing) return <Generate p={p} w={w} onBack={() => setDrawing(false)} onUsed={(next) => { took(next); setDrawing(false); toast(w.gen.used); }} />;
   if (uploading) return <Upload p={p} r={r} w={w} onBack={() => setUploading(false)} onUsed={(next) => { took(next); setUploading(false); toast(w.up.saved); }} />;
+  if (soloFor)
+    return (
+      <Upload
+        p={p}
+        r={r}
+        w={w}
+        surface={soloFor}
+        onBack={() => setSoloFor(null)}
+        onUsed={(next) => {
+          took(next);
+          toast(w.solo.saved(w.solo.name[soloFor]));
+          setSheetSurface(soloFor);
+          setSheet(true);
+          setSoloFor(null);
+        }}
+      />
+    );
   const c = counts(r.rows);
   const lit = hover ?? sel;
   const actions: CoreActions = {
@@ -58,6 +78,8 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
     artist: () => setDrawing(true),
     repo: () => { setSel(null); setPanel("repo"); },
     versions: () => { setSel(null); setPanel("versiones"); },
+    solo: (s) => setSoloFor(s),
+    reset: async (s) => { took(await api.marcaSurfaceReset(p.slug, s)); toast(w.solo.reset(w.solo.name[s])); },
     release: async () => took(await api.marcaRelease(p.slug)),
   };
   return (
@@ -140,10 +162,12 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         <Sheet
           p={p}
           w={w}
-          onClose={() => setSheet(false)}
+          surface={sheetSurface}
+          onClose={() => { setSheet(false); setSheetSurface(null); }}
           onSent={(key, next) => {
             took(next);
             setSheet(false);
+            setSheetSurface(null);
             toast(w.sheet.sent(key));
           }}
         />
@@ -166,7 +190,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   );
 }
 
-type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void> };
+type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void>; solo: (s: Surface) => void; reset: (s: Surface) => Promise<void> };
 
 function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void; actions: CoreActions }) {
   const scene = useRef<HTMLDivElement>(null);
@@ -245,9 +269,29 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
     return x && x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path) : null;
   };
   const orig = r.logo ? logoUrl(r.slug, r.logo) : null;
-  const fav = src("ico") ?? src("svg");
-  const apple = has(r.rows, "apple") ? src("apple") : null;
-  const masked = has(r.rows, "mask") ? src("mask") : has(r.rows, "a512") ? src("a512") : null;
+  // PLA-122: a surface's own icon shows on its card; PLA-120 (guided test): with nothing in the repo yet, the card
+  // shows the original faded («así se verá») instead of a blank.
+  const own = (s: Surface) => { const o = r.surfaces?.[s]; return o ? surfaceUrl(r.slug, s, o.file) : null; };
+  const fav = own("navegador") ?? src("ico") ?? src("svg");
+  const apple = own("iphone") ?? (has(r.rows, "apple") ? src("apple") : null);
+  const masked = own("android") ?? (has(r.rows, "mask") ? src("mask") : has(r.rows, "a512") ? src("a512") : null);
+  const pre = (alt: ReactNode) => (orig ? <img className="mk-pre" src={orig} alt="" title={w.solo.preview} /> : alt);
+  const solo = (f: Face) => {
+    const s = SURFACE_OF[f];
+    if (!s || !r.logo) return null;
+    return r.surfaces?.[s] ? (
+      <>
+        <span className="mk-own" data-own={s}>{w.solo.own}</span>
+        <button type="button" className="mk-mini" onClick={() => void actions.reset(s)} data-control={`marca-volver-${s}`}>
+          {w.solo.back}
+        </button>
+      </>
+    ) : (
+      <button type="button" className="mk-mini" onClick={() => actions.solo(s)} data-control={`marca-solo-${s}`}>
+        {w.solo.btn}
+      </button>
+    );
+  };
   const mono = has(r.rows, "mono") ? src("mono") : null;
   const theme = String(row("man")?.checks.find((x) => x.k === "man_colors")?.v?.theme ?? "#0e0e12");
   const ogRow = row("og");
@@ -271,7 +315,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
           <>
             <div className={`mk-tabs ${dark ? "dark" : "light"}`}>
               <span className="mk-tab on">
-                {fav ? <img src={fav} width={16} height={16} alt="" /> : <i className="mk-tab-blank" />}
+                {fav ? <img src={fav} width={16} height={16} alt="" /> : orig ? <img className="mk-pre" src={orig} width={16} height={16} alt="" title={w.solo.preview} /> : <i className="mk-tab-blank" />}
                 <span className="cor-ellipsis">{title}</span>
               </span>
               <span className="mk-tab">{w.newTab}</span>
@@ -285,6 +329,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
             <button type="button" className="mk-mini" onClick={() => setDark((d) => !d)} aria-pressed={dark} data-control="marca-oscuro">
               {dark ? w.lighter : w.darker}
             </button>
+            {solo("nav")}
           </>,
         )}
         {face(
@@ -294,7 +339,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
               <span className="mk-app ph" />
               <span className="mk-app ph" />
               <span className="mk-app me">
-                {apple ? <img src={apple} alt="" /> : <span className="mk-shot">{w.noIcon}</span>}
+                {apple ? <img src={apple} alt="" /> : pre(<span className="mk-shot">{w.noIcon}</span>)}
                 <em>{title}</em>
               </span>
             </div>
@@ -302,6 +347,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
               {r.splash ? <img src={fileUrl(r.slug, r.splash)} alt="" /> : <span>{w.splashNone}</span>}
             </div>
           </div>,
+          solo("ios"),
         )}
         {face(
           "and",
@@ -309,7 +355,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
             <div className="mk-home">
               <span className="mk-app ph r" />
               <span className={`mk-app me shape-${shape}`}>
-                {!masked ? <span className="mk-shot">{w.noIcon}</span> : themed && mono ? <span className="mk-themed"><img src={mono} alt="" /></span> : <img src={masked} alt="" />}
+                {!masked ? pre(<span className="mk-shot">{w.noIcon}</span>) : themed && mono ? <span className="mk-themed"><img src={mono} alt="" /></span> : <img src={masked} alt="" />}
                 <em>{title}</em>
               </span>
               <span className="mk-app ph r" />
@@ -324,6 +370,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
             <button type="button" className="mk-mini" aria-pressed={themed} onClick={() => setThemed((t) => !t)} data-control="marca-tematico">
               {w.themed}
             </button>
+            {solo("and")}
           </>,
         )}
       </div>
@@ -522,7 +569,7 @@ function VersionsPanel({ r, w, onBack, onGoBack }: { r: MarcaRead; w: MarcaWords
 }
 
 /** PLA-I66-3: the upload view (design frames C1, C2): drop or pick, fit and pick a background, see the six faces, use it. */
-function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string }; r: MarcaRead; w: MarcaWords; onBack: () => void; onUsed: (next: MarcaRead) => void }) {
+function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title: string }; r: MarcaRead; w: MarcaWords; onBack: () => void; onUsed: (next: MarcaRead) => void; surface?: Surface }) {
   const [staged, setStaged] = useState<Staged | null>(null);
   const [scale, setScale] = useState(100);
   const [bg, setBg] = useState<string | null>(null);
@@ -532,6 +579,25 @@ function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string 
   const [over, setOver] = useState(false);
   const [ov, setOv] = useState({ circle: false, iphone: false });
   const input = useRef<HTMLInputElement>(null);
+  // PLA-122: «Solo este» starts from the current original (or the surface's own picture) with its size and background.
+  useEffect(() => {
+    if (!surface) return;
+    let live = true;
+    setBusy(true);
+    api.marcaSurfaceStart(p.slug, surface).then(
+      (s) => {
+        if (!live) return;
+        const own = r.surfaces?.[surface];
+        const start = startAdjust(s);
+        setStaged(s);
+        setScale(own?.scale ?? start.scale);
+        setBg(own ? own.bg : (start.bg ?? r.logo?.colors[0] ?? null));
+        setBusy(false);
+      },
+      (e) => { if (live) { setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)); setBusy(false); } },
+    );
+    return () => { live = false; };
+  }, [p.slug, surface]); // eslint-disable-line react-hooks/exhaustive-deps
   const take = async (file: File) => {
     setError(null);
     setBusy(true);
@@ -560,7 +626,7 @@ function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string 
     if (!staged) return;
     setBusy(true);
     try {
-      onUsed(await api.marcaUse(p.slug, { up: staged.up, name: staged.name, scale, bg }));
+      onUsed(surface ? await api.marcaSurfaceSet(p.slug, surface, { up: staged.up, name: staged.name, scale, bg }) : await api.marcaUse(p.slug, { up: staged.up, name: staged.name, scale, bg }));
     } catch (e) {
       setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
     } finally {
@@ -579,15 +645,15 @@ function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string 
     <div className="mk mk-up" data-marca-subir={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{w.up.title(p.title)}</h2>
-          <p className="cor-text">{w.up.lead}</p>
+          <h2 className="cor-door-h">{surface ? w.solo.title(w.solo.name[surface], p.title) : w.up.title(p.title)}</h2>
+          <p className="cor-text">{surface ? w.solo.lead(w.solo.name[surface]) : w.up.lead}</p>
         </div>
         <div className="mk-head-r">
           <button type="button" className="cor-btn secondary small" onClick={onBack} data-control="marca-subir-volver">
             {w.up.back}
           </button>
           <button type="button" className="cor-btn primary" disabled={!staged || !!staged.block || busy || !preview} onClick={() => void use()} data-control="marca-usar">
-            {w.up.use}
+            {surface ? w.solo.use(w.solo.name[surface]) : w.up.use}
           </button>
         </div>
       </header>
@@ -761,9 +827,9 @@ export function MarcaCount({ slug }: { slug: string }) {
 }
 
 /** PLA-I66-4: «Ponerlos en el repo» (design frame D1): what changes, file by file, and how it arrives. */
-function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; w: MarcaWords; onClose: () => void; onSent: (key: string, next: MarcaRead) => void }) {
+function Sheet({ p, w, onClose, onSent, surface }: { p: { slug: string; title: string }; w: MarcaWords; onClose: () => void; onSent: (key: string, next: MarcaRead) => void; surface?: Surface | null }) {
   const [mode, setMode] = useState<"faltan" | "todo">("faltan");
-  const plan = useQuery({ queryKey: ["marca-plan", p.slug, mode], queryFn: () => api.marcaPlan(p.slug, mode) });
+  const plan = useQuery({ queryKey: ["marca-plan", p.slug, mode, surface ?? null], queryFn: () => api.marcaPlan(p.slug, mode, surface) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLButtonElement>(null);
@@ -777,7 +843,7 @@ function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; 
     setBusy(true);
     setError(null);
     try {
-      const r = await api.marcaRequest(p.slug, mode);
+      const r = await api.marcaRequest(p.slug, mode, surface);
       onSent(r.key, r.read);
     } catch (e) {
       setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
@@ -802,13 +868,19 @@ function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; 
             <div className="mk-sh-lbl">
               {w.sheet.changes} {pl && <span>{w.sheet.framework[pl.framework]}</span>}
             </div>
-            <div className="mk-opts" role="radiogroup" aria-label={w.sheet.changes}>
-              {(["faltan", "todo"] as const).map((m) => (
-                <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} data-control={`marca-modo-${m}`}>
-                  {w.sheet[m]}
-                </button>
-              ))}
-            </div>
+            {surface ? (
+              <div className="mk-opts" data-solo={surface}>
+                <button type="button" role="radio" aria-checked="true">{w.solo.sheet(w.solo.name[surface])}</button>
+              </div>
+            ) : (
+              <div className="mk-opts" role="radiogroup" aria-label={w.sheet.changes}>
+                {(["faltan", "todo"] as const).map((m) => (
+                  <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} data-control={`marca-modo-${m}`}>
+                    {w.sheet[m]}
+                  </button>
+                ))}
+              </div>
+            )}
             {!pl ? (
               <p className="cor-text" role="status">{w.sheet.loading}</p>
             ) : (
@@ -851,7 +923,7 @@ function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; 
         {error && <p className="mk-block" role="alert">{error}</p>}
         <footer className="mk-sh-foot">
           <span className="mk-sh-note">{pl ? w.sheet.count(n) : ""}</span>
-          <a className="cor-btn secondary" href={zipUrl(p.slug, mode)} download data-control="marca-zip-hoja">
+          <a className="cor-btn secondary" href={zipUrl(p.slug, mode, surface)} download data-control="marca-zip-hoja">
             {w.sheet.zip}
           </a>
           <button type="button" className="cor-btn secondary" onClick={onClose}>
