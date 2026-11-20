@@ -138,3 +138,19 @@ export function carriedLine(d: OficioDelivery, skills: OficioSkill[], language: 
   const list = used.length <= 1 ? (used[0] ?? "") : `${used.slice(0, -1).join(", ")} ${language === "es" ? "y" : "and"} ${used[used.length - 1]}`;
   return `${w.carried(d.carried.length)} ${used.length ? w.used(list) : w.usedNone}`;
 }
+
+/** Which dots carry their date: every one when there is room (else every other one), the newest always (the one
+ *  before it gives way), and never the same date twice in a row (seen live: twelve deliveries on one day read
+ *  «18 nov» six times). */
+export function dayMarks(labels: string[], every: number): boolean[] {
+  const n = labels.length;
+  const out: boolean[] = [];
+  let last: string | null = null;
+  for (let i = 0; i < n; i++) {
+    const room = i === n - 1 || (i % every === 0 && !(every > 1 && i === n - 2));
+    const show = room && (labels[i] !== last || i === n - 1) && !(i < n - 1 && labels[i] === labels[n - 1]);
+    if (show) last = labels[i]!;
+    out.push(show);
+  }
+  return out;
+}

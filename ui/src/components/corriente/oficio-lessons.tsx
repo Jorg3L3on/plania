@@ -57,7 +57,8 @@ export const ProposalCard = ({ o, seat, lesson, onClose }: { o: Oficio; seat: st
           </Btn>
         )}
       </div>
-      <div className="ofi-shelf-scroll ofi-skill-body">
+      {/* Scrolls when the text is long, so it takes keyboard focus too. */}
+      <div className="ofi-shelf-scroll ofi-skill-body" tabIndex={0} aria-label={w.proposalHead}>
         {editing ? (
           <>
             <label className="ofi-field" htmlFor={`ofi-lesson-${lesson.id}`}>
@@ -85,6 +86,10 @@ export const ProposalCard = ({ o, seat, lesson, onClose }: { o: Oficio; seat: st
         <p className="cor-cap" role="status">
           {busy ? w.deciding : err ? <span className="cor-state bad">{err}</span> : ""}
         </p>
+      </div>
+      {/* The decision stays in view however long the lesson and the owner's words are (seen live: a long correction
+          pushed Aprobar under the card). Only the text above scrolls. */}
+      <div className="ofi-proposal-foot">
         {conflictOf(decide.error) ? (
           <div className="ofi-confirm" role="group" aria-label={w.conflictAsk} data-conflict>
             <p className="cor-text">{w.conflictAsk}</p>
