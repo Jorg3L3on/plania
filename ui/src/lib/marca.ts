@@ -183,6 +183,7 @@ export const MARCA_WORDS = defineWords({
     oldKeeps: (list: string) => `${list} sigue con su propio ícono.`,
     doorCount: (n: number) => (n === 1 ? "1 FALTA" : `${n} FALTAN`),
     doorComplete: "COMPLETA",
+    doorOld: (n: number) => (n === 1 ? "1 POR CAMBIAR" : `${n} POR CAMBIAR`),
     faceCount: (ok: number, n: number) => `${ok} de ${n}`,
     files: "Archivos",
     checked: (time: string, branch: string) => `revisado ${time} · rama ${branch}`,
@@ -458,6 +459,7 @@ export const MARCA_WORDS = defineWords({
     oldKeeps: (list: string) => `${list} keeps its own icon.`,
     doorCount: (n: number) => `${n} MISSING`,
     doorComplete: "COMPLETE",
+    doorOld: (n: number) => `${n} TO UPDATE`,
     faceCount: (ok: number, n: number) => `${ok} of ${n}`,
     files: "Files",
     checked: (time: string, branch: string) => `checked ${time} · branch ${branch}`,
@@ -694,6 +696,8 @@ export function faceState(rows: MarcaRow[], face: Face): { worst: RowState; ok: 
 /** The door's count: what is missing or wrong, or complete. */
 export function doorCount(rows: MarcaRow[], w: MarcaWords = marcaWords()): string {
   const c = counts(rows);
+  // PLA-128: only files from the old logo: they are there, they need changing, not «faltan».
+  if (c.missing + c.wrong === 0 && c.old > 0) return w.doorOld(c.old);
   const bad = c.missing + c.wrong + c.old;
   return bad ? w.doorCount(bad) : w.doorComplete;
 }

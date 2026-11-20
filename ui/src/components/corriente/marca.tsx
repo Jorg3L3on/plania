@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
@@ -321,7 +321,8 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
   const mono = has(r.rows, "mono") ? src("mono") : null;
   const theme = String(row("man")?.checks.find((x) => x.k === "man_colors")?.v?.theme ?? "#0e0e12");
   const ogRow = row("og");
-  const og = ogRow?.state === "ok" && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path, r.commit) : null;
+  // PLA-128: an image from the old logo is still the one the link shows today.
+  const og = (ogRow?.state === "ok" || ogRow?.state === "viejo") && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path, r.commit) : null;
   const ogCode = ogRow?.state === "ok" && !og;
   const installIcon = src("a192") ?? src("a512");
   return (
@@ -850,7 +851,7 @@ export function MarcaCount({ slug }: { slug: string }) {
   if (!q.data) return null;
   const c = counts(q.data.rows);
   const bad = c.missing + c.wrong + c.old;
-  return <span className={`n${bad ? "" : " ok"}`}>{bad ? marcaWords().doorCount(bad) : marcaWords().doorComplete}</span>;
+  return <span className={`n${bad ? "" : " ok"}`}>{doorCount(q.data.rows)}</span>;
 }
 
 /** PLA-I66-4: «Ponerlos en el repo» (design frame D1): what changes, file by file, and how it arrives. */
