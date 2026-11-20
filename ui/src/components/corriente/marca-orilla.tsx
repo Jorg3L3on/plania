@@ -3,15 +3,15 @@
 // file the repo has. A light line from the original drops to each surface: flowing when it follows the logo, with a
 // knob when it is a variant, cut when it has its own picture. A surface opens its drawer over the water.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
-  FACE_FILES, SURFACE_OF, fileUrl, madeUrl, rowWhy, sentence, shoreState, tieOf,
+  FACE_FILES, SURFACE_OF, fileUrl, madeUrl, markUrl, rowWhy, sentence, shoreState, tieOf,
   type Face, type MarcaRead, type MarcaRow, type MarcaWords, type Surface, type Tie,
 } from "@/lib/marca";
 
-export const SHORE: Face[] = ["nav", "ios", "and", "pwa", "share", "cia"];
-type ShoreFace = Exclude<Face, "cia">;
+export const SHORE: Face[] = ["nav", "ios", "and", "pwa", "share", "more"];
+type ShoreFace = Exclude<Face, "cia" | "more">;
 
 /** The stamp that busts a made image: the logo version, and every surface's recipe or picture. */
 const stampOf = (r: MarcaRead) => `${r.logo?.v ?? 0}-${Object.entries(r.surfaces ?? {}).map(([s, v]) => `${s}:${(v as { at?: string }).at ?? ""}:${v?.bg ?? ""}:${v?.scale ?? ""}`).join(",")}-${r.logo?.theme ?? ""}`;
@@ -95,7 +95,7 @@ export function Orilla({ r, w, title, sel, core, onPick }: { r: MarcaRead; w: Ma
       const lr = lab.getBoundingClientRect();
       const f = lab.dataset.face as Face;
       const s = SURFACE_OF[f];
-      return { f, x: lr.left + Math.min(lr.width / 2, 40) - b.left, y1: Y, y2: lr.top - b.top - 1, tie: (f === "cia" ? "more" : tieOf(r, s)) as Tie | "more" };
+      return { f, x: lr.left + Math.min(lr.width / 2, 40) - b.left, y1: Y, y2: lr.top - b.top - 1, tie: (f === "more" ? "more" : tieOf(r, s)) as Tie | "more" };
     });
     const last = drops.length ? drops[drops.length - 1]!.x : ox;
     setRail({ main: `M${ox} ${orig.top - b.top} V${Y + 10} Q${ox} ${Y} ${ox + 10} ${Y} H${last}`, drops, box: [b.width, b.height] });
@@ -126,20 +126,31 @@ export function Orilla({ r, w, title, sel, core, onPick }: { r: MarcaRead; w: Ma
       )}
       <div className="mk-c mk-srcc">{core}</div>
       {SHORE.map((f, i) => {
-        if (f === "cia")
+        if (f === "more") {
+          const on = (Object.keys(w.extras.items) as (keyof typeof w.extras.items)[]).filter((k) => r.extras?.[k]);
           return (
             <div className="mk-c" key={f} data-col="more">
-              <button type="button" className="mk-lab" data-face="cia" onClick={() => onPick("cia")}>
+              <button type="button" className="mk-lab" data-face="more" onClick={() => onPick("more")}>
                 <span>{w.orilla.more}</span>
+                <span className="mk-tie more">{on.length + (r.native ? 1 : 0)}</span>
               </button>
-              <button type="button" className="mk-dev" data-face="cia" aria-pressed={sel === "cia"} onClick={() => onPick("cia")} aria-label={w.orilla.more}>
-                <div className="dv dv-more"><span className="plus">+</span><span>{w.orilla.moreHint}</span></div>
+              <button type="button" className="mk-dev" data-face="more" aria-pressed={sel === "more"} onClick={() => onPick("more")} aria-label={w.orilla.more}>
+                <div className="dv dv-more">
+                  <span className="plus">+</span>
+                  {on.length || r.native ? (
+                    <span className="chips">{on.map((k) => <i key={k}>{w.extras.items[k][0]}</i>)}{r.native && <i>{w.extras.native[0]}</i>}</span>
+                  ) : (
+                    <span>{w.orilla.moreHint}</span>
+                  )}
+                </div>
               </button>
               <span className="mk-hz none"><b>+</b></span>
               <div className="mk-refl none" aria-hidden />
               <span className="mk-cap">{w.orilla.alsoCia}</span>
             </div>
           );
+        }
+        if (f === "cia") return null;
         const s = SURFACE_OF[f];
         const tie = tieOf(r, s);
         const st = shoreState(r, f);
@@ -183,6 +194,8 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
   const [scale, setScale] = useState<number>(entry?.mode === "variante" ? entry.scale : 70);
   const [busy, setBusy] = useState(false);
   const [cmp, setCmp] = useState(false);
+  // «Imagen propia» opens its choices here (upload, or Artist); the surface changes once a picture is chosen.
+  const [wantOwn, setWantOwn] = useState(false);
   const first = useRef<HTMLButtonElement>(null);
   const client = useQueryClient();
   // The switch moves at once; the read that comes back from the server confirms it.
@@ -211,25 +224,27 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
     }, 350);
   };
   const setTie = async (t: Tie) => {
-    if (!s || t === tie) return;
+    if (!s) return;
+    if (t === "propia") { setWantOwn(true); return; }
+    setWantOwn(false);
+    if (t === tie) return;
     setBusy(true);
     try {
       if (t === "sigue") { optimistic("sigue"); took(await api.marcaSurfaceReset(r.slug, s)); }
       else if (t === "variante") { optimistic("variante"); took(await api.marcaVariant(r.slug, s, { bg, scale })); }
-      else onOwn(s);
     } finally {
       setBusy(false);
     }
   };
   const rows = r.rows.filter((x) => x.face === face || (face === "pwa" && x.id === "man"));
   const stamp = stampOf(r);
-  const files = face === "cia" ? null : FACE_FILES[face as ShoreFace];
+  const files = face === "cia" || face === "more" ? null : FACE_FILES[face as ShoreFace];
   const made = files && r.logo ? madeUrl(r.slug, files.made, stamp) : null;
   const repo = files ? (() => { for (const id of files.rows) { const x = r.rows.find((y) => y.id === id); if (x?.path && x.state !== "falta" && /\.(png|svg|ico)$/.test(x.path)) return fileUrl(r.slug, x.path, r.commit); } return null; })() : null;
-  const st = face === "cia" ? null : shoreState(r, face);
+  const st = face === "cia" || face === "more" ? null : shoreState(r, face);
   const carried = r.requests?.filter((q) => rows.some((x) => q.rows.includes(x.id))) ?? [];
   const steps = [true, !!r.pedido || st?.st === "aldia", st?.st === "aldia", st?.st === "aldia", false];
-  const note = w.cajon[face === "cia" ? "more" : face] as string;
+  const note = w.cajon[face === "cia" || face === "more" ? "more" : face] as string;
   const look = (shape: string, cls: string, src: string | null) => (
     <div key={shape}>
       <span className={`tile ${cls}`}><Pic src={src} /></span>
@@ -237,7 +252,7 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
     </div>
   );
   return (
-    <section className="mk-drawer" aria-label={w.face[face].name} data-cajon={face}>
+    <section className="mk-drawer" role="dialog" aria-modal="false" aria-label={w.face[face].name} data-cajon={face}>
       <header className="mk-dh">
         <div>
           <h3>{w.face[face].name} {s && <span className={`mk-tie ${tie}`}>{w.tie[tie]}</span>}</h3>
@@ -247,18 +262,18 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
         <button ref={first} type="button" className="mk-x" onClick={onClose} aria-label={w.cajon.close}>×</button>
       </header>
       <div className="mk-dcols">
-        <div className="mk-dcol">
+        <div className="mk-dcol" tabIndex={0}>
           {s ? (
             <>
               <div className="mk-dl">{w.cajon.from}</div>
               <div className="mk-ways" role="radiogroup" aria-label={w.cajon.from}>
                 {(["sigue", "variante", "propia"] as Tie[]).map((t) => (
-                  <button key={t} type="button" role="radio" aria-checked={tie === t} className={`mk-tway ${t}`} disabled={busy} onClick={() => void setTie(t)} data-control={`marca-forma-${t}`}>
+                  <button key={t} type="button" role="radio" aria-checked={wantOwn ? t === "propia" : tie === t} className={`mk-tway ${t}`} disabled={busy} onClick={() => void setTie(t)} data-control={`marca-forma-${t}`}>
                     {w.tie[t]}
                   </button>
                 ))}
               </div>
-              <p className="mk-way-say">{w.tieSay[tie]}</p>
+              <p className="mk-way-say">{w.tieSay[wantOwn ? "propia" : tie]}{wantOwn && tie !== "propia" ? ` ${w.cajon.ownUntil}` : ""}</p>
               {entry?.knot && (
                 <div className="mk-knotbox" role="status">
                   <p>{w.knot.text}</p>
@@ -269,7 +284,7 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
                   </div>
                 </div>
               )}
-              {tie === "variante" && (
+              {tie === "variante" && !wantOwn && (
                 <div className="mk-recipe">
                   <div className="mk-recipe-row">
                     <span>{w.cajon.bg}</span>
@@ -288,14 +303,17 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
                   {busy && <span className="mk-saving" role="status">{w.cajon.saving}</span>}
                 </div>
               )}
-              {tie === "propia" && (
-                <button type="button" className="cor-btn secondary small" onClick={() => onOwn(s)} data-control="marca-propia-subir">{w.cajon.upload}</button>
+              {(tie === "propia" || wantOwn) && (
+                <>
+                  <button type="button" className="cor-btn secondary small" onClick={() => onOwn(s)} data-control="marca-propia-subir">{w.cajon.upload}</button>
+                  <ArtistFor r={r} w={w} s={s} took={took} />
+                </>
               )}
             </>
           ) : null}
           <p className="mk-dnote">{note}</p>
         </div>
-        <div className="mk-dcol">
+        <div className="mk-dcol" tabIndex={0}>
           <div className="mk-dl">
             {w.cajon.look}
             {files && <button type="button" className="mk-dlink" onClick={() => setCmp((c) => !c)} data-control="marca-comparar">{cmp ? w.cajon.back : w.cajon.compare}</button>}
@@ -316,7 +334,7 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
             <div className="mk-shapes wide"><div><span className={`tile ${face === "share" ? "og" : "ios"}`}><Pic src={made} /></span></div></div>
           ) : null}
         </div>
-        <div className="mk-dcol">
+        <div className="mk-dcol" tabIndex={0}>
           <div className="mk-dl">{w.cajon.files} · {rows.length}</div>
           <ul className="mk-dfiles">
             {rows.map((x) => {
@@ -331,7 +349,7 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
               );
             })}
           </ul>
-          {face !== "cia" && (
+          {face !== "cia" && face !== "more" && (
             <>
               <div className="mk-dl">{w.cajon.notSeen}</div>
               <ol className="mk-dsteps">
@@ -352,5 +370,110 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
         </div>
       </div>
     </section>
+  );
+}
+
+/** PLA-I69-3: «Más caras». A switch per extra surface (and the native app), what Plania found for each, their files. */
+export function MasCaras({ r, w, took, onNative, onAll, onClose }: { r: MarcaRead; w: MarcaWords; took: (next: MarcaRead) => void; onNative: (on: boolean) => Promise<void>; onAll: () => void; onClose: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const client = useQueryClient();
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+  const flip = async (k: string, on: boolean) => {
+    setBusy(k);
+    // The switch moves at once; the read that comes back confirms it.
+    client.setQueryData<MarcaRead>(["marca", r.slug], (old) => (old ? (k === "native" ? { ...old, native: on } : { ...old, extras: { ...(old.extras ?? {}), [k]: on } }) : old));
+    try {
+      if (k === "native") await onNative(on);
+      else took(await api.marcaExtras(r.slug, k, on));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const rows = r.rows.filter((x) => x.face === "more");
+  const items = [...(Object.keys(w.extras.items) as (keyof typeof w.extras.items)[]).map((k) => [k, w.extras.items[k], !!r.extras?.[k]] as const), ["native", w.extras.native, r.native] as const];
+  return (
+    <div className="mk-more" data-cajon="more">
+      <header className="mk-dh">
+        <div>
+          <h3>{w.extras.title}</h3>
+          <p>{w.extras.lead}</p>
+        </div>
+        <button type="button" className="mk-dlink" onClick={onAll} data-control="marca-todos-los-archivos">{w.extras.all}</button>
+      </header>
+      <div className="mk-more-grid" tabIndex={0}>
+        {items.map(([k, [name, say], on]) => {
+          const row = rows.find((x) => ({ avisos: "badge", atajos: "short", capturas: "shots", prueba: "test" } as Record<string, string>)[k] === x.id);
+          return (
+            <div key={k} className={`mk-more-row${on ? " on" : ""}`}>
+              <button type="button" role="switch" aria-checked={on} aria-label={name} className="mk-xsw" disabled={busy === k} onClick={() => void flip(k, !on)} data-control={`marca-extra-${k}`} />
+              <div>
+                <b>{name}</b>
+                <span>{say}</span>
+                {k === "capturas" && <em className="hint">{w.extras.stills(r.stills?.narrow ?? 0, r.stills?.wide ?? 0)}</em>}
+                {row && (
+                  <em className={row.state}>
+                    {row.state === "ok" ? w.state.ok : w.trip.why[rowWhy(r, row) ?? "falta"]}
+                    {row.note ? ` · ${sentence(w.note, row.note)}` : ""}
+                  </em>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <p className="mk-dnote">{w.extras.later}</p>
+      </div>
+    </div>
+  );
+}
+
+/** PLA-I69-3: Artist, for one surface only: three proposals with their tests; one becomes the surface's own picture. */
+export function ArtistFor({ r, w, s, took }: { r: MarcaRead; w: MarcaWords; s: Surface; took: (next: MarcaRead) => void }) {
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: ["marca-marks", r.slug],
+    queryFn: () => api.marcaMarks(r.slug),
+    refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 3000 : false),
+  });
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const req = q.data?.request;
+  const mine = req && req.hints.surface === s ? req : null;
+  const ask = async () => {
+    setBusy(true);
+    try {
+      const out = await api.marcaAskMarks(r.slug, { about: "", feel: [], avoid: [], colors: [], images: [], change: text.trim() || null, surface: s });
+      client.setQueryData(["marca-marks", r.slug], out);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const name = w.solo.name[s];
+  return (
+    <div className="mk-artist" data-artist={s}>
+      <div className="mk-dl">{w.artist.title(name)}</div>
+      <textarea className="mk-artist-in" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder={w.artist.placeholder} aria-label={w.artist.placeholder} />
+      <button type="button" className="cor-btn secondary small" disabled={busy || mine?.status === "drawing"} onClick={() => void ask()} data-control="marca-artist-cara">{w.artist.ask}</button>
+      {mine?.status === "drawing" && <p className="mk-saving" role="status">{w.artist.drawing}</p>}
+      {mine?.status === "failed" && <p className="mk-dnote" role="status">{w.artist.failed}</p>}
+      {mine?.status === "ready" && (
+        <div className="mk-amarks">
+          {mine.marks.slice(0, 3).map((m) => {
+            const n = [m.tests.small.ok, m.tests.circle.ok, m.tests.contrast.ok].filter(Boolean).length;
+            return (
+              <div key={m.id} className="mk-amark">
+                <img src={markUrl(r.slug, mine.id, m.tile)} alt={m.name} />
+                <b>{m.name}</b>
+                <em className={n === 3 ? "ok" : ""}>{w.artist.tests(n)}</em>
+                <button type="button" className="cor-btn secondary small" onClick={async () => took(await api.marcaUseMarkFor(r.slug, mine.id, m.id, s))} data-control="marca-usar-marca-cara">{w.artist.use(name)}</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

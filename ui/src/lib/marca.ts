@@ -4,10 +4,11 @@
 import { defineWords, words } from "./i18n.js";
 import type { LogoRef } from "./logos.js";
 
-export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
+export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia" | "more";
 // PLA-128: viejo, a sound file in the repo made from an older logo.
 export type RowState = "ok" | "falta" | "mal" | "viejo";
-export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
+export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app" | "badge" | "short" | "shots" | "test";
+export type Extra = "avisos" | "atajos" | "capturas" | "prueba";
 export type Coded = { k: string; v?: Record<string, string | number> };
 export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | null; optional?: boolean; size?: string; note?: Coded; checks: (Coded & { ok: boolean })[] };
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
@@ -28,6 +29,9 @@ export type MarcaRead = {
   splash: string | null;
   /** PLA-I66-6: the switch that adds the native app icons and the launch screens. */
   native: boolean;
+  /** PLA-I69-3: the extra surfaces switched on, and how many stills El Probador has (install screenshots). */
+  extras?: Partial<Record<Extra, boolean>>;
+  stills?: { narrow: number; wide: number };
   /** PLA-I66-4: the open ticket bringing icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
@@ -45,7 +49,7 @@ export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[];
 /** A row the open request carries and the repo does not have yet: it shows as on its way. */
 export const onItsWay = (r: Pick<MarcaRead, "pedido">, row: MarcaRow): boolean => !!r.pedido?.rows.includes(row.id) && row.state !== "ok";
 export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
-export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
+export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null; surface?: Surface | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
 export const markUrl = (slug: string, id: string, file: string): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${file}`;
 export const passesAll = (t: PixelTests): boolean => t.small.ok && t.circle.ok && t.contrast.ok;
 /** Up to six slots around the ring (x, y as a share of the radius), clockwise from the top. */
@@ -106,6 +110,7 @@ export const FACES: { id: Face; side: "l" | "r" }[] = [
   { id: "pwa", side: "r" },
   { id: "share", side: "r" },
   { id: "cia", side: "r" },
+  { id: "more", side: "r" },
 ];
 const ORDER: Face[] = FACES.map((f) => f.id);
 const RANK: Record<RowState, number> = { mal: 4, viejo: 3, falta: 2, ok: 1 };
@@ -124,6 +129,7 @@ export const MARCA_WORDS = defineWords({
       pwa: { name: "Instalar la app", what: "El aviso de instalar y la ventana propia de la app." },
       share: { name: "Compartir", what: "La vista previa cuando alguien pega el enlace en un chat." },
       cia: { name: "Compañía", what: "Donde tú la ves: los carriles, la tira, la cabecera y el brief." },
+      more: { name: "Más caras", what: "Lo que tu app puede usar además: cada una con su interruptor, y sus archivos se suman al pedido." },
     } as Record<Face, { name: string; what: string }>,
     row: {
       ico: { name: "favicon.ico", spec: "16 · 32 · 48 px" },
@@ -139,6 +145,10 @@ export const MARCA_WORDS = defineWords({
       pl: { name: "La copia de Plania", spec: "el original, en Plania" },
       ios_app: { name: "Ícono de la app de iOS", spec: "1024 × 1024, opaco" },
       and_app: { name: "Ícono adaptable de Android", spec: "frente, fondo y monocromo" },
+      badge: { name: "Insignia de avisos", spec: "96 × 96, silueta blanca" },
+      short: { name: "Ícono de atajos", spec: "192 × 192" },
+      shots: { name: "Capturas para instalar", spec: "angostas y anchas" },
+      test: { name: "Ícono de prueba", spec: "con esquina de color" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "en el repo", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
     plState: { ok: "en Plania", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
@@ -175,6 +185,11 @@ export const MARCA_WORDS = defineWords({
       adaptive_fg: "Capa de frente",
       adaptive_bg: "Capa de fondo",
       adaptive_mono: "Capa monocroma (íconos temáticos)",
+      badge_ok: "96 × 96 con fondo transparente",
+      short_none: "El manifest no tiene atajos",
+      short_icons: (v: Record<string, string | number>) => `${v.n} atajos sin ícono`,
+      shots_narrow: "Capturas angostas (teléfono)",
+      shots_wide: "Capturas anchas (computadora)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `Hay ${v.n} copias iguales (${v.list}). Funciona; basta una.`,
@@ -183,6 +198,7 @@ export const MARCA_WORDS = defineWords({
       og_code: "La dibuja el código: Plania la revisa, no la reemplaza.",
       pl_none: "Sin original, Compañía dibuja la inicial del proyecto.",
       web_only: "El repo no tiene app nativa todavía: Plania deja listos los archivos en assets/.",
+      short_none: "Sin atajos en el manifest: no hace falta ícono.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "en el repo", missing: (n: number): string => (n === 1 ? "falta" : "faltan"), wrong: "mal", old: "del logo anterior" },
     oldLogo: (n: number) => (n === 1 ? "Tu logo cambió: 1 archivo del repo es del logo anterior." : `Tu logo cambió: ${n} archivos del repo son del logo anterior.`),
@@ -271,6 +287,10 @@ export const MARCA_WORDS = defineWords({
       edit: {
         manifest_icons: "íconos del manifest",
         manifest_theme: "colores del manifest al color del logo",
+        push_badge: "la insignia en los avisos",
+        manifest_shortcuts: "ícono en los atajos",
+        manifest_screenshots: "capturas en el manifest",
+        layout_test_icon: "ícono de prueba fuera de producción",
         manifest_version: "versión nueva en los íconos del manifest",
         manifest_mono: "ícono monocromo en el manifest",
         layout_svg: "enlaza el SVG en la metadata",
@@ -282,7 +302,7 @@ export const MARCA_WORDS = defineWords({
         expo_icons: "icon, ios.icon y android.adaptiveIcon",
         capacitor_assets: "correr @capacitor/assets con estas fuentes",
       } as Record<string, string>,
-      file: { splash: "19 pantallas de arranque", ios_app: "1024 × 1024, opaco", and_app: "frente, monocromo y fondo", ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos" } as Record<string, string>,
+      file: { splash: "19 pantallas de arranque", ios_app: "1024 × 1024, opaco", and_app: "frente, monocromo y fondo", ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos", badge: "96 × 96, silueta blanca", short: "192 × 192", shots: "capturas angostas y anchas", test: "con esquina de color" } as Record<string, string>,
       way: "Cómo llega",
       steps: [
         ["Plania arma los archivos", "Desde el original, con tamaños exactos. Sin servicios de pago."],
@@ -296,6 +316,31 @@ export const MARCA_WORDS = defineWords({
       send: "Pedírselo a Taller",
       sent: (key: string) => `Taller tiene el pedido «Los íconos de la marca» (${key}). Las filas se ponen verdes cuando llega a la rama de inicio.`,
       loading: "Armando los archivos…",
+    },
+    extras: {
+      title: "Más caras",
+      lead: "Enciende lo que tu app usa: cada una suma sus archivos a la lista y al pedido, y sigue al logo como las demás.",
+      items: {
+        avisos: ["Avisos", "La insignia de 96 px que Android vuelve silueta en la barra. En iPhone el aviso usa el ícono de inicio."],
+        atajos: ["Atajos", "El logo en los atajos del manifest que no traen ícono (192 px)."],
+        capturas: ["Capturas para instalar", "Plania toma las capturas de El Probador: angostas para teléfono y anchas para computadora; Chrome muestra un aviso más grande."],
+        prueba: ["Entorno de prueba", "El ícono con una esquina de color, que Taller enlaza solo fuera de producción, para no confundir pestañas."],
+      } as Record<Extra, [string, string]>,
+      native: ["App nativa y pantallas de arranque", "Íconos de Expo o Capacitor y las pantallas de arranque de iPhone."] as [string, string],
+      stills: (n: number, w: number) => (n + w ? `El Probador tiene ${n} angostas y ${w} anchas.` : "El Probador todavía no tiene capturas de la app: enciéndelo en Ajustes."),
+      on: "encendida",
+      off: "apagada",
+      all: "Todos los archivos",
+      later: "Ícono por idioma: cuando la app tenga más de un idioma.",
+    },
+    artist: {
+      title: (s: string) => `O pídela a Artist, solo para ${s}`,
+      placeholder: "Qué quieres para esta cara (por ejemplo: más simple, sin rayos)",
+      ask: "Pedir 3 a Artist",
+      drawing: "Artist dibuja… las pruebas corren aquí.",
+      failed: "Artist no pudo dibujarlas. Puedes pedirlas otra vez.",
+      use: (s: string) => `Usar en ${s}`,
+      tests: (n: number) => `${n} de 3 pruebas`,
     },
     orilla: {
       plania: "▲ Plania",
@@ -330,6 +375,7 @@ export const MARCA_WORDS = defineWords({
       fromLogo: "del logo",
       noBg: "sin fondo",
       own: "Su propia imagen",
+      ownUntil: "Hasta que elijas una, sigue como está.",
       upload: "Subir o ajustar una imagen",
       saving: "Guardando…",
       notSeen: "¿No lo ves en tu teléfono?",
@@ -488,6 +534,7 @@ export const MARCA_WORDS = defineWords({
       pwa: { name: "Install the app", what: "The install prompt and the app's own window." },
       share: { name: "Sharing", what: "The preview when someone pastes the link in a chat." },
       cia: { name: "Company", what: "Where you see it: the lanes, the strip, the header and the brief." },
+      more: { name: "More surfaces", what: "What your app can also use: each one with its switch, and its files join the request." },
     } as Record<Face, { name: string; what: string }>,
     row: {
       ico: { name: "favicon.ico", spec: "16 · 32 · 48 px" },
@@ -503,6 +550,10 @@ export const MARCA_WORDS = defineWords({
       pl: { name: "Plania's copy", spec: "the original, in Plania" },
       ios_app: { name: "iOS app icon", spec: "1024 × 1024, opaque" },
       and_app: { name: "Android adaptive icon", spec: "foreground, background and monochrome" },
+      badge: { name: "Notification badge", spec: "96 × 96, white silhouette" },
+      short: { name: "Shortcut icon", spec: "192 × 192" },
+      shots: { name: "Install screenshots", spec: "narrow and wide" },
+      test: { name: "Test icon", spec: "with a coloured corner" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "in the repo", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
     plState: { ok: "in Plania", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
@@ -539,6 +590,11 @@ export const MARCA_WORDS = defineWords({
       adaptive_fg: "Foreground layer",
       adaptive_bg: "Background layer",
       adaptive_mono: "Monochrome layer (themed icons)",
+      badge_ok: "96 × 96 on a transparent background",
+      short_none: "The manifest has no shortcuts",
+      short_icons: (v: Record<string, string | number>) => `${v.n} shortcuts without an icon`,
+      shots_narrow: "Narrow screenshots (phone)",
+      shots_wide: "Wide screenshots (computer)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `There are ${v.n} identical copies (${v.list}). It works; one is enough.`,
@@ -547,6 +603,7 @@ export const MARCA_WORDS = defineWords({
       og_code: "Code draws it: Plania checks it, never replaces it.",
       pl_none: "Without an original, Company draws the project's initial.",
       web_only: "The repo has no native app yet: Plania leaves the files ready in assets/.",
+      short_none: "No shortcuts in the manifest: no icon needed.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "in the repo", missing: (_n: number) => "missing", wrong: "wrong", old: "from the old logo" },
     oldLogo: (n: number) => (n === 1 ? "Your logo changed: 1 file in the repo is from the old logo." : `Your logo changed: ${n} files in the repo are from the old logo.`),
@@ -635,6 +692,10 @@ export const MARCA_WORDS = defineWords({
       edit: {
         manifest_icons: "the manifest's icons",
         manifest_theme: "manifest colours set to the logo's colour",
+        push_badge: "the badge on notifications",
+        manifest_shortcuts: "an icon on the shortcuts",
+        manifest_screenshots: "screenshots in the manifest",
+        layout_test_icon: "the test icon outside production",
         manifest_version: "a new version on the manifest's icons",
         manifest_mono: "monochrome icon in the manifest",
         layout_svg: "links the SVG in the metadata",
@@ -646,7 +707,7 @@ export const MARCA_WORDS = defineWords({
         expo_icons: "icon, ios.icon and android.adaptiveIcon",
         capacitor_assets: "run @capacitor/assets with these sources",
       } as Record<string, string>,
-      file: { splash: "19 launch screens", ios_app: "1024 × 1024, opaque", and_app: "foreground, monochrome and background", ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons" } as Record<string, string>,
+      file: { splash: "19 launch screens", ios_app: "1024 × 1024, opaque", and_app: "foreground, monochrome and background", ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons", badge: "96 × 96, white silhouette", short: "192 × 192", shots: "narrow and wide screenshots", test: "with a coloured corner" } as Record<string, string>,
       way: "How it arrives",
       steps: [
         ["Plania makes the files", "From the original, at exact sizes. No paid services."],
@@ -660,6 +721,31 @@ export const MARCA_WORDS = defineWords({
       send: "Ask Taller",
       sent: (key: string) => `Taller has the request «The brand's icons» (${key}). The rows turn green when it lands on the start branch.`,
       loading: "Making the files…",
+    },
+    extras: {
+      title: "More surfaces",
+      lead: "Turn on what your app uses: each adds its files to the list and to the request, and follows the logo like the rest.",
+      items: {
+        avisos: ["Notifications", "The 96 px badge Android turns into a silhouette in the status bar. On iPhone a notification uses the home icon."],
+        atajos: ["Shortcuts", "The logo on the manifest's shortcuts that have no icon (192 px)."],
+        capturas: ["Install screenshots", "Plania takes El Probador's screenshots: narrow for phones and wide for computers; Chrome shows a bigger prompt."],
+        prueba: ["Test environment", "The icon with a coloured corner, linked by Taller only outside production, so tabs are not mixed up."],
+      } as Record<Extra, [string, string]>,
+      native: ["Native app and launch screens", "Expo or Capacitor icons and the iPhone launch screens."] as [string, string],
+      stills: (n: number, w: number) => (n + w ? `El Probador has ${n} narrow and ${w} wide.` : "El Probador has no screenshots of the app yet: turn it on in Settings."),
+      on: "on",
+      off: "off",
+      all: "All files",
+      later: "Per-language icon: when the app has more than one language.",
+    },
+    artist: {
+      title: (s: string) => `Or ask Artist, for ${s} only`,
+      placeholder: "What you want for this surface (for example: simpler, no rays)",
+      ask: "Ask Artist for 3",
+      drawing: "Artist is drawing… the tests run here.",
+      failed: "Artist could not draw them. You can ask again.",
+      use: (s: string) => `Use on ${s}`,
+      tests: (n: number) => `${n} of 3 tests`,
     },
     orilla: {
       plania: "▲ Plania",
@@ -694,6 +780,7 @@ export const MARCA_WORDS = defineWords({
       fromLogo: "from the logo",
       noBg: "no background",
       own: "Its own picture",
+      ownUntil: "Until you pick one, it stays as it is.",
       upload: "Upload or adjust a picture",
       saving: "Saving…",
       notSeen: "Not seeing it on your phone?",
@@ -947,7 +1034,7 @@ export const madeUrl = (slug: string, key: string, stamp: string): string => `/a
 export type Tie = "sigue" | "variante" | "propia";
 export const tieOf = (r: Pick<MarcaRead, "surfaces">, s: Surface | undefined): Tie => (s ? ((r.surfaces?.[s] as { mode?: Tie } | undefined)?.mode ?? (r.surfaces?.[s] ? "propia" : "sigue")) : "sigue");
 /** The scene's two images per surface: the key Plania makes, and the repo row that is its reflection. */
-export const FACE_FILES: Record<Exclude<Face, "cia">, { made: string; rows: RowId[] }> = {
+export const FACE_FILES: Record<Exclude<Face, "cia" | "more">, { made: string; rows: RowId[] }> = {
   nav: { made: "svg", rows: ["svg", "ico"] },
   ios: { made: "apple", rows: ["apple"] },
   and: { made: "mask", rows: ["mask", "a192"] },

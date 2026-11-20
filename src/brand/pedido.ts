@@ -9,7 +9,7 @@ import path from "node:path";
 import { and, eq, ilike, notInArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projectLogos, tasks, type Project, type ProjectLogo } from "../db/schema.js";
-import { capturesDir } from "../captures/store.js";
+import { capturesDir, latestStills, stillFile } from "../captures/store.js";
 import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
 import { webCtx } from "../mcp/tx.js";
@@ -72,6 +72,16 @@ export async function staleRows(input: { slug: string; title: string; rows: Row[
   return out;
 }
 
+async function stillsFor(db: Db, slug: string): Promise<{ narrow: Buffer[]; wide: Buffer[] }> {
+  const r = await latestStills(db, slug);
+  const out = { narrow: [] as Buffer[], wide: [] as Buffer[] };
+  for (const pg of r?.pages ?? []) {
+    if (pg.phone.still && out.narrow.length < 3) { const b = await stillFile(db, slug, pg.phone.still.id); if (b) out.narrow.push(b); }
+    if (pg.desktop.still && out.wide.length < 3) { const b = await stillFile(db, slug, pg.desktop.still.id); if (b) out.wide.push(b); }
+  }
+  return out;
+}
+
 export type BuiltSet = { id: string; plan: Plan; files: GenFile[]; dir: string; theme: string | null; version: string };
 
 /** Makes the set for a mode (faltan: what is missing or wrong; todo: every file) and keeps it in the store. */
@@ -88,7 +98,16 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   // PLA-I69-1: the logo's colour, and a version for the manifest's icon URLs (installed apps see a new URL).
   const theme = logoTheme(l) ?? themeOf(r);
   const version = id.slice(0, 8);
-  const files = await generate(o, plan, { name: project.title, theme, rows: r.rows, root: r.root, version }, own);
+  // PLA-I69-3: install screenshots come from El Probador's latest stills; without any, that item waits.
+  let shots: { narrow: Buffer[]; wide: Buffer[] } | undefined;
+  if (plan.items.some((i) => i.key === "shots")) {
+    shots = await stillsFor(db, project.slug);
+    if (!shots.narrow.length && !shots.wide.length) {
+      plan.items = plan.items.filter((i) => i.key !== "shots");
+      plan.edits = plan.edits.filter((e) => e.what !== "manifest_screenshots");
+    }
+  }
+  const files = await generate(o, plan, { name: project.title, theme, rows: r.rows, root: r.root, version, shots }, own);
   const dir = path.join(capturesDir(), "_marca", project.slug, "sets", id);
   for (const f of files) {
     const target = path.join(dir, f.path);

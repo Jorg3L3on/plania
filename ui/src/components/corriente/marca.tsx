@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
 import { Link } from "react-router";
-import { Cajon, Orilla } from "./marca-orilla";
+import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
 
 type Shape = "circle" | "squircle" | "drop";
@@ -168,9 +168,15 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       {/* PLA-I69-2: the waterline. Each surface as Plania would make it, its reflection from the repo, and a drawer. */}
       <div className={`mk-world${sel || panel ? " open" : ""}`}>
         <Orilla r={r} w={w} title={p.title} sel={sel} core={<Core r={r} w={w} title={p.title} actions={actions} />} onPick={(f) => { setPanel(null); setSel((cur) => (cur === f ? null : f)); }} />
-        {sel && sel !== "cia" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} />}
+        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} />}
+        {sel === "more" && !panel && (
+          <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={w.extras.title}>
+            <button type="button" className="mk-x" onClick={() => setSel(null)} aria-label={w.cajon.close}>×</button>
+            <MasCaras r={r} w={w} took={took} onNative={async (on) => took(await api.marcaNative(p.slug, on))} onAll={() => setSel("cia")} onClose={() => setSel(null)} />
+          </section>
+        )}
         {(sel === "cia" || panel) && (
-          <section className="mk-drawer list" aria-label={panel ? w.files : w.orilla.more}>
+          <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={panel ? w.files : w.orilla.more}>
             <button type="button" className="mk-x" onClick={() => { setSel(null); setPanel(null); }} aria-label={w.cajon.close}>×</button>
             {panel === "repo" ? (
               <RepoPanel r={r} w={w} onBack={() => setPanel(null)} onUse={async (path) => took(await api.marcaCandidate(p.slug, path))} />
@@ -556,7 +562,7 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
                   <li key={i} className={c.ok === true ? "y" : c.ok === "warn" ? "w" : "n"}>{sentence(w.upCheck, c)}</li>
                 ))}
                 {/* PLA-124: Android's circle is not a test for an iPhone or browser icon of its own. */}
-                {preview && testLines(preview.tests, w).filter((_, i) => !(surface && surface !== "android" && i === 1)).map((t, i) => (
+                {preview?.tests && testLines(preview.tests, w).filter((_, i) => !(surface && surface !== "android" && i === 1)).map((t, i) => (
                   <li key={`t${i}`} className={t.ok ? "y" : "n"}>{t.text}</li>
                 ))}
               </ul>
@@ -777,7 +783,8 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
     queryFn: () => api.marcaMarks(p.slug),
     refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 4000 : false),
   });
-  const req: MarksRequest | null = q.data?.request ?? null;
+  // PLA-I69-3: a request made for one surface belongs to that surface's drawer, not to the logo's marks.
+  const req: MarksRequest | null = q.data?.request && !q.data.request.hints.surface ? q.data.request : null;
   const [about, setAbout] = useState("");
   const [feel, setFeel] = useState<string[]>([]);
   const [avoid, setAvoid] = useState<string[]>([]);

@@ -16,6 +16,7 @@ import { isVariant, knotOf, surfacesOf } from "./surfaces.js";
 import { staleRows } from "./pedido.js";
 import { and, desc, gte, ilike, notInArray, or } from "drizzle-orm";
 import { logoTheme, sameColor } from "./theme.js";
+import { latestStills } from "../captures/store.js";
 import { tasks } from "../db/schema.js";
 
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
@@ -36,6 +37,9 @@ export type MarcaRead = {
   splash: string | null;
   /** PLA-I66-6: the switch that adds the native app icons and the launch screens. */
   native: boolean;
+  /** PLA-I69-3: the extra surfaces switched on (avisos, atajos, capturas, prueba), and whether El Probador has stills. */
+  extras: Partial<Record<"avisos" | "atajos" | "capturas" | "prueba", boolean>>;
+  stills: { narrow: number; wide: number };
   /** PLA-I66-4: the open ticket that brings icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
@@ -76,6 +80,16 @@ async function openRequest(db: Db, projectId: string): Promise<{ key: string; st
   return t && m ? { key: t.key, status: t.status, rows: m[2]!.split(",").filter(Boolean) } : null;
 }
 const RECENT_MS = 14 * 24 * 3600_000;
+/** PLA-I69-3: how many phone and desktop stills El Probador has for the project (install screenshots come from them). */
+async function stillCount(db: Db, slug: string): Promise<{ narrow: number; wide: number }> {
+  try {
+    const r = await latestStills(db, slug);
+    const pages = r?.pages ?? [];
+    return { narrow: pages.filter((x) => x.phone.still).length, wide: pages.filter((x) => x.desktop.still).length };
+  } catch {
+    return { narrow: 0, wide: 0 };
+  }
+}
 async function lastRequest(db: Db, projectId: string, now: number): Promise<Omit<Trip, "step"> & { merged: boolean; review: boolean } | null> {
   const [t] = await db
     .select({ key: tasks.key, status: tasks.status, scope: tasks.scope, prUrl: tasks.prUrl, createdAt: tasks.createdAt, movedAt: tasks.statusChangedAt })
@@ -126,7 +140,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const git = deps.git ?? realGit;
   const now = (deps.now ?? Date.now)();
   const branch = startBranchOf(p.settings);
-  const base = { slug: p.slug, folder: repoPathOf(p.slug, p.settings, deps.env), native: !!p.settings?.marca?.native, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
+  const base = { slug: p.slug, folder: repoPathOf(p.slug, p.settings, deps.env), native: !!p.settings?.marca?.native, extras: p.settings?.marca?.extras ?? {}, stills: await stillCount(db, p.slug), branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
   const scan = await scanProjectLogo(db, p, deps);
   const hasOriginal = !!(await activeLogo(db, p.id));
   if (scan.status === "no_repo" || !scan.commit) {
@@ -137,7 +151,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const commit = scan.commit;
   const tree = await listTree(git, repo, commit);
   const view = { paths: tree, read: (f: string) => readBlob(git, repo, commit, f) };
-  const check = await checkRepo(view, { hasOriginal, slug: p.slug, native: !!p.settings?.marca?.native });
+  const check = await checkRepo(view, { hasOriginal, slug: p.slug, native: !!p.settings?.marca?.native, extras: p.settings?.marca?.extras ?? {} });
   const current = await activeLogo(db, p.id);
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
   const files = new Set<string>([...check.rows.map((r) => r.path).filter((x): x is string => !!x && tree.has(x)), ...candidates.map((c) => c.path)]);

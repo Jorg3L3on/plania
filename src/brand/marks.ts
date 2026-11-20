@@ -18,7 +18,7 @@ import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
 import { ownerLanguage } from "../runner/owner-language.js";
 import { inspect, svgIsClean } from "./detect.js";
-import { addLogoVersion, putLogoFile } from "./logos.js";
+import { activeLogo, addLogoVersion, putLogoFile } from "./logos.js";
 import { forgetMarcaOf } from "./marca.js";
 import { palette, type PixelTests } from "./pixels.js";
 import { cleanSvg, LogoError, testTile } from "./upload.js";
@@ -34,7 +34,8 @@ export const marksRequestOfRun = (slug: string, reason: string | null | undefine
   return r?.status === "drawing" ? r : null;
 };
 
-export type Hints = { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null };
+// PLA-I69-3: surface, marks for one surface only (the original stays); base, the logo file they start from.
+export type Hints = { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null; surface?: "iphone" | "android" | "navegador" | null; base?: string | null };
 export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
 export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: Hints; runId: string | null; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
 
@@ -98,7 +99,10 @@ export async function requestMarks(db: Db, project: Pick<Project, "id" | "slug" 
     like: null,
     // PLA-120: what the owner would change, in their words (with «Más como esta» or on its own).
     change: String(input.change ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null,
+    surface: input.surface && ["iphone", "android", "navegador"].includes(input.surface) ? input.surface : null,
+    base: null,
   };
+  if (hints.surface) hints.base = (await activeLogo(db, project.id))?.file ?? null;
   // «Más como esta»: the liked mark of the last round, as words Artist can draw from.
   if (input.like && open?.status === "ready") {
     const m = open.marks.find((x) => x.id === input.like);
@@ -130,6 +134,13 @@ export async function settle(db: Db, r: MarksRequest | null): Promise<MarksReque
   return r;
 }
 
+// PLA-I69-3: what each surface asks of an icon made only for it.
+const SURFACE_SAY: Record<"iphone" | "android" | "navegador", string> = {
+  iphone: "the iPhone home screen (about 60 px, one opaque picture, no transparency: iOS paints it black; one bold shape reads best)",
+  android: "the Android home screen (the phone crops it to a circle, a squircle or a drop: keep the drawing inside a circle of radius 33 around the centre)",
+  navegador: "the browser tab (16 px: a single shape with no detail, strokes 12 units or wider)",
+};
+
 /** What the Artist run is told (after its role prompt). */
 export function marksPrompt(input: { agent: string; project: { slug: string; title: string }; request: MarksRequest; sessionId: string; imageDir: string }): string {
   const h = input.request.hints;
@@ -143,7 +154,13 @@ export function marksPrompt(input: { agent: string; project: { slug: string; tit
     imgs.length ? `Inspiration images (look at each with the Read tool; take mood and colour, never copy them): ${imgs.join(", ")}.` : "",
     h.like ? `The owner liked "${h.like}": draw six variations of that idea (shape, weight, colour), not new ideas.` : "",
     h.change ? `The owner asks for this change, in their words: "${h.change}". Apply it to every mark.` : "",
-    "Draw 6 marks that are different ideas (a letterform, a geometric shape, a symbol of what the project does), each an app icon: a square SVG with viewBox 0 0 100 100, its own background filling the whole square (a <rect> or a gradient) and the drawing on it.",
+    ...(h.surface
+      ? [
+          `These icons are for one surface only: ${SURFACE_SAY[h.surface]}. The project's main logo stays as it is.`,
+          h.base ? `Start from the current logo at ${path.join(capturesDir(), "_marca", input.project.slug, h.base)} (look at it with the Read tool): keep its idea and adapt it to this surface.` : "",
+          "Draw 3 icons, three ways of adapting the logo, each a square SVG with viewBox 0 0 100 100, its own background filling the whole square (a <rect> or a gradient) and the drawing on it.",
+        ]
+      : ["Draw 6 marks that are different ideas (a letterform, a geometric shape, a symbol of what the project does), each an app icon: a square SVG with viewBox 0 0 100 100, its own background filling the whole square (a <rect> or a gradient) and the drawing on it."]),
     "Rules: at most 6 shapes, no <text>, no images, no scripts, no external references, two or three colours, strokes 8 or more units wide (they must survive at 16 px), the drawing inside a circle of radius 38 around the centre (Android crops the rest), strong contrast between drawing and background.",
     `Name each mark in two or three words and give its idea in one sentence, both in ${ownerLanguage()}.`,
     `Finish with exactly one call: deliver_marks {project: "${input.project.slug}", id: "${input.request.id}", marks: [{name, idea, svg}]} with actor session_id ${input.sessionId}. Then stop.`,
@@ -226,4 +243,17 @@ export async function useMark(db: Db, project: Pick<Project, "id" | "slug">, req
   });
   forgetMarcaOf(project.id);
   return logo;
+}
+
+/** PLA-I69-3: one of the marks becomes a surface's own picture (the original stays); made under today's logo. */
+export async function useMarkFor(db: Db, project: Pick<Project, "id" | "slug">, requestId: string, markId: string, surface: "iphone" | "android" | "navegador"): Promise<void> {
+  const r = loadRequest(project.slug, requestId);
+  const m = r?.marks.find((x) => x.id === markId);
+  const bytes = m ? markFile(project.slug, requestId, m.file) : null;
+  if (!r || !m || !bytes) throw new LogoError("LOGO_MARK_NOT_FOUND", 404, "mark not found");
+  const { stageUpload } = await import("./upload.js");
+  const { setSurface } = await import("./surfaces.js");
+  const staged = await stageUpload(project.slug, bytes, `${m.name}.svg`);
+  const logo = await activeLogo(db, project.id);
+  await setSurface(project, surface, { up: staged.up, name: m.name, scale: 100, bg: null }, logo?.version ?? null);
 }

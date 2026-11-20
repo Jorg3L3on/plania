@@ -2203,6 +2203,34 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .mk-dhist li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); font-size: 11.5px; }
 .mk-dhist li b { font-weight: 600; color: var(--cor-text); }
 .mk-dhist li span { color: var(--cor-muted); }
+/* PLA-I69-3: «Más caras» and Artist for one surface. */
+.mk-tie.more { color: var(--cor-muted); border-color: var(--cor-line); background: transparent; }
+.dv-more .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.dv-more .chips i { font-style: normal; font-size: 9.5px; padding: 2px 6px; border-radius: 5px; background: rgba(139, 92, 246, 0.16); color: var(--cor-violet-3); }
+.mk-more { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.mk-more .mk-dh { padding-right: 52px; }
+.mk-more-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 4px 22px; padding: 10px 14px 12px; align-content: start; scrollbar-width: thin; }
+.mk-more-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.mk-more-row b { display: block; font-size: 12.5px; color: var(--cor-text); }
+.mk-more-row span { display: block; font-size: 11.5px; line-height: 1.4; color: var(--cor-muted); }
+.mk-more-row em { display: block; margin-top: 3px; font-style: normal; font-family: var(--cor-mono); font-size: 10px; color: var(--cor-green); }
+.mk-more-row em.falta, .mk-more-row em.mal, .mk-more-row em.viejo { color: var(--cor-amber); }
+.mk-more-row em.hint { color: var(--cor-muted); font-family: var(--cor-sans); font-size: 11px; }
+.mk-xsw { all: unset; box-sizing: border-box; cursor: pointer; position: relative; width: 34px; height: 20px; margin-top: 2px; border-radius: 10px; background: rgba(255, 255, 255, 0.14); }
+.mk-xsw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #c9c9d2; transition: left 0.2s; }
+.mk-xsw[aria-checked="true"] { background: var(--cor-violet); }
+.mk-xsw[aria-checked="true"]::after { left: 17px; background: #fff; }
+.mk-xsw:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 2px; }
+.mk-xsw:disabled { opacity: 0.6; cursor: wait; }
+.mk-artist { display: grid; gap: 7px; padding-top: 8px; border-top: 1px dashed var(--cor-line-strong); }
+.mk-artist-in { box-sizing: border-box; width: 100%; padding: 7px 9px; border-radius: 9px; border: 1px solid var(--cor-line-strong); background: #0a0a0e; color: var(--cor-text); font: 12px/1.4 var(--cor-sans); resize: vertical; }
+.mk-amarks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.mk-amark { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 4px 6px; border-radius: 10px; border: 1px solid var(--cor-line); text-align: center; }
+.mk-amark img { width: 52px; height: 52px; border-radius: 12px; }
+.mk-amark b { font-size: 11px; color: var(--cor-text); }
+.mk-amark em { font-style: normal; font-family: var(--cor-mono); font-size: 9.5px; color: var(--cor-amber); }
+.mk-amark em.ok { color: var(--cor-green); }
+
 /* Shorter windows: the surfaces and the water shrink, the line stays under them. */
 @media (max-height: 760px) {
   .mk-shore { --mk-dev: 150px; --mk-refl: 70px; }

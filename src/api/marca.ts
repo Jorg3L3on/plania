@@ -29,7 +29,7 @@ import { ToolError } from "../mcp/errors.js";
 import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
 import { buildSet, keepOver, madeFile, originalOf, requestIcons, zipOf } from "../brand/pedido.js";
-import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
+import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
 import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
 import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
@@ -332,6 +332,7 @@ const Hints = z
     images: z.array(z.string().max(80)).max(6).optional(),
     like: z.string().max(40).nullable().optional(),
     change: z.string().max(200).nullable().optional(),
+    surface: z.enum(["iphone", "android", "navegador"]).nullable().optional(),
   })
   .strict();
 
@@ -358,9 +359,32 @@ marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
   try {
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
+    // PLA-I69-3: ?surface=… makes the mark that surface's own picture instead of the original.
+    const s = c.req.query("surface");
+    if (s) {
+      if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+      await withDb((db) => useMarkFor(db, p, c.req.param("id")!, c.req.param("mark")!, s));
+    } else await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-3: «Más caras»: a switch per extra surface (settings.marca.extras), sent whole with the native switch.
+marcaRoutes.use("/projects/:slug/marca/extras", guard);
+marcaRoutes.post("/projects/:slug/marca/extras", async (c) => {
+  try {
+    const body = await json(c, z.object({ key: z.enum(["avisos", "atajos", "capturas", "prueba"]), on: z.boolean() }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const marca = { native: !!p.settings?.marca?.native, extras: { ...(p.settings?.marca?.extras ?? {}), [body.key]: body.on } };
+    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca } }, settingsCtx));
+    forgetMarcaOf(p.id);
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
     return fail(c, e);
   }
 });
@@ -373,7 +397,7 @@ marcaRoutes.post("/projects/:slug/marca/native", async (c) => {
     if (body instanceof Response) return body;
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca: { native: body.on } } }, settingsCtx));
+    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca: { native: body.on, extras: p.settings?.marca?.extras ?? {} } } }, settingsCtx));
     forgetMarcaOf(p.id);
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {

@@ -32,6 +32,10 @@ export const MARCA_WORDS = defineWords({
       edit: {
         manifest_icons: "que los íconos 192, 512 y maskable del manifest apunten a estos archivos; el maskable en una entrada propia",
         manifest_theme: "theme_color y background_color con el color del logo",
+        push_badge: "usa /icons/badge-96.png como badge en showNotification (la insignia blanca de la barra de Android)",
+        manifest_shortcuts: "pon /icons/shortcut-192.png (192 × 192) en los atajos del manifest que no traen ícono",
+        manifest_screenshots: "agrega screenshots al manifest con los archivos de /screenshots: narrow-* con form_factor narrow y wide-* con form_factor wide, con sizes, type y un label cada uno",
+        layout_test_icon: "fuera de producción (por ejemplo cuando VERCEL_ENV no es production), enlaza /icons/icon-prueba.png como ícono en lugar del de siempre; en producción nada cambia",
         manifest_version: "agrega o cambia ?v= al final del src de cada ícono, para que los teléfonos que instalaron la app vean el nuevo",
         manifest_mono: "agrega el ícono monocromo con purpose monochrome",
         layout_svg: "metadata.icons enlaza el SVG (type image/svg+xml)",
@@ -79,6 +83,10 @@ export const MARCA_WORDS = defineWords({
       edit: {
         manifest_icons: "the manifest's 192, 512 and maskable icons point to these files; the maskable one in its own entry",
         manifest_theme: "theme_color and background_color set to the logo's colour",
+        push_badge: "use /icons/badge-96.png as the badge in showNotification (Android's white status-bar badge)",
+        manifest_shortcuts: "put /icons/shortcut-192.png (192 × 192) on the manifest's shortcuts that have no icon",
+        manifest_screenshots: "add screenshots to the manifest from /screenshots: narrow-* with form_factor narrow and wide-* with form_factor wide, each with sizes, type and a label",
+        layout_test_icon: "outside production (for example when VERCEL_ENV is not production), link /icons/icon-prueba.png as the icon instead of the usual one; production does not change",
         manifest_version: "add or change ?v= at the end of each icon src, so phones that installed the app pick up the new one",
         manifest_mono: "add the monochrome icon with purpose monochrome",
         layout_svg: "metadata.icons links the SVG (type image/svg+xml)",
