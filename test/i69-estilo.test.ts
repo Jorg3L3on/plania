@@ -169,7 +169,7 @@ test("#6 the request: files written as the repo will hold them, old colours list
   await assert.rejects(style.requestStyle(db, project, { git }), /Taller ya trabaja en el estilo/);
 });
 
-test("#7 the screen makes the same files as the server, reads an expert's code back, and directions keep their scope", async () => {
+test("#7 the screen makes the same files as the server, reads an expert's code back, and knows every font", async () => {
   const ui = await import("../ui/src/lib/estilo.js");
   for (const over of [{}, { brand: "#0f766e", neutral: "calido", pill: true, motion: "vivo", head: "Fraunces" }, { brand: "#f2c14e", density: "compacto", shadow: "plana", radius: 0 }] as const) {
     const s = { ...style.startStyle({ files: [] }, null), ...over } as import("../src/brand/style.js").Style;
@@ -182,13 +182,6 @@ test("#7 the screen makes the same files as the server, reads an expert's code b
   assert.equal(back.next.radius, 12);
   assert.equal(back.next.head, "Lora");
   assert.equal(back.next.brandTie, "fijo");
-  const [logo] = ui.directions({ theme: "#1f2b5c", colors: ["#1f2b5c", "#ffd36e"] }, s);
-  const colorsOnly = ui.applyDirection(s, logo!.s, "color");
-  assert.equal(colorsOnly.brand, "#1f2b5c");
-  assert.equal(colorsOnly.head, s.head, "colours only leaves the type");
-  const typeOnly = ui.applyDirection(s, logo!.s, "letra");
-  assert.equal(typeOnly.brand, s.brand);
-  assert.equal(typeOnly.head, "Bricolage Grotesque");
   assert.deepEqual(Object.keys(ui.FONT_CAT).sort(), [...style.FONTS].sort(), "the screen knows every font the server offers");
 });
 

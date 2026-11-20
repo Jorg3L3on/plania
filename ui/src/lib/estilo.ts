@@ -196,35 +196,12 @@ export function changesOf(s: Style, repo: RepoStyle): StyleChange[] {
   return out;
 }
 
-/** Three directions from the logo: its own colours, a sober one and a lively one. */
-export function directions(logo: { theme: string | null; colors: string[] }, cur: Style): { k: "logo" | "sobria" | "viva"; s: Partial<Style> }[] {
-  const brand = logo.theme ?? logo.colors.find((c) => HEX.test(c)) ?? cur.brand;
-  const [, C, H] = toLch(brand);
-  const second = logo.colors.find((c) => HEX.test(c) && distance(c, brand) > 0.1) ?? fromLch(0.84, 0.12, (H + 180) % 360);
-  return [
-    { k: "logo", s: { brand, brandTie: "sigue", accent: second, neutral: "frio", head: "Bricolage Grotesque", body: "Geist", radius: 12, density: "comodo", shadow: "suave", motion: "normal", img: "plano" } },
-    { k: "sobria", s: { brand: fromLch(0.38, Math.min(C, 0.12), H), brandTie: "fijo", accent: fromLch(0.82, 0.11, 85), neutral: "calido", head: "Fraunces", body: "Inter", radius: 6, density: "comodo", shadow: "suave", motion: "calmo", img: "linea" } },
-    { k: "viva", s: { brand: fromLch(0.58, Math.max(C, 0.15), H), brandTie: "fijo", accent: fromLch(0.7, 0.18, (H + 150) % 360), neutral: "neutro", head: "Outfit", body: "DM Sans", radius: 20, density: "amplio", shadow: "marcada", motion: "vivo", img: "plano" } },
-  ];
-}
-/** A direction applied to one scope: everything, colours only, or type only. */
-export function applyDirection(cur: Style, d: Partial<Style>, scope: "todo" | "color" | "letra"): Style {
-  const pick = (keys: (keyof Style)[]) => Object.fromEntries(keys.filter((k) => k in d).map((k) => [k, d[k]]));
-  const colors = pick(["brand", "brandTie", "accent", "neutral"]);
-  const type = pick(["head", "body"]);
-  const rest = pick(["radius", "density", "shadow", "motion", "img"]);
-  return { ...cur, ...(scope !== "letra" ? colors : {}), ...(scope !== "color" ? type : {}), ...(scope === "todo" ? { ...rest, pill: false } : {}) } as Style;
-}
-
 export const ESTILO_WORDS = defineWords({
   es: {
     doors: { caras: "Caras", estilo: "Estilo", voz: "Voz y nombre", historial: "Historial" },
     doorsLabel: "Partes de la marca",
     loading: "Leyendo el estilo del repo…",
     readError: "el estilo",
-    start: "Empieza por una dirección",
-    scope: { todo: "Todo", color: "Solo colores", letra: "Solo letra" },
-    dirs: { logo: ["Del logo", "sus propios colores"], sobria: ["Sobria", "de confianza, clásica"], viva: ["Viva", "alegre, cercana"] } as Record<string, [string, string]>,
     secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
@@ -425,9 +402,6 @@ export const ESTILO_WORDS = defineWords({
     doorsLabel: "Parts of the brand",
     loading: "Reading the repo's style…",
     readError: "the style",
-    start: "Start from a direction",
-    scope: { todo: "All", color: "Colours only", letra: "Type only" },
-    dirs: { logo: ["From the logo", "its own colours"], sobria: ["Sober", "trustworthy, classic"], viva: ["Lively", "cheerful, warm"] } as Record<string, [string, string]>,
     secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
