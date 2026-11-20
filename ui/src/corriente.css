@@ -2678,3 +2678,7 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .es-locked svg { color: var(--cor-body); }
 .es-locked b { font-size: 13.5px; font-weight: 600; color: var(--cor-text); }
 .es-locked span { max-width: 32ch; font-size: 11.5px; line-height: 1.45; }
+/* PLA-130: «cambia» in the parts list, and the pane's line with what changes and the way back. */
+.es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
+.es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }
+.es-diff small { font-size: 10.5px; color: var(--cor-muted); }

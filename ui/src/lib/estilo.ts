@@ -233,6 +233,12 @@ export const ESTILO_WORDS = defineWords({
     secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
+    // PLA-130: a «cambia» tag instead of a dot, what it changes from and to, and undoing one part.
+    tag: "cambia",
+    diff: (from: string, to: string) => `Hoy en el repo: ${from} → con este estilo: ${to}`,
+    unset: "no lo define",
+    undo: "Volver a lo del repo",
+    undoNone: "El repo no lo define: Plania lo agrega.",
     sum: {
       follows: "sigue al logo",
       chosen: "elegido",
@@ -424,6 +430,11 @@ export const ESTILO_WORDS = defineWords({
     secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
+    tag: "changes",
+    diff: (from: string, to: string) => `In the repo today: ${from} → with this style: ${to}`,
+    unset: "not set",
+    undo: "Back to what the repo has",
+    undoNone: "The repo does not set it: Plania adds it.",
     sum: {
       follows: "follows the logo",
       chosen: "chosen",

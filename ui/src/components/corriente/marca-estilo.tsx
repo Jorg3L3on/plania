@@ -595,6 +595,29 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     ) : (
       <p className="es-note am">{w.logo.none}</p>
     );
+  // PLA-130: what a part changes, from the repo's value to this style's, and the way back to the repo's for that part.
+  const say = (v: string) => (v === "—" ? w.unset : v === SYSTEM ? w.caps.sys : v.startsWith("#") ? v.toUpperCase() : v);
+  const undoOf = (k: Sec): Partial<Style> | null => {
+    if (k === "color") { const b = r.repo.brand ?? r.repo.theme; return b ? { brand: b, accent: r.repo.accent ?? x.accent, brandTie: "fijo" } : null; }
+    if (k === "letra") return { head: r.repo.head ?? r.repo.body ?? SYSTEM, body: r.repo.body ?? SYSTEM };
+    if (k === "forma") return r.repo.radius !== undefined ? { radius: r.repo.radius } : null;
+    return null;
+  };
+  const diffLine = (k: Sec): ReactNode => {
+    const c = ch.find((y) => y.part === k);
+    if (!c) return null;
+    const undo = undoOf(k);
+    return (
+      <div className="es-diff" role="status">
+        <span>{w.diff(say(c.from), say(c.to))}</span>
+        {undo ? (
+          <button type="button" className="es-more" onClick={() => edit(undo)} data-control={`estilo-deshacer-${k}`}>{w.undo}</button>
+        ) : (
+          <small>{w.undoNone}</small>
+        )}
+      </div>
+    );
+  };
   const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov, img: paneImg, logo: paneLogo };
 
   const repoSay = [r.repo.head ?? r.repo.body ?? w.caps.sys, (r.repo.brand ?? r.repo.theme)?.toUpperCase(), r.repo.radius !== undefined ? w.caps.corners(r.repo.radius) : null].filter(Boolean).join(" · ");
@@ -734,13 +757,14 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
               <button key={k} type="button" role="tab" className="es-ri" aria-selected={sec === k} onClick={() => setSec(k)} data-control={`estilo-parte-${k}`}>
                 <b>
                   {w.secs[k]}
-                  {k !== "logo" && k !== "img" && changed(k) && <i className="dot" title={w.differs} />}
+                  {k !== "logo" && k !== "img" && changed(k) && <span className="es-tag" title={w.differs}>{w.tag}</span>}
                 </b>
                 <span>{summary(k)}</span>
               </button>
             ))}
           </nav>
           <div className="es-pane" role="tabpanel" aria-label={w.secs[sec]} tabIndex={0}>
+            {diffLine(sec)}
             {panes[sec]()}
           </div>
         </div>
