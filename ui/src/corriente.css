@@ -1990,6 +1990,23 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 /* PLA-I66-6: the native switch under the list of files. */
 .mk-list-native { flex: none; padding: 6px 14px; border-top: 1px solid var(--cor-line); font-size: 12.5px; }
 
+/* PLA-122: a surface with its own icon, and the original shown faded where the repo has nothing yet (PLA-120). */
+.mk-face-n .mk-own { margin-left: 6px; min-height: 18px; padding: 0 6px; font-size: 10px; vertical-align: middle; }
+.mk-own { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 6px; background: color-mix(in srgb, var(--cor-violet-2) 22%, transparent); color: var(--cor-text); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.mk-pre { opacity: 0.55; filter: saturate(0.85); }
+
+/* PLA-127: a delivery's changed images (an icons change shows on no page), before and after on a checkerboard. */
+.cor-imgs { position: absolute; inset: 0; overflow: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.cor-imgs-h { display: flex; flex-direction: column; gap: 4px; }
+.cor-imgs ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.cor-imgs li { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--cor-line-strong); border-radius: 12px; }
+.cor-imgs code { font-family: var(--cor-mono); font-size: 11px; color: var(--cor-muted); overflow-wrap: anywhere; }
+.cor-imgs-st { font-size: 11px; color: var(--cor-violet-2); }
+.cor-imgs-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cor-imgs figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cor-imgs figure img, .cor-imgs figure i { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: repeating-conic-gradient(#2a2a33 0 25%, #1c1c22 0 50%) 0 0 / 14px 14px; }
+.cor-imgs figcaption { font-size: 11px; color: var(--cor-muted); }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
@@ -2118,9 +2135,3 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
-
-
-/* PLA-122: a surface with its own icon, and the original shown faded where the repo has nothing yet (PLA-120). */
-.mk-face-n .mk-own { margin-left: 6px; min-height: 18px; padding: 0 6px; font-size: 10px; vertical-align: middle; }
-.mk-own { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--cor-violet-2) 22%, transparent); color: var(--cor-text); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
-.mk-pre { opacity: 0.55; filter: saturate(0.85); }

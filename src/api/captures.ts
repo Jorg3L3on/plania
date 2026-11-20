@@ -19,6 +19,7 @@ import { warmEntrega } from "../captures/entrega.js";
 import { assertKey, probadorRead, probar } from "../captures/probador.js";
 import { startVivo, vivoRead } from "../captures/vivo.js";
 import { preguntar } from "../captures/preguntas.js";
+import { imagenBytes, imagenesRead } from "../captures/imagenes.js";
 import { latestStills, stillFile } from "../captures/store.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -89,6 +90,26 @@ captureRoutes.get("/:slug/probador/:key", async (c) => {
   try {
     const r = await withDb((db) => probadorRead(db, c.req.param("slug"), assertKey(c.req.param("key"))));
     return r ? c.json(r) : c.json({ error: "TASK_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+// PLA-127: the images a delivery changes (an icons change shows on no page): the list, and each file before and after.
+captureRoutes.get("/:slug/probador/:key/imagenes", async (c) => {
+  try {
+    const r = await withDb((db) => imagenesRead(db, c.req.param("slug"), assertKey(c.req.param("key"))));
+    return c.json({ files: r?.files ?? [] });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+captureRoutes.get("/:slug/probador/:key/imagen", async (c) => {
+  try {
+    const lado = c.req.query("lado") === "antes" ? "antes" : "despues";
+    const file = c.req.query("path") ?? "";
+    const r = await withDb((db) => imagenBytes(db, c.req.param("slug"), assertKey(c.req.param("key")), lado, file));
+    if (!r) return c.json({ error: "IMAGE_NOT_FOUND" }, 404);
+    return c.body(new Uint8Array(r.bytes), 200, { "Content-Type": r.mime, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox" });
   } catch (e) {
     return fail(c, e);
   }

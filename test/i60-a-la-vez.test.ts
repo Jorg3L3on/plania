@@ -685,7 +685,8 @@ test("PLA-118 #1 #2: a queued Artist run for a drawing marks request starts with
   const actor = JSON.stringify({ agent: "test", session_id: "s" });
   await raw.query(`insert into docs (project_id, title, markdown, actor) select $1, 'Prompt: Artist', '# Artist', $2 where not exists (select 1 from docs where project_id = $1 and title = 'Prompt: Artist')`, [project.id, actor]);
   // The request as the screen makes it; the wake is the queue row below.
-  const req = await marks.requestMarks(db, project, { about: "Una tienda de barrio" }, { wake: async () => ({ runId: null, why: "test" }) });
+  // A wake that says it queued (since PLA-120 a request with no run fails at once); the queue row is made below.
+  const req = await marks.requestMarks(db, project, { about: "Una tienda de barrio" }, { wake: async () => ({ runId: crypto.randomUUID() }) });
   assert.equal(req.status, "drawing");
   const queueArtist = async (reason: string) =>
     (
@@ -702,5 +703,32 @@ test("PLA-118 #1 #2: a queued Artist run for a drawing marks request starts with
   const drawing = await queueArtist(`${marks.MARKS_MARK} ${req.id}] Draw logo marks for ${project.title}; answer with deliver_marks`);
   await runner.drainQueue(db, new Date(), f.deps as never);
   assert.equal((await statusOf(drawing)).status, "running", JSON.stringify((await raw.query(`select status, summary from agent_runs where id = $1`, [drawing])).rows[0]));
+  await finishAll(f);
+});
+
+// PLA-127: the whole loop the guided logo test found broken twice (PLA-118 the start, PLA-119 the answer): the owner's
+// request queues Artist, the queue starts it with no ticket, and Artist's answer from that run's own session lands.
+test("PLA-127: a marks request goes request → queue → running → deliver_marks from the run's session → ready", async () => {
+  await t2Reset();
+  process.env.PLANIA_CAPTURES_DIR = path.join(scratch, "captures-e2e");
+  const marks = await import("../src/brand/marks.js");
+  const { ensureMember } = await import("../src/runner/team.js");
+  const sessions2 = await import("../src/runner/run-session.js");
+  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  const project = (await raw.query(`select id, slug, title from projects where slug = 'micasa'`)).rows[0] as { id: string; slug: string; title: string };
+  await ensureMember(db, project as never, "artist", { note: "test" } as never);
+  const actor = JSON.stringify({ agent: "test", session_id: "s" });
+  await raw.query(`insert into docs (project_id, title, markdown, actor) select $1, 'Prompt: Artist', '# Artist', $2 where not exists (select 1 from docs where project_id = $1 and title = 'Prompt: Artist')`, [project.id, actor]);
+  // The real wake (no injected one): what the screen's «Generar 6 marcas» does.
+  const req = await marks.requestMarks(db, project, { about: "Una tienda de barrio" });
+  assert.equal(req.status, "drawing");
+  assert.ok(req.runId, "a run was queued");
+  const f = fakes();
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal((await statusOf(req.runId!)).status, "running", "the queue starts Artist with no ticket");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#1d4ed8"/><path d="M30 70V30h40" stroke="#ffffff" stroke-width="12" fill="none" stroke-linecap="round"/></svg>`;
+  const out = await marks.deliverMarks(db, { project: "micasa", id: req.id, marks: [{ name: "Esquina", idea: "Una esquina", svg }] }, { agent: "plania-runner", session_id: sessions2.runSession(req.runId!) });
+  assert.equal(out.kept, 1);
+  assert.equal(marks.latestRequest("micasa")?.status, "ready");
   await finishAll(f);
 });
