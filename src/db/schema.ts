@@ -1146,7 +1146,7 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_active_work_unique").on(t.agentId, t.projectId, t.workKey).where(sql`${t.status} in ('queued', 'starting', 'running')`),
     index("agent_runs_live_project_idx").on(t.projectId, t.lane).where(sql`${t.status} in ('starting', 'running')`),
     index("agent_runs_live_worker_idx").on(t.workerId).where(sql`${t.status} in ('starting', 'running')`),
-    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief')`),
+    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief', 'trial')`),
     check("agent_runs_lane_check", sql`${t.lane} in ('work', 'consulta')`),
     check("agent_runs_work_key_check", sql`char_length(${t.workKey}) between 1 and 200`),
     index("agent_runs_agent_idx").on(t.agentId, t.queuedAt),
@@ -1157,7 +1157,8 @@ export const agentRuns = pgTable(
 );
 
 export type AgentRun = typeof agentRuns.$inferSelect;
-export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief"] as const;
+// PLA-I67-6: trial is the owner's «Probar» of a skill on a past delivery (src/runner/trial.ts).
+export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief", "trial"] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 export type RunLane = "work" | "consulta";
 
@@ -1756,6 +1757,10 @@ export const skills = pgTable(
     factorySha: text("factory_sha"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdBy: text("created_by").notNull().default("owner"),
+    // PLA-I67-6 (0073): an imported skill's link and the sha256 of the content the owner saw and saved.
+    sourceUrl: text("source_url"),
+    sourceHash: text("source_hash"),
+    sourceCheckedAt: timestamp("source_checked_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -1791,6 +1796,48 @@ export const skillVersions = pgTable(
   (t) => [uniqueIndex("skill_versions_skill_n_unique").on(t.skillId, t.n), check("skill_versions_n_check", sql`${t.n} >= 1`)],
 );
 export type SkillVersionRow = typeof skillVersions.$inferSelect;
+
+// PLA-I67-6 (0073): one past delivery re-run with one version of a skill, in a throwaway copy (src/runner/trial.ts).
+export type TrialStatus = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
+export const skillTrials = pgTable(
+  "skill_trials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    versionN: integer("version_n").notNull(),
+    versionStamp: text("version_stamp").notNull(),
+    taskKey: text("task_key").notNull(),
+    taskTitle: text("task_title").notNull().default(""),
+    beforeRunId: uuid("before_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    baseCommit: text("base_commit"),
+    beforeStamp: text("before_stamp"),
+    beforeSkills: text("before_skills").array().notNull().default(sql`'{}'::text[]`),
+    beforeOutput: text("before_output"),
+    beforeDiff: text("before_diff"),
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    afterSkills: text("after_skills").array().notNull().default(sql`'{}'::text[]`),
+    afterOutput: text("after_output"),
+    afterDiff: text("after_diff"),
+    status: text("status").$type<TrialStatus>().notNull().default("queued"),
+    summary: text("summary").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("skill_trials_skill_idx").on(t.skillId, t.createdAt),
+    index("skill_trials_run_idx").on(t.runId),
+    check("skill_trials_status_check", sql`${t.status} in ('queued', 'running', 'done', 'failed', 'skipped', 'stopped')`),
+  ],
+);
+export type SkillTrialRow = typeof skillTrials.$inferSelect;
 
 // PLA-I67-3: the owner's corrections, the lessons they become, and what each run carried (migration 0069).
 // src/runner/lessons.ts reads corrections, runs the reflector and injects active lessons; only the owner approves.

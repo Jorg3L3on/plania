@@ -49,6 +49,11 @@ export const LIMITS_WORDS = defineWords({
         lead: "Cuando le preguntas algo a un proyecto, el agente lee la carpeta del proyecto mismo, así que tampoco cambia archivos ni corre las herramientas de la app. Solo contesta.",
         extra: "Además de todo lo anterior y de lo de quien revisa, cuando contesta una pregunta tuya.",
       },
+      probar: {
+        title: "Una prueba de una habilidad no entrega nada",
+        lead: "Cuando pruebas una habilidad en una entrega pasada, el agente trabaja en una copia aparte que se borra al terminar. No toca el plan, no guarda ni sube cambios y no toca la rama ni la propuesta de esa entrega.",
+        extra: "Además de todo lo anterior, cuando pruebas una habilidad.",
+      },
       "plania-self": {
         title: "Quien trabaja en Plania no toca el Plania que está corriendo",
         lead: "Cuando el proyecto es Plania mismo, el agente trabaja en su propia copia y nunca se conecta a la base de datos del Plania que usas, ni aplica migraciones, ni reinicia Plania: eso lo haces tú.",
@@ -83,6 +88,7 @@ export const LIMITS_WORDS = defineWords({
       "run-tooling": "Correr las herramientas de la app: instalar, compilar o probar.",
       "git-sync": "Traer cambios de GitHub o crear ramas y copias.",
       "plan-writes": "Escribir en el plan: preguntas, tareas, documentos o imágenes.",
+      "plania-in-trial": "Usar Plania mientras prueba una habilidad.",
       "live-database": "Conectarse a la base de datos del Plania que estás usando.",
       "apply-migrations": "Aplicar migraciones a una base de datos.",
       "restart-live": "Reiniciar el Plania que estás usando.",
@@ -189,6 +195,11 @@ export const LIMITS_WORDS = defineWords({
         lead: "When you ask a project something, the agent reads the project's own folder, so it does not change files or run the app's tools either. It only answers.",
         extra: "On top of all the above and the reviewer's limits, when it answers a question of yours.",
       },
+      probar: {
+        title: "A skill trial delivers nothing",
+        lead: "When you try a skill on a past delivery, the agent works in a separate copy that is deleted when it ends. It does not touch the plan, does not save or push changes and does not touch that delivery's branch or proposal.",
+        extra: "On top of all the above, when you try a skill.",
+      },
       "plania-self": {
         title: "Whoever works on Plania does not touch the Plania that is running",
         lead: "When the project is Plania itself, the agent works in its own copy and never connects to the database of the Plania you use, applies migrations or restarts Plania: you do that.",
@@ -222,6 +233,7 @@ export const LIMITS_WORDS = defineWords({
       "run-tooling": "Run the app's tools: install, build or test.",
       "git-sync": "Fetch changes from GitHub or create branches and copies.",
       "plan-writes": "Write to the plan: questions, tasks, documents or images.",
+      "plania-in-trial": "Use Plania while it tries a skill.",
       "live-database": "Connect to the database of the Plania you are using.",
       "apply-migrations": "Apply migrations to a database.",
       "restart-live": "Restart the Plania you are using.",

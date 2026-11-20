@@ -11,7 +11,7 @@
 /** The branch names no run may move or aim at. The runner's base check (worktree.ts) uses the same list. */
 export const PROTECTED_BRANCHES = ["main", "master", "production", "prod"] as const;
 
-export type DenyGroupId = "protected-branches" | "force-push" | "pull-requests" | "production" | "plania-writes" | "qa" | "preguntar" | "plania-self";
+export type DenyGroupId = "protected-branches" | "force-push" | "pull-requests" | "production" | "plania-writes" | "qa" | "preguntar" | "probar" | "plania-self";
 
 export type DenyRule = {
   /** The rule as Claude Code reads it: Bash(<glob>) or a tool name. */
@@ -195,6 +195,27 @@ export const DENY_GROUPS: readonly DenyGroup[] = [
       tool("mcp__plania__attach_frames", "plan-writes"),
     ],
   },
+  // PLA-I67-6: a skill trial («Probar») re-runs a past delivery in a throwaway copy. It may edit that copy, but it
+  // reaches no Plania tool (its MCP config is empty too), and it never commits, pushes, moves a branch or touches a PR,
+  // so the delivery's branch, ticket and PR stay as they were.
+  {
+    id: "probar",
+    rules: [
+      tool("mcp__plania", "plania-in-trial"),
+      bash("git commit*", "commit", "git commit -m x"),
+      bash("git -C * commit*", "commit", "git -C /w commit -m x"),
+      bash("git push*", "push", "git push origin jl/x"),
+      bash("git -C * push*", "push", "git -C /w push origin jl/x"),
+      bash("git checkout*", "move-branch", "git checkout jl/x"),
+      bash("git switch*", "move-branch", "git switch jl/x"),
+      bash("git branch*", "move-branch", "git branch -f jl/x"),
+      bash("git merge*", "move-branch", "git merge jl/x"),
+      bash("git rebase*", "move-branch", "git rebase origin/sandbox"),
+      bash("git update-ref*", "move-branch", "git update-ref refs/heads/jl/x HEAD"),
+      bash("git worktree*", "move-branch", "git worktree add ../x jl/x"),
+      bash("gh pr*", "change-pr", "gh pr comment 12 --body x"),
+    ],
+  },
   // PLA-I2-9: on top of the others, when the project is Plania itself.
   { id: "plania-self", rules: selfDenyRules("plania") },
 ];
@@ -219,6 +240,9 @@ export const QA_DENY_RULES: readonly string[] = rulesOf("qa");
 
 /** A Preguntar run, on top of DENY_RULES: QA's rules and its own. */
 export const CONSULTA_DENY_RULES: readonly string[] = rulesOf("qa", "preguntar");
+
+/** PLA-I67-6: a skill trial, on top of DENY_RULES. */
+export const TRIAL_DENY_RULES: readonly string[] = rulesOf("probar");
 
 /** A run of the Plania project itself, on top of its lane's rules, for the live database's name. */
 export const selfRules = (liveName: string | null): string[] => selfDenyRules(liveName || "plania").map((r) => r.rule);

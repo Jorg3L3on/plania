@@ -40,12 +40,13 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, TRIAL_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
 import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
 import { mannerBlock, mannerVersion, resolvedKit } from "./skills.js";
 import { lessonBlock, lessonsForRun, recordKnowledge } from "./lessons.js";
+import { addTrialCopy, setTrial, trialById, trialIdOfRun, trialKit, trialPathFor, trialPrompt, trialResult, trialScope, trialStatusOf } from "./trial.js";
 import { fixedWords, lessonRoomOf } from "./lesson-watch.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
@@ -319,7 +320,7 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
 // PLA-I40-2: skipRest and pastGuard are the owner's "start now" from the screen, for one run: the rest between
 // runs is not counted, and the plan guard reads as with the override on. Every other check stands.
 // noCap (PLA-I60-2): admission checks the plan and the caps itself, inside its transaction.
-async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean; trigger?: RunTrigger; noCap?: boolean } = {}): Promise<Preflight> {
+async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean; trial?: boolean; trigger?: RunTrigger; noCap?: boolean } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
@@ -334,8 +335,9 @@ async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, o
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
   if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
   if (own?.code === "rest") return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
-  if (own?.code === "no_goal" && !opts.consulta) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
-  if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
+  // PLA-I67-6: a skill trial is the owner's own ask, about a delivery already made: no goal and no ticket needed.
+  if (own?.code === "no_goal" && !opts.consulta && !opts.trial) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
+  if (!task && role !== "product-owner" && role !== "asistente" && !opts.trial) return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
     // PLA-I2-5: the project's start branch is the only base (settings.start_branch, never a protected one).
@@ -398,6 +400,28 @@ export async function wakeClaude(
     if (out.kind === "coalesced") return { kind: "coalesced", summary: "coalesced" };
     // PLA-I60-2: it starts through admission like every run (caps, lock keys, plan projection).
     return outcomeOf(await admit(db, input.now, deps, { only: out.run.id }), out.run.id, taskKey);
+  });
+}
+
+// PLA-I67-6: the owner's «Probar». The trial's run is queued and admitted like any run (caps, plan guard); the
+// trial row follows it (queued while it waits, skipped or failed when it cannot start).
+export async function startTrial(db: Db, input: { agent: Agent; trialId: string; now: Date }, deps: RunnerDeps = {}): Promise<WakeOutcome> {
+  return serial(async () => {
+    const trial = await trialById(db, input.trialId);
+    if (!trial) return { kind: "fail", summary: "fail: no such trial", taskKey: null };
+    const [project] = await db.select().from(projects).where(eq(projects.id, trial.projectId)).limit(1);
+    const role = roleOf(input.agent);
+    if (!project || !role) {
+      await setTrial(db, trial.id, { status: "skipped", summary: "skipped: no runner role", finishedAt: input.now });
+      return { kind: "skipped", summary: "skipped: no runner role", taskKey: null };
+    }
+    const settings = await loadSettings(db);
+    const out = await insertRun(db, { agent: input.agent, project, role, taskKey: null, trialId: trial.id, trigger: "trial", summary: "starting", queuedAt: input.now, reserveTokens: settings.reserveTokens });
+    if (out.kind === "coalesced") return { kind: "coalesced", summary: "coalesced" };
+    await setTrial(db, trial.id, { runId: out.run.id });
+    const outcome = outcomeOf(await admit(db, input.now, deps, { only: out.run.id }), out.run.id, null);
+    if (outcome.kind === "queued") await setTrial(db, trial.id, { status: "queued", summary: outcome.summary });
+    return outcome;
   });
 }
 
@@ -626,7 +650,7 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
       const ctx = await loadContext(tx, agent, task);
       if (!ctx.project) ctx.project = (await tx.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
       const mine = opts.only === run.id;
-      const pre = await preflight(tx, ctx, now, deps, { fromQueue: run.id, consulta: run.lane === "consulta", trigger: run.trigger, skipRest: mine && opts.skipRest, noCap: true });
+      const pre = await preflight(tx, ctx, now, deps, { fromQueue: run.id, consulta: run.lane === "consulta", trial: run.trigger === "trial", trigger: run.trigger, skipRest: mine && opts.skipRest, noCap: true });
       if (!pre.ok && pre.summary === "skipped: cooldown") {
         await hold(run, "rest", {});
         continue;
@@ -682,7 +706,8 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
       const team = !!agent.projectId;
       const project = ctx.project!;
       const branch = task ? ctx.taskRow?.branch?.trim() || branchFor(task.key) : null;
-      const cwd = run.lane === "consulta" ? null : task ? safePath(() => worktreePathFor(root, project.slug, task.key)) : scratchPathFor(root, project.slug, agent.slug);
+      const trialId = trialIdOfRun(run);
+      const cwd = run.lane === "consulta" ? null : trialId ? safePath(() => trialPathFor(root, project.slug, trialId)) : task ? safePath(() => worktreePathFor(root, project.slug, task.key)) : scratchPathFor(root, project.slug, agent.slug);
       const keys = lockKeysOf({ projectId: project.id, taskKey: run.taskKey, branch: run.lane === "consulta" ? null : branch, cwd });
       const taken = await takeLocks(tx, run.id, run.lane === "consulta" ? keys.filter((k) => !k.startsWith("task:")) : keys);
       if (!taken.ok) {
@@ -855,6 +880,9 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
   await db.transaction(async (tx) => {
     await tx.update(agentRuns).set({ status, summary: summary.slice(0, 500), endedAt: now, heldCode: null }).where(eq(agentRuns.id, run.id));
     await releaseLocks(tx, run.id);
+    // PLA-I67-6: a trial that never started says why (the plan guard, a paused project, its copy could not be made).
+    const trialId = trialIdOfRun(run);
+    if (trialId) await setTrial(tx, trialId, { status: trialStatusOf(status), summary, finishedAt: now });
   });
   await db.insert(heartbeatRuns).values({
     agentId: run.agentId,
@@ -1150,13 +1178,24 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I57-1: a question from Preguntar. Read-only, in the project's own checkout, fresh session, no packs.
   const consultaId = consultaIdOfRun(run);
   const consulta = consultaId ? await consultaById(db, consultaId) : null;
+  // PLA-I67-6: a skill trial, in its own throwaway copy (src/runner/trial.ts).
+  const trialId = trialIdOfRun(run);
+  const trial = trialId ? await trialById(db, trialId) : null;
+  if (trialId && !trial) return fail("fail: no such trial");
 
   // Where the run works: the ticket's worktree, or a scratch folder for a PO with no ticket.
   let cwd: string;
   let worktree: string | null = null;
   let branch: string | null = null;
   let readCopy: { branch: string | null; commit: string | null; fallback?: string } | null = null;
-  if (ctx.task) {
+  if (trial) {
+    const repo = repoPathOf(project.slug, project.settings, env);
+    const target = trialPathFor(root, project.slug, trial.id);
+    const made = await withRepoLock(db, repo, () => addTrialCopy({ repo, target, base: trial.baseCommit ?? "" }, carefulGit(deps.git ?? defaultGit)));
+    if (!made.ok) return fail(made.summary);
+    cwd = target;
+    worktree = target;
+  } else if (ctx.task) {
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
@@ -1216,7 +1255,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .limit(1);
   // PLA-I46-9: a QA run is always a fresh session, so its review has not seen anyone's earlier reasoning.
   const qa = role === "qa" ? await qaBriefFor(db, run.id, cwd) : null;
-  const resumable = !qa && !consulta && session && session.cwd === cwd ? session.claudeSessionId : null;
+  const resumable = !qa && !consulta && !trial && session && session.cwd === cwd ? session.claudeSessionId : null;
   // AUDIT-7: a session that failed, was sent back or grew long is not resumed; the run starts clean with a handoff.
   const handoff = resumable ? await freshReason(db, run, env).catch(() => null) : null;
   const resume = handoff ? null : resumable;
@@ -1256,16 +1295,17 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
   // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
   const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
-  const laneRules = consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
+  const laneRules = consulta ? CONSULTA_DENY_RULES : trial ? TRIAL_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
   writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
-  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
+  // PLA-I67-6: a trial reaches no Plania server at all, so it cannot write to the delivery's ticket.
+  writeFileSync(mcpConfigPath, JSON.stringify(trial ? { mcpServers: {} } : mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
   // left alone (whatever an older run left there is cleared). PLANIA_KIT_MODE=worktree keeps the older delivery.
   // PLA-I67-2: the factory kit merged with the owner's skills in scope (src/runner/skills.ts).
-  const carried = consulta ? [] : await resolvedKit(db, ctx.agent, env, role);
+  const carried = consulta ? [] : trial ? await trialKit(db, ctx.agent, trial, env, role) : await resolvedKit(db, ctx.agent, env, role);
   const inWorktree = env.PLANIA_KIT_MODE === "worktree";
   const packs = inWorktree ? writePacks(cwd, carried) : [];
   if (!inWorktree && !consulta) clearPacks(cwd);
@@ -1277,11 +1317,13 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I67-4: the seat's references, copied into this run's temp folder and recorded as carried. Not for a question
   // (Preguntar) or a QA review, which judge on their own.
   const refsDir = path.join(tmp, "refs");
-  const references = consulta || qa ? [] : await carryReferences(db, { projectId: project.id, agentId: ctx.agent.id, runId: run.id, dir: refsDir }).catch(() => [] as ReferenceLine[]);
+  const references = consulta || qa || trial ? [] : await carryReferences(db, { projectId: project.id, agentId: ctx.agent.id, runId: run.id, dir: refsDir }).catch(() => [] as ReferenceLine[]);
 
   const goal = await projectGoal(db, project.id);
   const planiaSession = runSession(run.id);
-  const prompt = consulta
+  const prompt = trial
+    ? trialPrompt({ agent: ctx.agent.name, role, project: { slug: project.slug, title: project.title }, trial, scope: await trialScope(db, trial.projectId, trial.taskKey).catch(() => null), cwd, kit })
+    : consulta
     ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession, copy: readCopy })
     : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
@@ -1382,7 +1424,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     })
     .where(eq(agentRuns.id, run.id));
   // PLA-I67-3: one row per skill, lesson and manner version this run carried.
-  await recordKnowledge(db, run.id, { skills: carried, manner: mannerStamp, lessons: carriedLessons }).catch(() => undefined);
+  // PLA-I67-6: not for a trial, so the seat's counts read only real work.
+  if (!trial) await recordKnowledge(db, run.id, { skills: carried, manner: mannerStamp, lessons: carriedLessons }).catch(() => undefined);
+  else await setTrial(db, trial.id, { status: "running", summary: "running", afterSkills: carried.map(skillVersion) });
 
   const entry: LiveRun = { runId: run.id, agentId: ctx.agent.id, projectId: project.id, role, proc, finished: Promise.resolve(), stopReason: null };
   entry.finished = proc.done
@@ -1542,6 +1586,16 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   // PLA-I67-4: which of the references it carried the run opened.
   await markOpened(db, run.id, reader.filesRead).catch(() => 0);
 
+  // PLA-I67-6: a trial keeps its answer and what it changed in its copy, then the copy goes. Nothing else follows.
+  const trialId = trialIdOfRun(run);
+  if (trialId) {
+    const git = deps.git ?? defaultGit;
+    const diff = await trialResult(git, repoPathOf(project.slug, project.settings, deps.env ?? process.env), input.cwd).catch(() => null);
+    await setTrial(db, trialId, { status: trialStatusOf(status), summary, afterOutput: result?.resultText?.trim().slice(0, 6000) || null, afterDiff: diff, finishedAt: endedAt });
+    await db.insert(heartbeatRuns).values({ agentId: agent.id, startedAt: run.startedAt ?? run.queuedAt, endedAt, status: status === "stopped" ? "skipped" : status, adapter: RUNNER_ADAPTER, summary: summary.slice(0, 500), taskKey: null });
+    await notifyQueue(db);
+    return;
+  }
   // PLA-I57-1: a question's run never replaces the PO's own session (it ran elsewhere, with a different prompt).
   if (sessionId && !consultaRun) {
     await db

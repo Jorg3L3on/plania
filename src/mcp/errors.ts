@@ -36,6 +36,10 @@ export const ERRORS = {
   // PLA-I67-2: skills the owner writes on screen (src/runner/skills.ts).
   SKILL_INVALID: [400, "a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint)"],
   SKILL_NOT_ALLOWED: [400, "a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint)"],
+  // PLA-I67-6: a skill brought from a link (src/runner/skill-import.ts) and a trial of a skill (src/runner/trial.ts).
+  SKILL_IMPORT_FORMAT: [400, "the link is not a skill Plania can bring: not a SKILL.md, a GitHub folder or a GitHub file or raw address; no SKILL.md with a name and a description; or more files or folders than a skill holds (detail: reason)"],
+  SKILL_NOT_IMPORTED: [400, "only a skill brought from a link looks at its link again (detail: skill)"],
+  TRIAL_NO_DELIVERY: [400, "a trial needs one finished delivery of this agent on a ticket whose work can still be read: the run is not one, or its branch is gone (detail: reason)"],
   // PLA-I67-3: lessons (src/runner/lessons.ts).
   LESSON_NOT_ALLOWED: [400, "a lesson would hold a secret or personal data, or relax a test, review or check (detail: reason secret | relaxes_checks)"],
   INVALID_GOAL: [400, "a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal"],
@@ -127,6 +131,7 @@ export const ERRORS = {
   LESSON_CONFLICT: [409, "approving a lesson that clashes with an active one: say which stays with keep new | old (detail: lesson, text, other {id, text})"],
   LESSON_STATE: [409, "the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action)"],
   SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
+  SKILL_IMPORT_CHANGED: [409, "the content at the link is no longer the one the owner saw and confirmed: look at it again (detail: source_hash)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],
   // PLA-I67-4: the server's own fetch of an address (src/lib/safe-fetch.ts) and an agent's references

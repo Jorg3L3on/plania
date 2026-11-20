@@ -78,6 +78,7 @@ import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
 import { oficioRead } from "./company-oficio.js";
 import { oficioSkillRoutes } from "./company-oficio-skills.js";
+import { oficioTrialRoutes } from "./company-oficio-trials.js";
 import { oficioLessonRoutes } from "./company-oficio-lessons.js";
 import { defineWords, say } from "../words.js";
 
@@ -648,6 +649,8 @@ companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
 companyRoutes.route("/", ideaDecisionRoutes);
 // PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
 companyRoutes.route("/", oficioSkillRoutes);
+// PLA-I67-6: «Traer de un enlace» and «Probar».
+companyRoutes.route("/", oficioTrialRoutes);
 // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
 companyRoutes.route("/", oficioLessonRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.

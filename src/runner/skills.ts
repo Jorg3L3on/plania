@@ -194,10 +194,10 @@ export async function seatOf(db: Db | Q, project: string, agent: string): Promis
   return a;
 }
 
-const liveBySlug = async (db: Db | Q, slug: string): Promise<OwnerSkillRow | null> =>
+export const liveBySlug = async (db: Db | Q, slug: string): Promise<OwnerSkillRow | null> =>
   (await db.select().from(skills).where(and(eq(skills.slug, slug), ne(skills.state, "archived"))).limit(1))[0] ?? null;
 
-const versionsOf = (db: Db | Q, id: string) => db.select().from(skillVersions).where(eq(skillVersions.skillId, id)).orderBy(desc(skillVersions.n));
+export const versionsOf = (db: Db | Q, id: string) => db.select().from(skillVersions).where(eq(skillVersions.skillId, id)).orderBy(desc(skillVersions.n));
 
 // ---- The card
 
@@ -219,6 +219,8 @@ export type SkillCard = {
   factory_changed: boolean;
   archived_at: string | null;
   carried: number;
+  // PLA-I67-6: an imported skill's link, the hash of the content it is pinned to, and when the link was last read.
+  link: { url: string; hash: string; checked_at: string | null } | null;
 };
 
 const factoryBody = (p: Pack): string => (p.source === "kit" ? frontmatter(p.markdown).body : p.markdown).trim();
@@ -250,6 +252,7 @@ export async function skillCard(db: Db, project: string, agent: string, slug: st
       factory_changed: row.origin === "factory-copy" && !!factory && !!row.factorySha && factory.sha !== row.factorySha,
       archived_at: row.archivedAt ? row.archivedAt.toISOString() : null,
       carried: carried.length,
+      link: row.origin === "imported" && row.sourceUrl && row.sourceHash ? { url: row.sourceUrl, hash: row.sourceHash, checked_at: row.sourceCheckedAt ? row.sourceCheckedAt.toISOString() : null } : null,
     };
   }
   if (!factory) throw new ToolError("SKILL_NOT_FOUND", { skill: slug });
@@ -270,6 +273,7 @@ export async function skillCard(db: Db, project: string, agent: string, slug: st
     factory_changed: false,
     archived_at: null,
     carried: carried.length,
+    link: null,
   };
 }
 
@@ -285,7 +289,7 @@ async function archivedWithin(db: Db | Q, slug: string, now: Date): Promise<Owne
 
 // ---- Writes. Every one runs in a transaction; who is "owner" unless a caller says otherwise.
 
-async function addVersion(tx: Q, row: OwnerSkillRow, c: SkillContent, author: string, note: string | null): Promise<SkillVersionRow> {
+export async function addVersion(tx: Q, row: OwnerSkillRow, c: SkillContent, author: string, note: string | null): Promise<SkillVersionRow> {
   const [last] = await tx.select({ n: skillVersions.n }).from(skillVersions).where(eq(skillVersions.skillId, row.id)).orderBy(desc(skillVersions.n)).limit(1);
   const [v] = await tx
     .insert(skillVersions)
@@ -295,7 +299,7 @@ async function addVersion(tx: Q, row: OwnerSkillRow, c: SkillContent, author: st
   return v!;
 }
 
-const sameContent = (v: SkillVersionRow, c: SkillContent) => v.name === c.name && v.description === c.description && v.body === c.body && JSON.stringify(v.files) === JSON.stringify(c.files);
+export const sameContent = (v: SkillVersionRow, c: SkillContent) => v.name === c.name && v.description === c.description && v.body === c.body && JSON.stringify(v.files) === JSON.stringify(c.files);
 
 export type CreateSkill = SkillInput & { slug?: string; scope?: SkillScope };
 
