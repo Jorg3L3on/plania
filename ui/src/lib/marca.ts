@@ -314,6 +314,7 @@ export const MARCA_WORDS = defineWords({
     solo: {
       btn: "Solo este",
       own: "Propio",
+      send: "Ponerlo en el repo",
       back: "Volver al original",
       name: { navegador: "el navegador", iphone: "iPhone", android: "Android" } as Record<Surface, string>,
       title: (s: string, name: string) => `El ícono de ${s} para ${name}`,
@@ -583,6 +584,7 @@ export const MARCA_WORDS = defineWords({
     solo: {
       btn: "Only this one",
       own: "Own",
+      send: "Put it in the repo",
       back: "Back to the original",
       name: { navegador: "the browser", iphone: "iPhone", android: "Android" } as Record<Surface, string>,
       title: (s: string, name: string) => `The ${s} icon for ${name}`,
