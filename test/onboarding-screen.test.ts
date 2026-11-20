@@ -185,6 +185,7 @@ test("P5: «Conectar Claude Code» makes a token of its own and the exact line, 
     'claude mcp add --scope user --transport http plania http://localhost:3747/mcp --header "Authorization: Bearer pla_abc"',
   );
   assert.equal(onboarding.localMcpUrl({}), "http://localhost:3737/mcp");
+  assert.equal(onboarding.localMcpUrl({}, "http://localhost:4000/api/onboarding/claude-code"), "http://localhost:4000/mcp", "the port the screen was reached on");
 
   assert.equal((await app.request("/api/onboarding/claude-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 401, "no session");
   const bearer = await post("/api/onboarding/claude-code", {}, { Authorization: "Bearer pla_whatever" });

@@ -18,8 +18,19 @@ import { homeSlug } from "../runner/threads.js";
 
 export const CLAUDE_CODE_AGENT = "claude-code";
 
-/** The address an MCP client on this machine connects to: the server's own port (PLANIA_PORT, else 3737). */
-export const localMcpUrl = (env: NodeJS.ProcessEnv = process.env): string => `http://localhost:${Number(env.PLANIA_PORT) || 3737}/mcp`;
+/**
+ * The address an MCP client on this machine connects to: the port the screen was reached on (the server's own, even
+ * when installed with --port, which sets no PLANIA_PORT), else PLANIA_PORT, else 3737.
+ */
+export const localMcpUrl = (env: NodeJS.ProcessEnv = process.env, requestUrl?: string): string => {
+  let port = 0;
+  try {
+    port = requestUrl ? Number(new URL(requestUrl).port) : 0;
+  } catch {
+    port = 0;
+  }
+  return `http://localhost:${port || Number(env.PLANIA_PORT) || 3737}/mcp`;
+};
 
 /** The home project's slug while it exists and holds no task; null once it holds work (or is not there). */
 export async function quietHomeSlug(db: Db, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
@@ -44,7 +55,7 @@ export function onboardingRoutes(deps: OnboardingDeps = {}) {
   routes.post("/claude-code", async (c) => {
     if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the screen makes this token, with the owner's session" }, 403);
     const { token, secret } = await withDb((db) => issueToken(db, { name: "Claude Code", agent: CLAUDE_CODE_AGENT, scopes: ["read", "write"] }, WEB_ACTOR));
-    return c.json({ url: localMcpUrl(env()), secret, token }, 201);
+    return c.json({ url: localMcpUrl(env(), c.req.url), secret, token }, 201);
   });
   return routes;
 }

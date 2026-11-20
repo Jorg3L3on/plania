@@ -123,12 +123,13 @@ test("I2-12 #1: the install gate goes on when only the optional Chrome is missin
 test("PLA-I2-4: PLANIA_UNSUPPORTED_SKIP_CHECK (CI only) lets the gate pass an item; unknown ids are ignored", async () => {
   const deps = { ...machine(), totalMemory: () => 7 * GB };
   assert.equal((await installGate(deps)).proceed, false);
-  const skip = skippedChecks({ PLANIA_UNSUPPORTED_SKIP_CHECK: " memory, nonsense" });
+  const skip = skippedChecks({ GITHUB_ACTIONS: "true", PLANIA_UNSUPPORTED_SKIP_CHECK: " memory, nonsense" });
   assert.deepEqual(skip, ["memory"]);
   const gate = await installGate(deps, { skip });
   assert.equal(gate.proceed, true);
   assert.equal(byId(gate.items).get("memory")!.state, "missing", "still reported");
   assert.deepEqual(skippedChecks({}), []);
+  assert.deepEqual(skippedChecks({ PLANIA_UNSUPPORTED_SKIP_CHECK: "memory" }), [], "off a GitHub Actions runner it is ignored");
 });
 
 test("I2-12 #4: gh not installed, signed out, and signed in without write access are three different items", async () => {

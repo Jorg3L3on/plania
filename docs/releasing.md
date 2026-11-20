@@ -118,7 +118,8 @@ against a stand-in pnpm, with `PLANIA_BOOTSTRAP_SKIP_DEPS=1` so nothing is insta
 on pull requests that touch the installers, by hand, and before every release. Claude Code is not on the runners; the
 install goes on without it, as it does for a person. A macOS runner has 7 GB of memory, under Plania's 8, so the job
 sets `PLANIA_UNSUPPORTED_SKIP_CHECK=memory`: a comma-separated list of machine-check items the install lets
-pass when they are missing. It exists for that job and is not supported for users.
+pass when they are missing. It exists for that job and is read only on a GitHub Actions runner (`GITHUB_ACTIONS=true`),
+so it does nothing on a user's machine.
 
 To try a release before it is published:
 

@@ -209,6 +209,8 @@ export const AFTER_INSTALL: MachineItemId[] = ["claude", "claude_session"];
  * CI job sets it (a macOS runner has 7 GB of memory); unsupported for users.
  */
 export function skippedChecks(env: NodeJS.ProcessEnv = process.env): MachineItemId[] {
+  // Read only on a GitHub Actions runner, so a user who sets it still gets the full check.
+  if (env.GITHUB_ACTIONS !== "true") return [];
   const ids = (env.PLANIA_UNSUPPORTED_SKIP_CHECK ?? "").split(",").map((s) => s.trim());
   return MACHINE_ITEMS.filter((id) => ids.includes(id));
 }

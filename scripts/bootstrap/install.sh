@@ -8,7 +8,7 @@
 # (or PLANIA_FROM), --no-service, --no-open (no browser at the end), --yes (ask nothing, install what is missing).
 # Steps: install what the machine lacks (Node 22+, git, Postgres) after one question, get the release and check its
 # .sha256, unpack it, get the pnpm its package.json pins (npm; npx when a global install is not allowed), then
-# `pnpm install --prod --frozen-lockfile` and `pnpm plania:install --service`.
+# `pnpm install --prod --frozen-lockfile` and `pnpm plania:install`, which starts Plania as a service.
 # Downloads come from PLANIA_DOWNLOAD_BASE (default: the latest GitHub Release). pnpm release:pack stamps the
 # release's version into DEFAULT_VERSION; with no version the installer takes plania-latest.tar.gz, which every
 # release carries. Another version: PLANIA_DOWNLOAD_BASE=https://github.com/Jorg3L3on/plania/releases/download/v<x.y.z>.
@@ -338,9 +338,13 @@ if [ -n "$pg_url" ]; then PLANIA_INSTALL_URL="$pg_url"; export PLANIA_INSTALL_UR
 say "Instalando lo que Plania necesita..."
 # shellcheck disable=SC2086
 $pnpm_cmd install --prod --frozen-lockfile || fail "pnpm install falló. Corre pnpm help:report en $dir y manda el informe."
-if [ "$service" = 1 ]; then
+# The install command starts Plania as a service by default; --no-service tells it not to (--no-start).
+[ "$service" = 1 ] || set -- --no-start "$@"
+# Under `curl … | sh` this shell's stdin is the script itself, so the install command would see no terminal and could
+# not ask for a Postgres user and password (B3). It reads the terminal instead when there is one.
+if [ "$ask" = 1 ] && can_ask; then
   # shellcheck disable=SC2086
-  $pnpm_cmd plania:install --service "$@" || exit 1
+  $pnpm_cmd plania:install "$@" </dev/tty || exit 1
 else
   # shellcheck disable=SC2086
   $pnpm_cmd plania:install "$@" || exit 1

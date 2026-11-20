@@ -7,7 +7,7 @@
 # install what is missing; PLANIA_YES=1), -InstallArgs (passed on to pnpm plania:install).
 # Steps: install what the machine lacks (Node 22+, git, Postgres) with winget after one question, get the release and
 # check its .sha256, unpack it, get the pnpm its package.json pins (npm installs it per user; npx when that fails),
-# then `pnpm install --prod --frozen-lockfile` and `pnpm plania:install --service`.
+# then `pnpm install --prod --frozen-lockfile` and `pnpm plania:install`, which starts Plania as a service.
 # Downloads come from PLANIA_DOWNLOAD_BASE (default: the latest GitHub Release). pnpm release:pack stamps the
 # release's version into $DefaultVersion; with no version the installer takes plania-latest.tar.gz, which every
 # release carries. Another version: PLANIA_DOWNLOAD_BASE=https://github.com/Jorg3L3on/plania/releases/download/v<x.y.z>.
@@ -26,8 +26,8 @@ param(
 $DefaultVersion = ''
 $DefaultBase = 'https://github.com/Jorg3L3on/plania/releases/latest/download'
 
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
+# The error and progress preferences are set inside Install-Plania, not here: through `irm | iex` this file runs in
+# the user's own session, and a value set at this level would stay in their window after the install.
 
 function Words([string]$s) {
   $map = @{ '{a}' = 0xE1; '{e}' = 0xE9; '{i}' = 0xED; '{o}' = 0xF3; '{u}' = 0xFA; '{n}' = 0xF1; '{?}' = 0xBF }
@@ -83,6 +83,9 @@ function New-Password {
 }
 
 function Install-Plania {
+  # Local to this function (and what it calls), so the user's session keeps its own.
+  $ErrorActionPreference = 'Stop'
+  $ProgressPreference = 'SilentlyContinue'
   # 1. The folder: -Dir, PLANIA_DIR, or asked (default ~\plania). Checked before anything is installed.
   $quiet = $Yes -or ($env:PLANIA_YES -eq '1')
   $canAsk = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
@@ -156,12 +159,21 @@ function Install-Plania {
       if (-not $up) { Stop-Install 'Postgres se instal{o} pero no responde en localhost:5432.' }
       # A Postgres installed before (its data folder still there) keeps its own superuser password and ignores the
       # one given here. Then the install command asks for it, as it does for any Postgres already on the machine.
+      # The password given to winget was on a command line (and may be in winget's logs), so it does not stay: Plania
+      # gets its own role `plania` that may create databases, as on macOS and Linux, and the superuser gets a new
+      # password, kept for the owner in ~\.config\plania\postgres-superuser.
       $psql = Join-Path $env:ProgramFiles 'PostgreSQL\17\bin\psql.exe'
+      $planiaPassword = New-Password
+      $adminPassword = New-Password
+      $roleSql = "DO `$`$BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'plania') THEN ALTER ROLE plania WITH LOGIN CREATEDB PASSWORD '$planiaPassword'; ELSE CREATE ROLE plania WITH LOGIN CREATEDB PASSWORD '$planiaPassword'; END IF; END`$`$; ALTER ROLE postgres PASSWORD '$adminPassword';"
       $env:PGPASSWORD = $password
-      try { & $psql -w -h localhost -U postgres -d postgres -tAc 'select 1' *> $null; $accepted = ($LASTEXITCODE -eq 0) } catch { $accepted = $false }
+      try { $roleSql | & $psql -w -q -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 *> $null; $accepted = ($LASTEXITCODE -eq 0) } catch { $accepted = $false }
       finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue }
       if ($accepted) {
-        $pgUrl = "postgres://postgres:$password@localhost:5432/plania"
+        $configDir = Join-Path $HOME '.config\plania'
+        if (-not (Test-Path -LiteralPath $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
+        Set-Content -LiteralPath (Join-Path $configDir 'postgres-superuser') -Value "postgres:$adminPassword" -Encoding ASCII
+        $pgUrl = "postgres://plania:$planiaPassword@localhost:5432/plania"
         Say 'Postgres qued{o} instalado y encendido.'
       } else {
         Say 'Postgres ya estaba instalado en esta computadora con otra contrase{n}a: la instalaci{o}n te la pedir{a}.'
@@ -248,13 +260,16 @@ function Install-Plania {
     & $pnpmExe @pnpmPre install --prod --frozen-lockfile
     if ($LASTEXITCODE -ne 0) { Stop-Install "pnpm install fall{o}. Corre pnpm help:report en $target y manda el informe." }
     $rest = @('plania:install')
-    if (-not $NoService) { $rest += '--service' }
+    # The install command starts Plania as a service by default; -NoService tells it not to.
+    if ($NoService) { $rest += '--no-start' }
     if ($NoOpen) { $rest += '--no-open' }
     # In the environment, not on the command line: pnpm prints a script's command line.
     if ($pgUrl) { $env:PLANIA_INSTALL_URL = $pgUrl }
     & $pnpmExe @pnpmPre @rest @InstallArgs
     if ($LASTEXITCODE -ne 0) { Stop-Install 'La instalaci{o}n no termin{o}: arriba dice qu{e} falta.' }
   } finally {
+    # Through `irm | iex` this is the user's own session: the address and its password must not stay in it.
+    Remove-Item Env:PLANIA_INSTALL_URL -ErrorAction SilentlyContinue
     Pop-Location
   }
 }

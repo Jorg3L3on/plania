@@ -108,13 +108,13 @@ function fakePnpm(): { bin: string; log: string } {
 }
 const calls = (log: string) => (existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).map((l) => l.trim()) : []);
 
-type Run = (args: { from: string; dir: string; bin: string; extra?: string[] }) => { status: number | null; out: string };
+type Run = (args: { from: string; dir: string; bin: string; extra?: string[]; noService?: boolean }) => { status: number | null; out: string };
 const runners: [string, string | false, Run][] = [
   [
     "install.sh",
     needs({ posix: true, tools: ["sh", "tar"] }),
-    ({ from, dir, bin, extra = [] }) => {
-      const r = spawnSync("sh", [SH, "--from", from, "--dir", dir, "--yes", "--", ...extra], {
+    ({ from, dir, bin, extra = [], noService = false }) => {
+      const r = spawnSync("sh", [SH, "--from", from, "--dir", dir, "--yes", ...(noService ? ["--no-service"] : []), "--", ...extra], {
         encoding: "utf8",
         env: { ...process.env, PLANIA_BOOTSTRAP_SKIP_DEPS: "1", PATH: `${bin}${path.delimiter}${process.env.PATH}` },
       });
@@ -124,10 +124,10 @@ const runners: [string, string | false, Run][] = [
   [
     "install.ps1",
     needs({ platforms: ["win32"], tools: ["powershell"] }),
-    ({ from, dir, bin, extra = [] }) => {
+    ({ from, dir, bin, extra = [], noService = false }) => {
       const r = spawnSync(
         "powershell",
-        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", PS1, "-From", from, "-Dir", dir, "-Yes", ...(extra.length ? ["-InstallArgs", extra.join(",")] : [])],
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", PS1, "-From", from, "-Dir", dir, "-Yes", ...(noService ? ["-NoService"] : []), ...(extra.length ? ["-InstallArgs", extra.join(",")] : [])],
         { encoding: "utf8", env: { ...process.env, PLANIA_BOOTSTRAP_SKIP_DEPS: "1", PATH: `${bin}${path.delimiter}${process.env.PATH}` } },
       );
       return { status: r.status, out: r.stdout + r.stderr };
@@ -137,14 +137,22 @@ const runners: [string, string | false, Run][] = [
 
 for (const [name, skip, run] of runners) {
   describe(`${name} --from`, { skip }, () => {
-    test("unpacks into the folder, then installs dependencies from the lockfile and runs the install with the service", () => {
+    test("unpacks into the folder, then installs dependencies from the lockfile and runs the install", () => {
       const { bin, log } = fakePnpm();
       const dir = path.join(tmp("home"), "mi plania");
       const r = run({ from: fakePackage(), dir, bin, extra: ["--url=postgres://u@localhost:5432/plania"] });
       assert.equal(r.status, 0, r.out);
       assert.match(r.out, /coincide con su \.sha256/);
       assert.ok(existsSync(path.join(dir, "package.json")), "the package's folder becomes the install folder");
-      assert.deepEqual(calls(log), ["install --prod --frozen-lockfile", "plania:install --service --url=postgres://u@localhost:5432/plania"]);
+      assert.deepEqual(calls(log), ["install --prod --frozen-lockfile", "plania:install --url=postgres://u@localhost:5432/plania"]);
+    });
+
+    test("--no-service tells the install command not to start Plania (it starts a service by default)", () => {
+      const { bin, log } = fakePnpm();
+      const dir = path.join(tmp("home"), "plania");
+      const r = run({ from: fakePackage(), dir, bin, noService: true });
+      assert.equal(r.status, 0, r.out);
+      assert.deepEqual(calls(log), ["install --prod --frozen-lockfile", "plania:install --no-start"]);
     });
 
     test("a package that does not match its .sha256 installs nothing", () => {
