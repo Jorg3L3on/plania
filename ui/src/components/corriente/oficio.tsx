@@ -316,17 +316,27 @@ const Shelf = ({ o, seat, onClose, onOpen, onNew, onImport }: { o: Oficio; seat:
           ×
         </Btn>
       </div>
-      <Btn kind="secondary" className="ofi-wide" onClick={onNew} data-control="nueva-habilidad">
-        {ws.newSkill}
-      </Btn>
-      <Btn kind="quiet" className="ofi-wide" onClick={onImport} data-control="traer-de-enlace">
-        {words(IMPORT_WORDS).open}
-      </Btn>
-      <p className="cor-cap ofi-shelf-hint">
-        {w.onCount(numWord(onCount, undefined, true), onCount)} {w.focusHint} {onCount > 6 ? w.tooMany : ""}
-      </p>
-      <p className="cor-cap" role="status">
-        {save.isPending ? w.saving : err ? <span className="cor-state bad">{err}</span> : save.isSuccess ? w.savedNext : o.own ? w.ownKit : w.defaultKit}
+      {/* Seen live at 1440x800: two stacked buttons and two hint lines left the list one skill tall. One row, one line. */}
+      <div className="ofi-actions ofi-actions-two">
+        <Btn kind="secondary" onClick={onNew} data-control="nueva-habilidad">
+          {ws.newSkill}
+        </Btn>
+        <Btn kind="quiet" onClick={onImport} data-control="traer-de-enlace">
+          {words(IMPORT_WORDS).open}
+        </Btn>
+      </div>
+      <p className="cor-cap ofi-shelf-hint" role="status">
+        {save.isPending ? (
+          w.saving
+        ) : err ? (
+          <span className="cor-state bad">{err}</span>
+        ) : save.isSuccess ? (
+          w.savedNext
+        ) : (
+          <>
+            {w.onCount(numWord(onCount, undefined, true), onCount)} {onCount > 6 ? `${w.focusHint} ${w.tooMany}` : o.own ? w.ownKit : w.defaultKit}
+          </>
+        )}
       </p>
       <div className="ofi-shelf-scroll">
         {group(ws.groupYours(mine.length), mine)}
