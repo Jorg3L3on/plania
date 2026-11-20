@@ -47,6 +47,7 @@ import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.j
 import { rolePrompt } from "./prompts.js";
 import { mannerBlock, mannerVersion, resolvedKit } from "./skills.js";
 import { lessonBlock, lessonsForRun, recordKnowledge } from "./lessons.js";
+import { voiceBlock } from "../brand/voz.js";
 import { addTrialCopy, setTrial, trialById, trialIdOfRun, trialKit, trialPathFor, trialPrompt, trialResult, trialScope, trialStatusOf } from "./trial.js";
 import { fixedWords, lessonRoomOf } from "./lesson-watch.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
@@ -1367,6 +1368,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I67-5: within what the always-on budget leaves after the role prompt, «tu manera» and the skill list.
   const carriedLessons = consulta || qa || asks ? [] : await lessonsForRun(db, ctx.agent, lessonRoomOf(await fixedWords(db, ctx.agent, carried, env))).catch(() => []);
   const lessonText = lessonBlock(carriedLessons);
+  // PLA-I69-5: the project's voice (Marca → Voz y nombre) rides in every run that writes for the app.
+  const voiceText = consulta || qa ? "" : voiceBlock(project.slug, project.title);
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
   const motor = resolveMotor({
     qaModel: qa?.model ?? null,
@@ -1375,7 +1378,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     company: { model: settings.defaultModel, effort: settings.defaultEffort },
   });
   const args = claudeArgs({
-    prompt: lessonText ? `${prompt}\n\n${lessonText}` : prompt,
+    prompt: [prompt, lessonText, voiceText].filter(Boolean).join("\n\n"),
     settingsPath,
     mcpConfigPath,
     systemPromptPath,

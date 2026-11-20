@@ -28,11 +28,14 @@ import { setProject } from "../mcp/project.js";
 import { ToolError } from "../mcp/errors.js";
 import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
-import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
-import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
-import { clearSurface, isSurface, setSurface, startSurface, surfacesOf } from "../brand/surfaces.js";
-import { readLogoFile } from "../brand/logos.js";
+import { buildSet, keepOver, madeFile, originalOf, requestIcons, zipOf } from "../brand/pedido.js";
+import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
+import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
+import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
+import { historialOf } from "../brand/historial.js";
+import { goBackVoice, requestNames, saveVoice, voiceRead, voiceVersions } from "../brand/voz.js";
+import { FONTS, goBackStyle, requestStyle, saveStyle, styleRead, styleVersions } from "../brand/style.js";
 
 export const marcaRoutes = new Hono();
 const BASE = "/projects/:slug/logo";
@@ -245,17 +248,68 @@ marcaRoutes.post(`${BASE}/surface/:s`, async (c) => {
     if (body instanceof Response) return body;
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await setSurface(p, s, { up: body.up, name: body.name ?? body.up, scale: body.scale, bg: body.bg });
+    // PLA-I69-2: the picture remembers the logo version it was made under (a newer logo asks).
+    const logoV = (await withDb((db) => activeLogo(db, p.id)))?.version ?? null;
+    await setSurface(p, s, { up: body.up, name: body.name ?? body.up, scale: body.scale, bg: body.bg }, logoV);
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
     return fail(c, e);
   }
 });
 
+// PLA-I69-2: a variant (a recipe on the current logo) and «Mantener la mía» after the logo changed.
+//   POST /api/company/projects/:slug/logo/surface/:s/variant   {bg, scale}
+//   POST /api/company/projects/:slug/logo/surface/:s/keep
+marcaRoutes.post(`${BASE}/surface/:s/variant`, async (c) => {
+  try {
+    const s = c.req.param("s")!;
+    if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+    const body = await json(c, z.object({ bg: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(), scale: z.number().int().min(40).max(100) }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    setVariant(p, s, body);
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${BASE}/surface/:s/keep`, async (c) => {
+  const s = c.req.param("s")!;
+  if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const l = await withDb((db) => activeLogo(db, p.id));
+  if (!l || !keepSurface(p, s, l.version)) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
+  return c.json(await withDb((db) => marcaRead(db, p.slug)));
+});
+
+// PLA-I69-2: one file as Plania would make it now, for the scene's upper half.
+//   GET /api/company/projects/:slug/marca/made/:key
+const MADE_KEYS = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og"] as const;
+marcaRoutes.get("/projects/:slug/marca/made/:key", async (c) => {
+  const key = c.req.param("key")!;
+  if (!(MADE_KEYS as readonly string[]).includes(key)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const f = await withDb((db) => madeFile(db, p, key as (typeof MADE_KEYS)[number]));
+  if (!f) return c.json({ error: "LOGO_NONE" }, 404);
+  return c.body(new Uint8Array(f.bytes), 200, { "Content-Type": f.mime, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
+});
+
 marcaRoutes.get(`${BASE}/surface/:s`, async (c) => {
   const s = c.req.param("s")!;
   const slug = c.req.param("slug")!;
-  const own = isSurface(s) ? surfacesOf(slug)[s] : undefined;
+  const entry = isSurface(s) ? surfacesOf(slug)[s] : undefined;
+  if (isSurface(s) && isVariant(entry)) {
+    const p = await projectOf(c);
+    const l = p ? await withDb((db) => activeLogo(db, p.id)) : null;
+    const o = p && l ? originalOf(p.slug, l) : null;
+    const t = o ? (await surfaceOriginals(slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null }))[s] : undefined;
+    if (!t) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
+    return c.body(new Uint8Array(t.bytes), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
+  }
+  const own = entry && !isVariant(entry) ? entry : undefined;
   const b = own ? readLogoFile(slug, own.file) : null;
   if (!b) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
   return c.body(new Uint8Array(b), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
@@ -281,6 +335,7 @@ const Hints = z
     images: z.array(z.string().max(80)).max(6).optional(),
     like: z.string().max(40).nullable().optional(),
     change: z.string().max(200).nullable().optional(),
+    surface: z.enum(["iphone", "android", "navegador"]).nullable().optional(),
   })
   .strict();
 
@@ -307,9 +362,32 @@ marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
   try {
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
+    // PLA-I69-3: ?surface=… makes the mark that surface's own picture instead of the original.
+    const s = c.req.query("surface");
+    if (s) {
+      if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+      await withDb((db) => useMarkFor(db, p, c.req.param("id")!, c.req.param("mark")!, s));
+    } else await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-3: «Más caras»: a switch per extra surface (settings.marca.extras), sent whole with the native switch.
+marcaRoutes.use("/projects/:slug/marca/extras", guard);
+marcaRoutes.post("/projects/:slug/marca/extras", async (c) => {
+  try {
+    const body = await json(c, z.object({ key: z.enum(["avisos", "atajos", "capturas", "prueba"]), on: z.boolean() }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const marca = { native: !!p.settings?.marca?.native, extras: { ...(p.settings?.marca?.extras ?? {}), [body.key]: body.on } };
+    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca } }, settingsCtx));
+    forgetMarcaOf(p.id);
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
     return fail(c, e);
   }
 });
@@ -322,11 +400,119 @@ marcaRoutes.post("/projects/:slug/marca/native", async (c) => {
     if (body instanceof Response) return body;
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca: { native: body.on } } }, settingsCtx));
+    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca: { native: body.on, extras: p.settings?.marca?.extras ?? {} } } }, settingsCtx));
     forgetMarcaOf(p.id);
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
     if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
     return fail(c, e);
   }
+});
+
+// PLA-I69-4: Estilo. The style is Plania's (versions kept); the request brings it to the repo through Taller.
+const STYLE = "/projects/:slug/marca/estilo";
+marcaRoutes.use(STYLE, guard);
+marcaRoutes.use(`${STYLE}/*`, guard);
+marcaRoutes.get(STYLE, async (c) => {
+  try {
+    const r = await withDb((db) => styleRead(db, c.req.param("slug")!, { fresh: c.req.query("fresh") === "1" }));
+    return r ? c.json({ ...r, versionsList: styleVersions(c.req.param("slug")!), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(STYLE, async (c) => {
+  try {
+    const body = await json(c, z.record(z.string().max(20), z.union([z.string().max(60), z.number(), z.boolean()])).refine((o) => Object.keys(o).length <= 40));
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await withDb((db) => saveStyle(db, slug, body as never));
+    return r ? c.json({ ...r, versionsList: styleVersions(slug), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${STYLE}/back`, async (c) => {
+  try {
+    const body = await json(c, z.object({ v: z.number().int().min(1) }).strict());
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await withDb((db) => goBackStyle(db, slug, body.v));
+    return r ? c.json({ ...r, versionsList: styleVersions(slug), fonts: FONTS }) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${STYLE}/pedido`, async (c) => {
+  try {
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const made = await withDb((db) => requestStyle(db, p));
+    const r = await withDb((db) => styleRead(db, p.slug));
+    return c.json({ key: made.key, ...r, versionsList: styleVersions(p.slug), fonts: FONTS });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-5: Voz y nombre. The voice rides in the project's runs; the name and texts go to the repo through Taller.
+const VOZ = "/projects/:slug/marca/voz";
+marcaRoutes.use(VOZ, guard);
+marcaRoutes.use(`${VOZ}/*`, guard);
+const voiceOut = async (slug: string, r: Awaited<ReturnType<typeof voiceRead>>) => (r ? { ...r, versionsList: voiceVersions(slug) } : null);
+marcaRoutes.get(VOZ, async (c) => {
+  try {
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => voiceRead(db, slug, { fresh: c.req.query("fresh") === "1" })));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+const VoiceBody = z
+  .object({
+    cerca: z.number(), humor: z.number(), breve: z.number(), sencillo: z.number(), trato: z.enum(["tu", "usted", "vos"]),
+    yes: z.array(z.string().max(60)).max(30), no: z.array(z.string().max(60)).max(30), guide: z.string().max(3000).nullable(),
+    name: z.string().max(200), short: z.string().max(100), desc: z.string().max(600), tag: z.string().max(200),
+  })
+  .partial()
+  .strict();
+marcaRoutes.post(VOZ, async (c) => {
+  try {
+    const body = await json(c, VoiceBody);
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => saveVoice(db, slug, body)));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${VOZ}/back`, async (c) => {
+  try {
+    const body = await json(c, z.object({ v: z.number().int().min(1) }).strict());
+    if (body instanceof Response) return body;
+    const slug = c.req.param("slug")!;
+    const r = await voiceOut(slug, await withDb((db) => goBackVoice(db, slug, body.v)));
+    return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${VOZ}/pedido`, async (c) => {
+  try {
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const made = await withDb((db) => requestNames(db, p));
+    return c.json({ key: made.key, ...(await voiceOut(p.slug, await withDb((db) => voiceRead(db, p.slug)))) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I69-6: Marca → Historial.
+marcaRoutes.use("/projects/:slug/marca/historial", guard);
+marcaRoutes.get("/projects/:slug/marca/historial", async (c) => {
+  const h = await withDb((db) => historialOf(db, c.req.param("slug")!));
+  return h ? c.json(h) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
 });

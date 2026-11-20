@@ -26,11 +26,18 @@ export const MARCA_WORDS = defineWords({
       summary: (n: number) => `Poner en el repo ${n} archivos de íconos que Plania armó desde el logo del proyecto, y enlazarlos.`,
       lead: (dir: string) => `Plania armó los archivos desde el logo del proyecto. Están listos en \`${dir}\`, con la misma estructura que el repo: cópialos tal cual, no los redibujes.`,
       files: "Archivos",
+      viewport: "; también viewport.themeColor en el layout, si lo define",
       add: "nuevo",
       replace: "reemplaza el actual",
       code: "Código que enlaza",
       edit: {
         manifest_icons: "que los íconos 192, 512 y maskable del manifest apunten a estos archivos; el maskable en una entrada propia",
+        manifest_theme: "theme_color y background_color con el color de la app",
+        push_badge: "usa /icons/badge-96.png como badge en showNotification (la insignia blanca de la barra de Android)",
+        manifest_shortcuts: "pon /icons/shortcut-192.png (192 × 192) en los atajos del manifest que no traen ícono",
+        manifest_screenshots: "agrega screenshots al manifest con los archivos de /screenshots: narrow-* con form_factor narrow y wide-* con form_factor wide, con sizes, type y un label cada uno",
+        layout_test_icon: "fuera de producción (por ejemplo cuando VERCEL_ENV no es production), enlaza /icons/icon-prueba.png como ícono en lugar del de siempre; en producción nada cambia",
+        manifest_version: "agrega o cambia ?v= al final del src de cada ícono, para que los teléfonos que instalaron la app vean el nuevo",
         manifest_mono: "agrega el ícono monocromo con purpose monochrome",
         layout_svg: "metadata.icons enlaza el SVG (type image/svg+xml)",
         layout_theme: "themeColor y appleWebApp en la metadata, con el color del manifest",
@@ -71,11 +78,18 @@ export const MARCA_WORDS = defineWords({
       summary: (n: number) => `Put in the repo ${n} icon files Plania made from the project's logo, and link them.`,
       lead: (dir: string) => `Plania made the files from the project's logo. They are ready in \`${dir}\`, laid out like the repo: copy them as they are, do not redraw them.`,
       files: "Files",
+      viewport: "; also the layout's viewport.themeColor, if it sets one",
       add: "new",
       replace: "replaces the current one",
       code: "Code that links them",
       edit: {
         manifest_icons: "the manifest's 192, 512 and maskable icons point to these files; the maskable one in its own entry",
+        manifest_theme: "theme_color and background_color set to the app's colour",
+        push_badge: "use /icons/badge-96.png as the badge in showNotification (Android's white status-bar badge)",
+        manifest_shortcuts: "put /icons/shortcut-192.png (192 × 192) on the manifest's shortcuts that have no icon",
+        manifest_screenshots: "add screenshots to the manifest from /screenshots: narrow-* with form_factor narrow and wide-* with form_factor wide, each with sizes, type and a label",
+        layout_test_icon: "outside production (for example when VERCEL_ENV is not production), link /icons/icon-prueba.png as the icon instead of the usual one; production does not change",
+        manifest_version: "add or change ?v= at the end of each icon src, so phones that installed the app pick up the new one",
         manifest_mono: "add the monochrome icon with purpose monochrome",
         layout_svg: "metadata.icons links the SVG (type image/svg+xml)",
         layout_theme: "themeColor and appleWebApp in the metadata, with the manifest's colour",
@@ -91,5 +105,129 @@ export const MARCA_WORDS = defineWords({
       checkLinks: "The links in «Code that links them» are made",
       checkVerify: "The project's QA list passes",
     },
+  },
+});
+
+// PLA-I69-4: the style request Taller reads, and its refusals.
+export const STYLE_WORDS = defineWords({
+  es: {
+    errors: {
+      open: (key: string) => `Taller ya trabaja en el estilo (${key}). Cuando lo aceptes, pide el siguiente cambio.`,
+      none: "Todavía no hay un estilo elegido: cambia algo en Estilo primero.",
+    },
+    title: "El estilo de la marca",
+    summary: "Poner en el repo los colores, las letras y las formas que el dueño eligió en Plania, y usarlos en todo el sitio.",
+    lead: (dir: string) => `Plania armó los archivos del estilo. Están listos en \`${dir}\`, con la misma estructura que el repo: cópialos tal cual.`,
+    files: "Archivos",
+    add: "nuevo o reemplaza el actual",
+    code: "Código que los conecta",
+    globalsUnknown: "la hoja de estilos global",
+    importCss: (p: string) => `importa \`${p}\` después de Tailwind y quita de este archivo las variables que brand.css ya define (también --font-sans y --font-heading de su @theme): las que se declaran después mandan.`,
+    fontsNext: (f: [string, string][]) => (f.length ? `carga cada letra con next/font/google y su variable, tal como brand.css las usa: ${f.map(([n, v]) => `«${n}» con variable: "${v}"`).join("; ")}. Pon esas variables en la clase de <html>.` : "no hay letras que cargar: usa las del sistema."),
+    shadcn: (g: string) => `el repo usa las variables de shadcn/ui: brand.css define --primary (con su hover), --accent, --background, --foreground, --card, --popover, --border, --input, --ring, --muted-foreground, --destructive y los del sidebar que llevan la marca. Quita esos mismos valores de ${g} para que haya una sola fuente; no toques --muted ni --secondary.`,
+    fontsOther: (f: string[]) => (f.length ? `carga ${f.map((x) => `«${x}»`).join(", ")} (Google Fonts, licencia abierta) y ponlas en --font-heading, --font-sans y --font-mono.` : "no hay letras que cargar: usa las del sistema."),
+    darkClass: "el modo oscuro usa la clase .dark en <html>; si el sitio usa otra señal, adapta el selector, no los valores.",
+    manifest: (c: string) => `el manifiesto: theme_color pasa a ${c} (y viewport.themeColor del layout, si lo define).`,
+    oldTitle: "Colores viejos escritos a mano (cámbialos por las variables nuevas)",
+    libLater: (lib: string) => `El dueño eligió los íconos de ${lib}: cámbialos solo donde ya se importan íconos; si es mucho, deja una nota y no los cambies todos.`,
+    rules: "No cambies textos ni la estructura de las páginas. Solo colores, letras, radios, sombras y movimiento.",
+    checkFiles: "brand.css y tokens.json están en el repo, tal cual",
+    checkFonts: "Las letras elegidas cargan y se ven en las páginas",
+    checkOld: "Los colores viejos escritos a mano ya no están",
+    checkBuild: "El build pasa y la lista de QA del proyecto pasa",
+  },
+  en: {
+    errors: {
+      open: (key: string) => `Taller is already working on the style (${key}). Once you accept it, ask for the next change.`,
+      none: "No style chosen yet: change something in Style first.",
+    },
+    title: "The brand's style",
+    summary: "Bring the colours, type and shapes the owner chose in Plania into the repo, and use them across the site.",
+    lead: (dir: string) => `Plania made the style files. They are ready in \`${dir}\`, laid out like the repo: copy them as they are.`,
+    files: "Files",
+    add: "new or replaces the current one",
+    code: "Code that links them",
+    globalsUnknown: "the global stylesheet",
+    importCss: (p: string) => `import \`${p}\` after Tailwind and remove from this file the variables brand.css already sets (also --font-sans and --font-heading in its @theme): the ones declared later win.`,
+    fontsNext: (f: [string, string][]) => (f.length ? `load each font with next/font/google and its variable, as brand.css uses them: ${f.map(([n, v]) => `«${n}» with variable: "${v}"`).join("; ")}. Put those variables on <html>'s class.` : "no fonts to load: use the system ones."),
+    shadcn: (g: string) => `the repo uses shadcn/ui's variables: brand.css sets --primary (with its hover), --accent, --background, --foreground, --card, --popover, --border, --input, --ring, --muted-foreground, --destructive and the sidebar's brand ones. Remove the same values from ${g} so there is one source; leave --muted and --secondary alone.`,
+    fontsOther: (f: string[]) => (f.length ? `load ${f.map((x) => `«${x}»`).join(", ")} (Google Fonts, open licence) and set them on --font-heading, --font-sans and --font-mono.` : "no fonts to load: use the system ones."),
+    darkClass: "dark mode uses the .dark class on <html>; if the site uses another signal, adapt the selector, not the values.",
+    manifest: (c: string) => `the manifest: theme_color becomes ${c} (and the layout's viewport.themeColor, if it sets one).`,
+    oldTitle: "Old colours written by hand (replace them with the new variables)",
+    libLater: (lib: string) => `The owner chose ${lib} icons: switch them only where icons are already imported; if it is a lot, leave a note and do not switch them all.`,
+    rules: "Do not change texts or page structure. Only colours, type, radii, shadows and motion.",
+    checkFiles: "brand.css and tokens.json are in the repo, as they are",
+    checkFonts: "The chosen fonts load and show on the pages",
+    checkOld: "The old colours written by hand are gone",
+    checkBuild: "The build passes and the project's QA list passes",
+  },
+});
+
+// PLA-I69-5: the voice guide runs receive, and the name request Taller reads.
+type GuideIn = { title: string; tone: readonly ("cerca" | "formal" | "humor" | "seria" | "breve" | "detalle" | "sencillo" | "tecnico")[]; trato: "tu" | "usted" | "vos"; yes: string[]; no: string[] };
+const list = (ws: string[]) => ws.map((x) => `\u00ab${x}\u00bb`).join(", ");
+export const VOZ_WORDS = defineWords({
+  es: {
+    blockTitle: "## La voz del proyecto (Marca → Voz y nombre)\nEscribe todo texto que vea la gente de la app con esta voz:",
+    guide: (g: GuideIn) => {
+      const tone = { cerca: "cercana", formal: "formal", humor: "con humor suave", seria: "seria", breve: "breve", detalle: "detallada", sencillo: "sin tecnicismos", tecnico: "precisa, con datos técnicos" };
+      const trato = { tu: "tú", usted: "usted", vos: "vos (voseo)" }[g.trato];
+      return [
+        `Voz de ${g.title}: ${g.tone.map((t) => tone[t]).join(", ")}. Trata a la gente de ${trato}.`,
+        "Primero di qué pasó, luego qué puede hacer la persona. Sin mayúsculas para gritar ni signos de admiración dobles.",
+        ...(g.yes.length ? [`Usa: ${list(g.yes)}.`] : []),
+        ...(g.no.length ? [`No uses: ${list(g.no)}.`] : []),
+      ].join("\n");
+    },
+    errors: {
+      open: (key: string) => `Taller ya trabaja en el nombre (${key}). Cuando lo aceptes, pide el siguiente cambio.`,
+      none: "Todavía no hay voz ni nombre elegidos: cambia algo en Voz y nombre primero.",
+      nothing: "El nombre y los textos ya son los del repo.",
+    },
+    title: "El nombre y los textos de la marca",
+    summary: "Poner en el repo el nombre, el nombre corto y la descripción que el dueño eligió en Plania.",
+    lead: "El dueño eligió el nombre y los textos de la app en Plania. Ponlos tal cual donde el repo los tiene.",
+    values: "Valores",
+    fields: { name: "Nombre", short: "Nombre corto (debajo del ícono)", desc: "Descripción", tag: "Frase" },
+    where: "Dónde van",
+    whereUnknown: "el manifiesto de la app y los metadatos de la página (título y descripción)",
+    og: "la imagen y la tarjeta para compartir toman el título y la descripción nuevos",
+    voiceTitle: "La voz, para cualquier texto que toques",
+    rules: "No cambies otros textos de la app en este pedido.",
+    checkManifest: "El manifiesto tiene el nombre, el nombre corto y la descripción nuevos",
+    checkMeta: "El título y la descripción de la página son los nuevos",
+    checkBuild: "El build pasa y la lista de QA del proyecto pasa",
+  },
+  en: {
+    blockTitle: "## The project's voice (Marca → Voice and name)\nWrite every text the app's people see in this voice:",
+    guide: (g: GuideIn) => {
+      const tone = { cerca: "warm", formal: "formal", humor: "with light humour", seria: "serious", breve: "brief", detalle: "detailed", sencillo: "jargon-free", tecnico: "precise, with technical data" };
+      const trato = { tu: "informally", usted: "formally", vos: "informally (voseo in Spanish)" }[g.trato];
+      return [
+        `${g.title}'s voice: ${g.tone.map((t) => tone[t]).join(", ")}. Address people ${trato}.`,
+        "First say what happened, then what the person can do. No shouting capitals, no double exclamation marks.",
+        ...(g.yes.length ? [`Use: ${list(g.yes)}.`] : []),
+        ...(g.no.length ? [`Do not use: ${list(g.no)}.`] : []),
+      ].join("\n");
+    },
+    errors: {
+      open: (key: string) => `Taller is already working on the name (${key}). Once you accept it, ask for the next change.`,
+      none: "No voice or name chosen yet: change something in Voice and name first.",
+      nothing: "The name and texts are already the repo's.",
+    },
+    title: "The brand's name and texts",
+    summary: "Bring the name, short name and description the owner chose in Plania into the repo.",
+    lead: "The owner chose the app's name and texts in Plania. Put them as they are where the repo has them.",
+    values: "Values",
+    fields: { name: "Name", short: "Short name (under the icon)", desc: "Description", tag: "Tagline" },
+    where: "Where they go",
+    whereUnknown: "the app's manifest and the page's metadata (title and description)",
+    og: "the share image and card take the new title and description",
+    voiceTitle: "The voice, for any text you touch",
+    rules: "Do not change other texts of the app in this request.",
+    checkManifest: "The manifest has the new name, short name and description",
+    checkMeta: "The page's title and description are the new ones",
+    checkBuild: "The build passes and the project's QA list passes",
   },
 });

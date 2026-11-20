@@ -12,7 +12,7 @@ export type Original = { bytes: Buffer; mime: "image/svg+xml" | "image/png"; var
 export type GenKey = Exclude<RowId, "pl" | "man"> | "manifest";
 export type GenFile = { key: GenKey; path: string; bytes: Buffer };
 export type PlanItem = { key: GenKey; path: string; op: "+" | "~" };
-export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" | "layout_splash" | "html_splash" | "expo_icons" | "capacitor_assets"; value?: string };
+export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" | "layout_splash" | "html_splash" | "expo_icons" | "capacitor_assets" | "manifest_theme" | "manifest_version" | "push_badge" | "manifest_shortcuts" | "manifest_screenshots" | "layout_test_icon"; value?: string };
 export type Plan = { items: PlanItem[]; edits: Edit[]; kept: number; framework: Framework; mode: "faltan" | "todo" };
 
 const DARK = "#0c0c10";
@@ -42,6 +42,11 @@ export function placeOf(key: GenKey, rows: Row[], f: { framework: Framework; roo
     splash: `${pub}/splash/`,
     ios_app: existing?.path ?? `${f.root}assets/icon.png`,
     and_app: existing?.path ?? `${f.root}assets/adaptive-icon.png`,
+    // PLA-I69-3: the extra surfaces.
+    badge: `${pub}/icons/badge-96.png`,
+    short: `${pub}/icons/shortcut-192.png`,
+    shots: `${pub}/screenshots/`,
+    test: `${pub}/icons/icon-prueba.png`,
   };
   // PLA-I66-6: Capacitor builds its icons from sources in assets/ (@capacitor/assets): Plania gives those.
   const cap = rows.some((r) => r.checks.some((c) => c.k === "native_capacitor"));
@@ -50,14 +55,16 @@ export function placeOf(key: GenKey, rows: Row[], f: { framework: Framework; roo
   return at[key];
 }
 
-const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", a192: "a192", a512: "a512", mask: "mask", mono: "mono", og: "og", manifest: "man", splash: "splash", ios_app: "ios_app", and_app: "and_app" };
+const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", a192: "a192", a512: "a512", mask: "mask", mono: "mono", og: "og", manifest: "man", splash: "splash", ios_app: "ios_app", and_app: "and_app", badge: "badge", short: "short", shots: "shots", test: "test" };
 
 /** What a request to Taller would change: the missing or wrong files (faltan), or every file (todo). */
 // PLA-122: only, the keys of one surface: every one of them is made (whatever the repo has) and nothing else.
 export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean, native = false, only?: GenKey[]): Plan {
   const items: PlanItem[] = [];
   let kept = 0;
-  const keys: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest", ...(native ? (["splash", "ios_app", "and_app"] as GenKey[]) : [])];
+  let colorOnly = false;
+  // PLA-I69-3: the extra surfaces have rows only when switched on, so they join the plan only then.
+  const keys: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest", ...(native ? (["splash", "ios_app", "and_app"] as GenKey[]) : []), "badge", "short", "shots", "test"];
   for (const key of keys) {
     const row = rows.find((r) => r.id === ROW_OF[key]);
     if (!row) continue;
@@ -65,6 +72,8 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
     if (key === "svg" && !svgOriginal && !only) continue; // a raster original has no SVG to give (a surface's own icon gets one that wraps it)
     if (key === "og" && row.state === "ok" && row.path && /\.(tsx|ts|jsx|js)$/.test(row.path)) { kept++; continue; } // drawn in code
     if (key === "og" && row.state === "ok" && !row.path?.match(/\.(png|jpe?g)$/)) { kept++; continue; } // declared in metadata
+    // PLA-I69-1: a manifest whose only fault is the colour of an older logo gets an edit, not a new file.
+    if (key === "manifest" && row.state === "viejo" && mode === "faltan" && !only) { colorOnly = true; continue; }
     const need = !!only || mode === "todo" || row.state !== "ok";
     if (!need) { kept++; continue; }
     // A missing file is new where the framework expects it; one the repo has (wrong, or redone) is replaced in place.
@@ -72,21 +81,30 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
   }
   const edits: Edit[] = [];
   const man = rows.find((r) => r.id === "man");
+  const manHere = man?.state === "ok" || man?.state === "viejo"; // PLA-I69-1: a manifest with an older logo's colour is still there
   const touches = (k: GenKey) => items.some((i) => i.key === k);
   // PLA-124: a file replaced where it already is needs no new link; only a new one does.
   const adds = (k: GenKey) => items.some((i) => i.key === k && i.op === "+");
   if (f.framework === "next-app") {
     const layout = `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root);
     if (touches("svg") && placeOf("svg", rows, f).includes("/public/")) edits.push({ path: layout, what: "layout_svg" });
-    if (man?.state === "ok" && (adds("a192") || adds("a512") || adds("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
-    if (man?.state === "ok" && adds("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
-    if (man?.state !== "ok" && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
+    if (manHere && (adds("a192") || adds("a512") || adds("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
+    if (manHere && adds("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+    if (!manHere && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
   } else {
     const html = `${f.root}index.html`;
     if (items.some((i) => ["ico", "svg", "apple"].includes(i.key))) edits.push({ path: html, what: "html_links" });
     if (touches("manifest")) edits.push({ path: html, what: "html_manifest" });
-    if (man?.state === "ok" && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+    if (manHere && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
   }
+  // PLA-I69-1: the colour of the logo, written into the manifest the repo already has.
+  if (colorOnly && man?.path) edits.push({ path: man.path, what: "manifest_theme" });
+  // Installed apps only notice a new icon when its URL changes (Chrome 144+): a replaced Android icon bumps ?v= in the manifest.
+  if (man?.state !== "falta" && man?.path && !touches("manifest") && items.some((i) => ["a192", "a512", "mask", "mono"].includes(i.key) && i.op === "~")) edits.push({ path: man.path, what: "manifest_version" });
+  if (touches("badge")) edits.push({ path: f.root || ".", what: "push_badge" });
+  if (touches("short") && man?.path) edits.push({ path: man.path, what: "manifest_shortcuts" });
+  if (touches("shots") && man?.path) edits.push({ path: man.path, what: "manifest_screenshots" });
+  if (touches("test")) edits.push({ path: f.framework === "next-app" ? `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root) : `${f.root}index.html`, what: "layout_test_icon" });
   if (touches("splash")) edits.push(f.framework === "next-app" ? { path: `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root), what: "layout_splash" } : { path: `${f.root}index.html`, what: "html_splash" });
   if (touches("ios_app") || touches("and_app")) {
     const cap = rows.some((r) => r.checks.some((c) => c.k === "native_capacitor"));
@@ -211,8 +229,8 @@ async function shareImage(t: Buffer, name: string, theme: string | null): Promis
 }
 
 /** A manifest for a project that has none: name, colours, display and the three icons where the plan puts them. */
-export function manifestText(f: Framework, name: string, theme: string, at: (k: GenKey) => string, pub: string): string {
-  const url = (k: GenKey) => `/${at(k).slice(pub.length + 1)}`;
+export function manifestText(f: Framework, name: string, theme: string, at: (k: GenKey) => string, pub: string, version?: string): string {
+  const url = (k: GenKey) => `/${at(k).slice(pub.length + 1)}${version ? `?v=${version}` : ""}`;
   const icons = [
     { src: url("a192"), sizes: "192x192", type: "image/png", purpose: "any" },
     { src: url("a512"), sizes: "512x512", type: "image/png", purpose: "any" },
@@ -262,7 +280,7 @@ export async function svgWrap(png: Buffer): Promise<Buffer> {
 }
 
 /** The plan's files, made. surfaces: a surface's own icon, for that surface's files (PLA-122). */
-export async function generate(main: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string }, surfaces: Partial<Record<Surface, Original>> = {}): Promise<GenFile[]> {
+export async function generate(main: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string; version?: string; shots?: { narrow: Buffer[]; wide: Buffer[] } }, surfaces: Partial<Record<Surface, Original>> = {}): Promise<GenFile[]> {
   const tiles = new Map<Original, Buffer>();
   const tileOf = async (x: Original) => tiles.get(x) ?? (tiles.set(x, await tile(x)), tiles.get(x)!);
   const out: GenFile[] = [];
@@ -274,6 +292,13 @@ export async function generate(main: Original, plan: Plan, opts: { name: string;
     if (it.key === "splash") {
       const bg = opts.theme && /^#[0-9a-f]{6}$/i.test(opts.theme) ? opts.theme : await cornerOf(t);
       for (const [w, h] of SPLASH_SIZES) out.push({ key: "splash", path: `${it.path.replace(/\/?$/, "/")}apple-splash-${w}x${h}.png`, bytes: await splashOf(t, w, h, bg) });
+      continue;
+    }
+    // PLA-I69-3: install screenshots from El Probador's stills (narrow for phones, wide for computers).
+    if (it.key === "shots") {
+      const dir = it.path.replace(/\/?$/, "/");
+      for (const [kind, list] of [["narrow", opts.shots?.narrow ?? []], ["wide", opts.shots?.wide ?? []]] as const)
+        for (const [i, b] of list.slice(0, 3).entries()) out.push({ key: "shots", path: `${dir}${kind}-${i + 1}.png`, bytes: await screenshotOf(b, kind) });
       continue;
     }
     if (it.key === "and_app") {
@@ -296,7 +321,10 @@ export async function generate(main: Original, plan: Plan, opts: { name: string;
       case "mask": bytes = await maskable(t); break;
       case "mono": bytes = await monochrome(o, t); break;
       case "og": bytes = await shareImage(t, opts.name, opts.theme); break;
-      case "manifest": bytes = Buffer.from(manifestText(plan.framework, opts.name, opts.theme ?? DARK, (k) => placeOf(k, opts.rows, f), `${opts.root}public`)); break;
+      case "badge": bytes = await sharp(await monochrome(o, t)).resize(96, 96).png({ compressionLevel: 9 }).toBuffer(); break;
+      case "short": bytes = await size(t, 192); break;
+      case "test": bytes = await ribbon(t); break;
+      case "manifest": bytes = Buffer.from(manifestText(plan.framework, opts.name, opts.theme ?? DARK, (k) => placeOf(k, opts.rows, f), `${opts.root}public`, opts.version)); break;
     }
     out.push({ key: it.key, path: it.path, bytes });
   }
@@ -367,4 +395,26 @@ export function zip(files: { path: string; bytes: Buffer }[]): Buffer {
   end.writeUInt32LE(dir.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...parts, dir, end]);
+}
+
+// PLA-I69-3: a test-environment icon: the app icon with an amber corner, so its tab is never taken for production's.
+async function ribbon(t: Buffer): Promise<Buffer> {
+  const N = 512;
+  const corner = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${N}" height="${N}"><path d="M${N * 0.5} ${N} L${N} ${N * 0.5} L${N} ${N} Z" fill="#ffb454"/></svg>`);
+  return sharp(await sharp(t).resize(N, N).png().toBuffer()).composite([{ input: corner }]).png({ compressionLevel: 9 }).toBuffer();
+}
+
+/** A still made into an install screenshot Chrome accepts: 320 to 3840 px a side, the long side at most 2.3 times
+ * the short one (a tall phone page is cut from its top), one shape per form factor. */
+export async function screenshotOf(b: Buffer, kind: "narrow" | "wide"): Promise<Buffer> {
+  const img = sharp(b);
+  const m = await img.metadata();
+  const w = m.width ?? 390, h = m.height ?? 844;
+  const ratio = kind === "narrow" ? 2.16 : 16 / 10; // 9:19.5-ish for phones, 16:10 for desktops
+  const cutW = kind === "narrow" ? w : Math.min(w, Math.round(h * ratio));
+  const cutH = kind === "narrow" ? Math.min(h, Math.round(w * ratio)) : Math.min(h, Math.round(cutW / ratio));
+  let out = img.extract({ left: 0, top: 0, width: cutW, height: cutH });
+  const short = Math.min(cutW, cutH);
+  if (short < 320) out = out.resize(kind === "narrow" ? 320 : null, kind === "narrow" ? null : 320);
+  return out.png({ compressionLevel: 9 }).toBuffer();
 }

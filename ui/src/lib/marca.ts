@@ -4,21 +4,22 @@
 import { defineWords, words } from "./i18n.js";
 import type { LogoRef } from "./logos.js";
 
-export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
+export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia" | "more";
 // PLA-128: viejo, a sound file in the repo made from an older logo.
 export type RowState = "ok" | "falta" | "mal" | "viejo";
-export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
+export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app" | "badge" | "short" | "shots" | "test";
+export type Extra = "avisos" | "atajos" | "capturas" | "prueba";
 export type Coded = { k: string; v?: Record<string, string | number> };
 export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | null; optional?: boolean; size?: string; note?: Coded; checks: (Coded & { ok: boolean })[] };
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
   slug: string;
-  logo: (LogoRef & { versions: number; chosen: boolean }) | null;
+  logo: (LogoRef & { versions: number; chosen: boolean; at?: string; theme?: string | null }) | null;
   repo: "ok" | "none" | "no_code";
   /** PLA-120: the folder Plania reads the repo from. */
   folder?: string;
   /** PLA-122: the surfaces with their own icon. */
-  surfaces?: Partial<Record<Surface, { file: string; bg: string | null; scale: number }>>;
+  surfaces?: Partial<Record<Surface, { mode?: "variante" | "propia"; file: string | null; bg: string | null; scale: number; at?: string; logoV?: number | null; knot?: boolean }>>;
   branch: string;
   commit: string | null;
   framework: "next-app" | "vite" | "static" | null;
@@ -28,19 +29,27 @@ export type MarcaRead = {
   splash: string | null;
   /** PLA-I66-6: the switch that adds the native app icons and the launch screens. */
   native: boolean;
+  /** PLA-I69-3: the extra surfaces switched on, and how many stills El Probador has (install screenshots). */
+  extras?: Partial<Record<Extra, boolean>>;
+  stills?: { narrow: number; wide: number };
   /** PLA-I66-4: the open ticket bringing icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
   drift: { path: string; sha: string } | null;
   checkedAt: string;
+  /** PLA-I69-1: the icons request in flight or the last one, and the station it waits at (6: all passed). */
+  trip?: Trip | null;
+  /** PLA-I69-2: the last icons requests, newest first. */
+  requests?: { key: string; status: string; rows: string[]; at: string; pr: string | null }[];
 };
+export type Trip = { key: string; status: string; step: number; cancelled: boolean; pr: string | null; rows: string[]; at: string; movedAt: string | null };
 export type PlanItem = { key: string; path: string; op: "+" | "~" };
 export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[]; kept: number; framework: "next-app" | "vite" | "static"; mode: "faltan" | "todo" };
 
 /** A row the open request carries and the repo does not have yet: it shows as on its way. */
 export const onItsWay = (r: Pick<MarcaRead, "pedido">, row: MarcaRow): boolean => !!r.pedido?.rows.includes(row.id) && row.state !== "ok";
 export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
-export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
+export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null; surface?: Surface | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
 export const markUrl = (slug: string, id: string, file: string): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${file}`;
 export const passesAll = (t: PixelTests): boolean => t.small.ok && t.circle.ok && t.contrast.ok;
 /** Up to six slots around the ring (x, y as a share of the radius), clockwise from the top. */
@@ -101,6 +110,7 @@ export const FACES: { id: Face; side: "l" | "r" }[] = [
   { id: "pwa", side: "r" },
   { id: "share", side: "r" },
   { id: "cia", side: "r" },
+  { id: "more", side: "r" },
 ];
 const ORDER: Face[] = FACES.map((f) => f.id);
 const RANK: Record<RowState, number> = { mal: 4, viejo: 3, falta: 2, ok: 1 };
@@ -119,6 +129,7 @@ export const MARCA_WORDS = defineWords({
       pwa: { name: "Instalar la app", what: "El aviso de instalar y la ventana propia de la app." },
       share: { name: "Compartir", what: "La vista previa cuando alguien pega el enlace en un chat." },
       cia: { name: "Compañía", what: "Donde tú la ves: los carriles, la tira, la cabecera y el brief." },
+      more: { name: "Más caras", what: "Lo que tu app puede usar además: cada una con su interruptor, y sus archivos se suman al pedido." },
     } as Record<Face, { name: string; what: string }>,
     row: {
       ico: { name: "favicon.ico", spec: "16 · 32 · 48 px" },
@@ -134,12 +145,17 @@ export const MARCA_WORDS = defineWords({
       pl: { name: "La copia de Plania", spec: "el original, en Plania" },
       ios_app: { name: "Ícono de la app de iOS", spec: "1024 × 1024, opaco" },
       and_app: { name: "Ícono adaptable de Android", spec: "frente, fondo y monocromo" },
+      badge: { name: "Insignia de avisos", spec: "96 × 96, silueta blanca" },
+      short: { name: "Ícono de atajos", spec: "192 × 192" },
+      shots: { name: "Capturas para instalar", spec: "angostas y anchas" },
+      test: { name: "Ícono de prueba", spec: "con esquina de color" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "en el repo", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
     plState: { ok: "en Plania", falta: "falta", mal: "mal", viejo: "logo anterior" } as Record<RowState, string>,
     check: {
       exists: "Existe",
-      old_logo: "Es del logo anterior: «Ponerlos en el repo» lo rehace con el actual",
+      old_logo: "Es del logo anterior: «Llevar al repo» lo rehace con el actual",
+      old_color: (v: Record<string, string | number>) => `El color de la app es ${v.have}, el del logo anterior; el logo de hoy pide ${v.want}`,
       linked: "Enlazado",
       linked_conv: "El framework lo enlaza solo",
       ico_sizes: (v: Record<string, string | number>) => `Trae ${v.sizes} px`,
@@ -169,6 +185,11 @@ export const MARCA_WORDS = defineWords({
       adaptive_fg: "Capa de frente",
       adaptive_bg: "Capa de fondo",
       adaptive_mono: "Capa monocroma (íconos temáticos)",
+      badge_ok: "96 × 96 con fondo transparente",
+      short_none: "El manifest no tiene atajos",
+      short_icons: (v: Record<string, string | number>) => `${v.n} atajos sin ícono`,
+      shots_narrow: "Capturas angostas (teléfono)",
+      shots_wide: "Capturas anchas (computadora)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `Hay ${v.n} copias iguales (${v.list}). Funciona; basta una.`,
@@ -177,6 +198,7 @@ export const MARCA_WORDS = defineWords({
       og_code: "La dibuja el código: Plania la revisa, no la reemplaza.",
       pl_none: "Sin original, Compañía dibuja la inicial del proyecto.",
       web_only: "El repo no tiene app nativa todavía: Plania deja listos los archivos en assets/.",
+      short_none: "Sin atajos en el manifest: no hace falta ícono.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "en el repo", missing: (n: number): string => (n === 1 ? "falta" : "faltan"), wrong: "mal", old: "del logo anterior" },
     oldLogo: (n: number) => (n === 1 ? "Tu logo cambió: 1 archivo del repo es del logo anterior." : `Tu logo cambió: ${n} archivos del repo son del logo anterior.`),
@@ -264,6 +286,12 @@ export const MARCA_WORDS = defineWords({
       edits: "Código que enlaza",
       edit: {
         manifest_icons: "íconos del manifest",
+        manifest_theme: "colores del manifest al color del logo",
+        push_badge: "la insignia en los avisos",
+        manifest_shortcuts: "ícono en los atajos",
+        manifest_screenshots: "capturas en el manifest",
+        layout_test_icon: "ícono de prueba fuera de producción",
+        manifest_version: "versión nueva en los íconos del manifest",
         manifest_mono: "ícono monocromo en el manifest",
         layout_svg: "enlaza el SVG en la metadata",
         layout_theme: "themeColor y appleWebApp",
@@ -274,7 +302,7 @@ export const MARCA_WORDS = defineWords({
         expo_icons: "icon, ios.icon y android.adaptiveIcon",
         capacitor_assets: "correr @capacitor/assets con estas fuentes",
       } as Record<string, string>,
-      file: { splash: "19 pantallas de arranque", ios_app: "1024 × 1024, opaco", and_app: "frente, monocromo y fondo", ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos" } as Record<string, string>,
+      file: { splash: "19 pantallas de arranque", ios_app: "1024 × 1024, opaco", and_app: "frente, monocromo y fondo", ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos", badge: "96 × 96, silueta blanca", short: "192 × 192", shots: "capturas angostas y anchas", test: "con esquina de color" } as Record<string, string>,
       way: "Cómo llega",
       steps: [
         ["Plania arma los archivos", "Desde el original, con tamaños exactos. Sin servicios de pago."],
@@ -288,6 +316,117 @@ export const MARCA_WORDS = defineWords({
       send: "Pedírselo a Taller",
       sent: (key: string) => `Taller tiene el pedido «Los íconos de la marca» (${key}). Las filas se ponen verdes cuando llega a la rama de inicio.`,
       loading: "Armando los archivos…",
+    },
+    extras: {
+      title: "Más caras",
+      lead: "Enciende lo que tu app usa: cada una suma sus archivos a la lista y al pedido, y sigue al logo como las demás.",
+      items: {
+        avisos: ["Avisos", "La insignia de 96 px que Android vuelve silueta en la barra. En iPhone el aviso usa el ícono de inicio."],
+        atajos: ["Atajos", "El logo en los atajos del manifest que no traen ícono (192 px)."],
+        capturas: ["Capturas para instalar", "Plania toma las capturas de El Probador: angostas para teléfono y anchas para computadora; Chrome muestra un aviso más grande."],
+        prueba: ["Entorno de prueba", "El ícono con una esquina de color, que Taller enlaza solo fuera de producción, para no confundir pestañas."],
+      } as Record<Extra, [string, string]>,
+      native: ["App nativa y pantallas de arranque", "Íconos de Expo o Capacitor y las pantallas de arranque de iPhone."] as [string, string],
+      stills: (n: number, w: number) => (n + w ? `El Probador tiene ${n} angostas y ${w} anchas.` : "El Probador todavía no tiene capturas de la app: enciéndelo en Ajustes."),
+      on: "encendida",
+      off: "apagada",
+      all: "Todos los archivos",
+      later: "Ícono por idioma: cuando la app tenga más de un idioma.",
+    },
+    artist: {
+      title: (s: string) => `O pídela a Artist, solo para ${s}`,
+      placeholder: "Qué quieres para esta cara (por ejemplo: más simple, sin rayos)",
+      ask: "Pedir 3 a Artist",
+      drawing: "Artist dibuja… las pruebas corren aquí.",
+      failed: "Artist no pudo dibujarlas. Puedes pedirlas otra vez.",
+      use: (s: string) => `Usar en ${s}`,
+      tests: (n: number) => `${n} de 3 pruebas`,
+    },
+    orilla: {
+      plania: "▲ Plania",
+      repo: "▼ El repo",
+      same: "igual en el repo",
+      onWay: "va en el pedido",
+      none: "no está en el repo",
+      more: "Más caras",
+      moreHint: "Lo que tu app puede usar además",
+      alsoCia: "también en Compañía",
+      reflection: (face: string) => `${face} en el repo`,
+      install: "¿Instalar?",
+    },
+    tie: { sigue: "Sigue al logo", variante: "Variante", propia: "Imagen propia" } as Record<string, string>,
+    tieSay: {
+      sigue: "Se rehace sola cada vez que cambias el logo.",
+      variante: "Tu fondo y tu tamaño se aplican otra vez al logo que esté.",
+      propia: "Subida o hecha por Artist. No sigue al logo: si el logo cambia, te pregunta.",
+    } as Record<string, string>,
+    cajon: {
+      from: "De dónde sale",
+      look: "Así se ve",
+      compare: "Comparar con el repo",
+      back: "Ver lo nuevo",
+      inRepo: "en el repo",
+      willBe: "lo que llevará",
+      files: "Archivos",
+      history: "Historial",
+      close: "Cerrar",
+      bg: "Fondo",
+      size: "Tamaño",
+      fromLogo: "del logo",
+      noBg: "sin fondo",
+      own: "Su propia imagen",
+      ownUntil: "Hasta que elijas una, sigue como está.",
+      upload: "Subir o ajustar una imagen",
+      saving: "Guardando…",
+      notSeen: "¿No lo ves en tu teléfono?",
+      steps: ["Plania lo armó", "Va en un PR", "Aceptado y en la rama de inicio", "Publicado en producción", "Tu teléfono lo bajó otra vez"],
+      phoneLate: "un ícono instalado cambia horas o días después",
+      hNow: "ahora",
+      hFollows: (v: number) => `Sigue al logo V${v}`,
+      hVariant: "Variante (receta)",
+      hOwn: "Imagen propia",
+      hReq: (n: number) => (n === 1 ? "Un pedido llevó 1 archivo" : `Un pedido llevó ${n} archivos`),
+      hNone: "Todavía no hay pedidos para esta cara.",
+      pwa: "Instalar la app usa los íconos de Android, el nombre y el color del logo: cambia Android para cambiarla.",
+      share: "La imagen para compartir lleva el logo y el nombre sobre el color del logo; sigue al logo siempre.",
+      ios: "Una app web en iPhone usa una sola imagen (apple-touch-icon): iOS no le acepta versión oscura ni tintada.",
+      and: "Android recorta el ícono con su forma; el dibujo debe quedar dentro del 40 %.",
+      nav: "Google no acepta SVG: Plania siempre deja un favicon.ico al lado. Cambiarlo en Google tarda días.",
+      more: "Pantallas de arranque e íconos de la app nativa. Más opciones llegan con la fase siguiente.",
+      shapes: { circle: "Círculo", squircle: "Squircle", drop: "Gota", tab: "Pestaña", dark: "Oscuro", google: "Google", home: "Inicio" } as Record<string, string>,
+    },
+    knot: {
+      text: "El logo cambió. Esta cara tiene su propia imagen.",
+      yours: "la tuya",
+      fresh: "el nuevo",
+      follow: "Seguir al logo",
+      keep: "Mantener la mía",
+      another: "Cambiar la mía",
+    },
+    trip: {
+      stations: ["Plania armó", "Taller abre el PR", "QA revisa", "Tú aceptas", "En la rama de inicio", "Plania lo vio"],
+      last: "Último pedido",
+      open: "Pedido en camino",
+      cancelled: "El último pedido se canceló",
+      pending: (faces: number, files: number) => `${faces === 1 ? "1 cara" : `${faces} caras`} por llevar · ${files === 1 ? "1 archivo" : `${files} archivos`}`,
+      allOk: "Todo al día en el repo",
+      allOkWhy: "Cada archivo del repo es el que Plania haría hoy.",
+      seenWhy: (n: number) => `El último pedido llegó a la rama de inicio y Plania lo vio: ${n === 1 ? "1 archivo" : `${n} archivos`}.`,
+      waiting: ["Plania armó los archivos; Taller todavía no empieza.", "Taller pone los archivos en una rama; no los redibuja.", "QA revisa el PR de Taller.", "Te toca: mira el antes y después y acepta. El repo no cambia hasta entonces.", "Ya está en la rama de inicio: Plania lo lee en menos de un minuto.", "Listo: Plania lo vio en el repo."],
+      notAsked: "Nada pedido todavía.",
+      after: (n: number) => `Después: ${n === 1 ? "1 archivo más" : `${n} archivos más`}, en el siguiente pedido.`,
+      send: (n: number) => (n === 1 ? "Llevar 1 al repo" : `Llevar ${n} al repo`),
+      onWay: "En camino",
+      pr: "Ver el PR",
+      reasons: {
+        old_logo: (faces: string) => `${faces}: del logo anterior.`,
+        old_color: "El color de la app es el del logo anterior.",
+        own_old: (faces: string) => `${faces} tiene su propio ícono, hecho con el logo anterior.`,
+        not_carried: (faces: string) => `${faces} no iba en el último pedido.`,
+        falta: (faces: string) => `Faltan archivos de ${faces}.`,
+        mal: (faces: string) => `${faces}: un archivo no pasa la revisión.`,
+      },
+      why: { old_logo: "Del logo anterior", old_color: "Color del logo anterior", own_old: "Ícono propio del logo anterior", not_carried: "No iba en el último pedido", falta: "Falta", mal: "No pasa la revisión", camino: "Va en el pedido" } as Record<string, string>,
     },
     inPr: (key: string) => `Taller trabaja · ${key}`,
     camino: "en el PR de Taller",
@@ -395,6 +534,7 @@ export const MARCA_WORDS = defineWords({
       pwa: { name: "Install the app", what: "The install prompt and the app's own window." },
       share: { name: "Sharing", what: "The preview when someone pastes the link in a chat." },
       cia: { name: "Company", what: "Where you see it: the lanes, the strip, the header and the brief." },
+      more: { name: "More surfaces", what: "What your app can also use: each one with its switch, and its files join the request." },
     } as Record<Face, { name: string; what: string }>,
     row: {
       ico: { name: "favicon.ico", spec: "16 · 32 · 48 px" },
@@ -410,12 +550,17 @@ export const MARCA_WORDS = defineWords({
       pl: { name: "Plania's copy", spec: "the original, in Plania" },
       ios_app: { name: "iOS app icon", spec: "1024 × 1024, opaque" },
       and_app: { name: "Android adaptive icon", spec: "foreground, background and monochrome" },
+      badge: { name: "Notification badge", spec: "96 × 96, white silhouette" },
+      short: { name: "Shortcut icon", spec: "192 × 192" },
+      shots: { name: "Install screenshots", spec: "narrow and wide" },
+      test: { name: "Test icon", spec: "with a coloured corner" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "in the repo", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
     plState: { ok: "in Plania", falta: "missing", mal: "wrong", viejo: "old logo" } as Record<RowState, string>,
     check: {
       exists: "Exists",
-      old_logo: "It is from the old logo: «Put them in the repo» makes it again from the current one",
+      old_logo: "It is from the old logo: «Bring to the repo» makes it again from the current one",
+      old_color: (v: Record<string, string | number>) => `The app's colour is ${v.have}, the old logo's; today's logo asks for ${v.want}`,
       linked: "Linked",
       linked_conv: "The framework links it by itself",
       ico_sizes: (v: Record<string, string | number>) => `Holds ${v.sizes} px`,
@@ -445,6 +590,11 @@ export const MARCA_WORDS = defineWords({
       adaptive_fg: "Foreground layer",
       adaptive_bg: "Background layer",
       adaptive_mono: "Monochrome layer (themed icons)",
+      badge_ok: "96 × 96 on a transparent background",
+      short_none: "The manifest has no shortcuts",
+      short_icons: (v: Record<string, string | number>) => `${v.n} shortcuts without an icon`,
+      shots_narrow: "Narrow screenshots (phone)",
+      shots_wide: "Wide screenshots (computer)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `There are ${v.n} identical copies (${v.list}). It works; one is enough.`,
@@ -453,6 +603,7 @@ export const MARCA_WORDS = defineWords({
       og_code: "Code draws it: Plania checks it, never replaces it.",
       pl_none: "Without an original, Company draws the project's initial.",
       web_only: "The repo has no native app yet: Plania leaves the files ready in assets/.",
+      short_none: "No shortcuts in the manifest: no icon needed.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "in the repo", missing: (_n: number) => "missing", wrong: "wrong", old: "from the old logo" },
     oldLogo: (n: number) => (n === 1 ? "Your logo changed: 1 file in the repo is from the old logo." : `Your logo changed: ${n} files in the repo are from the old logo.`),
@@ -540,6 +691,12 @@ export const MARCA_WORDS = defineWords({
       edits: "Code that links them",
       edit: {
         manifest_icons: "the manifest's icons",
+        manifest_theme: "manifest colours set to the logo's colour",
+        push_badge: "the badge on notifications",
+        manifest_shortcuts: "an icon on the shortcuts",
+        manifest_screenshots: "screenshots in the manifest",
+        layout_test_icon: "the test icon outside production",
+        manifest_version: "a new version on the manifest's icons",
         manifest_mono: "monochrome icon in the manifest",
         layout_svg: "links the SVG in the metadata",
         layout_theme: "themeColor and appleWebApp",
@@ -550,7 +707,7 @@ export const MARCA_WORDS = defineWords({
         expo_icons: "icon, ios.icon and android.adaptiveIcon",
         capacitor_assets: "run @capacitor/assets with these sources",
       } as Record<string, string>,
-      file: { splash: "19 launch screens", ios_app: "1024 × 1024, opaque", and_app: "foreground, monochrome and background", ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons" } as Record<string, string>,
+      file: { splash: "19 launch screens", ios_app: "1024 × 1024, opaque", and_app: "foreground, monochrome and background", ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons", badge: "96 × 96, white silhouette", short: "192 × 192", shots: "narrow and wide screenshots", test: "with a coloured corner" } as Record<string, string>,
       way: "How it arrives",
       steps: [
         ["Plania makes the files", "From the original, at exact sizes. No paid services."],
@@ -564,6 +721,117 @@ export const MARCA_WORDS = defineWords({
       send: "Ask Taller",
       sent: (key: string) => `Taller has the request «The brand's icons» (${key}). The rows turn green when it lands on the start branch.`,
       loading: "Making the files…",
+    },
+    extras: {
+      title: "More surfaces",
+      lead: "Turn on what your app uses: each adds its files to the list and to the request, and follows the logo like the rest.",
+      items: {
+        avisos: ["Notifications", "The 96 px badge Android turns into a silhouette in the status bar. On iPhone a notification uses the home icon."],
+        atajos: ["Shortcuts", "The logo on the manifest's shortcuts that have no icon (192 px)."],
+        capturas: ["Install screenshots", "Plania takes El Probador's screenshots: narrow for phones and wide for computers; Chrome shows a bigger prompt."],
+        prueba: ["Test environment", "The icon with a coloured corner, linked by Taller only outside production, so tabs are not mixed up."],
+      } as Record<Extra, [string, string]>,
+      native: ["Native app and launch screens", "Expo or Capacitor icons and the iPhone launch screens."] as [string, string],
+      stills: (n: number, w: number) => (n + w ? `El Probador has ${n} narrow and ${w} wide.` : "El Probador has no screenshots of the app yet: turn it on in Settings."),
+      on: "on",
+      off: "off",
+      all: "All files",
+      later: "Per-language icon: when the app has more than one language.",
+    },
+    artist: {
+      title: (s: string) => `Or ask Artist, for ${s} only`,
+      placeholder: "What you want for this surface (for example: simpler, no rays)",
+      ask: "Ask Artist for 3",
+      drawing: "Artist is drawing… the tests run here.",
+      failed: "Artist could not draw them. You can ask again.",
+      use: (s: string) => `Use on ${s}`,
+      tests: (n: number) => `${n} of 3 tests`,
+    },
+    orilla: {
+      plania: "▲ Plania",
+      repo: "▼ The repo",
+      same: "same in the repo",
+      onWay: "in the request",
+      none: "not in the repo",
+      more: "More surfaces",
+      moreHint: "What your app can also use",
+      alsoCia: "also in Compañía",
+      reflection: (face: string) => `${face} in the repo`,
+      install: "Install?",
+    },
+    tie: { sigue: "Follows the logo", variante: "Variant", propia: "Own picture" } as Record<string, string>,
+    tieSay: {
+      sigue: "Remade by itself every time you change the logo.",
+      variante: "Your background and size are applied again to whatever the logo is.",
+      propia: "Uploaded or made by Artist. It does not follow the logo: if the logo changes, it asks you.",
+    } as Record<string, string>,
+    cajon: {
+      from: "Where it comes from",
+      look: "How it looks",
+      compare: "Compare with the repo",
+      back: "See the new one",
+      inRepo: "in the repo",
+      willBe: "what it will bring",
+      files: "Files",
+      history: "History",
+      close: "Close",
+      bg: "Background",
+      size: "Size",
+      fromLogo: "from the logo",
+      noBg: "no background",
+      own: "Its own picture",
+      ownUntil: "Until you pick one, it stays as it is.",
+      upload: "Upload or adjust a picture",
+      saving: "Saving…",
+      notSeen: "Not seeing it on your phone?",
+      steps: ["Plania built it", "It is in a PR", "Accepted and on the start branch", "Published to production", "Your phone fetched it again"],
+      phoneLate: "an installed icon changes hours or days later",
+      hNow: "now",
+      hFollows: (v: number) => `Follows logo V${v}`,
+      hVariant: "Variant (recipe)",
+      hOwn: "Own picture",
+      hReq: (n: number) => (n === 1 ? "A request brought 1 file" : `A request brought ${n} files`),
+      hNone: "No requests for this surface yet.",
+      pwa: "Installing the app uses Android's icons, the name and the logo's colour: change Android to change it.",
+      share: "The share image carries the logo and the name on the logo's colour; it always follows the logo.",
+      ios: "A web app on iPhone uses one picture (apple-touch-icon): iOS takes no dark or tinted version for it.",
+      and: "Android crops the icon with its shape; the drawing must stay within 40 %.",
+      nav: "Google does not take SVG: Plania always leaves a favicon.ico next to it. Google takes days to change it.",
+      more: "Launch screens and the native app's icons. More options come with the next phase.",
+      shapes: { circle: "Circle", squircle: "Squircle", drop: "Drop", tab: "Tab", dark: "Dark", google: "Google", home: "Home" } as Record<string, string>,
+    },
+    knot: {
+      text: "The logo changed. This surface has its own picture.",
+      yours: "yours",
+      fresh: "the new one",
+      follow: "Follow the logo",
+      keep: "Keep mine",
+      another: "Change mine",
+    },
+    trip: {
+      stations: ["Plania built", "Taller opens the PR", "QA checks", "You accept", "On the start branch", "Plania saw it"],
+      last: "Last request",
+      open: "Request on its way",
+      cancelled: "The last request was cancelled",
+      pending: (faces: number, files: number) => `${faces === 1 ? "1 surface" : `${faces} surfaces`} to bring · ${files === 1 ? "1 file" : `${files} files`}`,
+      allOk: "All up to date in the repo",
+      allOkWhy: "Every file in the repo is the one Plania would make today.",
+      seenWhy: (n: number) => `The last request reached the start branch and Plania saw it: ${n === 1 ? "1 file" : `${n} files`}.`,
+      waiting: ["Plania built the files; Taller has not started yet.", "Taller puts the files on a branch; it does not redraw them.", "QA checks Taller's PR.", "Your turn: look at the before and after and accept. The repo does not change until then.", "It is on the start branch: Plania reads it within a minute.", "Done: Plania saw it in the repo."],
+      notAsked: "Nothing requested yet.",
+      after: (n: number) => `Then: ${n === 1 ? "1 more file" : `${n} more files`}, in the next request.`,
+      send: (n: number) => (n === 1 ? "Bring 1 to the repo" : `Bring ${n} to the repo`),
+      onWay: "On its way",
+      pr: "See the PR",
+      reasons: {
+        old_logo: (faces: string) => `${faces}: from the old logo.`,
+        old_color: "The app's colour is the old logo's.",
+        own_old: (faces: string) => `${faces} has its own icon, made from the old logo.`,
+        not_carried: (faces: string) => `${faces} was not in the last request.`,
+        falta: (faces: string) => `Files missing for ${faces}.`,
+        mal: (faces: string) => `${faces}: a file fails the check.`,
+      },
+      why: { old_logo: "From the old logo", old_color: "The old logo's colour", own_old: "Own icon from the old logo", not_carried: "Not in the last request", falta: "Missing", mal: "Fails the check", camino: "In the request" } as Record<string, string>,
     },
     inPr: (key: string) => `Taller is working · ${key}`,
     camino: "in Taller's PR",
@@ -707,3 +975,84 @@ export const has = (rows: MarcaRow[], id: RowId): boolean => rows.find((r) => r.
 /** A repo file's address for a card (the read lists which files may be fetched). */
 // PLA-125: the commit in the address, so a merge shows the new file at once instead of the cached one.
 export const fileUrl = (slug: string, p: string, commit?: string | null): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/file?path=${encodeURIComponent(p)}${commit ? `&c=${commit.slice(0, 12)}` : ""}`;
+
+
+// PLA-I69-1: why a row is not up to date, in one code, and what is pending, face by face.
+export type Why = "old_logo" | "old_color" | "own_old" | "not_carried" | "falta" | "mal" | "camino";
+const SURFACE_FACE: Record<Surface, Face> = { navegador: "nav", iphone: "ios", android: "and" };
+/** A surface whose own icon was made before the current logo. */
+export function ownOld(r: Pick<MarcaRead, "surfaces" | "logo">, face: Face): boolean {
+  const s = (Object.keys(SURFACE_FACE) as Surface[]).find((x) => SURFACE_FACE[x] === face);
+  const own = s ? r.surfaces?.[s] : undefined;
+  return !!own?.at && !!r.logo?.at && own.at < r.logo.at;
+}
+export function rowWhy(r: Pick<MarcaRead, "pedido" | "trip" | "surfaces" | "logo">, row: MarcaRow): Why | null {
+  if (row.state === "ok" || (row.optional && row.state === "falta")) return null;
+  if (onItsWay(r, row)) return "camino";
+  if (row.checks.some((c) => c.k === "old_color" && !c.ok)) return "old_color";
+  if (row.state === "viejo") return "old_logo";
+  if (row.state === "mal") return "mal";
+  return "falta";
+}
+/** What waits to go to the repo: the faces, the files, and why (the reasons the bar names, most telling first). */
+export function pending(r: Pick<MarcaRead, "rows" | "pedido" | "trip" | "surfaces" | "logo">): { faces: Face[]; files: number; why: { code: Why; faces: Face[] }[] } {
+  const rows = r.rows.filter((x) => x.face !== "cia" && x.id !== "pl" && rowWhy(r, x) && rowWhy(r, x) !== "camino");
+  const faces = [...new Set(rows.map((x) => x.face))].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+  const by = new Map<Why, Set<Face>>();
+  const add = (k: Why, f: Face) => (by.get(k) ?? by.set(k, new Set()).get(k)!).add(f);
+  const lastDone = r.trip && !r.trip.cancelled && r.trip.step >= 5;
+  // The share image is old because of the colour when the app's colour is the old logo's.
+  const oldColor = rows.some((x) => rowWhy(r, x) === "old_color");
+  for (const x of rows) {
+    const why = x.id === "og" && oldColor && rowWhy(r, x) === "old_logo" ? "old_color" : rowWhy(r, x)!;
+    if (lastDone && !r.trip!.rows.includes(x.id) && why !== "old_color") add("not_carried", x.face);
+    if (ownOld(r, x.face)) add("own_old", x.face);
+    add(why, x.face);
+  }
+  const order: Why[] = ["not_carried", "own_old", "old_logo", "old_color", "mal", "falta"];
+  return { faces, files: rows.length, why: order.filter((k) => by.has(k)).map((k) => ({ code: k, faces: [...by.get(k)!] })) };
+}
+/** The bar's reason sentence, from the pending reasons. */
+export function pendingSay(p: ReturnType<typeof pending>, w: MarcaWords = marcaWords()): string {
+  const name = (fs: Face[]) => fs.map((f) => w.face[f].name).join(", ");
+  const parts: string[] = [];
+  const seen = new Set<Face>();
+  for (const { code, faces } of p.why) {
+    if (code === "camino") continue;
+    if (code === "old_color") { parts.push(w.trip.reasons.old_color); continue; }
+    const fresh = faces.filter((f) => !seen.has(f));
+    if (!fresh.length) continue;
+    fresh.forEach((f) => seen.add(f));
+    parts.push((w.trip.reasons[code] as (f: string) => string)(name(fresh)));
+    if (parts.length >= 2) break;
+  }
+  return parts.join(" ");
+}
+
+// PLA-I69-2: what Plania would put for a surface (the scene's upper half), busted when the logo or a recipe moves.
+export const madeUrl = (slug: string, key: string, stamp: string): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/made/${key}?v=${encodeURIComponent(stamp)}`;
+export type Tie = "sigue" | "variante" | "propia";
+export const tieOf = (r: Pick<MarcaRead, "surfaces">, s: Surface | undefined): Tie => (s ? ((r.surfaces?.[s] as { mode?: Tie } | undefined)?.mode ?? (r.surfaces?.[s] ? "propia" : "sigue")) : "sigue");
+/** The scene's two images per surface: the key Plania makes, and the repo row that is its reflection. */
+export const FACE_FILES: Record<Exclude<Face, "cia" | "more">, { made: string; rows: RowId[] }> = {
+  nav: { made: "svg", rows: ["svg", "ico"] },
+  ios: { made: "apple", rows: ["apple"] },
+  and: { made: "mask", rows: ["mask", "a192"] },
+  pwa: { made: "a192", rows: ["a192", "man"] },
+  share: { made: "og", rows: ["og"] },
+};
+/** A surface's state on the waterline: the same as the repo, on its way, or different (and why). */
+export function shoreState(r: MarcaRead, face: Face): { st: "aldia" | "camino" | "llevar"; why: Why | null } {
+  const rows = r.rows.filter((x) => x.face === face && !(x.optional && x.state === "falta"));
+  let worst: Why | null = null;
+  const rank: Why[] = ["camino", "falta", "mal", "old_color", "old_logo", "own_old", "not_carried"];
+  for (const x of rows) {
+    const w = rowWhy(r, x);
+    if (w && (worst === null || rank.indexOf(w) > rank.indexOf(worst))) worst = w;
+  }
+  if (!worst) return { st: "aldia", why: null };
+  // The share image is old because of the colour when the app's colour is the old logo's (as the bar says).
+  if (face === "share" && worst === "old_logo" && r.rows.some((x) => rowWhy(r, x) === "old_color")) worst = "old_color";
+  if (worst === "camino") return { st: "camino", why: "camino" };
+  return { st: "llevar", why: worst };
+}

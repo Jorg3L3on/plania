@@ -8,10 +8,13 @@ import path from "node:path";
 import { readPng } from "./png.js";
 import { looksLikeLogo } from "./detect.js";
 
-export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
+export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia" | "more";
 // PLA-128: viejo, a sound file made from an older logo than the one Plania keeps now (set by the read, src/brand/marca.ts).
 export type RowState = "ok" | "falta" | "mal" | "viejo";
-export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
+export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app" | "badge" | "short" | "shots" | "test";
+// PLA-I69-3: «Más caras», the surfaces an app may also use, each behind a switch (settings.marca.extras).
+export type Extra = "avisos" | "atajos" | "capturas" | "prueba";
+export const EXTRAS: Extra[] = ["avisos", "atajos", "capturas", "prueba"];
 // A check or a note is a code and its values; the screen words them in the install's language (ui/src/lib/marca.ts).
 export type Check = { k: string; ok: boolean; v?: Record<string, string | number> };
 export type Note = { k: string; v?: Record<string, string | number> };
@@ -142,7 +145,7 @@ function findRoot(paths: Map<string, number>): { root: string; framework: Framew
 }
 
 /** The icon files of the repo, as rows. hasOriginal: Plania keeps an original for the project (the Company row). */
-export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; slug: string; native?: boolean }): Promise<RepoCheck> {
+export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; slug: string; native?: boolean; extras?: Partial<Record<Extra, boolean>> }): Promise<RepoCheck> {
   const { paths } = view;
   const { root, framework, appDir } = findRoot(paths);
   const pub = `${root}public`;
@@ -323,6 +326,34 @@ export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; sl
   }
 
   if (opts.native) rows.push(...(await nativeRows(view, root)));
+  // PLA-I69-3: the extra surfaces, only when the owner turned them on.
+  const ex = opts.extras ?? {};
+  const manText = man ? (await read(man.file))?.toString("utf8") ?? "" : "";
+  if (ex.avisos) {
+    const p = `${pub}/icons/badge-96.png`;
+    const b = has(p) ? await read(p) : null;
+    const png = b ? readPng(b) : null;
+    const good = !!png && png.width === 96 && png.height === 96 && opaque(b!) === false;
+    rows.push(png ? { id: "badge", face: "more", state: good ? "ok" : "mal", path: p, size: `${png.width} × ${png.height}`, checks: [ok("exists"), good ? ok("badge_ok") : no("badge_ok")] } : { id: "badge", face: "more", state: "falta", path: p, checks: [no("exists")] });
+  }
+  if (ex.atajos) {
+    const shortcuts = /\bshortcuts\s*:|"shortcuts"\s*:/.test(manText);
+    const block = manText.split(/\bshortcuts\s*:|"shortcuts"\s*:/)[1] ?? "";
+    const named = (block.match(/\bname\s*:|"name"\s*:/g) ?? []).length;
+    const withIcon = (block.match(/\bicons\s*:|"icons"\s*:/g) ?? []).length;
+    const p = `${pub}/icons/shortcut-192.png`;
+    if (!shortcuts) rows.push({ id: "short", face: "more", state: "ok", optional: true, path: null, note: { k: "short_none" }, checks: [ok("short_none")] });
+    else rows.push(withIcon >= named ? { id: "short", face: "more", state: "ok", path: has(p) ? p : null, checks: [ok("short_icons", { n: named })] } : { id: "short", face: "more", state: "falta", path: p, checks: [no("short_icons", { n: named - withIcon })] });
+  }
+  if (ex.capturas) {
+    const narrow = /form_factor["']?\s*:\s*["']narrow/.test(manText);
+    const wide = /form_factor["']?\s*:\s*["']wide/.test(manText);
+    rows.push(narrow && wide ? { id: "shots", face: "more", state: "ok", path: `${pub}/screenshots/`, checks: [ok("shots_narrow"), ok("shots_wide")] } : { id: "shots", face: "more", state: "falta", path: `${pub}/screenshots/`, checks: [narrow ? ok("shots_narrow") : no("shots_narrow"), wide ? ok("shots_wide") : no("shots_wide")] });
+  }
+  if (ex.prueba) {
+    const p = `${pub}/icons/icon-prueba.png`;
+    rows.push(has(p) ? { id: "test", face: "more", state: "ok", path: p, checks: [ok("exists")] } : { id: "test", face: "more", state: "falta", path: p, checks: [no("exists")] });
+  }
   rows.push(
     opts.hasOriginal
       ? { id: "pl", face: "cia", state: "ok", path: null, checks: [ok("pl_kept"), ok("pl_used")] }

@@ -819,7 +819,8 @@ export type ProjectSettings = {
   // PLA-I48-2: the floor's Máquinas: env file, migrate and seed commands, migrations folder (src/maquinas/settings.ts).
   maquinas?: import("../maquinas/env.js").MaquinasSettings;
   // PLA-I66-6: the Marca door also counts the native app icons and the iPhone launch screens. Off unless set.
-  marca?: { native?: boolean };
+  // PLA-I69-3: the extra surfaces the owner switched on (avisos, atajos, capturas, prueba).
+  marca?: { native?: boolean; extras?: Partial<Record<"avisos" | "atajos" | "capturas" | "prueba", boolean>> };
 };
 
 // 2.13: mode "command" (default) shows the command the owner runs; "merge" lets him ship from the screen

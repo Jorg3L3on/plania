@@ -6,12 +6,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, pending, pendingSay, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
 import { Link } from "react-router";
+import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
+import { useSearchParams } from "react-router";
+import { Estilo } from "./marca-estilo";
+import { Voz } from "./marca-voz";
+import { Historial } from "./marca-historial";
+import { estiloWords } from "@/lib/estilo";
 
 type Shape = "circle" | "squircle" | "drop";
 
@@ -25,6 +31,15 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const w = marcaWords();
   const q = useMarca(p.slug);
   const client = useQueryClient();
+  // PLA-I69-4: Marca's own doors (Caras · Estilo · Voz y nombre · Historial), kept in the address as ?m=.
+  const [params, setParams] = useSearchParams();
+  const door: Door = DOORS.includes(params.get("m") as Door) ? (params.get("m") as Door) : "caras";
+  const goDoor = (d: Door) => {
+    const next = new URLSearchParams(params);
+    if (d === "caras") next.delete("m");
+    else next.set("m", d);
+    setParams(next, { replace: true });
+  };
   const [sel, setSel] = useState<Face | null>(null);
   const [hover, setHover] = useState<Face | null>(null);
   const [rereading, setRereading] = useState(false);
@@ -75,6 +90,21 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         }}
       />
     );
+  const doors = <MarcaDoors door={door} onGo={goDoor} />;
+  if (door !== "caras")
+    return (
+      <div className="mk" data-marca={p.slug} data-door={door}>
+        <header className="mk-head">
+          <div className="mk-head-l">
+            <h2 className="cor-door-h">{w.title(p.title)}</h2>
+            {doors}
+          </div>
+        </header>
+        {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
+        {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
+        {door === "historial" && <Historial slug={p.slug} title={p.title} />}
+      </div>
+    );
   const c = counts(r.rows);
   const lit = hover ?? sel;
   const actions: CoreActions = {
@@ -92,6 +122,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       <header className="mk-head">
         <div className="mk-head-l">
           <h2 className="cor-door-h">{w.title(p.title)}</h2>
+          {doors}
           <p className="cor-text">
             {r.repo === "ok" ? (
               w.lead
@@ -136,36 +167,9 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
               {w.reread}
             </button>
           )}
-          {r.logo && (
-            <a className="cor-btn secondary small" href={zipUrl(p.slug)} download data-control="marca-zip">
-              {w.sheet.zip}
-            </a>
-          )}
-          {r.pedido ? (
-            <span className="mk-live" data-pedido={r.pedido.key}>
-              <i aria-hidden />
-              {w.inPr(r.pedido.key)}
-            </span>
-          ) : (
-            r.logo &&
-            r.repo === "ok" &&
-            c.missing + c.wrong + c.old > 0 && (
-              <button type="button" className="cor-btn primary" onClick={() => setSheet(true)} data-control="marca-al-repo">
-                {w.sheet.open}
-              </button>
-            )
-          )}
         </div>
       </header>
-      {/* PLA-128: a new logo the repo does not have yet: say so, and say which surface keeps its own. */}
-      {c.old > 0 && (
-        <div className="mk-drift" role="status" data-old={c.old}>
-          <span>
-            {w.oldLogo(c.old)}
-            {Object.keys(r.surfaces ?? {}).length > 0 && ` ${w.oldKeeps((Object.keys(r.surfaces!) as Surface[]).map((s) => w.solo.name[s]).join(", "))}`}
-          </span>
-        </div>
-      )}
+
       {r.drift && (
         <div className="mk-drift" role="status" data-drift={r.drift.path}>
           <span>{w.drift.text(r.drift.path)}</span>
@@ -191,260 +195,112 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           }}
         />
       )}
-      <div className="mk-grid">
-        <Scene r={r} w={w} title={p.title} lit={lit} sel={sel} onPick={(f) => { setPanel(null); setSel(f); }} onHover={setHover} actions={actions} />
-        <aside className="mk-list" aria-label={w.files}>
-          {panel === "repo" ? (
-            <RepoPanel r={r} w={w} onBack={() => setPanel(null)} onUse={async (path) => took(await api.marcaCandidate(p.slug, path))} />
-          ) : panel === "versiones" ? (
-            <VersionsPanel r={r} w={w} onBack={() => setPanel(null)} onGoBack={async (v) => took(await api.marcaGoBack(p.slug, v))} />
-          ) : sel ? (
-            <Ficha r={r} face={sel} w={w} onBack={() => setSel(null)} />
-          ) : (
-            <Rows r={r} w={w} onPick={setSel} onHover={setHover} onNative={async (on) => took(await api.marcaNative(p.slug, on))} />
-          )}
-        </aside>
+      {/* PLA-I69-2: the waterline. Each surface as Plania would make it, its reflection from the repo, and a drawer. */}
+      <div className={`mk-world${sel || panel ? " open" : ""}`}>
+        <Orilla r={r} w={w} title={p.title} sel={sel} core={<Core r={r} w={w} title={p.title} actions={actions} />} onPick={(f) => { setPanel(null); setSel((cur) => (cur === f ? null : f)); }} />
+        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} />}
+        {sel === "more" && !panel && (
+          <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={w.extras.title}>
+            <button type="button" className="mk-x" onClick={() => setSel(null)} aria-label={w.cajon.close}>×</button>
+            <MasCaras r={r} w={w} took={took} onNative={async (on) => took(await api.marcaNative(p.slug, on))} onAll={() => setSel("cia")} onClose={() => setSel(null)} />
+          </section>
+        )}
+        {(sel === "cia" || panel) && (
+          <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={panel ? w.files : w.orilla.more}>
+            <button type="button" className="mk-x" onClick={() => { setSel(null); setPanel(null); }} aria-label={w.cajon.close}>×</button>
+            {panel === "repo" ? (
+              <RepoPanel r={r} w={w} onBack={() => setPanel(null)} onUse={async (path) => took(await api.marcaCandidate(p.slug, path))} />
+            ) : panel === "versiones" ? (
+              <VersionsPanel r={r} w={w} onBack={() => setPanel(null)} onGoBack={async (v) => took(await api.marcaGoBack(p.slug, v))} />
+            ) : (
+              <Rows r={r} w={w} onPick={(f) => setSel(f)} onHover={setHover} onNative={async (on) => took(await api.marcaNative(p.slug, on))} />
+            )}
+          </section>
+        )}
+        {/* PLA-I69-1: what waits for the repo and why, and where the last request is on its way. */}
+        {r.repo === "ok" && <TripBar r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
       </div>
     </div>
+  );
+}
+
+const DOORS = ["caras", "estilo", "voz", "historial"] as const;
+type Door = (typeof DOORS)[number];
+/** PLA-I69-4: Marca's doors, as tabs under the title. */
+function MarcaDoors({ door, onGo }: { door: Door; onGo: (d: Door) => void }) {
+  const w = estiloWords();
+  return (
+    <nav className="mk-doors" role="tablist" aria-label={w.doorsLabel}>
+      {DOORS.map((d) => (
+        <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
+          {w.doors[d]}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/** PLA-I69-1: the trip bar. What is pending and why (one sentence), the one button that brings it all, and the
+ * stations of the request in flight or the last one: built, PR, QA, your acceptance, start branch, seen by Plania. */
+function TripBar({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
+  const p = pending(r);
+  const t = r.trip && !r.trip.cancelled ? r.trip : null;
+  const open = !!r.pedido;
+  const state = open ? "go" : p.files ? "wait" : "ok";
+  const step = t ? t.step : -1;
+  const head = open ? w.trip.open : p.files ? w.trip.pending(p.faces.length, p.files) : w.trip.allOk;
+  const why = open
+    ? `${w.trip.waiting[Math.min(step, 5)] ?? ""}${p.files ? ` ${w.trip.after(p.files)}` : ""}`
+    : p.files
+      ? pendingSay(p, w) || (r.trip ? "" : w.trip.notAsked)
+      : t && step >= 6 ? w.trip.seenWhy(t.rows.length) : w.trip.allOkWhy;
+  return (
+    <section className={`mk-trip ${state}`} data-trip={state} aria-label={head}>
+      <p className="mk-trip-say" role="status">
+        <i className="mk-trip-dot" aria-hidden />
+        <b>{head}</b>
+        {why && <span>{why}</span>}
+      </p>
+      <div className="mk-trip-act">
+        {t?.pr && (
+          <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
+            {w.trip.pr}
+          </a>
+        )}
+        {r.logo && (
+          <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
+            {w.sheet.zip}
+          </a>
+        )}
+        {open ? (
+          <span className="cor-btn secondary small" aria-disabled="true" data-pedido={r.pedido!.key}>
+            {w.trip.onWay}
+          </span>
+        ) : (
+          p.files > 0 &&
+          r.logo && (
+            <button type="button" className="cor-btn primary small" onClick={onSend} data-control="marca-al-repo">
+              {w.trip.send(p.files)}
+            </button>
+          )
+        )}
+      </div>
+      {t && (
+        <ol className="mk-rail" aria-label={open ? w.trip.open : w.trip.last}>
+          <li className="lbl" aria-hidden>{open ? w.trip.open : w.trip.last}</li>
+          {w.trip.stations.map((s, i) => (
+            <li key={s} className={i < step ? "done" : i === step ? (i === 3 ? "you" : "now") : ""} aria-current={i === step ? "step" : undefined}>
+              <i aria-hidden />
+              {s}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
 type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void>; solo: (s: Surface) => void; reset: (s: Surface) => Promise<void>; send: (s: Surface) => void };
-
-function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void; actions: CoreActions }) {
-  const scene = useRef<HTMLDivElement>(null);
-  const [paths, setPaths] = useState<{ face: Face; d: string; x: number; y: number }[]>([]);
-  const [box, setBox] = useState({ w: 0, h: 0 });
-  const [shape, setShape] = useState<Shape>("circle");
-  const [themed, setThemed] = useState(false);
-  const [dark, setDark] = useState(false);
-  const draw = useCallback(() => {
-    const el = scene.current;
-    if (!el) return;
-    const base = el.getBoundingClientRect();
-    const orig = el.querySelector(".mk-orig")?.getBoundingClientRect();
-    if (!orig) return;
-    const cy = orig.top + orig.height / 2 - base.top;
-    const out: typeof paths = [];
-    for (const f of FACES) {
-      const card = el.querySelector(`.mk-face[data-face="${f.id}"]`)?.getBoundingClientRect();
-      if (!card) continue;
-      const tx = (f.side === "l" ? card.right : card.left) - base.left;
-      const ty = card.top + card.height / 2 - base.top;
-      const sx = (f.side === "l" ? orig.left + 6 : orig.right - 6) - base.left;
-      const dx = (tx - sx) * 0.55;
-      out.push({ face: f.id, d: `M${sx} ${cy}C${sx + dx} ${cy} ${tx - dx} ${ty} ${tx} ${ty}`, x: tx, y: ty });
-    }
-    setBox({ w: base.width, h: base.height });
-    setPaths(out);
-  }, []);
-  useLayoutEffect(draw, [draw, r]);
-  useEffect(() => {
-    const el = scene.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => draw());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [draw]);
-  const face = (f: Face, body: ReactNode, extra?: ReactNode) => {
-    const s = faceState(r.rows, f);
-    const label = s.worst === "ok" ? w.faceCount(s.ok, s.n) : w.state[s.worst];
-    return (
-      <article
-        key={f}
-        className={`mk-face${lit === f ? " on" : ""}`}
-        data-face={f}
-        tabIndex={0}
-        aria-label={w.face[f].name}
-        aria-current={sel === f ? "true" : undefined}
-        onClick={() => onPick(f)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onPick(f);
-          }
-        }}
-        onMouseEnter={() => onHover(f)}
-        onMouseLeave={() => onHover(null)}
-        onFocus={() => onHover(f)}
-        onBlur={() => onHover(null)}
-      >
-        <header>
-          <span className="mk-face-n">
-            {w.face[f].name}
-            {SURFACE_OF[f] && r.surfaces?.[SURFACE_OF[f]!] && <span className="mk-own" data-own={SURFACE_OF[f]}>{w.solo.own}</span>}
-          </span>
-          <span className={`mk-cnt ${s.worst}`}>{label}</span>
-        </header>
-        <div className="mk-face-b">{body}</div>
-        {extra && (
-          <div className="mk-face-x" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-            {extra}
-          </div>
-        )}
-      </article>
-    );
-  };
-  const row = (id: MarcaRow["id"]) => r.rows.find((x) => x.id === id);
-  const src = (id: MarcaRow["id"]) => {
-    const x = row(id);
-    return x && x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path, r.commit) : null;
-  };
-  const orig = r.logo ? logoUrl(r.slug, r.logo) : null;
-  // PLA-122: a surface's own icon shows on its card; PLA-120 (guided test): with nothing in the repo yet, the card
-  // shows the original faded («así se verá») instead of a blank.
-  const own = (s: Surface) => { const o = r.surfaces?.[s]; return o ? surfaceUrl(r.slug, s, o.file) : null; };
-  const fav = own("navegador") ?? src("ico") ?? src("svg");
-  const apple = own("iphone") ?? (has(r.rows, "apple") ? src("apple") : null);
-  const masked = own("android") ?? (has(r.rows, "mask") ? src("mask") : has(r.rows, "a512") ? src("a512") : null);
-  const pre = (alt: ReactNode) => (orig ? <img className="mk-pre" src={orig} alt="" title={w.solo.preview} /> : alt);
-  const solo = (f: Face) => {
-    const s = SURFACE_OF[f];
-    if (!s || !r.logo) return null;
-    return r.surfaces?.[s] ? (
-      <>
-        {!r.pedido && (
-          <button type="button" className="mk-mini" onClick={() => actions.send(s)} title={w.solo.send} aria-label={w.solo.send} data-control={`marca-enviar-${s}`}>
-            {w.solo.sendShort}
-          </button>
-        )}
-        <button type="button" className="mk-mini" onClick={() => void actions.reset(s)} title={w.solo.back} aria-label={w.solo.back} data-control={`marca-volver-${s}`}>
-          {w.solo.backShort}
-        </button>
-      </>
-    ) : (
-      <button type="button" className="mk-mini" onClick={() => actions.solo(s)} data-control={`marca-solo-${s}`}>
-        {w.solo.btn}
-      </button>
-    );
-  };
-  const mono = has(r.rows, "mono") ? src("mono") : null;
-  const theme = String(row("man")?.checks.find((x) => x.k === "man_colors")?.v?.theme ?? "#0e0e12");
-  const ogRow = row("og");
-  // PLA-128: an image from the old logo is still the one the link shows today.
-  const og = (ogRow?.state === "ok" || ogRow?.state === "viejo") && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path, r.commit) : null;
-  const ogCode = ogRow?.state === "ok" && !og;
-  const installIcon = src("a192") ?? src("a512");
-  return (
-    <div className="mk-scene" ref={scene}>
-      <svg className="mk-threads" width={box.w} height={box.h} viewBox={`0 0 ${box.w || 1} ${box.h || 1}`} aria-hidden>
-        {paths.map((t) => (
-          <g key={t.face} className={`mk-thread th-${faceState(r.rows, t.face).worst}${lit === t.face ? " on" : ""}`}>
-            <path className="base" d={t.d} />
-            <path className="flow" d={t.d} />
-            <circle cx={t.x} cy={t.y} r={3.5} />
-          </g>
-        ))}
-      </svg>
-      <div className="mk-col l">
-        {face(
-          "nav",
-          <>
-            <div className={`mk-tabs ${dark ? "dark" : "light"}`}>
-              <span className="mk-tab on">
-                {fav ? <img src={fav} width={16} height={16} alt="" /> : orig ? <img className="mk-pre" src={orig} width={16} height={16} alt="" title={w.solo.preview} /> : <i className="mk-tab-blank" />}
-                <span className="cor-ellipsis">{title}</span>
-              </span>
-              <span className="mk-tab">{w.newTab}</span>
-            </div>
-          </>,
-          <>
-            <span className="mk-zoom">
-              {fav && <img src={fav} alt="" />}
-              {w.zoom}
-            </span>
-            <button type="button" className="mk-mini" onClick={() => setDark((d) => !d)} aria-pressed={dark} data-control="marca-oscuro">
-              {dark ? w.lighter : w.darker}
-            </button>
-            {solo("nav")}
-          </>,
-        )}
-        {face(
-          "ios",
-          <div className="mk-phone ios">
-            <div className="mk-home">
-              <span className="mk-app ph" />
-              <span className="mk-app ph" />
-              <span className="mk-app me">
-                {apple ? <img src={apple} alt="" /> : pre(<span className="mk-shot">{w.noIcon}</span>)}
-                <em>{title}</em>
-              </span>
-            </div>
-            <div className="mk-splash" style={{ background: theme }}>
-              {r.splash ? <img src={fileUrl(r.slug, r.splash, r.commit)} alt="" /> : <span>{w.splashNone}</span>}
-            </div>
-          </div>,
-          solo("ios"),
-        )}
-        {face(
-          "and",
-          <div className="mk-phone and">
-            <div className="mk-home">
-              <span className="mk-app ph r" />
-              <span className={`mk-app me shape-${shape}`}>
-                {!masked ? pre(<span className="mk-shot">{w.noIcon}</span>) : themed && mono ? <span className="mk-themed"><img src={mono} alt="" /></span> : <img src={masked} alt="" />}
-                <em>{title}</em>
-              </span>
-              <span className="mk-app ph r" />
-            </div>
-          </div>,
-          <>
-            {(["circle", "squircle", "drop"] as Shape[]).map((s) => (
-              <button key={s} type="button" className="mk-mini" aria-pressed={shape === s} onClick={() => setShape(s)} data-control={`marca-forma-${s}`}>
-                {w.shapes[s]}
-              </button>
-            ))}
-            <button type="button" className="mk-mini" aria-pressed={themed} onClick={() => setThemed((t) => !t)} data-control="marca-tematico">
-              {w.themed}
-            </button>
-            {solo("and")}
-          </>,
-        )}
-      </div>
-      <Core r={r} w={w} title={title} actions={actions} />
-      <div className="mk-col r">
-        {face(
-          "pwa",
-          <div className="mk-install">
-            <div className="mk-install-bar" style={{ background: theme }} />
-            <div className="mk-install-b">
-              <b>{w.install}</b>
-              <div className="mk-install-app">
-                {installIcon ? <img src={installIcon} alt="" /> : <span className="mk-blank" />}
-                <span>
-                  <b>{title}</b>
-                  <em>{w.ownWindow}</em>
-                </span>
-              </div>
-            </div>
-          </div>,
-        )}
-        {face(
-          "share",
-          <div className="mk-chat">
-            <div className="mk-bubble">
-              {og ? <img className="mk-og-img" src={og} alt="" /> : ogCode ? <div className="mk-og code" style={{ background: theme }}>{orig && <img src={orig} alt="" />}<b>{title}</b></div> : null}
-              <div className="mk-link">
-                <b>{title}</b>
-                {!og && !ogCode && <span>{w.noImage}</span>}
-              </div>
-            </div>
-          </div>,
-        )}
-        {face(
-          "cia",
-          <div className="mk-lane">
-            <Logo slug={r.slug} title={title} />
-            <span>
-              <b>{title}</b>
-              <em>{w.lane(!!r.logo)}</em>
-            </span>
-          </div>,
-        )}
-      </div>
-    </div>
-  );
-}
 
 function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: string; actions: CoreActions }) {
   const l = r.logo;
@@ -752,7 +608,7 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
                   <li key={i} className={c.ok === true ? "y" : c.ok === "warn" ? "w" : "n"}>{sentence(w.upCheck, c)}</li>
                 ))}
                 {/* PLA-124: Android's circle is not a test for an iPhone or browser icon of its own. */}
-                {preview && testLines(preview.tests, w).filter((_, i) => !(surface && surface !== "android" && i === 1)).map((t, i) => (
+                {preview?.tests && testLines(preview.tests, w).filter((_, i) => !(surface && surface !== "android" && i === 1)).map((t, i) => (
                   <li key={`t${i}`} className={t.ok ? "y" : "n"}>{t.text}</li>
                 ))}
               </ul>
@@ -973,7 +829,8 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
     queryFn: () => api.marcaMarks(p.slug),
     refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 4000 : false),
   });
-  const req: MarksRequest | null = q.data?.request ?? null;
+  // PLA-I69-3: a request made for one surface belongs to that surface's drawer, not to the logo's marks.
+  const req: MarksRequest | null = q.data?.request && !q.data.request.hints.surface ? q.data.request : null;
   const [about, setAbout] = useState("");
   const [feel, setFeel] = useState<string[]>([]);
   const [avoid, setAvoid] = useState<string[]>([]);

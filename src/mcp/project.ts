@@ -88,9 +88,13 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>,
     if (problem) throw new ToolError("INVALID_FILTER", { field: "settings.start_branch", hint: problem });
   }
   if (next.marca !== undefined && next.marca !== null) {
-    const m = next.marca as { native?: unknown };
-    if (typeof m !== "object" || Array.isArray(m) || Object.keys(m).some((k) => k !== "native") || (m.native !== undefined && typeof m.native !== "boolean")) {
-      throw new ToolError("INVALID_FILTER", { field: "settings.marca", hint: "{native: true | false}" });
+    const m = next.marca as { native?: unknown; extras?: unknown };
+    // PLA-I69-3: extras, the extra surfaces switched on: {avisos, atajos, capturas, prueba} as booleans.
+    const EX = ["avisos", "atajos", "capturas", "prueba"];
+    const ex = m && typeof m === "object" ? (m.extras as Record<string, unknown> | undefined) : undefined;
+    const badExtras = ex !== undefined && (typeof ex !== "object" || ex === null || Array.isArray(ex) || Object.entries(ex).some(([k, v]) => !EX.includes(k) || typeof v !== "boolean"));
+    if (typeof m !== "object" || Array.isArray(m) || Object.keys(m).some((k) => k !== "native" && k !== "extras") || (m.native !== undefined && typeof m.native !== "boolean") || badExtras) {
+      throw new ToolError("INVALID_FILTER", { field: "settings.marca", hint: "{native: true | false, extras: {avisos, atajos, capturas, prueba: true | false}}" });
     }
   }
   if (next.team !== undefined) {

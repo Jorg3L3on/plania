@@ -94,10 +94,12 @@ test("#1 #2 a new logo turns the repo's icons from the old one «viejo»; the re
   await pickLogo("#b91c1c");
   const after = await read();
   const old = after.rows.filter((r) => r.state === "viejo").map((r) => r.id).sort();
-  assert.deepEqual(old, ["a192", "a512", "apple", "ico", "mask", "og", "svg"].sort(), "every compared icon is from the old logo (mono is a white silhouette of the same drawing)");
+  // PLA-I69-1: the manifest's colour is the old logo's too, so it reads old (an edit, not a new file).
+  assert.deepEqual(old, ["a192", "a512", "apple", "ico", "man", "mask", "og", "svg"].sort(), "every compared icon is from the old logo (mono is a white silhouette of the same drawing)");
   assert.ok(after.rows.find((r) => r.id === "apple")!.checks.some((c) => c.k === "old_logo" && !c.ok));
   const set = (await pedido.buildSet(db, project, "faltan"))!;
-  for (const id of old) assert.ok(set.plan.items.some((i) => i.key === id && i.op === "~"), `${id} is redone in place`);
+  for (const id of old.filter((x) => x !== "man")) assert.ok(set.plan.items.some((i) => i.key === id && i.op === "~"), `${id} is redone in place`);
+  assert.ok(set.plan.edits.some((e) => e.what === "manifest_theme"), "the manifest's colour is edited");
 
   await placeAll();
   assert.deepEqual((await read()).rows.filter((r) => r.state === "viejo"), [], "once Taller places the new set, nothing is viejo");
