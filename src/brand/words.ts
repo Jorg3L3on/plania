@@ -16,6 +16,7 @@ export const MARCA_WORDS = defineWords({
       versionNotFound: "No existe esa versión del logo.",
       noOriginal: "El proyecto todavía no tiene logo: elige o sube uno primero.",
       nothing: "No hay nada que llevar: el repo ya tiene todo.",
+      pedidoOpen: (key: string) => `Taller ya trabaja en los íconos (${key}). Cuando lo aceptes, pide este cambio.`,
     },
     pedido: {
       title: "Los íconos de la marca",
@@ -60,6 +61,7 @@ export const MARCA_WORDS = defineWords({
       versionNotFound: "That version of the logo does not exist.",
       noOriginal: "The project has no logo yet: pick or upload one first.",
       nothing: "There is nothing to bring: the repo already has everything.",
+      pedidoOpen: (key: string) => `Taller is already on the icons (${key}). Once you accept it, ask for this change.`,
     },
     pedido: {
       title: "The brand's icons",
