@@ -235,7 +235,7 @@ describe("the screen's Marca words and counts", () => {
     Object.entries(s).map(([id, state]) => ({ id, face: id === "ico" ? "nav" : id === "mono" ? "and" : "ios", state, path: null, optional: id === "mono", checks: [] })) as import("../ui/src/lib/marca.js").MarcaRow[];
   test("an absent optional file is not counted as missing, nor does it dim its card", () => {
     const r = rows({ ico: "ok", apple: "falta", mono: "falta" });
-    assert.deepEqual(ui.counts(r), { ok: 1, missing: 1, wrong: 0 });
+    assert.deepEqual(ui.counts(r), { ok: 1, missing: 1, wrong: 0, old: 0 });
     assert.equal(ui.faceState(r, "and").worst, "ok");
     assert.equal(ui.faceState(r, "ios").worst, "falta");
     assert.equal(ui.doorCount(r), "1 FALTA");

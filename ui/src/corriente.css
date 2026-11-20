@@ -2007,6 +2007,15 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 .cor-imgs figure img, .cor-imgs figure i { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: repeating-conic-gradient(#2a2a33 0 25%, #1c1c22 0 50%) 0 0 / 14px 14px; }
 .cor-imgs figcaption { font-size: 11px; color: var(--cor-muted); }
 
+/* PLA-128: a file made from an older logo, amber like the drift question. */
+.mk-st.viejo { background: var(--cor-amber); }
+.mk-cnt.viejo { color: var(--cor-amber); }
+.mk-sum b.a { color: var(--cor-amber); }
+.th-viejo .flow { stroke: var(--cor-amber); stroke-dasharray: 3 6; }
+.th-viejo circle { fill: var(--cor-amber); }
+li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
+.mk-fi-st.viejo { color: var(--cor-amber); }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
