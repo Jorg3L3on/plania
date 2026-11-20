@@ -1946,7 +1946,7 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
 .mk-sw .mk-chip { display: inline-flex; align-items: center; gap: 6px; padding-left: 4px; font-family: var(--cor-mono, ui-monospace, monospace); font-size: 11px; }
 .mk-sw .mk-chip i { width: 18px; height: 18px; border-radius: 5px; }
 .mk-sw .mk-chip:disabled { cursor: default; opacity: 1; }
-.mk-change { width: 100%; margin-top: 4px; }
+.mk-change { flex: none; width: 100%; min-height: 32px; margin-top: 4px; }
 .mk-go { width: 100%; margin-top: 6px; }
 .mk-ring { position: relative; min-height: 0; overflow: hidden; border-radius: 14px; }
 .mk-r-orbit { position: absolute; left: 50%; top: 50%; width: 520px; height: 460px; transform: translate(-50%, -50%); overflow: visible; pointer-events: none; }
