@@ -323,6 +323,7 @@ export const MARCA_WORDS = defineWords({
       reset: (s: string) => `${s} vuelve a usar el original.`,
       sheet: (s: string) => `Solo ${s}`,
       preview: "así se verá",
+      waits: (s: string, key: string) => `${s} ya tiene su propio ícono. Taller sigue con ${key}: cuando lo aceptes, ponlo en el repo.`,
     },
     up: {
       title: (name: string) => `Subir un logo para ${name}`,
@@ -591,6 +592,7 @@ export const MARCA_WORDS = defineWords({
       reset: (s: string) => `${s} uses the original again.`,
       sheet: (s: string) => `${s} only`,
       preview: "how it will look",
+      waits: (s: string, key: string) => `${s} has its own icon. Taller is still on ${key}: once you accept it, put this in the repo.`,
     },
     up: {
       title: (name: string) => `Upload a logo for ${name}`,

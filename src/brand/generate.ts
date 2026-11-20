@@ -78,7 +78,7 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
     if (touches("svg") && placeOf("svg", rows, f).includes("/public/")) edits.push({ path: layout, what: "layout_svg" });
     if (man?.state === "ok" && (touches("a192") || touches("a512") || touches("mask"))) edits.push({ path: man.path!, what: "manifest_icons" });
     if (man?.state === "ok" && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
-    if (man?.state !== "ok") edits.push({ path: layout, what: "layout_theme" });
+    if (man?.state !== "ok" && !only) edits.push({ path: layout, what: "layout_theme" }); // PLA-124: a surface plan carries only its own edits
   } else {
     const html = `${f.root}index.html`;
     if (items.some((i) => ["ico", "svg", "apple"].includes(i.key))) edits.push({ path: html, what: "html_links" });

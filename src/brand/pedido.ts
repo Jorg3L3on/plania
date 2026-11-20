@@ -6,9 +6,9 @@
 // Also here: the repo changing the logo on its own while the owner's choice leads (the drift question).
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ilike, notInArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { projectLogos, type Project, type ProjectLogo } from "../db/schema.js";
+import { projectLogos, tasks, type Project, type ProjectLogo } from "../db/schema.js";
 import { capturesDir } from "../captures/store.js";
 import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
@@ -65,6 +65,13 @@ export async function zipOf(db: Db, project: Project, mode: "faltan" | "todo", s
 
 /** The ticket that asks Taller to place the set: what goes where, what to link, and its checks. */
 export async function requestIcons(db: Db, project: Project, mode: "faltan" | "todo", surface?: Surface | null): Promise<{ key: string; set: BuiltSet }> {
+  // PLA-124: one icons ticket at a time; a second one would open another PR on the same files.
+  const [open] = await db
+    .select({ key: tasks.key })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, project.id), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Done", "Won't do"])))
+    .limit(1);
+  if (open) throw new LogoError("LOGO_PEDIDO_OPEN", 409, say(MARCA_WORDS).errors.pedidoOpen(open.key));
   const set = await buildSet(db, project, mode, surface);
   if (!set) throw new LogoError("LOGO_NONE", 409, say(MARCA_WORDS).errors.noOriginal);
   if (set.files.length === 0) throw new LogoError("LOGO_NOTHING_TO_BRING", 409, say(MARCA_WORDS).errors.nothing);

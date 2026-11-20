@@ -116,3 +116,24 @@ test("#4 «Solo este» starts from the original; «Volver al original» removes 
   const set = (await pedido.buildSet(db, project, "todo"))!;
   assert.equal(await corner(set.files.find((f) => f.key === "a192")!.bytes), "#4a1f3d", "back on the original");
 });
+
+test("PLA-124 #1 a surface plan carries only its own edits (no layout theme for Android)", async () => {
+  await ownAndroid();
+  marca.forgetMarca();
+  const set = (await pedido.buildSet(db, project, "faltan", "android"))!;
+  assert.ok(!set.plan.edits.some((e) => e.what === "layout_theme"), JSON.stringify(set.plan.edits));
+  // The pure plan, for a Next.js repo with no manifest: the whole set sets the theme, Android alone does not.
+  const rows = [{ id: "man", state: "falta", path: null, checks: [] }, { id: "ico", state: "ok", path: "src/app/favicon.ico", checks: [] }, { id: "a192", state: "falta", path: null, checks: [] }] as never;
+  assert.ok(gen.planFor(rows, { framework: "next-app", root: "" }, "faltan", true).edits.some((e) => e.what === "layout_theme"));
+  assert.ok(!gen.planFor(rows, { framework: "next-app", root: "" }, "faltan", true, false, gen.SURFACE_KEYS.android).edits.some((e) => e.what === "layout_theme"));
+});
+
+test("PLA-124 #2 a second icons request while one is open is refused with its key", async () => {
+  const first = await pedido.requestIcons(db, project, "faltan");
+  await ownAndroid();
+  marca.forgetMarca();
+  await assert.rejects(pedido.requestIcons(db, project, "faltan", "android"), (e: { code?: string; message?: string }) => e.code === "LOGO_PEDIDO_OPEN" && String(e.message).includes(first.key));
+  await raw.query("update tasks set status = 'Done' where key = $1", [first.key]);
+  const second = await pedido.requestIcons(db, project, "faltan", "android");
+  assert.notEqual(second.key, first.key, "once the first is closed the next one goes");
+});

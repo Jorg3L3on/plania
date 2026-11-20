@@ -64,9 +64,13 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         onBack={() => setSoloFor(null)}
         onUsed={(next) => {
           took(next);
-          toast(w.solo.saved(w.solo.name[soloFor]));
-          setSheetSurface(soloFor);
-          setSheet(true);
+          // PLA-124: with an icons ticket still open, this one waits until that one is accepted.
+          if (next.pedido) toast(w.solo.waits(w.solo.name[soloFor], next.pedido.key));
+          else {
+            toast(w.solo.saved(w.solo.name[soloFor]));
+            setSheetSurface(soloFor);
+            setSheet(true);
+          }
           setSoloFor(null);
         }}
       />
@@ -591,7 +595,7 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
         const start = startAdjust(s);
         setStaged(s);
         setScale(own?.scale ?? start.scale);
-        setBg(own ? own.bg : (start.bg ?? r.logo?.colors[0] ?? null));
+        setBg(own ? own.bg : start.bg); // PLA-124: an icon with its own background starts on it
         setBusy(false);
       },
       (e) => { if (live) { setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)); setBusy(false); } },
