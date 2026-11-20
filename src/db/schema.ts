@@ -2072,3 +2072,33 @@ export const projectLogos = pgTable(
   ],
 );
 export type ProjectLogo = typeof projectLogos.$inferSelect;
+
+// PLA-I68-2: Camino (drizzle/migrations/0074_camino.sql). config is CaminoConfig (src/camino/types.ts), never a secret;
+// discovery is the last read of GitHub and this machine.
+export const camino = pgTable("camino", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  config: jsonb("config").$type<import("../camino/types.js").CaminoConfig>().notNull().default(sql`'{}'::jsonb`),
+  version: integer("version").notNull().default(1),
+  discovery: jsonb("discovery").$type<import("../camino/types.js").Discovery>(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type CaminoDest = "plania" | "proveedor" | "github" | "pr" | "llavero";
+export const caminoHistory = pgTable(
+  "camino_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    who: text("who").notNull(),
+    label: text("label").notNull(),
+    dest: text("dest").$type<CaminoDest>().notNull(),
+    undo: text("undo"),
+    detail: jsonb("detail").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  },
+  (t) => [index("camino_history_project_at").on(t.projectId, t.at), check("camino_history_dest_check", sql`${t.dest} in ('plania', 'proveedor', 'github', 'pr', 'llavero')`)],
+);

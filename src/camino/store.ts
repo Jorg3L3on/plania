@@ -1,0 +1,202 @@
+// PLA-I68-2: the camino row and its history, and the one read the screen gets (GET /api/company/projects/:slug/camino).
+// Discovery runs on «Volver a comprobar», on the first open, and in the background when the last one is older than
+// STALE_MS; one at a time per project. Every outside call is injected (caminoDeps) so tests never reach GitHub.
+import { and, desc, eq, sql } from "drizzle-orm";
+import pg from "pg";
+import type { Db } from "../db/client.js";
+import { camino, caminoHistory, envStates, projects, pullRequests, tasks, type CaminoDest, type Project } from "../db/schema.js";
+import { githubToken } from "../jobs/github.js";
+import { projectsRoot, repoPathOf } from "../runner/worktree.js";
+import { findProject } from "../mcp/queries.js";
+import { effectiveConfig, type EffectiveConfig } from "./config.js";
+import { discoverGithub, ghApi, type GhApi } from "./github.js";
+import { caminoKeys } from "./keys.js";
+import { discoverMac } from "./mac.js";
+import type { HttpFetch } from "./providers.js";
+import type { CaminoConfig, Discovery, ProviderId } from "./types.js";
+
+export const STALE_MS = 15 * 60_000;
+
+export type CaminoDeps = {
+  fetch: HttpFetch;
+  env: NodeJS.ProcessEnv;
+  now: () => Date;
+  listDatabases: () => Promise<string[] | null>;
+};
+
+async function localDatabases(): Promise<string[] | null> {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  const u = new URL(url);
+  u.pathname = "/postgres";
+  const c = new pg.Client({ connectionString: u.toString(), connectionTimeoutMillis: 3_000 });
+  try {
+    await c.connect();
+    const r = await c.query<{ datname: string }>("select datname from pg_database where not datistemplate order by datname");
+    return r.rows.map((x) => x.datname);
+  } catch {
+    return null;
+  } finally {
+    await c.end().catch(() => {});
+  }
+}
+
+export const caminoDeps: CaminoDeps = {
+  fetch: (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<HttpFetch>,
+  env: process.env,
+  now: () => new Date(),
+  listDatabases: localDatabases,
+};
+
+/** The GitHub client for a project: its saved key in Camino, else the poller's token. Null with no token at all. */
+export async function githubFor(p: Project, deps: CaminoDeps = caminoDeps): Promise<GhApi | null> {
+  const saved = await caminoKeys().get(p.slug, "github");
+  if (saved) return ghApi(saved, "camino", deps.fetch);
+  const t = await githubToken({ fetch: deps.fetch as never, env: deps.env }, { token_env: p.settings.github?.token_env });
+  return t.token ? ghApi(t.token, t.source, deps.fetch) : null;
+}
+
+/** The project's stored config ({} until the owner saves something), its version and its last discovery. */
+export async function caminoRow(db: Db, projectId: string) {
+  const [row] = await db.select().from(camino).where(eq(camino.projectId, projectId)).limit(1);
+  return row ?? { projectId, config: {} as CaminoConfig, version: 0, discovery: null, checkedAt: null, updatedAt: null };
+}
+
+/** Runs discovery and stores it. Errors become the discovery's own ok:false, never a throw. */
+export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps): Promise<Discovery> {
+  const t0 = Date.now();
+  const row = await caminoRow(db, p.id);
+  const repo = p.settings.github?.repo ?? null;
+  const base = effectiveConfig(p.settings, row.config, null);
+  const roles = [base.branches.published, base.branches.integration].filter((b): b is string => !!b);
+  const api = await githubFor(p, deps);
+  const now = deps.now();
+  const github: Discovery["github"] = !repo
+    ? { ok: false, error: "no_repo", repos: api ? await reposOnly(api) : [] }
+    : !api
+      ? { ok: false, error: "no_token" }
+      : await discoverGithub(api, repo, roles, now).catch((e) => ({ ok: false as const, error: "network" as const, detail: e instanceof Error ? e.message.slice(0, 200) : "" }));
+  const folder = p.settings.local?.no_code ? null : repoPathOf(p.slug, p.settings, deps.env);
+  const mac = await discoverMac(folder, repo, { listDatabases: deps.listDatabases, projectsRoot: projectsRoot(deps.env) });
+  const d: Discovery = { checked_at: now.toISOString(), took_ms: Date.now() - t0, github, mac };
+  await db
+    .insert(camino)
+    .values({ projectId: p.id, discovery: d, checkedAt: now })
+    .onConflictDoUpdate({ target: camino.projectId, set: { discovery: d, checkedAt: now } });
+  return d;
+}
+
+async function reposOnly(api: GhApi): Promise<string[]> {
+  try {
+    const r = await api.call("GET", "/user/repos?per_page=100&sort=pushed");
+    return r.status === 200 ? ((await r.json()) as { full_name: string }[]).map((x) => x.full_name) : [];
+  } catch {
+    return [];
+  }
+}
+
+const running = new Map<string, Promise<Discovery>>();
+/** One discovery at a time per project; a second call waits for the first. */
+export function discoverOnce(db: Db, p: Project, deps: CaminoDeps = caminoDeps): Promise<Discovery> {
+  const live = running.get(p.id);
+  if (live) return live;
+  const job = discover(db, p, deps).finally(() => running.delete(p.id));
+  running.set(p.id, job);
+  return job;
+}
+export const discovering = (projectId: string) => running.has(projectId);
+
+export async function addHistory(db: Db, projectId: string, h: { who: string; label: string; dest: CaminoDest; undo?: string | null; detail?: Record<string, unknown> }) {
+  await db.insert(caminoHistory).values({ projectId, who: h.who, label: h.label, dest: h.dest, undo: h.undo ?? null, detail: h.detail ?? {} });
+}
+
+/** Writes the stored config with the version the screen read (STALE when someone wrote since). */
+export async function writeConfig(db: Db, projectId: string, version: number, next: CaminoConfig): Promise<number> {
+  const row = await caminoRow(db, projectId);
+  if (row.version !== version) {
+    const { ToolError } = await import("../mcp/errors.js");
+    throw new ToolError("STALE_VERSION", { current_version: row.version });
+  }
+  const [u] = await db
+    .insert(camino)
+    .values({ projectId, config: next, version: version + 1, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: camino.projectId, set: { config: next, version: sql`${camino.version} + 1`, updatedAt: new Date() } })
+    .returning({ version: camino.version });
+  return u!.version;
+}
+
+export type Proposal = { number: number; title: string; url: string; state: string; base_branch: string | null; head_branch: string | null; ci_state: string | null; task_key: string | null; merged_at: string | null; updated_at: string };
+export type ConnectionRead = { provider: ProviderId; saved: boolean; meta: NonNullable<CaminoConfig["connections"]>[ProviderId] | null };
+
+export type CaminoRead = {
+  slug: string;
+  title: string;
+  version: number;
+  config: EffectiveConfig;
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; vercel: boolean };
+  discovery: Discovery | null;
+  checked_at: string | null;
+  checking: boolean;
+  plania: {
+    envs: { env: string; commit: string | null; branch: string | null; migrations_applied: number | null; migrations: number; deployed_at: string | null }[];
+    note_stale: boolean;
+    keys_store: "keychain" | "file" | "memory";
+  };
+  proposals: Proposal[];
+  history: { at: string; who: string; label: string; dest: CaminoDest; undo: string | null }[];
+};
+
+export async function caminoRead(db: Db, slug: string): Promise<CaminoRead> {
+  const p = await findProject(db, slug);
+  const row = await caminoRow(db, p.id);
+  const d = row.discovery;
+  const gh = d?.github.ok ? { default_branch: d.github.repo.default_branch, merge: d.github.repo.merge } : null;
+  const [envRows, prRows, hist, [proj]] = await Promise.all([
+    db.select().from(envStates).where(eq(envStates.projectId, p.id)),
+    db
+      .select({ pr: pullRequests, key: tasks.key })
+      .from(pullRequests)
+      .leftJoin(tasks, eq(tasks.id, pullRequests.taskId))
+      .where(and(eq(pullRequests.projectId, p.id), sql`(${pullRequests.state} = 'open' or coalesce(${pullRequests.mergedAt}, ${pullRequests.updatedAt}) > now() - interval '30 days')`))
+      .orderBy(desc(sql`coalesce(${pullRequests.ghUpdatedAt}, ${pullRequests.updatedAt})`))
+      .limit(120),
+    db.select().from(caminoHistory).where(eq(caminoHistory.projectId, p.id)).orderBy(desc(caminoHistory.at)).limit(80),
+    db.select({ stale: projects.headlineNoteStale }).from(projects).where(eq(projects.id, p.id)),
+  ]);
+  const s = p.settings;
+  return {
+    slug: p.slug,
+    title: p.title,
+    version: row.version,
+    config: effectiveConfig(s, row.config, gh),
+    settings: {
+      repo: s.github?.repo ?? null,
+      folder: s.local?.no_code ? null : repoPathOf(p.slug, s),
+      no_code: s.local?.no_code === true,
+      release: s.release ? { from: s.release.from, into: s.release.into, env: s.release.env, prod_migrations: s.release.prod_migrations ?? null } : null,
+      capture: !!s.capture,
+      vercel: !!s.vercel,
+    },
+    discovery: d,
+    checked_at: row.checkedAt?.toISOString() ?? null,
+    checking: discovering(p.id),
+    plania: {
+      envs: envRows.map((e) => ({ env: e.env, commit: e.commit, branch: e.branch, migrations_applied: e.migrationsApplied, migrations: e.migrations.length, deployed_at: e.deployedAt?.toISOString() ?? null })),
+      note_stale: !!proj?.stale,
+      keys_store: caminoKeys().kind,
+    },
+    proposals: prRows.map(({ pr, key }) => ({
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      state: pr.state,
+      base_branch: pr.baseBranch,
+      head_branch: pr.headBranch,
+      ci_state: pr.ciState,
+      task_key: key,
+      merged_at: pr.mergedAt?.toISOString() ?? null,
+      updated_at: (pr.ghUpdatedAt ?? pr.updatedAt).toISOString(),
+    })),
+    history: hist.map((h) => ({ at: h.at.toISOString(), who: h.who, label: h.label, dest: h.dest, undo: h.undo })),
+  };
+}

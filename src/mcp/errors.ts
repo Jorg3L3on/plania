@@ -156,6 +156,11 @@ export const ERRORS = {
   REFERENCE_FILE_TOO_LARGE: [400, "a reference file over 5 MB (detail: max_bytes)"],
   REFERENCE_LIMIT: [409, "the seat already has the most references it may keep (detail: max)"],
   REFERENCE_NOT_FOUND: [404, "no reference with that id on this seat"],
+  CAMINO_PROVIDER_UNKNOWN: [400, "camino: no key can be saved for that service; it is Detected or Manual, or not a service Camino knows (detail: provider)"],
+  CAMINO_KEY_INVALID: [400, "camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved"],
+  CAMINO_KEY_REJECTED: [400, "camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words)"],
+  CAMINO_KEY_MISSING: [404, "camino: no key is saved for that service on this project"],
+  CAMINO_KEY_STORE: [409, "camino: the keychain (or the 0600 file) did not take the key; nothing else changed"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;
 
 export type ErrorCode = keyof typeof ERRORS;

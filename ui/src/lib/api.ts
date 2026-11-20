@@ -1,4 +1,5 @@
 import type { Oficio } from "./oficio";
+import type { CaminoRead } from "./camino-types";
 import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
 import type { ImportPreview, TrialStarted, TrialView, TrialsRead, UpdateCheck } from "./oficio-trials";
 import type { LessonAction, LessonView, LessonsRead } from "./oficio-lessons";
@@ -251,6 +252,14 @@ export const api = {
   readiness: (slug: string) => request<Listo>("GET", `/company/projects/${encodeURIComponent(slug)}/readiness`),
   // NEWPROJ-6: the Ajustes view. Each save sends the version it read and answers with the view read again.
   ajustes: (slug: string) => request<Ajustes>("GET", `/company/projects/${encodeURIComponent(slug)}/settings`),
+  // PLA-I68: Camino (src/api/company-camino.ts).
+  camino: (slug: string) => request<CaminoRead>("GET", `/company/projects/${encodeURIComponent(slug)}/camino`),
+  caminoRecheck: (slug: string) => request<CaminoRead>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/recheck`, {}),
+  caminoSaveKey: (slug: string, provider: string, value: string) =>
+    request<{ provider: string; meta: unknown }>("PUT", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`, { value }),
+  caminoTestKey: (slug: string, provider: string) =>
+    request<{ provider: string; ok: boolean; status: number | null; message: string; account: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}/test`, {}),
+  caminoRemoveKey: (slug: string, provider: string) => request<{ removed: true }>("DELETE", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`),
   ajustesCodigo: (slug: string, input: { version: number; repo_path?: string; github_repo?: string; no_code?: true }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/code`, input),
   // PLA-I2-5: Plania prepares the code (folder, git, GitHub, the working branch), and makes the working branch alone.

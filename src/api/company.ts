@@ -42,6 +42,7 @@
 //   PLA-I67-3: …/team/:agent/lessons[/:id[/decide]]: lessons, the teach bar's rule, the owner's verdicts
 //        (src/api/company-oficio-lessons.ts); a proposal also shows in Te toca as kind leccion (id l-<uuid>)
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
+import { caminoRoutes } from "./company-camino.js";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -672,6 +673,8 @@ companyRoutes.route("/", oficioSkillRoutes);
 companyRoutes.route("/", oficioTrialRoutes);
 // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
 companyRoutes.route("/", oficioLessonRoutes);
+// PLA-I68: Camino, a project's path from code to people (src/api/company-camino.ts).
+companyRoutes.route("/", caminoRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
 companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {
