@@ -30,6 +30,9 @@ import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
 import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
 import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
+import { clearSurface, isSurface, setSurface, startSurface, surfacesOf } from "../brand/surfaces.js";
+import { readLogoFile } from "../brand/logos.js";
+import type { Surface } from "../brand/generate.js";
 
 export const marcaRoutes = new Hono();
 const BASE = "/projects/:slug/logo";
@@ -161,6 +164,8 @@ marcaRoutes.post(`${BASE}/release`, async (c) => {
 });
 
 const Mode = (v: string | undefined): "faltan" | "todo" => (v === "todo" ? "todo" : "faltan");
+// PLA-122: one surface's files only.
+const SurfaceQ = (v: string | undefined | null): Surface | null => (v && isSurface(v) ? v : null);
 
 marcaRoutes.post(`${BASE}/keep`, async (c) => {
   const body = await json(c, z.object({ sha: z.string().regex(/^[0-9a-f]{64}$/) }).strict());
@@ -174,7 +179,7 @@ marcaRoutes.post(`${BASE}/keep`, async (c) => {
 marcaRoutes.get("/projects/:slug/marca/plan", async (c) => {
   const p = await projectOf(c);
   if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-  const set = await withDb((db) => buildSet(db, p, Mode(c.req.query("mode"))));
+  const set = await withDb((db) => buildSet(db, p, Mode(c.req.query("mode")), SurfaceQ(c.req.query("surface"))));
   if (!set) return c.json({ error: "LOGO_NONE" }, 409);
   return c.json({ plan: set.plan, set: set.id, dir: set.dir });
 });
@@ -183,7 +188,7 @@ marcaRoutes.get("/projects/:slug/marca/zip", async (c) => {
   const p = await projectOf(c);
   if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
   const mode = Mode(c.req.query("mode"));
-  const z = await withDb((db) => zipOf(db, p, mode));
+  const z = await withDb((db) => zipOf(db, p, mode, SurfaceQ(c.req.query("surface"))));
   if (!z) return c.json({ error: "LOGO_NONE" }, 409);
   return c.body(new Uint8Array(z), 200, {
     "Content-Type": "application/zip",
@@ -194,15 +199,66 @@ marcaRoutes.get("/projects/:slug/marca/zip", async (c) => {
 
 marcaRoutes.post("/projects/:slug/marca/pedido", async (c) => {
   try {
-    const body = await json(c, z.object({ mode: z.enum(["faltan", "todo"]) }).strict());
+    const body = await json(c, z.object({ mode: z.enum(["faltan", "todo"]), surface: z.enum(["iphone", "android", "navegador"]).nullable().optional() }).strict());
     if (body instanceof Response) return body;
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    const r = await withDb((db) => requestIcons(db, p, body.mode));
+    const r = await withDb((db) => requestIcons(db, p, body.mode, body.surface ?? null));
     return c.json({ key: r.key, read: await withDb((db) => marcaRead(db, p.slug)) });
   } catch (e) {
     return fail(c, e);
   }
+});
+
+// PLA-122: one surface's own icon.
+//   POST /api/company/projects/:slug/logo/surface/:s/start   the current original (or its own picture) staged
+//   POST /api/company/projects/:slug/logo/surface/:s         {up, scale, bg, name?}: the surface keeps it
+//   POST /api/company/projects/:slug/logo/surface/:s/reset   back to the original
+//   GET  /api/company/projects/:slug/logo/surface/:s         its tile, for the card
+marcaRoutes.post(`${BASE}/surface/:s/start`, async (c) => {
+  try {
+    const s = c.req.param("s")!;
+    if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const staged = await withDb((db) => startSurface(db, p, s));
+    return staged ? c.json(staged) : c.json({ error: "LOGO_NONE" }, 409);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+marcaRoutes.post(`${BASE}/surface/:s/reset`, async (c) => {
+  const s = c.req.param("s")!;
+  if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  clearSurface(p, s);
+  return c.json(await withDb((db) => marcaRead(db, p.slug)));
+});
+
+marcaRoutes.post(`${BASE}/surface/:s`, async (c) => {
+  try {
+    const s = c.req.param("s")!;
+    if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+    const body = await json(c, Adjust);
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    await setSurface(p, s, { up: body.up, name: body.name ?? body.up, scale: body.scale, bg: body.bg });
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+marcaRoutes.get(`${BASE}/surface/:s`, async (c) => {
+  const s = c.req.param("s")!;
+  const slug = c.req.param("slug")!;
+  const own = isSurface(s) ? surfacesOf(slug)[s] : undefined;
+  const b = own ? readLogoFile(slug, own.file) : null;
+  if (!b) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
+  return c.body(new Uint8Array(b), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
 });
 
 // PLA-I66-5: logo marks from Artist.

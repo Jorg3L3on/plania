@@ -53,17 +53,19 @@ export function placeOf(key: GenKey, rows: Row[], f: { framework: Framework; roo
 const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", a192: "a192", a512: "a512", mask: "mask", mono: "mono", og: "og", manifest: "man", splash: "splash", ios_app: "ios_app", and_app: "and_app" };
 
 /** What a request to Taller would change: the missing or wrong files (faltan), or every file (todo). */
-export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean, native = false): Plan {
+// PLA-122: only, the keys of one surface: every one of them is made (whatever the repo has) and nothing else.
+export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean, native = false, only?: GenKey[]): Plan {
   const items: PlanItem[] = [];
   let kept = 0;
   const keys: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest", ...(native ? (["splash", "ios_app", "and_app"] as GenKey[]) : [])];
   for (const key of keys) {
     const row = rows.find((r) => r.id === ROW_OF[key]);
     if (!row) continue;
-    if (key === "svg" && !svgOriginal) continue; // a raster original has no SVG to give
+    if (only && !only.includes(key)) continue;
+    if (key === "svg" && !svgOriginal && !only) continue; // a raster original has no SVG to give (a surface's own icon gets one that wraps it)
     if (key === "og" && row.state === "ok" && row.path && /\.(tsx|ts|jsx|js)$/.test(row.path)) { kept++; continue; } // drawn in code
     if (key === "og" && row.state === "ok" && !row.path?.match(/\.(png|jpe?g)$/)) { kept++; continue; } // declared in metadata
-    const need = mode === "todo" || row.state !== "ok";
+    const need = !!only || mode === "todo" || row.state !== "ok";
     if (!need) { kept++; continue; }
     // A missing file is new where the framework expects it; one the repo has (wrong, or redone) is replaced in place.
     items.push({ key, path: placeOf(key, rows, f), op: row.state === "falta" ? "+" : "~" });
@@ -246,12 +248,27 @@ async function adaptive(o: Original, t: Buffer): Promise<{ fg: Buffer; mono: Buf
   return { fg, mono: monoOut, bg };
 }
 
-/** The plan's files, made. */
-export async function generate(o: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string }): Promise<GenFile[]> {
-  const t = await tile(o);
+/** The surface a key belongs to (PLA-122): its files can come from that surface's own icon. */
+export type Surface = "iphone" | "android" | "navegador";
+export const SURFACE_KEYS: Record<Surface, GenKey[]> = { iphone: ["apple", "ios_app", "splash"], android: ["a192", "a512", "mask", "mono", "and_app"], navegador: ["ico", "svg"] };
+export const surfaceOfKey = (k: GenKey): Surface | null => (Object.keys(SURFACE_KEYS) as Surface[]).find((s) => SURFACE_KEYS[s].includes(k)) ?? null;
+
+/** A raster icon as an SVG file (PLA-122): a browser that prefers icon.svg shows the same picture. */
+export async function svgWrap(png: Buffer): Promise<Buffer> {
+  const small = await sharp(png).resize(256, 256).png({ compressionLevel: 9 }).toBuffer();
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><image width="256" height="256" href="data:image/png;base64,${small.toString("base64")}"/></svg>`);
+}
+
+/** The plan's files, made. surfaces: a surface's own icon, for that surface's files (PLA-122). */
+export async function generate(main: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string }, surfaces: Partial<Record<Surface, Original>> = {}): Promise<GenFile[]> {
+  const tiles = new Map<Original, Buffer>();
+  const tileOf = async (x: Original) => tiles.get(x) ?? (tiles.set(x, await tile(x)), tiles.get(x)!);
   const out: GenFile[] = [];
   const f = { framework: plan.framework, root: opts.root };
   for (const it of plan.items) {
+    const s = surfaceOfKey(it.key);
+    const o = (s && surfaces[s]) || main;
+    const t = await tileOf(o);
     if (it.key === "splash") {
       const bg = opts.theme && /^#[0-9a-f]{6}$/i.test(opts.theme) ? opts.theme : await cornerOf(t);
       for (const [w, h] of SPLASH_SIZES) out.push({ key: "splash", path: `${it.path.replace(/\/?$/, "/")}apple-splash-${w}x${h}.png`, bytes: await splashOf(t, w, h, bg) });
@@ -270,7 +287,7 @@ export async function generate(o: Original, plan: Plan, opts: { name: string; th
     switch (it.key) {
       case "ios_app": bytes = await opaque(t, 1024); break;
       case "ico": bytes = await ico(t); break;
-      case "svg": bytes = o.bytes; break;
+      case "svg": bytes = o.mime === "image/svg+xml" ? o.bytes : await svgWrap(t); break;
       case "apple": bytes = await opaque(t, 180); break;
       case "a192": bytes = await size(t, 192); break;
       case "a512": bytes = await size(t, 512); break;
@@ -285,8 +302,11 @@ export async function generate(o: Original, plan: Plan, opts: { name: string; th
 }
 
 /** A stable name for a set: the original and the plan decide it. */
-export const setId = (o: Original, plan: Plan): string =>
-  createHash("sha256").update(o.bytes).update(JSON.stringify(plan.items)).digest("hex").slice(0, 16);
+export const setId = (o: Original, plan: Plan, surfaces: Partial<Record<Surface, Original>> = {}): string => {
+  const h = createHash("sha256").update(o.bytes).update(JSON.stringify(plan.items));
+  for (const s of Object.keys(surfaces).sort() as Surface[]) h.update(s).update(surfaces[s]!.bytes);
+  return h.digest("hex").slice(0, 16);
+};
 
 // ---------- a ZIP with no dependency (stored, no compression: PNGs are compressed already) ----------
 const CRC = (() => {

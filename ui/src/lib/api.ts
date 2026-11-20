@@ -18,7 +18,7 @@ import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
-import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, VersionRef } from "@/lib/marca";
+import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, Surface, VersionRef } from "@/lib/marca";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -234,8 +234,12 @@ export const api = {
   marcaAskMarks: (slug: string, hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null }) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks`, hints),
   marcaUseMark: (slug: string, id: string, mark: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${mark}`),
   marcaKeep: (slug: string, sha: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/keep`, { sha }),
-  marcaPlan: (slug: string, mode: "faltan" | "todo") => request<{ plan: Plan; set: string; dir: string }>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/plan?mode=${mode}`),
-  marcaRequest: (slug: string, mode: "faltan" | "todo") => request<{ key: string; read: MarcaRead }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/pedido`, { mode }),
+  marcaPlan: (slug: string, mode: "faltan" | "todo", surface?: Surface | null) => request<{ plan: Plan; set: string; dir: string }>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/plan?mode=${mode}${surface ? `&surface=${surface}` : ""}`),
+  marcaRequest: (slug: string, mode: "faltan" | "todo", surface?: Surface | null) => request<{ key: string; read: MarcaRead }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/pedido`, { mode, surface: surface ?? null }),
+  // PLA-122: one surface's own icon.
+  marcaSurfaceStart: (slug: string, s: Surface) => request<Staged>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/start`),
+  marcaSurfaceSet: (slug: string, s: Surface, body: { up: string; name: string; scale: number; bg: string | null }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}`, body),
+  marcaSurfaceReset: (slug: string, s: Surface) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/reset`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

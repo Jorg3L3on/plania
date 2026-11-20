@@ -14,7 +14,8 @@ import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
 import { webCtx } from "../mcp/tx.js";
 import { say } from "../words.js";
-import { generate, planFor, setId, zip, type GenFile, type Original, type Plan } from "./generate.js";
+import { generate, planFor, setId, SURFACE_KEYS, zip, type GenFile, type Original, type Plan, type Surface } from "./generate.js";
+import { surfaceOriginals } from "./surfaces.js";
 import { readLogoFile } from "./logos.js";
 import { marcaRead, forgetMarcaOf, type MarcaRead } from "./marca.js";
 import { MARCA_WORDS } from "./words.js";
@@ -36,15 +37,17 @@ const themeOf = (r: MarcaRead): string | null => {
 export type BuiltSet = { id: string; plan: Plan; files: GenFile[]; dir: string };
 
 /** Makes the set for a mode (faltan: what is missing or wrong; todo: every file) and keeps it in the store. */
-export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"): Promise<BuiltSet | null> {
+// PLA-122: surface, one surface's files only (each made from its own icon when it has one).
+export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo", surface?: Surface | null): Promise<BuiltSet | null> {
   const r = await marcaRead(db, project.slug);
   if (!r?.logo) return null;
   const [l] = await db.select().from(projectLogos).where(and(eq(projectLogos.projectId, project.id), eq(projectLogos.active, true))).limit(1);
   const o = l ? originalOf(project.slug, l) : null;
   if (!o) return null;
-  const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml", r.native);
-  const files = await generate(o, plan, { name: project.title, theme: themeOf(r), rows: r.rows, root: r.root });
-  const id = setId(o, plan);
+  const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml", r.native, surface ? SURFACE_KEYS[surface] : undefined);
+  const own = surfaceOriginals(project.slug);
+  const files = await generate(o, plan, { name: project.title, theme: themeOf(r), rows: r.rows, root: r.root }, own);
+  const id = setId(o, plan, own);
   const dir = path.join(capturesDir(), "_marca", project.slug, "sets", id);
   for (const f of files) {
     const target = path.join(dir, f.path);
@@ -55,20 +58,21 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   return { id, plan, files, dir };
 }
 
-export async function zipOf(db: Db, project: Project, mode: "faltan" | "todo"): Promise<Buffer | null> {
-  const set = await buildSet(db, project, mode);
+export async function zipOf(db: Db, project: Project, mode: "faltan" | "todo", surface?: Surface | null): Promise<Buffer | null> {
+  const set = await buildSet(db, project, mode, surface);
   return set ? zip(set.files) : null;
 }
 
 /** The ticket that asks Taller to place the set: what goes where, what to link, and its checks. */
-export async function requestIcons(db: Db, project: Project, mode: "faltan" | "todo"): Promise<{ key: string; set: BuiltSet }> {
-  const set = await buildSet(db, project, mode);
+export async function requestIcons(db: Db, project: Project, mode: "faltan" | "todo", surface?: Surface | null): Promise<{ key: string; set: BuiltSet }> {
+  const set = await buildSet(db, project, mode, surface);
   if (!set) throw new LogoError("LOGO_NONE", 409, say(MARCA_WORDS).errors.noOriginal);
   if (set.files.length === 0) throw new LogoError("LOGO_NOTHING_TO_BRING", 409, say(MARCA_WORDS).errors.nothing);
   const w = say(MARCA_WORDS).pedido;
   const lines = [
     MARKER(set.id, set.plan.items.map((i) => (i.key === "manifest" ? "man" : i.key))),
     w.lead(set.dir),
+    ...(surface ? ["", w.surfaceLead(w.surface[surface]!)] : []),
     "",
     `## ${w.files}`,
     ...set.plan.items.map((i) => `- \`${i.path}\` (${i.op === "+" ? w.add : w.replace})`),
@@ -83,7 +87,7 @@ export async function requestIcons(db: Db, project: Project, mode: "faltan" | "t
     {
       project: project.slug,
       ...(taller ? { owner_agent: taller.slug } : {}),
-      title: w.title,
+      title: surface ? w.titleSurface(w.surface[surface]!) : w.title,
       summary: w.summary(set.files.length),
       scope: lines.join("\n"),
       checks: [w.checkFiles, ...(set.plan.edits.length ? [w.checkLinks] : []), w.checkVerify],

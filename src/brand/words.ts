@@ -19,6 +19,9 @@ export const MARCA_WORDS = defineWords({
     },
     pedido: {
       title: "Los íconos de la marca",
+      titleSurface: (s: string) => `Los íconos de la marca: solo ${s}`,
+      surface: { iphone: "iPhone", android: "Android", navegador: "el navegador" } as Record<string, string>,
+      surfaceLead: (s: string) => `Solo cambian los archivos de ${s}: el dueño le dio su propio ícono. Los demás archivos se quedan como están.`,
       summary: (n: number) => `Poner en el repo ${n} archivos de íconos que Plania armó desde el logo del proyecto, y enlazarlos.`,
       lead: (dir: string) => `Plania armó los archivos desde el logo del proyecto. Están listos en \`${dir}\`, con la misma estructura que el repo: cópialos tal cual, no los redibujes.`,
       files: "Archivos",
@@ -60,6 +63,9 @@ export const MARCA_WORDS = defineWords({
     },
     pedido: {
       title: "The brand's icons",
+      titleSurface: (s: string) => `The brand's icons: ${s} only`,
+      surface: { iphone: "iPhone", android: "Android", navegador: "the browser" } as Record<string, string>,
+      surfaceLead: (s: string) => `Only ${s}'s files change: the owner gave it its own icon. The other files stay as they are.`,
       summary: (n: number) => `Put in the repo ${n} icon files Plania made from the project's logo, and link them.`,
       lead: (dir: string) => `Plania made the files from the project's logo. They are ready in \`${dir}\`, laid out like the repo: copy them as they are, do not redraw them.`,
       files: "Files",

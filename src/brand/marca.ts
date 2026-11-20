@@ -12,6 +12,7 @@ import { checkRepo, type Framework, type Row } from "./check.js";
 import { activeLogo, filesAt, listTree, readBlob, readLogoFile, realGit, RECHECK_MS, scanProjectLogo, type LogoDeps, type LogoRef } from "./logos.js";
 import { createHash } from "node:crypto";
 import { looksSame } from "./same.js";
+import { surfacesOf } from "./surfaces.js";
 import { and, desc, ilike, notInArray } from "drizzle-orm";
 import { tasks } from "../db/schema.js";
 
@@ -38,9 +39,11 @@ export type MarcaRead = {
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
   drift: { path: string; sha: string } | null;
   checkedAt: string;
+  /** PLA-122: the surfaces with their own icon (the tile file, to show on its card). */
+  surfaces: Partial<Record<"iphone" | "android" | "navegador", { file: string; bg: string | null; scale: number }>>;
 };
 
-type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido">; files: Set<string> };
+type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido" | "surfaces">; files: Set<string> };
 
 // PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
 const REQ = /<!-- plania:marca set=([0-9a-f]{16}) rows=([a-z0-9_,]*) -->/;
@@ -85,7 +88,8 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   // PLA-I66-4: the owner's choice leads, and the repo's best logo is another picture (not the same logo regenerated).
   let drift: MarcaRead["drift"] = null;
   const best = candidates[0];
-  if (current?.chosen && best && !(current.source === "repo" && current.sourcePath === best.path)) {
+  // PLA-122: with a browser icon of its own, the repo's icon.svg is that one, not a logo changed behind the owner's back.
+  if (current?.chosen && best && !surfacesOf(p.slug).navegador && !(current.source === "repo" && current.sourcePath === best.path)) {
     const sha = createHash("sha256").update(best.bytes).digest("hex");
     const mine = readLogoFile(p.slug, current.file);
     if (sha !== current.adjust?.keptOver && mine && !(await looksSame(mine, best.bytes))) drift = { path: best.path, sha };
@@ -125,7 +129,8 @@ export async function marcaRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     c = next;
   }
   const req = await openRequest(db, p.id);
-  return { ...c.read, logo: await logoRef(db, p.id), pedido: req ? { key: req.key, status: req.status, rows: req.rows } : null };
+  const surfaces = Object.fromEntries(Object.entries(surfacesOf(p.slug)).map(([s, v]) => [s, { file: v!.file, bg: v!.bg, scale: v!.scale }]));
+  return { ...c.read, logo: await logoRef(db, p.id), pedido: req ? { key: req.key, status: req.status, rows: req.rows } : null, surfaces };
 }
 
 /** A file of the repo that the last read showed (a card's real file), at that read's commit. */
