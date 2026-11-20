@@ -1791,3 +1791,92 @@ export const skillVersions = pgTable(
   (t) => [uniqueIndex("skill_versions_skill_n_unique").on(t.skillId, t.n), check("skill_versions_n_check", sql`${t.n} >= 1`)],
 );
 export type SkillVersionRow = typeof skillVersions.$inferSelect;
+
+// PLA-I67-3: the owner's corrections, the lessons they become, and what each run carried (migration 0069).
+// src/runner/lessons.ts reads corrections, runs the reflector and injects active lessons; only the owner approves.
+export type LessonState = "proposed" | "active" | "one-off" | "rejected" | "retired" | "expired";
+export type FeedbackKind = "changes" | "idea" | "dile";
+export const feedbackEvents = pgTable(
+  "feedback_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    taskKey: text("task_key"),
+    kind: text("kind").$type<FeedbackKind>().notNull(),
+    words: text("words").notNull(),
+    sourceEventId: bigint("source_event_id", { mode: "number" }),
+    runId: uuid("run_id"),
+    status: text("status").$type<"queued" | "reflecting" | "done" | "failed" | "skipped">().notNull().default("queued"),
+    verdict: jsonb("verdict").$type<Record<string, unknown>>(),
+    lessonId: uuid("lesson_id"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("feedback_events_source_unique").on(t.sourceEventId).where(sql`${t.sourceEventId} is not null`), index("feedback_events_agent_idx").on(t.agentId, t.createdAt), index("feedback_events_status_idx").on(t.status, t.createdAt)],
+);
+export type FeedbackEvent = typeof feedbackEvents.$inferSelect;
+
+export const lessons = pgTable(
+  "lessons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<SkillScope>().notNull().default("agent"),
+    role: text("role"),
+    text: text("text").notNull(),
+    appliesWhen: text("applies_when"),
+    state: text("state").$type<LessonState>().notNull().default("proposed"),
+    proposedBy: text("proposed_by").$type<"reflector" | "owner">().notNull().default("reflector"),
+    feedbackId: uuid("feedback_id").references(() => feedbackEvents.id, { onDelete: "set null" }),
+    ownerWords: text("owner_words"),
+    taskKey: text("task_key"),
+    runId: uuid("run_id"),
+    conflictsWith: uuid("conflicts_with").references((): AnyPgColumn => lessons.id, { onDelete: "set null" }),
+    version: integer("version").notNull().default(1),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    lastConfirmedAt: timestamp("last_confirmed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("lessons_agent_idx").on(t.agentId, t.state),
+    index("lessons_project_idx").on(t.projectId, t.state),
+    check("lessons_state_check", sql`${t.state} in ('proposed', 'active', 'one-off', 'rejected', 'retired', 'expired')`),
+    check("lessons_text_check", sql`char_length(${t.text}) between 3 and 600`),
+  ],
+);
+export type Lesson = typeof lessons.$inferSelect;
+
+export const lessonVersions = pgTable(
+  "lesson_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    text: text("text").notNull(),
+    appliesWhen: text("applies_when"),
+    author: text("author").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("lesson_versions_lesson_n_unique").on(t.lessonId, t.n)],
+);
+
+export const runKnowledge = pgTable(
+  "run_knowledge",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"skill" | "lesson" | "manner" | "reference">().notNull(),
+    item: text("item").notNull(),
+    version: text("version").notNull(),
+    opened: boolean("opened").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.kind, t.item] }), index("run_knowledge_item_idx").on(t.kind, t.item)],
+);

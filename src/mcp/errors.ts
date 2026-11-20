@@ -36,6 +36,8 @@ export const ERRORS = {
   // PLA-I67-2: skills the owner writes on screen (src/runner/skills.ts).
   SKILL_INVALID: [400, "a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint)"],
   SKILL_NOT_ALLOWED: [400, "a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint)"],
+  // PLA-I67-3: lessons (src/runner/lessons.ts).
+  LESSON_NOT_ALLOWED: [400, "a lesson would hold a secret or personal data, or relax a test, review or check (detail: reason secret | relaxes_checks)"],
   INVALID_GOAL: [400, "a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal"],
   INVALID_PHASE: [400, "phase is not an integer 0..999"],
   INVALID_PRIORITY: [400, "priority is not P0, P1, P2 or P3"],
@@ -67,6 +69,7 @@ export const ERRORS = {
   CONSULTA_FORBIDDEN: [403, "answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent)"],
   DELEGATION_OFF: [403, "delegated answers and delegated moves are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
+  LESSON_OWNER_ONLY: [403, "only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson)"],
   // 404: something named does not exist.
   CONSULTA_NOT_FOUND: [404, "answer_consulta on an id that is not a question of this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
@@ -77,6 +80,7 @@ export const ERRORS = {
   FINDING_NOT_FOUND: [404, "audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix"],
   INITIATIVE_NOT_FOUND: [404, "get_next initiative_key is not an initiative of this project"],
   PROJECT_NOT_FOUND: [404, "unknown project slug"],
+  LESSON_NOT_FOUND: [404, "no lesson with that id (detail: lesson)"],
   SKILL_NOT_FOUND: [404, "no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill)"],
   THREAD_NOT_FOUND: [404, "thread is not \"company\", a project slug with a thread, or a thread id"],
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
@@ -120,6 +124,7 @@ export const ERRORS = {
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],
   PING_PONG: [409, "this owner pair already assigned the other way (detail: from, to). The owner stays"],
+  LESSON_STATE: [409, "the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action)"],
   SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],

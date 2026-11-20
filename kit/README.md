@@ -27,6 +27,9 @@ kit/
     <slug>/
       SKILL.md               the skill: frontmatter, then the body
       <other>.md             detail the body points to, read only when needed
+  reflector/
+    role.md                  the reflector's prompt: reads one owner correction, proposes at most one lesson
+    skills/reflect-on-correction/SKILL.md   its one skill (not on any seat's shelf)
   context/
     glossary.md              templates the owner fills per project
     commands.md
