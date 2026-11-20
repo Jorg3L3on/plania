@@ -308,7 +308,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     return (
       <>
         <div>
-          <H expert={expert} tok="--color-brand">
+          {/* PLA-130: the expert label is the variable this colour really lands in. */}
+          <H expert={expert} tok={r.cssOpts.shadcn ? "--primary" : "--color-brand"}>
             {w.color.brand}{" "}
             {x.brandTie === "sigue" ? (
               <span className="es-tie">{w.color.follows}</span>
@@ -333,7 +334,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
             )}
           </div>
           <div className="es-row" style={{ marginTop: 7 }}>
-            <span className="es-lbl">{w.color.ideas}</span>
+            <span className="es-lbl opts">{w.color.ideas}</span>
             {ideas.map((c) => (
               <button key={c} type="button" className="es-swb sm" style={{ background: c }} aria-pressed={x.brand === c} aria-label={c} onClick={() => edit({ brand: c, brandTie: "fijo" })} />
             ))}
@@ -344,7 +345,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
           <div className="es-ramp">{scale(x.brand).map((c, i) => <i key={i} style={{ background: c }} title={`${STEPS[i]} · ${c}`} />)}</div>
         </div>
         <div>
-          <H expert={expert} tok="--color-accent">{w.color.accent}</H>
+          <H expert={expert} tok={r.cssOpts.shadcn ? "--color-brand-accent" : "--color-accent"}>{w.color.accent} <span className="es-sub">({w.color.accentNote})</span></H>
           <div className="es-row">
             <input type="color" className="es-cin" value={x.accent} onChange={(e) => edit({ accent: e.target.value.toLowerCase() })} aria-label={w.color.accentLabel} data-control="estilo-acento" />
             {[...new Set([...fromLogo.filter((c) => c !== x.brand), "#ffd36e", "#ff6b4a", "#5eead4"])].slice(0, 5).map((c) => (

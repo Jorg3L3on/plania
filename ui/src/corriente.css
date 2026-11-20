@@ -2305,6 +2305,9 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .es-more { all: unset; cursor: pointer; font-size: 11.5px; color: var(--cor-violet-3); align-self: flex-start; }
 .es-more:hover { text-decoration: underline; }
 .es-h .es-more { font-family: var(--cor-sans); text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+.es-h .es-sub { text-transform: none; letter-spacing: 0; font-family: var(--cor-sans); font-size: 10.5px; opacity: .8; } /* PLA-130 */
+.es-lbl.opts { width: auto; white-space: nowrap; margin-right: 4px; } /* PLA-130 */
+.es-h { flex-wrap: wrap; row-gap: 2px; } .es-h > span:first-child { white-space: nowrap; } /* PLA-130: a long name keeps one line; the variable drops below */
 .es-adv { border-top: 1px dashed var(--cor-line-strong); padding-top: 11px; display: grid; gap: 11px; }
 .es-state { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--cor-body); }
 .es-state i { width: 16px; height: 16px; border-radius: 5px; }
