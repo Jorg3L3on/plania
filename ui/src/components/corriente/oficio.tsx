@@ -64,7 +64,9 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, refs }:
   const [ref, { w: W, h: H }] = useSize<HTMLDivElement>();
   // PLA-I67-4: the references take up to a third of the rows' room, under the skills.
   const refList = refs?.list ?? [];
-  const refN = refRoom(Math.floor((H - 40) / REF_ROW), refList.length);
+  // They also take whatever room the skills leave free.
+  const freeRefs = Math.floor((H - 40 - rowsOf(o.skills, 999).length * ROW - 6 - 22 - (o.skills.some((s) => s.on) ? 0 : 76)) / REF_ROW);
+  const refN = refList.length ? Math.min(refList.length, Math.max(refRoom(Math.floor((H - 40) / REF_ROW), refList.length), freeRefs)) : 0;
   const refPx = refsHeight(refN, 0);
   const rows: Row[] = rowsOf(o.skills, Math.floor((H - 40 - (refPx ? refPx + 6 : 0)) / ROW));
   const maxUsed = Math.max(0, ...o.skills.map((s) => s.deliveries_used));

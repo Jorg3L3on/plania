@@ -1509,7 +1509,9 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-ref-card .cor-switch { align-self: flex-start; }
 .ofi-ref-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
 .ofi-ref-foot .cor-btn.primary { flex: 1; }
-.ofi-ref-remove { color: var(--cor-red); }
+.cor-btn.link.ofi-ref-remove { color: var(--cor-red); }
+.ofi-ref-scroll > *, .ofi-refs > * { flex-shrink: 0; }
+.ofi-refs > .ofi-ref-list { flex-shrink: 1; }
 
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
