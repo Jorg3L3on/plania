@@ -14,6 +14,8 @@ export type MarcaRead = {
   slug: string;
   logo: (LogoRef & { versions: number; chosen: boolean }) | null;
   repo: "ok" | "none" | "no_code";
+  /** PLA-120: the folder Plania reads the repo from. */
+  folder?: string;
   branch: string;
   commit: string | null;
   framework: "next-app" | "vite" | "static" | null;
@@ -35,7 +37,7 @@ export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[];
 /** A row the open request carries and the repo does not have yet: it shows as on its way. */
 export const onItsWay = (r: Pick<MarcaRead, "pedido">, row: MarcaRow): boolean => !!r.pedido?.rows.includes(row.id) && row.state !== "ok";
 export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
-export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[] };
+export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
 export const markUrl = (slug: string, id: string, file: string): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${file}`;
 export const passesAll = (t: PixelTests): boolean => t.small.ok && t.circle.ok && t.contrast.ok;
 /** Up to six slots around the ring (x, y as a share of the radius), clockwise from the top. */
@@ -182,6 +184,8 @@ export const MARCA_WORDS = defineWords({
     noOriginal: "Todavía no hay logo",
     noOriginalLead: "Plania no encontró uno en el repo: Compañía muestra la inicial.",
     noRepo: "El proyecto todavía no tiene código: la lista espera al repo.",
+    noRepoFound: (folder: string) => `Plania no encuentra el repo en ${folder}. Elige la carpeta del proyecto en Ajustes y la lista se llena sola.`,
+    noRepoLink: "Elegir la carpeta",
     colors: "del logo",
     newTab: "Nueva pestaña",
     darker: "Ver en oscuro",
@@ -213,13 +217,16 @@ export const MARCA_WORDS = defineWords({
       avoid: "Que no tenga",
       wordPh: "Una palabra y Enter",
       colors: "Colores",
-      colorsHint: "sacados de tus imágenes",
+      colorsHint: "de tus imágenes, o escribe uno",
+      colorPh: "#c48b9f y Enter",
+      changePh: "Qué le cambiarías (opcional)",
       go: "Generar 6 marcas",
       again: "Otra tanda de 6",
       more: "Más como esta",
       use: "Usar esta",
       drawing: "Artist dibuja…",
       failed: "Artist no entregó marcas. Puedes intentar otra vez.",
+      failedWhy: (why: string): string => (/paused/.test(why) ? "El proyecto está en pausa: Artist no puede dibujar. Reanúdalo y pide otra vez." : why === "no agent" ? "El proyecto no tiene Artist en su equipo. Súmalo en Equipo y pide otra vez." : "Artist no pudo empezar. Puedes intentar otra vez."),
       none: "Aquí aparecen las marcas de Artist",
       pick: "Elige una",
       passed: (n: number, of: number) => `${n} de ${of} pasan las tres pruebas`,
@@ -432,6 +439,8 @@ export const MARCA_WORDS = defineWords({
     noOriginal: "No logo yet",
     noOriginalLead: "Plania found none in the repo: Company shows the initial.",
     noRepo: "The project has no code yet: the list waits for the repo.",
+    noRepoFound: (folder: string) => `Plania cannot find the repo in ${folder}. Pick the project's folder in Settings and the list fills itself.`,
+    noRepoLink: "Pick the folder",
     colors: "from the logo",
     newTab: "New tab",
     darker: "See in dark",
@@ -463,13 +472,16 @@ export const MARCA_WORDS = defineWords({
       avoid: "It must not have",
       wordPh: "A word and Enter",
       colors: "Colours",
-      colorsHint: "taken from your images",
+      colorsHint: "from your images, or type one",
+      colorPh: "#c48b9f and Enter",
+      changePh: "What would you change (optional)",
       go: "Draw 6 marks",
       again: "Another round of 6",
       more: "More like this one",
       use: "Use this one",
       drawing: "Artist is drawing…",
       failed: "Artist delivered no marks. You can try again.",
+      failedWhy: (why: string): string => (/paused/.test(why) ? "The project is paused: Artist cannot draw. Resume it and ask again." : why === "no agent" ? "The project has no Artist on its team. Add one in Team and ask again." : "Artist could not start. You can try again."),
       none: "Artist's marks show up here",
       pick: "Pick one",
       passed: (n: number, of: number) => `${n} of ${of} pass the three tests`,

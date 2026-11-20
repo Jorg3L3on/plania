@@ -10,6 +10,8 @@ import { FACES, RING, counts, faceState, fileUrl, has, markUrl, marcaWords, onIt
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
+import { Link } from "react-router";
+import { linkTo } from "@/lib/corriente";
 
 type Shape = "circle" | "squircle" | "drop";
 
@@ -63,7 +65,21 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       <header className="mk-head">
         <div className="mk-head-l">
           <h2 className="cor-door-h">{w.title(p.title)}</h2>
-          <p className="cor-text">{r.repo === "ok" ? w.lead : w.noRepo}</p>
+          <p className="cor-text">
+            {r.repo === "ok" ? (
+              w.lead
+            ) : r.repo === "none" && r.folder ? (
+              <>
+                {/* PLA-120: a folder Plania cannot read is not a project with no code. */}
+                {w.noRepoFound(r.folder)}{" "}
+                <Link className="cor-btn link small" to={linkTo({ slug: p.slug, tab: "ajustes" })} data-control="marca-elegir-carpeta">
+                  {w.noRepoLink}
+                </Link>
+              </>
+            ) : (
+              w.noRepo
+            )}
+          </p>
         </div>
         <div className="mk-head-r">
           <p className="mk-sum" data-sum>
@@ -862,6 +878,9 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
   const [feel, setFeel] = useState<string[]>([]);
   const [avoid, setAvoid] = useState<string[]>([]);
   const [images, setImages] = useState<{ up: string; name: string; src: string; palette: string[] }[]>([]);
+  // PLA-120: colours the owner types (#c48b9f), and what they would change in the next round.
+  const [typed, setTyped] = useState<string[]>([]);
+  const [change, setChange] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -871,15 +890,17 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
     setAbout((a) => a || req.hints.about);
     setFeel((f) => (f.length ? f : req.hints.feel));
     setAvoid((f) => (f.length ? f : req.hints.avoid));
+    setTyped((c) => (c.length ? c : req.hints.colors));
   }, [req?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const colors = [...new Set(images.flatMap((i) => i.palette))].slice(0, 6);
+  const colors = [...new Set([...typed, ...images.flatMap((i) => i.palette)].map((c) => c.toLowerCase()))].slice(0, 6);
   const marks = req?.status === "ready" ? req.marks : [];
   const picked = marks.find((m) => m.id === sel) ?? marks.find((m) => passesAll(m.tests)) ?? marks[0] ?? null;
   const ask = async (like?: string) => {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.marcaAskMarks(p.slug, { about, feel, avoid, colors, images: images.map((i) => i.up), like: like ?? null });
+      const r = await api.marcaAskMarks(p.slug, { about, feel, avoid, colors, images: images.map((i) => i.up), like: like ?? null, change: change.trim() || null });
+      setChange("");
       q.refetch();
       setSel(null);
       void r;
@@ -970,23 +991,39 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
           {words(feel, setFeel, w.gen.feel, "feel")}
           <div className="mk-p-lbl">{w.gen.avoid}</div>
           {words(avoid, setAvoid, w.gen.avoid, "avoid")}
-          {colors.length > 0 && (
-            <>
-              <div className="mk-p-lbl">
-                {w.gen.colors} <span>{w.gen.colorsHint}</span>
-              </div>
-              <div className="mk-sw" data-colores={colors.join(",")}>
-                {colors.map((c) => (
-                  <i key={c} style={{ background: c }} title={c} />
-                ))}
-              </div>
-            </>
-          )}
+          <div className="mk-p-lbl">
+            {w.gen.colors} <span>{w.gen.colorsHint}</span>
+          </div>
+          <div className="mk-chips mk-sw" data-colores={colors.join(",")}>
+            {colors.map((c) => (
+              <button key={c} type="button" className="mk-chip" onClick={() => setTyped((l) => l.filter((x) => x !== c))} aria-label={w.gen.remove(c)} title={c} disabled={!typed.includes(c)}>
+                <i style={{ background: c }} aria-hidden />
+                {c}
+              </button>
+            ))}
+            {colors.length < 6 && (
+              <input
+                className="mk-chip-in"
+                placeholder={w.gen.colorPh}
+                aria-label={w.gen.colors}
+                data-control="marca-color"
+                onKeyDown={(e) => {
+                  const v = e.currentTarget.value.trim().toLowerCase();
+                  const hex = /^#?[0-9a-f]{6}$/.test(v) ? (v.startsWith("#") ? v : `#${v}`) : null;
+                  if (e.key === "Enter" && hex) {
+                    e.preventDefault();
+                    if (!colors.includes(hex)) setTyped((l) => [...l, hex]);
+                    e.currentTarget.value = "";
+                  }
+                }}
+              />
+            )}
+          </div>
           <button type="button" className="cor-btn primary mk-go" disabled={busy || req?.status === "drawing"} onClick={() => void ask()} data-control="marca-generar">
             {req?.status === "ready" ? w.gen.again : w.gen.go}
           </button>
           {error && <p className="mk-block" role="alert">{error}</p>}
-          {req?.status === "failed" && <p className="mk-block">{w.gen.failed}</p>}
+          {req?.status === "failed" && <p className="mk-block">{req.why ? w.gen.failedWhy(req.why) : w.gen.failed}</p>}
         </section>
         <section className="mk-ring" aria-label={w.gen.pick}>
           <svg className="mk-r-orbit" viewBox="-260 -230 520 460" aria-hidden>
@@ -1025,6 +1062,7 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
                   <li key={i} className={t.ok ? "y" : "n"}>{t.text}</li>
                 ))}
               </ul>
+              <input className="mk-chip-in mk-change" value={change} maxLength={200} placeholder={w.gen.changePh} aria-label={w.gen.changePh} onChange={(e) => setChange(e.target.value)} data-control="marca-que-cambiarias" />
               <div className="mk-pick-btns">
                 <button type="button" className="cor-btn primary" disabled={busy} onClick={() => void use()} data-control="marca-usar-marca">
                   {w.gen.use}

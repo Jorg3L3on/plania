@@ -20,6 +20,8 @@ export type MarcaRead = {
   slug: string;
   logo: (LogoRef & { versions: number; chosen: boolean }) | null;
   repo: "ok" | "none" | "no_code";
+  /** PLA-120: the folder Plania reads the repo from (where it looked, when repo is "none"). */
+  folder: string;
   branch: string;
   ref: string | null;
   commit: string | null;
@@ -66,7 +68,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const git = deps.git ?? realGit;
   const now = (deps.now ?? Date.now)();
   const branch = startBranchOf(p.settings);
-  const base = { slug: p.slug, native: !!p.settings?.marca?.native, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
+  const base = { slug: p.slug, folder: repoPathOf(p.slug, p.settings, deps.env), native: !!p.settings?.marca?.native, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
   const scan = await scanProjectLogo(db, p, deps);
   const hasOriginal = !!(await activeLogo(db, p.id));
   if (scan.status === "no_repo" || !scan.commit) {
