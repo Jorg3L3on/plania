@@ -224,6 +224,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   const [sec, setSec] = useState<Sec>("color");
   const [scope, setScope] = useState<"todo" | "color" | "letra">("todo");
   const [dir, setDir] = useState<string | null>(null);
+  const [hoverDir, setHoverDir] = useState<string | null>(null);
   const [adv, setAdv] = useState(false);
   const [expert, setExpert] = useState(false);
   const [fmt, setFmt] = useState<CodeFmt>("tailwind");
@@ -703,14 +704,11 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   return (
     <div className={`es-wrap${expert ? " expert" : ""}`} data-estilo={slug}>
       <div className="es-left">
-        <div className="es-row es-start">
-          <span className="es-h" style={{ margin: 0 }}>{w.start}</span>
-          <Seg label={w.start} value={scope} opts={(["todo", "color", "letra"] as const).map((k) => [k, w.scope[k]])} onPick={setScope} />
-        </div>
-        <div className="es-dirs">
+        <span className="es-h" style={{ margin: 0 }}>{w.start}</span>
+        <div className="es-dirs" onMouseLeave={() => setHoverDir(null)}>
           <DirFonts dirs={dirs.map((d) => d.s.head!)} />
           {dirs.map((d) => (
-            <button key={d.k} type="button" className="es-dir" aria-pressed={dir === d.k} onClick={() => { const next = applyDirection(x, d.s, scope); dirty.current = true; setX(next); setCode(null); setDir(scope === "todo" ? d.k : null); save(next); }} data-control={`estilo-dir-${d.k}`}>
+            <button key={d.k} type="button" className="es-dir" aria-pressed={dir === d.k} onMouseEnter={() => setHoverDir(d.k)} onFocus={() => setHoverDir(d.k)} onBlur={() => setHoverDir(null)} onClick={() => { const next = applyDirection(x, d.s, scope); dirty.current = true; setX(next); setCode(null); setDir(scope === "todo" ? d.k : null); save(next); }} data-control={`estilo-dir-${d.k}`}>
               <span className="es-row nowrap">
                 <span className="sw"><i style={{ background: d.s.brand }} /><i style={{ background: d.s.accent }} /></span>
                 <span className="aa" style={{ fontFamily: family(d.s.head!) }}>Aa</span>
@@ -720,6 +718,14 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
               <span>{w.dirs[d.k]![1]}</span>
             </button>
           ))}
+        </div>
+        {/* PLA-130: the scope sits under the cards it applies to, and says what the next click changes. */}
+        <div className="es-scope">
+          <div className="es-row nowrap">
+            <span className="es-lbl wide">{w.apply}</span>
+            <Seg label={w.apply} value={scope} opts={(["todo", "color", "letra"] as const).map((k) => [k, w.scope[k]])} onPick={setScope} />
+          </div>
+          <p className="es-sub" role="status">{hoverDir ? w.willChange(w.dirs[hoverDir]![0], w.scopeSay[scope]!) : w.pickOne(w.scopeSay[scope]!)}</p>
         </div>
         <div className="es-ed">
           <nav className="es-rail" aria-label={w.rail} role="tablist">

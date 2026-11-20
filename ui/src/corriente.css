@@ -2271,7 +2271,7 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 .es-ri > span { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--cor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .es-ri .sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
 .es-ri .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cor-amber); }
-.es-ri[aria-selected="true"] { background: var(--cor-raised); box-shadow: inset 2px 0 0 var(--cor-violet-2); }
+.es-ri[aria-selected="true"] { background: var(--cor-raised); } /* PLA-130: no violet bar at the left; the lit background marks the part */
 .es-ri[aria-selected="true"] b { color: var(--cor-text); }
 .es-pane { min-height: 0; overflow: auto; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 13px; position: relative; scrollbar-width: thin; }
 .es-h { font-family: var(--cor-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--cor-muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -2669,3 +2669,7 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
+/* PLA-130: the directions' scope, under the cards, with the line that says what a click changes. */
+.es-scope { display: grid; gap: 4px; flex: none; }
+.es-scope .es-seg button { padding: 3px 8px; font-size: 10.5px; }
+.es-scope .es-sub { min-height: 1.45em; }
