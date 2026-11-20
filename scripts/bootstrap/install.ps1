@@ -221,7 +221,9 @@ function Install-Plania {
       & npm install -g "pnpm@$want" *> $null
       if ($LASTEXITCODE -eq 0) {
         $global = Join-Path ((& npm prefix -g).Trim()) 'pnpm.cmd'
-        $pnpm = if (Test-Path -LiteralPath $global) { @($global) } else { @('pnpm') }
+        # @(...) around the whole if: an if-expression unrolls a one-item array into its string, and $pnpm[0] would
+        # then be the path's first letter.
+        $pnpm = @(if (Test-Path -LiteralPath $global) { $global } else { 'pnpm' })
       } else {
         Say 'npm no pudo instalar pnpm; se usa con npx, sin instalarlo.'
         $pnpm = @('npx', '--yes', "pnpm@$want")

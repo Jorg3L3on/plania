@@ -226,6 +226,9 @@ ${args}
 }
 
 // systemd splits ExecStart on spaces unless an argument is quoted; quote every one, escaping \ and ".
+// PLA-I2-4 (from zero): WorkingDirectory= takes the path as written, with no quotes (systemd refuses a quoted one as
+// "not absolute" and never starts the unit); only % needs escaping.
+const sdPath = (s: string) => s.replace(/%/g, "%%");
 const sdQuote = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/%/g, "%%")}"`;
 
 export function systemdUnit(env: ServiceEnv): string {
@@ -235,7 +238,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${sdQuote(env.root)}
+WorkingDirectory=${sdPath(env.root)}
 ExecStart=${serverArgs(env).map(sdQuote).join(" ")}
 Environment=${sdQuote(`PATH=${env.path}`)}
 Restart=on-failure

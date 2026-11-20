@@ -284,7 +284,8 @@ describe("service", () => {
     const linux = { ...base, platform: "linux" as const, home: "/home/ana", root: "/home/ana/plania 0.1.0", node: "/usr/bin/node", systemd: true };
     const unit = systemdUnit(linux);
     assert.match(unit, /^ExecStart="\/usr\/bin\/node" "--env-file=\/home\/ana\/plania 0\.1\.0\/\.env" "--import" "tsx" "\/home\/ana\/plania 0\.1\.0\/scripts\/dev\.ts" "--port" "3737"$/m);
-    assert.match(unit, /^WorkingDirectory="\/home\/ana\/plania 0\.1\.0"$/m);
+    // Unquoted: systemd refuses a quoted WorkingDirectory as not absolute and never starts the unit.
+    assert.match(unit, /^WorkingDirectory=\/home\/ana\/plania 0\.1\.0$/m);
     assert.match(unit, /^Restart=on-failure$/m);
     assert.match(unit, /^WantedBy=default\.target$/m);
     const plan = installPlan(linux, { atBoot: true });

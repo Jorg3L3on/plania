@@ -38,28 +38,86 @@ release/plania-<version>.tar.gz
 release/plania-<version>.tar.gz.sha256
 ```
 
-Each copy is stamped with the release's version. Where releases are downloaded from is a setting, not code: set
-`PLANIA_DOWNLOAD_BASE` (an `http(s)` address, the folder that holds those four files) when packing, and it becomes the
-installers' default address. Unset, they keep the placeholder `https://downloads.example.invalid/plania` and stop
-with a sentence unless `PLANIA_DOWNLOAD_BASE` is set where they run or `--from` names a package.
+Each copy is stamped with the release's version. Where releases are downloaded from is a setting:
+`PLANIA_DOWNLOAD_BASE` (an `http(s)` address, the folder that holds those files). Set when packing, it becomes the
+installers' default address; set where an installer runs, it wins. Unset, the default is the latest GitHub Release,
+`https://github.com/Jorg3L3on/plania/releases/latest/download`.
 
-What an installer does, in order:
+## Publishing a release (GitHub Releases)
 
-1. Checks Node 22 or newer, and says how to get it when it is missing (`brew`, `winget`, nodejs.org).
-2. Picks the folder: `--dir` / `-Dir` / `PLANIA_DIR`, else asks, defaulting to `~/plania`. It refuses a folder that
+Releases live on this repository's GitHub Releases. Bump `version` and `CHANGELOG.md`, merge, then push the tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` runs on a `v*` tag. It first runs the clean-machine install
+(`.github/workflows/install.yml`, below) on Linux, macOS and Windows; then it checks the tag names `package.json`'s
+version, packs with `PLANIA_DOWNLOAD_BASE=https://github.com/Jorg3L3on/plania/releases/download/v<version>` and
+uploads to the release:
+
+| Asset | What |
+|---|---|
+| `plania-<version>.tar.gz`, `.sha256` | The package and its checksum. |
+| `plania-latest.tar.gz`, `.sha256` | The same bytes under the fixed name every release carries. |
+| `install.sh`, `install.ps1` | The installers, stamped with this version and this release's own address. |
+
+The one-liners in the README read `https://github.com/Jorg3L3on/plania/releases/latest/download/install.sh` (and
+`install.ps1`), which GitHub serves from the newest release. That installer downloads its own release's
+`plania-<version>.tar.gz` from `releases/download/v<version>`, so an older release's installer keeps working after a
+newer one is published. An installer with no stamped version (run from a checkout) downloads `plania-latest.tar.gz`
+from `releases/latest/download`. For a given older version, run the installer with
+`PLANIA_DOWNLOAD_BASE=https://github.com/Jorg3L3on/plania/releases/download/v<version>` and `--version <version>`.
+
+## What an installer does
+
+In order:
+
+1. Picks the folder: `--dir` / `-Dir` / `PLANIA_DIR`, else asks, defaulting to `~/plania`. It refuses a folder that
    already holds an install (that is `pnpm update:plania`) or any other files.
-3. Downloads `plania-<version>.tar.gz` and its `.sha256`, and refuses a package that does not match. `--from <file>`
-   (`-From`) installs a package already on the machine instead; its `.sha256` is checked when it sits beside it.
+2. Lists what the machine lacks: Node 22 or newer, git, and a Postgres answering on `localhost:5432`. It asks once
+   (`--yes` / `-Yes` / `PLANIA_YES=1` on Windows asks nothing) and installs it:
+
+   | | Windows | macOS | Linux |
+   |---|---|---|---|
+   | Tool | winget (stops and says how to get it when missing) | Homebrew (stops and points at brew.sh when missing) | apt or dnf, with sudo unless root |
+   | Node | `OpenJS.NodeJS.LTS` | `brew install node` | the distribution's `nodejs` when it is 22 or newer, else NodeSource's `setup_22.x` |
+   | git | `Git.Git` | `brew install git` | `git` |
+   | Postgres | `PostgreSQL.PostgreSQL.17`, unattended, with a generated superuser password | `postgresql@17`, `brew services start` | `postgresql` (`postgresql-server` and `--initdb` on dnf, ident turned to password), started with systemctl, or `service` without systemd |
+
+   After each install the script puts the new folders on its own PATH (the saved system and user PATH and the
+   install folders on Windows, `brew shellenv` and the keg's `bin` on macOS), so the next step finds `node`,
+   `psql` and `pg_dump`. A Postgres installed here gets a generated password: on macOS and Linux a role `plania`
+   that may create databases, on Windows the superuser `postgres`. Its address goes to `pnpm plania:install` as
+   `--url` (ahead of anything after `--`, which still wins) and ends up only in `.env`; it is never printed. When a
+   Postgres already answers, nothing is installed for it, and the install command asks for a user and password only
+   when it cannot connect on its own.
+3. Downloads the package and its `.sha256`, and refuses a package that does not match. `--from <file>` (`-From`)
+   installs a package already on the machine instead; its `.sha256` is checked when it sits beside it.
 4. Unpacks the archive's `plania-<version>/` into the folder.
 5. Gets the pnpm version `packageManager` names with `npm install -g` (per user on Windows, no administrator shell),
    or runs it through `npx` when a global install is not allowed. Never corepack: Node 25 and newer no longer ship it.
 6. Runs `pnpm install --prod --frozen-lockfile`, then `pnpm plania:install --service` (`--no-service` drops the
-   flag; arguments after `--`, or `-InstallArgs`, are passed on).
+   flag, `--no-open` keeps the browser closed; arguments after `--`, or `-InstallArgs`, are passed on).
+
+Claude Code is not installed: it stays the owner's to install and sign in. The install command's machine check goes on
+without it and names it again after the closing box; the screen's list (`/machine/falta`) keeps it required.
 
 `install.ps1` is ASCII with no byte-order mark: Windows PowerShell 5.1 reads a file without one as ANSI, and a mark
 breaks `irm | iex`. Its accented words are written `{a}`, `{o}`… and put back when printed. `test/bootstrap.test.ts`
 parses both (`bash -n`, the PowerShell parser), checks the pack, and installs a stand-in package with `--from`
-against a stand-in pnpm.
+against a stand-in pnpm, with `PLANIA_BOOTSTRAP_SKIP_DEPS=1` so nothing is installed on the machine running the tests.
+
+## The clean-machine install in CI
+
+`.github/workflows/install.yml` packs the release on Linux, then on an `ubuntu-latest`, `macos-latest` and
+`windows-latest` runner removes the runner's own Postgres, runs the real installer (`--from <package> --yes
+--no-open`; Windows PowerShell 5.1 on Windows), checks that `http://localhost:3737/health/ui` answers and
+`/primer-arranque` serves the screen, and runs `pnpm uninstall:plania --delete-data`. It runs on pushes to `jl/**`,
+on pull requests that touch the installers, by hand, and before every release. Claude Code is not on the runners; the
+install goes on without it, as it does for a person. A macOS runner has 7 GB of memory, under Plania's 8, so the job
+sets `PLANIA_UNSUPPORTED_SKIP_CHECK=memory`: a comma-separated list of machine-check items the install's gate lets
+pass. It exists for that job and is not supported for users.
 
 To try a release before it is published:
 
