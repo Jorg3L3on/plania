@@ -13,6 +13,7 @@ import { discoverGithub, ghApi, type GhApi } from "./github.js";
 import { caminoKeys } from "./keys.js";
 import { discoverMac } from "./mac.js";
 import { caminoSay } from "./words.js";
+import { runActionlint, type Actionlint } from "./actionlint.js";
 import type { HttpFetch } from "./providers.js";
 import type { CaminoConfig, Discovery, ProviderId } from "./types.js";
 
@@ -20,6 +21,8 @@ export const STALE_MS = 15 * 60_000;
 
 export type CaminoDeps = {
   fetch: HttpFetch;
+  /** PLA-I68-5: the workflow linter (actionlint on stdin). */
+  actionlint: Actionlint;
   env: NodeJS.ProcessEnv;
   now: () => Date;
   listDatabases: () => Promise<string[] | null>;
@@ -44,6 +47,7 @@ async function localDatabases(): Promise<string[] | null> {
 
 export const caminoDeps: CaminoDeps = {
   fetch: (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<HttpFetch>,
+  actionlint: runActionlint,
   env: process.env,
   now: () => new Date(),
   listDatabases: localDatabases,

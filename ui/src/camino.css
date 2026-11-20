@@ -180,6 +180,29 @@
 .cam-ladder { display: flex; flex-direction: column; gap: 6px; }
 .cam-line { font-size: 13px; display: flex; gap: 7px; align-items: baseline; flex-wrap: wrap; }
 
+/* PLA-I68-5: tests */
+.cam-subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--cor-line); flex-wrap: wrap; }
+.cam-subtab { border: 0; background: transparent; padding: 0 14px; min-height: 44px; font-size: 14px; color: var(--cor-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-family: inherit; }
+.cam-subtab[aria-selected="true"] { color: var(--cor-text); border-bottom-color: var(--cor-violet-3); }
+.cam-wfs { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.cam-wf { border: 1px solid var(--cor-line-strong); border-radius: 12px; background: #09090d; padding: 13px; display: flex; flex-direction: column; gap: 11px; min-width: 0; }
+.cam-wf.gone { opacity: 0.55; }
+.cam-wf-h { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cam-wf-h b { font-size: 15px; }
+.cam-tg-inline { width: auto; }
+.cam-src { font: 10.5px var(--cor-mono); color: var(--cor-muted); border-bottom: 1px dotted var(--cor-line-strong); }
+.cam-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cam-step { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 0 8px; border: 1px solid var(--cor-line); border-radius: 8px; background: var(--cor-surface); min-height: 44px; }
+.cam-step-n { font: 11px var(--cor-mono); color: var(--cor-muted); text-align: right; }
+.cam-step-c { font: 12.5px var(--cor-mono); overflow-wrap: anywhere; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cam-step.off .cam-step-c { opacity: 0.55; text-decoration: line-through; }
+.cam-step-a { gap: 0; }
+.cam-add { max-width: 420px; }
+.cam-check { display: inline-flex; gap: 6px; align-items: center; min-height: 44px; cursor: pointer; }
+.cam-check input { accent-color: var(--cor-violet); width: 16px; height: 16px; }
+.cam-box.bad { border: 1px solid rgba(255, 122, 122, 0.45); background: rgba(255, 122, 122, 0.06); color: #ffd0d0; }
+.cam-exigir, .cam-corridas, .cam-deps { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+
 @media (max-width: 900px) {
   .cam-grid2, .cam-grid3 { grid-template-columns: 1fr; }
 }

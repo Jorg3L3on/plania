@@ -142,6 +142,8 @@ export type DiscoveryMac = {
   scripts: string[] | null;
   folders: string[] | null;
   migrations: { dir: string; count: number; tool: string | null } | null;
+  /** PLA-I68-5: the package manager the lockfile names (absent in reads made before). */
+  pm?: "npm" | "pnpm" | "yarn" | null;
 };
 
 export type Discovery = { checked_at: string; took_ms: number; github: DiscoveryGithub; mac: DiscoveryMac };

@@ -6,6 +6,9 @@
 //   PUT    /projects/:slug/camino/keys/:provider     {value}: tried, then saved in the keychain; only metadata returns
 //   POST   /projects/:slug/camino/keys/:provider/test  «Probar» with the saved key
 //   DELETE /projects/:slug/camino/keys/:provider     removes the key
+//   POST   /projects/:slug/camino/lint               {path, content}: actionlint's verdict on a workflow before staging
+//   POST   /projects/:slug/camino/pins               {uses: ["owner/repo@tag"]}: the commit each tag points at, to pin
+//   POST   /projects/:slug/camino/runs/:id/rerun     re-runs a run's failed jobs on GitHub
 //   POST   /projects/:slug/camino/apply              {version, changes}: the change set, in order (src/camino/changes.ts);
 //                                                    answers the results, where it stopped, and the read
 import { Hono, type Context } from "hono";
@@ -14,7 +17,7 @@ import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { removeKey, saveKey, tryKey } from "../camino/connections.js";
-import { applyChanges, ChangeSchema } from "../camino/changes.js";
+import { applyChanges, ChangeSchema, GITHUB_FILE, rerunFailed, resolvePins } from "../camino/changes.js";
 import { caminoDeps, caminoRead, caminoRow, discoverOnce, STALE_MS } from "../camino/store.js";
 
 export const caminoRoutes = new Hono();
@@ -97,6 +100,32 @@ caminoRoutes.post("/projects/:slug/camino/apply", async (c) => {
         return { ...out, read: await caminoRead(db, c.req.param("slug")) };
       }),
     );
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/lint", async (c) => {
+  const input = await json(c, z.object({ path: z.string().regex(GITHUB_FILE), content: z.string().max(200_000) }).strict());
+  if (input instanceof Response) return input;
+  return c.json(await caminoDeps.actionlint(input.path, input.content));
+});
+
+caminoRoutes.post("/projects/:slug/camino/pins", async (c) => {
+  const input = await json(c, z.object({ uses: z.array(z.string().regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._/-]+@[A-Za-z0-9._/-]+$/)).max(40) }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(await withDb(async (db) => resolvePins(await findProject(db, c.req.param("slug")), input.uses)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+caminoRoutes.post("/projects/:slug/camino/runs/:id/rerun", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "INVALID_BODY" }, 400);
+  try {
+    return c.json(await withDb(async (db) => rerunFailed(db, await findProject(db, c.req.param("slug")), id)));
   } catch (e) {
     return fail(c, e);
   }

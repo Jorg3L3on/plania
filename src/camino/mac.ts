@@ -116,5 +116,6 @@ export async function discoverMac(folder: string | null, repo: string | null, de
     scripts: pkg?.scripts ? Object.keys(pkg.scripts) : null,
     folders,
     migrations: exists ? migrationsOf(folder!, pkg) : null,
+    pm: !exists || !pkg ? null : existsSync(path.join(folder!, "pnpm-lock.yaml")) ? "pnpm" : existsSync(path.join(folder!, "yarn.lock")) ? "yarn" : "npm",
   };
 }

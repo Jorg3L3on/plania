@@ -6,7 +6,7 @@ import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 export type Dest = "plania" | "proveedor" | "github" | "pr";
 export type Change = { kind: string; label: string; [k: string]: unknown };
 /** A staged edit: the change sent to the server, where it applies, and the before and after said for the owner. */
-export type Staged = { key: string; change: Change; dest: Dest; from: string; to: string; diff?: { path: string; before: string; after: string } | null };
+export type Staged = { key: string; change: Change; dest: Dest; from: string; to: string; diff?: { path: string; before: string; after: string } | null; /** Why it cannot be applied (actionlint's errors). */ blocked?: string | null };
 
 export const DEST_ORDER: Dest[] = ["plania", "proveedor", "github", "pr"];
 /** The server's destOf (src/camino/changes.ts), for the kinds the screen stages. */
@@ -61,6 +61,10 @@ export const CAMBIOS_WORDS = defineWords({
       other: (code: string, field: string) => `No se pudo (${code}${field ? `: ${field}` : ""}).`,
     },
     beforeAfter: (from: string, to: string) => `${from} → ${to}`,
+    guard: {
+      lost: (path: string, names: string) => `Este cambio a ${path} quita o renombra ${names}, que una regla exige: ninguna propuesta se podría fusionar. Cambia primero la prueba exigida.`,
+      offImpact: (n: string, names: string) => `Apagar «${n}» deja sin correr ${names}, que una regla exige: ninguna propuesta se podrá fusionar mientras esté apagado.`,
+    },
   },
   en: {
     pending: (n: number) => `${n} ${n === 1 ? "change" : "changes"} not applied`,
@@ -88,6 +92,10 @@ export const CAMBIOS_WORDS = defineWords({
       other: (code: string, field: string) => `It could not be done (${code}${field ? `: ${field}` : ""}).`,
     },
     beforeAfter: (from: string, to: string) => `${from} → ${to}`,
+    guard: {
+      lost: (path: string, names: string) => `This change to ${path} removes or renames ${names}, which a rule requires: no PR could merge. Change the required check first.`,
+      offImpact: (n: string, names: string) => `Turning «${n}» off leaves ${names} unrun, which a rule requires: no PR can merge while it is off.`,
+    },
   },
 });
 export const cambiosWords = (language: Language = getLanguage()) => words(CAMBIOS_WORDS, language);

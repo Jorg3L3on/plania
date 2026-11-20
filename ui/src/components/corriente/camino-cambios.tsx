@@ -9,6 +9,8 @@ import type { CaminoRead } from "@/lib/camino-types";
 import { Btn } from "./parts";
 import { caminoKey } from "./camino-query";
 import type { Cambios } from "./camino-store";
+import { lostRequired, requiredIn } from "@/lib/camino-ci";
+import { requiredNames } from "./camino-pruebas";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
@@ -92,6 +94,7 @@ type Outcome = { ok: boolean; error?: string; detail?: Record<string, unknown>; 
 
 const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onClose: () => void }) => {
   const w = cambiosWords();
+  const wc = w.guard;
   const client = useQueryClient();
   const box = useRef<HTMLDivElement>(null);
   const [sent, setSent] = useState<Staged[] | null>(null);
@@ -126,6 +129,24 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
     return () => window.removeEventListener("keydown", esc);
   }, [apply.isPending, onClose]);
   const done = !!summary && !apply.isPending;
+  // PLA-I68-5: what must be said before a set with workflow changes applies; some of it holds the set back.
+  const required = requiredNames(r);
+  const g = r.discovery?.github.ok ? r.discovery.github : null;
+  const warns: { text: string; blocks: boolean }[] = [];
+  for (const s of list) {
+    if (s.blocked) warns.push({ text: `${s.change.label}: ${s.blocked}`, blocks: true });
+    const ch = s.change as { kind: string; path?: string; content?: string | null; id?: number; enable?: boolean; name?: string };
+    if (ch.kind === "file_pr" && ch.path && /^\.github\/workflows\//.test(ch.path)) {
+      const lost = lostRequired(s.diff?.before ?? "", ch.content ?? null, ch.path, required);
+      if (lost.length) warns.push({ text: wc.lost(ch.path, lost.join(", ")), blocks: true });
+    }
+    if (ch.kind === "workflow_state" && ch.enable === false) {
+      const f = g?.workflow_files.find((x) => g.workflows.find((y) => y.id === ch.id)?.path === x.path);
+      const needed = f ? requiredIn(f.text, f.path, required) : [];
+      if (needed.length) warns.push({ text: wc.offImpact(ch.name ?? "", needed.join(", ")), blocks: false });
+    }
+  }
+  const held = warns.some((x) => x.blocks);
   const byDest = (["plania", "proveedor", "github", "pr"] as Dest[]).map((dest) => ({ dest, items: list.filter((x) => x.dest === dest) })).filter((g) => g.items.length);
   const pub = r.config.branches.integration ?? r.config.branches.published;
   return (
@@ -141,6 +162,11 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
           </Btn>
         </div>
         <div className="cam-rv-b">
+          {warns.map((x) => (
+            <div key={x.text} className={cls("cam-box", x.blocks ? "bad" : "warn")} data-aviso-revision={x.blocks ? "bloquea" : "avisa"}>
+              {x.text}
+            </div>
+          ))}
           {byDest.map((g) => (
             <section key={g.dest} className="cam-rvs" aria-label={w.where[g.dest]}>
               <h4>
@@ -187,7 +213,7 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
               <Btn kind="quiet" small onClick={onClose} disabled={apply.isPending}>
                 {w.keepEditing}
               </Btn>
-              <Btn kind="primary" small onClick={() => apply.mutate()} disabled={apply.isPending || !cambios.items.length} data-control="camino-aplicar">
+              <Btn kind="primary" small onClick={() => apply.mutate()} disabled={apply.isPending || !cambios.items.length || held} data-control="camino-aplicar">
                 {apply.isPending ? w.applying : w.apply(list.length)}
               </Btn>
             </>

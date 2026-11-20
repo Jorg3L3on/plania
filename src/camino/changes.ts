@@ -41,6 +41,8 @@ export const ChangeSchema = z.discriminatedUnion("kind", [
   // GitHub: delete a branch that nobody uses, or a ruleset (by id) that blocks merges for nothing.
   z.object({ kind: z.literal("delete_branch"), label, branch: z.string().regex(BRANCH) }).strict(),
   z.object({ kind: z.literal("delete_ruleset"), label, id: z.number().int().positive(), name: z.string().min(1).max(200) }).strict(),
+  // GitHub (PLA-I68-5): turn a workflow on or off; the screen shows what a rule loses first.
+  z.object({ kind: z.literal("workflow_state"), label, id: z.number().int().positive(), name: z.string().min(1).max(200), enable: z.boolean() }).strict(),
   // PR (PLA-I68-4/5): one of the project's own workflow or config files under .github/, changed only by a PR opened
   // with the owner's token on a new branch from base (so a new workflow runs on its own PR). content null deletes it.
   z.object({ kind: z.literal("file_pr"), label, path: z.string().regex(GITHUB_FILE), content: z.string().max(200_000).nullable(), base: z.string().regex(BRANCH), title: z.string().min(1).max(200), body: z.string().max(5000) }).strict(),
@@ -192,6 +194,11 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
     }
     case "file_pr": {
       const { api, repo } = needGithub(x);
+      // A workflow is checked with actionlint before anything is created: its errors block the proposal.
+      if (c.content !== null && /^\.github\/workflows\/[^/]+\.ya?ml$/.test(c.path)) {
+        const lint = await x.deps.actionlint(c.path, c.content);
+        if (lint.available && lint.errors.length) throw new ToolError("CAMINO_ACTIONLINT", { errors: lint.errors.slice(0, 5) });
+      }
       const R = `/repos/${enc(repo)}`;
       const ref = await ghCall(api, "GET", `${R}/git/ref/heads/${enc(c.base)}`, "base");
       const branch = `camino/${c.path.replace(/^\.github\//, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 40)}-${x.deps.now().getTime().toString(36)}`;
@@ -210,6 +217,11 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
       }
       const pr = await ghCall(api, "POST", `${R}/pulls`, "pull", { title: c.title, head: branch, base: c.base, body: c.body });
       return { undo: w.undoPr(pr.number), note: pr.html_url, pr: { number: pr.number, url: pr.html_url } };
+    }
+    case "workflow_state": {
+      const { api, repo } = needGithub(x);
+      await ghCall(api, "PUT", `/repos/${enc(repo)}/actions/workflows/${c.id}/${c.enable ? "enable" : "disable"}`, c.enable ? "enable" : "disable");
+      return { undo: c.enable ? w.undoWfOn(c.name) : w.undoWfOff(c.name) };
     }
     case "delete_ruleset": {
       const { api, repo } = needGithub(x);
@@ -244,4 +256,35 @@ export async function applyChanges(db: Db, slug: string, input: { version: numbe
     }
   }
   return { results, stopped, applied: results.filter((r) => r.ok).length, skipped: items.length - results.length };
+}
+
+/** PLA-I68-5: the commit each action tag points at (owner/repo[/path]@tag → sha), to pin actions. Unknown ones are left out. */
+export async function resolvePins(p: Project, uses: string[], deps: CaminoDeps = caminoDeps): Promise<Record<string, string>> {
+  const api = await githubFor(p, deps);
+  if (!api) throw new ToolError("CAMINO_NO_GITHUB", { repo: !!p.settings.github?.repo, token: false });
+  const out: Record<string, string> = {};
+  for (const u of uses.slice(0, 40)) {
+    const [path, tag] = u.split("@") as [string, string];
+    const [owner, name] = path.split("/");
+    try {
+      const r = await api.call("GET", `/repos/${owner}/${name}/commits/${encodeURIComponent(tag)}`);
+      const sha = r.status === 200 ? ((await r.json()) as { sha?: string }).sha : null;
+      if (sha && /^[0-9a-f]{40}$/.test(sha)) out[u] = sha;
+    } catch {
+      // left out: the screen says it could not be pinned
+    }
+  }
+  return out;
+}
+
+/** PLA-I68-5: re-runs a run's failed jobs, and says so in Historial. */
+export async function rerunFailed(db: Db, p: Project, runId: number, deps: CaminoDeps = caminoDeps) {
+  const api = await githubFor(p, deps);
+  const repo = p.settings.github?.repo;
+  if (!api || !repo) throw new ToolError("CAMINO_NO_GITHUB", { repo: !!repo, token: !!api });
+  await ghCall(api, "POST", `/repos/${enc(repo)}/actions/runs/${runId}/rerun-failed-jobs`, "rerun");
+  const row = await caminoRow(db, p.id);
+  const run = row.discovery?.github.ok ? row.discovery.github.runs.find((r) => r.id === runId) : undefined;
+  await addHistory(db, p.id, { who: "owner", label: caminoSay().rerun(run?.name ?? String(runId)), dest: "github" });
+  return { rerun: true };
 }
