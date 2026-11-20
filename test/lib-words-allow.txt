@@ -7,3 +7,4 @@ ui/src/lib/equipo-words.ts # a Spanish sentence kept in a constant and used insi
 ui/src/lib/plan-words.ts # a Spanish plural helper used inside its es words
 ui/src/lib/release-words.ts # a Spanish plural helper used inside its es words
 ui/src/lib/stream-words.ts # a data-control identifier («nuevo-proyecto»), not words
+ui/src/lib/camino-commits.ts # PLA-I68-4: a lint pattern for vague commit subjects in both languages («cambios varios»), not words for the screen

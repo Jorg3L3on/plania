@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type Project, type ReleaseSettings } from "../db/schema.js";
+import { frozen, prodEnvOf, prodMigrationsFromEnv } from "../camino/prod.js";
+import { PROD_MIGRATIONS, camino, blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type ProdMigrations, type Project, type ReleaseSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";
 
@@ -54,11 +55,21 @@ export type ReleasePlan = {
   mode: "command" | "merge";
   merged: { sha: string; pr_url: string; at: string } | null;
   ship: { ready: boolean; reason: ShipBlock | null };
+  // PLA-I68-1: who migrates production (settings.release.prod_migrations, else Camino's production environment).
+  prod_migrations: ProdMigrations | null;
+  // PLA-I68-6: Camino's production environment, as Publicar uses it (null when Camino names none).
+  prod_env: { id: string; name: string; sql_review: boolean; approve_destructive: boolean; backup: string | null; health: { url: string | null; pages: string[] }; freeze: boolean } | null;
 };
 
+/** PLA-I68-1: the release adds migrations (reserved numbers or files in the compare) and the project names nobody to
+ * migrate production. The local test copy Plania migrates is never production. */
+export const prodMigrationUnhandled = (r: Pick<ReleaseSettings, "prod_migrations">, migrations: string[], files: string[]): boolean =>
+  (migrations.length > 0 || files.length > 0) && !r.prod_migrations;
+
 // Why Lanzar is off: command mode, nothing ahead, no GitHub data to know, a before-step or a check
-// still open, already merged.
-export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
+// still open, already merged, or (PLA-I68-1) the release adds migrations and nobody is named to migrate production.
+// PLA-I68-6: or the production environment's freeze window is on.
+export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged" | "freeze" | "prod_migration_unhandled";
 
 const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/;
 const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
@@ -67,14 +78,15 @@ const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
 export function checkReleaseSettings(v: unknown): ReleaseSettings {
   const bad = (hint: string) => new ToolError("INVALID_FILTER", { field: "settings.release", hint });
   if (!v || typeof v !== "object" || Array.isArray(v)) throw bad('{from: "sandbox", into: "main", env: "prod"}');
-  const { from, into, env, mode, ...rest } = v as Record<string, unknown>;
+  const { from, into, env, mode, prod_migrations, ...rest } = v as Record<string, unknown>;
   if (Object.keys(rest).length) throw bad(`unknown keys: ${Object.keys(rest).join(", ")}`);
   if (typeof from !== "string" || !BRANCH.test(from)) throw bad("from is a branch name, e.g. sandbox");
   if (typeof into !== "string" || !BRANCH.test(into)) throw bad("into is a branch name, e.g. main");
   if (from === into) throw bad("from and into are different branches");
   if (typeof env !== "string" || !ENV.test(env)) throw bad("env is lowercase, e.g. prod");
   if (mode !== undefined && mode !== "command" && mode !== "merge") throw bad('mode is "command" (default) or "merge"');
-  return { from, into, env, ...(mode === "merge" ? { mode } : {}) };
+  if (prod_migrations !== undefined && prod_migrations !== null && !PROD_MIGRATIONS.includes(prod_migrations as ProdMigrations)) throw bad('prod_migrations is "deploy", "owner" or "none"');
+  return { from, into, env, ...(mode === "merge" ? { mode } : {}), ...(prod_migrations ? { prod_migrations: prod_migrations as ProdMigrations } : {}) };
 }
 
 export const releaseCommand = (r: ReleaseSettings) => `git fetch origin && git checkout ${r.into} && git merge --ff-only origin/${r.from} && git push origin ${r.into}`;
@@ -147,10 +159,15 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     ? await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(inArray(checks.taskId, ids), eq(checks.done, false), isNull(checks.waivedAt)))
     : [{ n: 0 }];
 
+  // PLA-I68-6: Camino's production environment: who migrates it, its freeze window, its SQL review and approval.
+  const [cam] = await db.select({ config: camino.config }).from(camino).where(eq(camino.projectId, p.id)).limit(1);
+  const prodEnv = prodEnvOf(cam?.config ?? {}, r);
+  const prodMig = r.prod_migrations ?? prodMigrationsFromEnv(prodEnv);
   const mode = r.mode ?? "command";
   const merged = fromHead ? await mergedFromScreen(db, p.id, fromHead) : null;
   const open_checks = checksOpen?.n ?? 0;
   const pending = !shipped && (ahead ?? 0) > 0 && shipping.length > 0;
+  const migration_files = shipped ? [] : (fresh?.migration_files ?? []);
   const reason: ShipBlock | null =
     mode !== "merge" ? "mode_command"
     : !p.settings.github?.repo ? "no_repo"
@@ -160,6 +177,8 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     : !pending ? "nothing_to_ship"
     : before.length ? "before_steps"
     : open_checks ? "open_checks"
+    : frozen(prodEnv, new Date()) ? "freeze"
+    : prodMigrationUnhandled({ prod_migrations: prodMig ?? undefined }, migrations, migration_files) ? "prod_migration_unhandled"
     : null;
 
   return {
@@ -171,13 +190,17 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     commits: fresh?.commits ?? [],
     tickets: shipping.map((t) => ({ key: t.key, title: t.title, status: t.status, pr_url: t.prUrl ?? prOf(t.id)?.url ?? null })),
     migrations,
-    migration_files: shipped ? [] : (fresh?.migration_files ?? []),
+    migration_files,
     before,
     open_checks,
     command: releaseCommand(r),
     mode,
     merged,
     ship: { ready: reason === null, reason },
+    prod_migrations: prodMig ?? null,
+    prod_env: prodEnv
+      ? { id: prodEnv.id, name: prodEnv.name, sql_review: !!prodEnv.database?.sql_review, approve_destructive: !!prodEnv.database?.approve_destructive, backup: prodEnv.database?.backup ?? null, health: prodEnv.health, freeze: prodEnv.freeze }
+      : null,
   };
 }
 

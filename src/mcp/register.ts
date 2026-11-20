@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { branchRoles } from "../camino/roles.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Scope } from "../auth/bearer.js";
@@ -386,6 +387,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
         "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command the owner runs, its mode (command, or merge: the owner ships it from the screen) and merged once they did (null without settings.release). Agents never merge it.",
+        "branch_roles: how the project publishes (trunk, integ, tags), its published and integration branches and the work-branch pattern, as the owner set them in Camino; read them instead of assuming branch names.",
         "runner: the project's run limits set in Motores (max_concurrent, consulta_slots, max_per_agent, serialize_areas) and what is live now (work, consulta). Read-only: no tool changes them.",
       ].join(" "),
       inputSchema: { project },
@@ -413,6 +415,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           metrics: await projectMetricsOf(db, p.id),
           releases: await projectReleases(db, p.id),
           release: await releasePlan(db, p),
+          // PLA-I68-3: the branch roles set in Camino (or read from older settings): never assume branch names.
+          branch_roles: await branchRoles(db, p),
           // PLA-I60-5: «a la vez», read-only (set in Motores by the owner).
           runner: await runnerOfProject(db, p),
           ...(await projectSequences(db, p.id)),

@@ -229,7 +229,7 @@ export const DENY_RULES: readonly string[] = rulesOf(...RUN_GROUP_IDS);
 
 // AUDIT-1: hooks ride in the same settings file, so a project's after-edit command never lands in its repo.
 export type HookEntry = { matcher?: string; hooks: { type: "command"; command: string; timeout?: number }[] };
-export type DenySettings = { permissions: { deny: string[]; defaultMode?: string }; hooks?: { PostToolUse?: HookEntry[] } };
+export type DenySettings = { permissions: { deny: string[]; defaultMode?: string }; hooks?: { PreToolUse?: HookEntry[]; PostToolUse?: HookEntry[] } };
 
 // The hook for settings.qa.after_edit: the command runs after every file edit of the run.
 export const afterEditHooks = (h: { command: string; timeout_seconds?: number } | undefined | null): DenySettings["hooks"] | undefined =>

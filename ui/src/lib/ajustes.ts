@@ -18,7 +18,7 @@ export type Ajustes = {
   title: string;
   version: number;
   code: AjustesCodigo;
-  release: { from: string; into: string; env: string; mode: "command" | "merge" } | null;
+  release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations?: "deploy" | "owner" | "none" | null } | null;
   verify: { name: string; command: string }[];
   preview_url: string | null;
   plan_approval: boolean;
@@ -152,14 +152,15 @@ export const borrarBoton = (title: string, language: Language = getLanguage()): 
 // The shapes checkReleaseSettings takes (src/mcp/release-plan.ts).
 const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
 const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
-export type LanzamientoForm = { from: string; into: string; env: string; merge: boolean };
+// PLA-I68-1: prod is who migrates production ("" while nobody said).
+export type LanzamientoForm = { from: string; into: string; env: string; merge: boolean; prod?: "" | "deploy" | "owner" | "none" };
 /** The release step to send, or null while a field is not right yet. */
-export function lanzamientoBody(f: LanzamientoForm): { from: string; into: string; env: string; mode?: "merge" } | null {
+export function lanzamientoBody(f: LanzamientoForm): { from: string; into: string; env: string; mode?: "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null {
   const from = f.from.trim();
   const into = f.into.trim();
   const env = f.env.trim();
   if (!BRANCH.test(from) || !BRANCH.test(into) || from === into || !ENV.test(env)) return null;
-  return { from, into, env, ...(f.merge ? { mode: "merge" as const } : {}) };
+  return { from, into, env, ...(f.merge ? { mode: "merge" as const } : {}), ...(f.prod ? { prod_migrations: f.prod } : {}) };
 }
 
 /** The verify list's lines: one command each, blank lines dropped. */

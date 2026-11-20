@@ -17,12 +17,13 @@ export type View = (typeof VIEWS)[number];
 // Motores behind it) and Máquinas. The old tabs' addresses still open: each lands on its new place (OLD_TAB).
 // NEWPROJ-6: Ajustes, the project's settings (where the code is, the release step, QA's list, the context notes).
 // PLA-I66-2: Marca, the project's logo and its icon files, before Ajustes.
-export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "marca", "ajustes"] as const;
+// PLA-I68-2: Camino, how the project's code reaches people (configuration only), before Ajustes; PRs live there now.
+export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "marca", "camino", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
-export const DOORS = ["archivo", "equipo", "maquinas", "marca", "ajustes"] as const;
+export const DOORS = ["archivo", "equipo", "maquinas", "marca", "camino", "ajustes"] as const;
 export const CORRIENTE_LIB_WORDS = defineWords({
   es: {
-    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", ajustes: "Ajustes" } as Record<Tab, string>,
+    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Camino", ajustes: "Ajustes" } as Record<Tab, string>,
     // The ask box's three modes (the same words as the building's).
     modes: {
       forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
@@ -51,7 +52,7 @@ export const CORRIENTE_LIB_WORDS = defineWords({
     oneFem: "Una",
   },
   en: {
-    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", ajustes: "Settings" },
+    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", camino: "Path", ajustes: "Settings" },
     modes: {
       forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
       ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },
@@ -82,7 +83,7 @@ export const CORRIENTE_LIB_WORDS = defineWords({
 export const TAB_NAME: Record<Tab, string> = CORRIENTE_LIB_WORDS.es.tab;
 export const tabName = (tab: Tab, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).tab[tab];
 /** The retired tabs (PLA-I62) and where each one lives now. */
-export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo" };
+export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "camino", docs: "archivo" };
 export const tabOf = (raw: string | null | undefined): Tab | null => (!raw ? null : (TABS as readonly string[]).includes(raw) ? (raw as Tab) : (OLD_TAB[raw] ?? null));
 
 /** What a tab has open beside or over its list. */
@@ -101,13 +102,15 @@ export type Ver =
   | { kind: "oficio"; agent: string }
   | { kind: "sumar" }
   | { kind: "maq"; what: string }
-  | { kind: "tabla"; name: string };
+  | { kind: "tabla"; name: string }
+  // PLA-I68-2: the Camino section open (conn, codigo, commits, ci, propuestas, hist, env:<id>).
+  | { kind: "camino"; sec: string };
 
 /** PLA-I3-5: paso is the step open in the panel beside the list. Present only when the address has one, on a
  *  project's list (no ver, tab todo). */
 export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
-const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "maq", "tabla"] as const;
+const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "maq", "tabla", "camino"] as const;
 
 export function verOf(raw: string | null): Ver | null {
   if (!raw) return null;
@@ -125,6 +128,7 @@ export function verOf(raw: string | null): Ver | null {
   if (kind === "miembro" || kind === "oficio") return { kind, agent: ref };
   if (kind === "maq") return { kind, what: ref };
   if (kind === "tabla") return { kind, name: ref };
+  if (kind === "camino") return { kind, sec: ref };
   return { kind, key: ref } as Ver;
 }
 
@@ -146,6 +150,8 @@ export function verParam(v: Ver): string {
       return `maq:${v.what}`;
     case "tabla":
       return `tabla:${v.name}`;
+    case "camino":
+      return `camino:${v.sec}`;
     default:
       return `${v.kind}:${v.key}`;
   }
@@ -154,7 +160,10 @@ export function verParam(v: Ver): string {
 /** The tab a Ver lives in (PLA-I64-7: a thing of the project opens over the list, a doc or PR in Archivo). */
 export function tabOfVer(v: Ver): Tab {
   switch (v.kind) {
+    // PLA-I68-2: a PR opens from Camino's Propuestas; a doc from Archivo.
     case "pr":
+    case "camino":
+      return "camino";
     case "doc":
       return "archivo";
     case "miembro":
@@ -310,7 +319,7 @@ export function clockLine(now: number, timeZone?: string): string {
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
   tabs: [...TABS],
-  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "oficio", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
+  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "oficio", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");
@@ -368,7 +377,7 @@ export function slashFocuses(e: { key: string; meta?: boolean; ctrl?: boolean; a
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card
 //   in Te toca · ?piso=<slug> → the project (with ?nivel=maquinas → Máquinas) · ?f=<ficha ref> → its tab and what it
 //   opens · ?m=<slug>:<agent> → the teammate · ?plan=<slug> → the board · ?add=<slug> → Sumar. ?doc=<id> stays (a sheet).
-const FICHA_TAB: Record<string, Tab> = { resumen: "todo", pedido: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo", motores: "motores" };
+const FICHA_TAB: Record<string, Tab> = { resumen: "todo", pedido: "todo", ideas: "todo", diseno: "archivo", prs: "camino", docs: "archivo", motores: "motores" };
 export function fromBuilding(search: string, ref: { kind: string; [k: string]: unknown } | null, refSlug: string | null): string | null {
   const q = new URLSearchParams(search);
   const legacy = ["edificio", "asistente", "nuevo", "decision", "piso", "f", "m", "plan", "add", "nivel"].some((k) => q.has(k));
