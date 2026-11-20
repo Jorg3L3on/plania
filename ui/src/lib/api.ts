@@ -242,6 +242,8 @@ export const api = {
   marcaSurfaceStart: (slug: string, s: Surface) => request<Staged>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/start`),
   marcaSurfaceSet: (slug: string, s: Surface, body: { up: string; name: string; scale: number; bg: string | null }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}`, body),
   marcaSurfaceReset: (slug: string, s: Surface) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/reset`),
+  marcaVariant: (slug: string, s: Surface, body: { bg: string | null; scale: number }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/variant`, body),
+  marcaSurfaceKeep: (slug: string, s: Surface) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/surface/${s}/keep`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

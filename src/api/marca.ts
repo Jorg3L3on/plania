@@ -28,10 +28,10 @@ import { setProject } from "../mcp/project.js";
 import { ToolError } from "../mcp/errors.js";
 import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
-import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
+import { buildSet, keepOver, madeFile, originalOf, requestIcons, zipOf } from "../brand/pedido.js";
 import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
-import { clearSurface, isSurface, setSurface, startSurface, surfacesOf } from "../brand/surfaces.js";
-import { readLogoFile } from "../brand/logos.js";
+import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
+import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
 
 export const marcaRoutes = new Hono();
@@ -245,17 +245,68 @@ marcaRoutes.post(`${BASE}/surface/:s`, async (c) => {
     if (body instanceof Response) return body;
     const p = await projectOf(c);
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    await setSurface(p, s, { up: body.up, name: body.name ?? body.up, scale: body.scale, bg: body.bg });
+    // PLA-I69-2: the picture remembers the logo version it was made under (a newer logo asks).
+    const logoV = (await withDb((db) => activeLogo(db, p.id)))?.version ?? null;
+    await setSurface(p, s, { up: body.up, name: body.name ?? body.up, scale: body.scale, bg: body.bg }, logoV);
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
     return fail(c, e);
   }
 });
 
+// PLA-I69-2: a variant (a recipe on the current logo) and «Mantener la mía» after the logo changed.
+//   POST /api/company/projects/:slug/logo/surface/:s/variant   {bg, scale}
+//   POST /api/company/projects/:slug/logo/surface/:s/keep
+marcaRoutes.post(`${BASE}/surface/:s/variant`, async (c) => {
+  try {
+    const s = c.req.param("s")!;
+    if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+    const body = await json(c, z.object({ bg: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(), scale: z.number().int().min(40).max(100) }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    setVariant(p, s, body);
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+marcaRoutes.post(`${BASE}/surface/:s/keep`, async (c) => {
+  const s = c.req.param("s")!;
+  if (!isSurface(s)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const l = await withDb((db) => activeLogo(db, p.id));
+  if (!l || !keepSurface(p, s, l.version)) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
+  return c.json(await withDb((db) => marcaRead(db, p.slug)));
+});
+
+// PLA-I69-2: one file as Plania would make it now, for the scene's upper half.
+//   GET /api/company/projects/:slug/marca/made/:key
+const MADE_KEYS = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og"] as const;
+marcaRoutes.get("/projects/:slug/marca/made/:key", async (c) => {
+  const key = c.req.param("key")!;
+  if (!(MADE_KEYS as readonly string[]).includes(key)) return c.json({ error: "LOGO_SURFACE_UNKNOWN" }, 404);
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const f = await withDb((db) => madeFile(db, p, key as (typeof MADE_KEYS)[number]));
+  if (!f) return c.json({ error: "LOGO_NONE" }, 404);
+  return c.body(new Uint8Array(f.bytes), 200, { "Content-Type": f.mime, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
+});
+
 marcaRoutes.get(`${BASE}/surface/:s`, async (c) => {
   const s = c.req.param("s")!;
   const slug = c.req.param("slug")!;
-  const own = isSurface(s) ? surfacesOf(slug)[s] : undefined;
+  const entry = isSurface(s) ? surfacesOf(slug)[s] : undefined;
+  if (isSurface(s) && isVariant(entry)) {
+    const p = await projectOf(c);
+    const l = p ? await withDb((db) => activeLogo(db, p.id)) : null;
+    const o = p && l ? originalOf(p.slug, l) : null;
+    const t = o ? (await surfaceOriginals(slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null }))[s] : undefined;
+    if (!t) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
+    return c.body(new Uint8Array(t.bytes), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
+  }
+  const own = entry && !isVariant(entry) ? entry : undefined;
   const b = own ? readLogoFile(slug, own.file) : null;
   if (!b) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
   return c.body(new Uint8Array(b), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });

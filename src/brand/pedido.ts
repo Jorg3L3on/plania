@@ -48,7 +48,7 @@ export async function staleRows(input: { slug: string; title: string; rows: Row[
   if (input.logo.source === "repo") return [];
   const o = originalOf(input.slug, input.logo);
   if (!o) return [];
-  const own = surfaceOriginals(input.slug);
+  const own = await surfaceOriginals(input.slug, { bytes: o.bytes, mime: o.mime, raw: input.logo.adjust?.raw ?? null });
   const plan = planFor(input.rows, { framework: input.framework, root: input.root }, "todo", o.mime === "image/svg+xml", input.native);
   plan.items = plan.items.filter((i) => COMPARED.includes(i.key));
   // PLA-I69-1: the colour comes from the logo the owner chose, so a share image on an older logo's colour reads old.
@@ -83,7 +83,7 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   const o = l ? originalOf(project.slug, l) : null;
   if (!o) return null;
   const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml", r.native, surface ? SURFACE_KEYS[surface] : undefined);
-  const own = surfaceOriginals(project.slug);
+  const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null });
   const id = setId(o, plan, own);
   // PLA-I69-1: the logo's colour, and a version for the manifest's icon URLs (installed apps see a new URL).
   const theme = logoTheme(l) ?? themeOf(r);
@@ -157,4 +157,37 @@ export async function keepOver(db: Db, project: Pick<Project, "id">, sha: string
   if (!l) return;
   await db.update(projectLogos).set({ adjust: { ...(l.adjust ?? {}), keptOver: sha } }).where(eq(projectLogos.id, l.id));
   forgetMarcaOf(project.id);
+}
+
+// PLA-I69-2: one file as Plania would make it now (the upper half of the scene: what each surface would show).
+const one = new Map<string, { bytes: Buffer; path: string }>();
+const making = new Map<string, Promise<{ bytes: Buffer; path: string } | null>>();
+export async function madeFile(db: Db, project: Project, key: GenKey): Promise<{ bytes: Buffer; mime: string } | null> {
+  const r = await marcaRead(db, project.slug);
+  if (!r?.logo) return null;
+  const [l] = await db.select().from(projectLogos).where(and(eq(projectLogos.projectId, project.id), eq(projectLogos.active, true))).limit(1);
+  const o = l ? originalOf(project.slug, l) : null;
+  if (!o || !l) return null;
+  const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, "todo", o.mime === "image/svg+xml", r.native, [key]);
+  if (!plan.items.length) return null;
+  const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l.adjust?.raw ?? null });
+  const theme = logoTheme(l) ?? themeOf(r);
+  const id = `${project.slug}|${setId(o, plan, own)}|${theme ?? ""}|${key}`;
+  let f = one.get(id);
+  if (!f) {
+    let flight = making.get(id);
+    if (!flight) {
+      flight = generate(o, plan, { name: project.title, theme, rows: r.rows, root: r.root }, own)
+        .then((files) => { const g = files.find((x) => x.key === key); return g ? { bytes: g.bytes, path: g.path } : null; })
+        .finally(() => making.delete(id));
+      making.set(id, flight);
+    }
+    const got = await flight;
+    if (!got) return null;
+    f = got;
+    if (one.size > 64) one.clear();
+    one.set(id, f);
+  }
+  const mime = f.path.endsWith(".svg") ? "image/svg+xml" : f.path.endsWith(".ico") ? "image/x-icon" : "image/png";
+  return { bytes: f.bytes, mime };
 }
