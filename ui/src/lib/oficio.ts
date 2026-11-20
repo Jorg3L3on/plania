@@ -2,6 +2,7 @@
 // sits on the line, the sentence under the seat switcher and the list a shelf switch saves. Tested without a
 // browser (test/i67-oficio-ui.test.ts). Pure: no "@/" imports.
 import { getLanguage, words, type Language } from "./i18n.js";
+import { FALLBACK_LOCALES } from "./locale.js";
 import { KIT_SKILL_WORDS, OFICIO_WORDS, type SkillWords } from "./oficio-words.js";
 
 export type Outcome = "primera" | "devuelta" | "espera" | "trabajando" | "en_curso" | "descartada";
@@ -108,7 +109,7 @@ export const labelEvery = (count: number, width: number, minGap = 52): number =>
 
 /** «28 oct», or «hoy» for today, in the screen's time zone. */
 export function dayLabel(iso: string, now: number, timeZone?: string, language: Language = getLanguage()): string {
-  const locale = language === "es" ? "es-MX" : "en-US";
+  const locale = FALLBACK_LOCALES[language];
   const day = (t: number) => new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(new Date(t));
   if (day(Date.parse(iso)) === day(now)) return words(OFICIO_WORDS, language).today;
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "");
