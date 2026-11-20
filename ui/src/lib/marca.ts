@@ -32,6 +32,12 @@ export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[];
 
 /** A row the open request carries and the repo does not have yet: it shows as on its way. */
 export const onItsWay = (r: Pick<MarcaRead, "pedido">, row: MarcaRow): boolean => !!r.pedido?.rows.includes(row.id) && row.state !== "ok";
+export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
+export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null }; at: string; marks: Mark[]; rejected: { name: string; why: string }[] };
+export const markUrl = (slug: string, id: string, file: string): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${file}`;
+export const passesAll = (t: PixelTests): boolean => t.small.ok && t.circle.ok && t.contrast.ok;
+/** Up to six slots around the ring (x, y as a share of the radius), clockwise from the top. */
+export const RING: [number, number][] = [[0, -1], [0.87, -0.5], [0.87, 0.5], [0, 1], [-0.87, 0.5], [-0.87, -0.5]];
 export const zipUrl = (slug: string, mode: "faltan" | "todo" = "todo"): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/zip?mode=${mode}`;
 
 // PLA-I66-3: an upload as the server staged it, the pixel tests, a version.
@@ -181,6 +187,39 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean): string => (has ? "en carriles, tira y brief" : "hoy: una letra"),
     optional: "opcional",
     reread: "Revisar el repo ahora",
+    gen: {
+      menu: "Pedir marcas a Artist",
+      menuHint: "desde pistas e inspiración",
+      title: (name: string) => `Marcas de Artist para ${name}`,
+      lead: "Artist dibuja seis marcas en SVG. Plania prueba cada una sobre sus píxeles antes de mostrarla. No cuesta nada aparte.",
+      about: "De qué trata",
+      aboutPh: "Qué hace la app y para quién",
+      inspiration: "Inspiración",
+      add: "Agregar imagen",
+      feel: "Que se sienta",
+      avoid: "Que no tenga",
+      wordPh: "Una palabra y Enter",
+      colors: "Colores",
+      colorsHint: "sacados de tus imágenes",
+      go: "Generar 6 marcas",
+      again: "Otra tanda de 6",
+      more: "Más como esta",
+      use: "Usar esta",
+      drawing: "Artist dibuja…",
+      failed: "Artist no entregó marcas. Puedes intentar otra vez.",
+      none: "Aquí aparecen las marcas de Artist",
+      pick: "Elige una",
+      passed: (n: number, of: number) => `${n} de ${of} pasan las tres pruebas`,
+      how: "Cómo elige Plania",
+      tests: [
+        ["Se lee a 16 px", "los trazos de menos de un píxel en la pestaña se pierden"],
+        ["Cabe en el círculo", "Android recorta el ícono; el dibujo debe quedar dentro del 40 %"],
+        ["Tiene contraste", "3 : 1 entre el dibujo y su fondo"],
+      ] as [string, string][],
+      back: "Volver",
+      used: "Es el nuevo original. Las otras marcas quedan en esta tanda.",
+      remove: (w: string) => `Quitar ${w}`,
+    },
     sheet: {
       open: "Ponerlos en el repo",
       zip: "Descargar .zip",
@@ -383,6 +422,39 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
+    gen: {
+      menu: "Ask Artist for marks",
+      menuHint: "from hints and inspiration",
+      title: (name: string) => `Artist's marks for ${name}`,
+      lead: "Artist draws six marks in SVG. Plania tests each one on its pixels before showing it. It costs nothing extra.",
+      about: "What it is about",
+      aboutPh: "What the app does and for whom",
+      inspiration: "Inspiration",
+      add: "Add an image",
+      feel: "It should feel",
+      avoid: "It must not have",
+      wordPh: "A word and Enter",
+      colors: "Colours",
+      colorsHint: "taken from your images",
+      go: "Draw 6 marks",
+      again: "Another round of 6",
+      more: "More like this one",
+      use: "Use this one",
+      drawing: "Artist is drawing…",
+      failed: "Artist delivered no marks. You can try again.",
+      none: "Artist's marks show up here",
+      pick: "Pick one",
+      passed: (n: number, of: number) => `${n} of ${of} pass the three tests`,
+      how: "How Plania judges",
+      tests: [
+        ["Reads at 16 px", "strokes under a pixel vanish in the tab"],
+        ["Fits the circle", "Android crops the icon; the drawing stays inside 40 %"],
+        ["Has contrast", "3 : 1 between the drawing and its background"],
+      ] as [string, string][],
+      back: "Back",
+      used: "It is the new original. The other marks stay in this round.",
+      remove: (w: string) => `Remove ${w}`,
+    },
     sheet: {
       open: "Put them in the repo",
       zip: "Download .zip",

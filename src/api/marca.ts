@@ -26,6 +26,7 @@ import { activateVersion, listVersions, LogoError, MAX_UPLOAD_BYTES, previewUplo
 import { marcaRead } from "../brand/marca.js";
 import { forgetLogoLooks } from "../brand/logos.js";
 import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
+import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
 
 export const marcaRoutes = new Hono();
 const BASE = "/projects/:slug/logo";
@@ -196,6 +197,58 @@ marcaRoutes.post("/projects/:slug/marca/pedido", async (c) => {
     if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
     const r = await withDb((db) => requestIcons(db, p, body.mode));
     return c.json({ key: r.key, read: await withDb((db) => marcaRead(db, p.slug)) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I66-5: logo marks from Artist.
+//   GET  /api/company/projects/:slug/logo/marks               the newest request (drawing, ready or failed)
+//   POST /api/company/projects/:slug/logo/marks               {about, feel, avoid, colors, images, like?}: queue Artist
+//   GET  /api/company/projects/:slug/logo/marks/:id/:file     a mark's SVG or its rendered tile
+//   POST /api/company/projects/:slug/logo/marks/:id/:mark     that mark becomes the original
+marcaRoutes.get(`${BASE}/marks`, async (c) => {
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  return c.json({ request: await withDb((db) => settle(db, latestRequest(p.slug))) });
+});
+
+const Hints = z
+  .object({
+    about: z.string().max(600).optional(),
+    feel: z.array(z.string().max(40)).max(6).optional(),
+    avoid: z.array(z.string().max(40)).max(6).optional(),
+    colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(6).optional(),
+    images: z.array(z.string().max(80)).max(6).optional(),
+    like: z.string().max(40).nullable().optional(),
+  })
+  .strict();
+
+marcaRoutes.post(`${BASE}/marks`, async (c) => {
+  const body = await json(c, Hints);
+  if (body instanceof Response) return body;
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  return c.json({ request: await withDb((db) => requestMarks(db, p, body)) });
+});
+
+marcaRoutes.get(`${BASE}/marks/:id/:file`, async (c) => {
+  const b = markFile(c.req.param("slug")!, c.req.param("id")!, c.req.param("file")!);
+  if (!b) return c.json({ error: "LOGO_MARK_NOT_FOUND" }, 404);
+  return c.body(new Uint8Array(b), 200, {
+    "Content-Type": c.req.param("file")!.endsWith(".png") ? "image/png" : "image/svg+xml",
+    "Cache-Control": "private, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+  });
+});
+
+marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
+  try {
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
     return fail(c, e);
   }

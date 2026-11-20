@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, counts, faceState, fileUrl, has, marcaWords, onItsWay, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged } from "@/lib/marca";
+import { FACES, RING, counts, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError } from "./parts";
@@ -30,6 +30,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const [panel, setPanel] = useState<"repo" | "versiones" | null>(null);
   const [uploading, setUploading] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [drawing, setDrawing] = useState(false);
   const took = (next: MarcaRead) => {
     client.setQueryData(["marca", p.slug], next);
     void client.invalidateQueries({ queryKey: ["logos"] });
@@ -46,11 +47,13 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
   const r = q.data;
   if (!r) return <div className="cor-skel" style={{ flex: 1 }} role="status" aria-busy="true" aria-label={w.loading} />;
+  if (drawing) return <Generate p={p} w={w} onBack={() => setDrawing(false)} onUsed={(next) => { took(next); setDrawing(false); toast(w.gen.used); }} />;
   if (uploading) return <Upload p={p} r={r} w={w} onBack={() => setUploading(false)} onUsed={(next) => { took(next); setUploading(false); toast(w.up.saved); }} />;
   const c = counts(r.rows);
   const lit = hover ?? sel;
   const actions: CoreActions = {
     upload: () => setUploading(true),
+    artist: () => setDrawing(true),
     repo: () => { setSel(null); setPanel("repo"); },
     versions: () => { setSel(null); setPanel("versiones"); },
     release: async () => took(await api.marcaRelease(p.slug)),
@@ -147,7 +150,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   );
 }
 
-type CoreActions = { upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void> };
+type CoreActions = { artist: () => void; upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void> };
 
 function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void; actions: CoreActions }) {
   const scene = useRef<HTMLDivElement>(null);
@@ -407,6 +410,10 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
             <button type="button" role="menuitem" onClick={pick(actions.upload)} data-control="marca-subir">
               <b>{w.menu.upload}</b>
               <span>{w.menu.uploadHint}</span>
+            </button>
+            <button type="button" role="menuitem" onClick={pick(actions.artist)} data-control="marca-artist">
+              <b>{w.gen.menu}</b>
+              <span>{w.gen.menuHint}</span>
             </button>
             {r.candidates.length > 0 && (
               <button type="button" role="menuitem" onClick={pick(actions.repo)} data-control="marca-del-repo">
@@ -833,6 +840,209 @@ function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; 
             {w.sheet.send}
           </button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+/** PLA-I66-5: Artist's marks (design frames B1, B2): hints and inspiration, six marks with their tests, pick one. */
+function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }; w: MarcaWords; onBack: () => void; onUsed: (next: MarcaRead) => void }) {
+  const q = useQuery({
+    queryKey: ["marca-marks", p.slug],
+    queryFn: () => api.marcaMarks(p.slug),
+    refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 4000 : false),
+  });
+  const req: MarksRequest | null = q.data?.request ?? null;
+  const [about, setAbout] = useState("");
+  const [feel, setFeel] = useState<string[]>([]);
+  const [avoid, setAvoid] = useState<string[]>([]);
+  const [images, setImages] = useState<{ up: string; name: string; src: string; palette: string[] }[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!req) return;
+    setAbout((a) => a || req.hints.about);
+    setFeel((f) => (f.length ? f : req.hints.feel));
+    setAvoid((f) => (f.length ? f : req.hints.avoid));
+  }, [req?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const colors = [...new Set(images.flatMap((i) => i.palette))].slice(0, 6);
+  const marks = req?.status === "ready" ? req.marks : [];
+  const picked = marks.find((m) => m.id === sel) ?? marks.find((m) => passesAll(m.tests)) ?? marks[0] ?? null;
+  const ask = async (like?: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.marcaAskMarks(p.slug, { about, feel, avoid, colors, images: images.map((i) => i.up), like: like ?? null });
+      q.refetch();
+      setSel(null);
+      void r;
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addImage = async (file: File) => {
+    setError(null);
+    try {
+      const s = await api.marcaUpload(p.slug, file);
+      setImages((l) => [...l, { up: s.up, name: s.name, src: URL.createObjectURL(file), palette: s.palette }].slice(0, 6));
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    }
+  };
+  const use = async () => {
+    if (!req || !picked) return;
+    setBusy(true);
+    try {
+      onUsed(await api.marcaUseMark(p.slug, req.id, picked.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const words = (list: string[], set: (l: string[]) => void, label: string, kind: "feel" | "avoid") => (
+    <div className={`mk-chips${kind === "avoid" ? " no" : ""}`}>
+      {list.map((x) => (
+        <button key={x} type="button" className="mk-chip" onClick={() => set(list.filter((y) => y !== x))} aria-label={w.gen.remove(x)}>
+          {x}
+        </button>
+      ))}
+      <input
+        className="mk-chip-in"
+        placeholder={w.gen.wordPh}
+        aria-label={label}
+        data-control={`marca-${kind}`}
+        onKeyDown={(e) => {
+          const v = e.currentTarget.value.trim();
+          if (e.key === "Enter" && v) {
+            e.preventDefault();
+            if (!list.includes(v) && list.length < 6) set([...list, v]);
+            e.currentTarget.value = "";
+          }
+        }}
+      />
+    </div>
+  );
+  const status = req?.status === "drawing" ? <span className="mk-live"><i aria-hidden />{w.gen.drawing}</span> : req?.status === "ready" ? <span className="mk-status">{w.gen.passed(marks.filter((m) => passesAll(m.tests)).length, marks.length)}</span> : null;
+  return (
+    <div className="mk mk-gen" data-marca-artist={p.slug}>
+      <header className="mk-head">
+        <div className="mk-head-l">
+          <h2 className="cor-door-h">{w.gen.title(p.title)}</h2>
+          <p className="cor-text">{w.gen.lead}</p>
+        </div>
+        <div className="mk-head-r">
+          {status}
+          <button type="button" className="cor-btn secondary small" onClick={onBack} data-control="marca-artist-volver">
+            {w.gen.back}
+          </button>
+        </div>
+      </header>
+      <div className="mk-ggrid">
+        <section className="mk-pistas" aria-label={w.gen.about}>
+          <label className="mk-p-lbl" htmlFor="mk-about">{w.gen.about}</label>
+          <textarea id="mk-about" className="mk-ta" rows={3} value={about} placeholder={w.gen.aboutPh} onChange={(e) => setAbout(e.target.value)} />
+          <div className="mk-p-lbl">{w.gen.inspiration}</div>
+          <div className="mk-insp">
+            {images.map((i) => (
+              <span key={i.up} className="mk-in-img" title={i.name}>
+                <img src={i.src} alt="" />
+                <em>{i.name}</em>
+              </span>
+            ))}
+            {images.length < 6 && (
+              <button type="button" className="mk-in-add" onClick={() => input.current?.click()} aria-label={w.gen.add} data-control="marca-inspiracion">
+                +
+              </button>
+            )}
+            <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,.svg,image/svg+xml" className="sr-only" aria-label={w.gen.add} onChange={(e) => { const f = e.target.files?.[0]; if (f) void addImage(f); e.target.value = ""; }} data-control="marca-inspiracion-archivo" />
+          </div>
+          <div className="mk-p-lbl">{w.gen.feel}</div>
+          {words(feel, setFeel, w.gen.feel, "feel")}
+          <div className="mk-p-lbl">{w.gen.avoid}</div>
+          {words(avoid, setAvoid, w.gen.avoid, "avoid")}
+          {colors.length > 0 && (
+            <>
+              <div className="mk-p-lbl">
+                {w.gen.colors} <span>{w.gen.colorsHint}</span>
+              </div>
+              <div className="mk-sw" data-colores={colors.join(",")}>
+                {colors.map((c) => (
+                  <i key={c} style={{ background: c }} title={c} />
+                ))}
+              </div>
+            </>
+          )}
+          <button type="button" className="cor-btn primary mk-go" disabled={busy || req?.status === "drawing"} onClick={() => void ask()} data-control="marca-generar">
+            {req?.status === "ready" ? w.gen.again : w.gen.go}
+          </button>
+          {error && <p className="mk-block" role="alert">{error}</p>}
+          {req?.status === "failed" && <p className="mk-block">{w.gen.failed}</p>}
+        </section>
+        <section className="mk-ring" aria-label={w.gen.pick}>
+          <svg className="mk-r-orbit" viewBox="-260 -230 520 460" aria-hidden>
+            <ellipse cx="0" cy="0" rx="205" ry="178" />
+          </svg>
+          <div className={`mk-r-center${picked ? " has" : ""}`}>
+            {picked && req ? <img src={markUrl(p.slug, req.id, picked.tile)} alt="" /> : <span>{req?.status === "drawing" ? w.gen.drawing : w.gen.none}</span>}
+          </div>
+          {RING.map(([x, y], i) => {
+            const m = marks[i];
+            const style = { left: `calc(50% + ${x * 205}px)`, top: `calc(50% + ${y * 178}px)` };
+            if (!m || !req) return <div key={i} className="mk-slot empty" style={style}><i /></div>;
+            return (
+              <button key={m.id} type="button" className={`mk-slot${picked?.id === m.id ? " on" : ""}`} style={style} aria-pressed={picked?.id === m.id} onClick={() => setSel(m.id)} data-mark={m.id}>
+                <img src={markUrl(p.slug, req.id, m.tile)} alt="" />
+                <span className="mk-slot-n">{m.name}</span>
+                <span className="mk-slot-t" aria-hidden>
+                  {[m.tests.small, m.tests.circle, m.tests.contrast].map((t, k) => (
+                    <i key={k} className={t.ok ? "y" : "n"} />
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+        </section>
+        <aside className="mk-pick">
+          {picked && req ? (
+            <>
+              <div className="mk-pick-big">
+                <img src={markUrl(p.slug, req.id, picked.tile)} alt="" />
+              </div>
+              <h3 className="mk-pick-h">{picked.name}</h3>
+              <p className="mk-pick-p">{picked.idea}</p>
+              <ul className="mk-res">
+                {testLines(picked.tests, w).map((t, i) => (
+                  <li key={i} className={t.ok ? "y" : "n"}>{t.text}</li>
+                ))}
+              </ul>
+              <div className="mk-pick-btns">
+                <button type="button" className="cor-btn primary" disabled={busy} onClick={() => void use()} data-control="marca-usar-marca">
+                  {w.gen.use}
+                </button>
+                <button type="button" className="cor-btn secondary small" disabled={busy || req.status === "drawing"} onClick={() => void ask(picked.id)} data-control="marca-mas-como-esta">
+                  {w.gen.more}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mk-p-lbl">{w.gen.how}</div>
+              <ul className="mk-tests">
+                {w.gen.tests.map(([b, t]) => (
+                  <li key={b}>
+                    <b>{b}</b>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </aside>
       </div>
     </div>
   );

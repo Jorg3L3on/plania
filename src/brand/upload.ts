@@ -78,6 +78,9 @@ export type Staged = {
   corner: string;
 };
 
+/** Where uploads (and inspiration images) are staged; the Artist run reads its images from here. */
+export const uploadDir = (slug: string): string => upDir(slug);
+
 function upDir(slug: string): string {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new Error(`bad project slug ${slug}`);
   return path.join(capturesDir(), "_marca", slug, "up");
@@ -162,10 +165,24 @@ export async function compose(raw: Buffer, kind: UploadKind, scale: number, bg: 
     .toBuffer();
 }
 
-/** The three pixel tests on a tile (its background, when it has one, alone beside it). */
-export async function testTile(png: Buffer, bg: string | null): Promise<PixelTests> {
+/** A tile's own background read from its four corners and blended across (a flat colour or a gradient). */
+export function cornersBackground(t: Buffer, n = SIZE): Buffer {
+  const at = (x: number, y: number, c: number) => t[(y * n + x) * 4 + c]!;
+  const cs = [[1, 1], [n - 2, 1], [1, n - 2], [n - 2, n - 2]].map(([x, y]) => [0, 1, 2].map((c) => at(x!, y!, c)));
+  const out = Buffer.alloc(n * n * 4);
+  for (let y = 0; y < n; y++)
+    for (let x = 0; x < n; x++) {
+      const u = x / (n - 1), v = y / (n - 1), i = (y * n + x) * 4;
+      for (let c = 0; c < 3; c++) out[i + c] = Math.round((1 - u) * (1 - v) * cs[0]![c]! + u * (1 - v) * cs[1]![c]! + (1 - u) * v * cs[2]![c]! + u * v * cs[3]![c]!);
+      out[i + 3] = 255;
+    }
+  return out;
+}
+
+/** The three pixel tests on a tile: its background is a colour, «corners» (its own, read from the corners) or none. */
+export async function testTile(png: Buffer, bg: string | "corners" | null): Promise<PixelTests> {
   const t = await sharp(png).resize(SIZE, SIZE).ensureAlpha().raw().toBuffer();
-  const b = bg ? await sharp({ create: { width: SIZE, height: SIZE, channels: 4, background: rgba(bg) } }).raw().toBuffer() : null;
+  const b = bg === "corners" ? cornersBackground(t) : bg ? await sharp({ create: { width: SIZE, height: SIZE, channels: 4, background: rgba(bg) } }).raw().toBuffer() : null;
   return pixelTests({ width: SIZE, height: SIZE, data: new Uint8Array(t) }, b ? { width: SIZE, height: SIZE, data: new Uint8Array(b) } : null);
 }
 
