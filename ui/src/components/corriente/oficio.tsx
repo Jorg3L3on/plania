@@ -21,10 +21,15 @@ import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 import { BudgetBar, HistoryPanel, LessonsPanel, ProposalCard, Reading, TeachBar } from "./oficio-lessons";
 import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
 import { lessonCap, lessonRoom, lessonRowsOf, returnArc, waitingLine, type LessonView, type LessonsRead } from "@/lib/oficio-lessons";
+// PLA-I67-4: the seat's references (threads, the side panel, the card, paste and drop).
+import { REFERENCE_UI_WORDS } from "@/lib/references-words";
+import { deliveryRefs, refRoom, type Reference } from "@/lib/references";
+import { refsApi } from "@/lib/references-api";
+import { REF_ROW, RefCard, RefPanel, RefThreads, refsHeight, useRefDrop, useRefUpload } from "./oficio-refs";
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
 
-type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" } | { kind: "lessons" } | { kind: "historia" };
+type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" } | { kind: "lessons" } | { kind: "historia" } | { kind: "refs" } | { kind: "ref"; id: string };
 
 const ROW = 30;
 const LABEL_W = 268;
@@ -59,19 +64,30 @@ const Mark = ({ d, x, y, on }: { d: OficioDelivery; x: number; y: number; on: bo
   </g>
 );
 
-const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons = [] }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks; lessons?: LessonView[] }) => {
+type RefsInDrawing = { list: Reference[]; pick: string | null; onPick: (id: string) => void; onMore: () => void; line: (key: string) => string };
+
+const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons = [], refs }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks; lessons?: LessonView[]; refs?: RefsInDrawing }) => {
   const w = words(OFICIO_WORDS);
   const wl = words(LESSON_WORDS);
   const [ref, { w: W, h: H }] = useSize<HTMLDivElement>();
-  // PLA-I67-3: lessons take rows under the skills: every proposal, then active ones, up to half the room.
-  const maxRows = Math.floor((H - 40) / ROW);
+  // PLA-I67-3/4: under the skills come the lessons (every proposal, then active ones, up to half the room), then the
+  // references, which take up to a third of the room or whatever the skills and lessons leave free.
+  const allRows = Math.floor((H - 40) / ROW);
+  const emptyPx = o.skills.some((s) => s.on) ? 0 : 76;
+  const refList = refs?.list ?? [];
+  const lessonWant = lessonRoom(lessons, allRows - 1);
+  const freeRefs = Math.floor((H - 40 - (rowsOf(o.skills, 999).length + lessonWant) * ROW - 6 - 22 - emptyPx) / REF_ROW);
+  const refN = refList.length ? Math.min(refList.length, Math.max(refRoom(Math.floor((H - 40) / REF_ROW), refList.length), freeRefs)) : 0;
+  const refPx = refsHeight(refN, 0);
+  const maxRows = Math.floor((H - 40 - (refPx ? refPx + 6 : 0)) / ROW);
   const room = lessonRoom(lessons, maxRows - 1);
   const rows: Row[] = rowsOf(o.skills, maxRows - room);
   const lessonRows = lessonRowsOf(lessons, Math.min(room, maxRows - rows.length));
   const maxUsed = Math.max(0, ...o.skills.map((s) => s.deliveries_used));
   const x0 = LABEL_W + 12;
   const hubX = Math.round(x0 + Math.min(220, Math.max(120, W * 0.16)));
-  const rowsMid = 8 + (rows.length * ROW) / 2;
+  const refTop = 8 + (rows.length + lessonRows.length) * ROW + 6 + emptyPx;
+  const rowsMid = refPx ? (8 + refTop + refPx) / 2 : 8 + (rows.length * ROW) / 2;
   const hubY = Math.round(Math.min(Math.max(rowsMid, CARD_H + 56), Math.max(CARD_H + 56, H - 70)));
   const lineX0 = hubX + 46;
   const lineX1 = W - 44;
@@ -117,6 +133,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
               );
             })}
           </svg>
+          {refs && refN > 0 && <RefThreads refs={refList} room={refN} top={refTop} W={W} H={H} thread={thread} pick={refs.pick} onPick={refs.onPick} onMore={refs.onMore} seat={seat} />}
           <ul className="ofi-rows" aria-label={w.groupSkills}>
             {rows.map((r, i) => {
               const top = 8 + i * ROW;
@@ -185,7 +202,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
               <p className="cor-text">{w.noDeliveries}</p>
             </div>
           ) : (
-            picked && <Readout d={picked} o={o} now={now} timeZone={timeZone} links={links} style={{ left: lineX0 - 6, bottom: H - hubY + 40, maxHeight: hubY - 40, width: Math.max(260, Math.min(460, W - lineX0 - 20)) }} />
+            picked && <Readout d={picked} o={o} now={now} timeZone={timeZone} links={links} refLine={refs?.line(picked.key)} style={{ left: lineX0 - 6, bottom: H - hubY + 40, maxHeight: hubY - 40, width: Math.max(260, Math.min(460, W - lineX0 - 20)) }} />
           )}
           <p className="ofi-legend cor-cap" aria-hidden>
             <span><i className="ofi-key first" /> {w.legendFirst}</span>
@@ -199,7 +216,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
   );
 };
 
-const Readout = ({ d, o, now, timeZone, links, style }: { d: OficioDelivery; o: Oficio; now: number; timeZone?: string; links: OficioLinks; style: React.CSSProperties }) => {
+const Readout = ({ d, o, now, timeZone, links, style, refLine }: { d: OficioDelivery; o: Oficio; now: number; timeZone?: string; links: OficioLinks; style: React.CSSProperties; refLine?: string }) => {
   const w = words(OFICIO_WORDS);
   const status =
     d.outcome === "primera" ? w.landedFirst : d.outcome === "espera" ? w.waitsForYou : d.outcome === "trabajando" ? w.stillWorking : d.outcome === "descartada" ? w.dropped : w.stillOpen;
@@ -222,7 +239,7 @@ const Readout = ({ d, o, now, timeZone, links, style }: { d: OficioDelivery; o: 
         <p className="cor-text">{status}</p>
       )}
       <p className="cor-cap">
-        {carriedLine(d, o.skills)} {w.runs(d.runs)}
+        {carriedLine(d, o.skills)} {w.runs(d.runs)} {refLine}
       </p>
     </section>
   );
@@ -365,14 +382,24 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   const member = p.team.find((m) => m.agent === agent) ?? null;
   const seat = seatName(member?.role ?? q.data?.role ?? agent);
   const [pick, setPick] = useState<string | null>(null);
-  // PLA-I67-2: the side column shows one thing: the next run, the shelf, a skill's card, the new skill form or the puesto.
+  // PLA-I67-2: the side column shows one thing: the next run, the shelf, a skill's card, the new skill form, the
+  // puesto, the lessons, the history, or (PLA-I67-4) the references and one reference's card.
   const [side, setSide] = useState<Side>({ kind: "next" });
   // PLA-I67-3: its lessons, and whether a correction is being read.
   const lq = useQuery({ queryKey: ["lessons", p.slug, agent], queryFn: () => api.lessons(p.slug, agent), refetchInterval: 30_000 });
   const lessonList = lq.data?.lessons ?? [];
   const waiting = lessonList.filter((l) => l.state === "proposed");
-  const shelf = side.kind !== "next";
+  const shelf = side.kind === "shelf";
   const setShelf = (open: boolean) => setSide(open ? { kind: "shelf" } : { kind: "next" });
+  // PLA-I67-4: the seat's references, which runs carried and opened them, and paste or drop anywhere on the page.
+  const refsQ = useQuery({ queryKey: ["refs", p.slug, agent], queryFn: () => refsApi.list(p.slug, agent), refetchInterval: 30_000 });
+  const refRunsQ = useQuery({ queryKey: ["refs", p.slug, agent, "runs"], queryFn: () => refsApi.runs(p.slug, agent), refetchInterval: 30_000 });
+  const upload = useRefUpload(p.slug, agent, (r) => setSide({ kind: "ref", id: r.id }));
+  const drop = useRefDrop((f) => {
+    setSide({ kind: "refs" });
+    upload.mutate(f);
+  });
+  const refPick = side.kind === "ref" ? side.id : null;
   useEffect(() => {
     setPick(null);
     setSide({ kind: "next" });
@@ -381,7 +408,12 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   const chosen = o ? (o.deliveries.some((d) => d.key === pick) ? pick : firstPick(o.deliveries)) : null;
   const head = o ? headline(o, seat) : null;
   return (
-    <div className="cor-oficio" data-oficio={agent}>
+    <div className="cor-oficio" data-oficio={agent} {...drop.handlers}>
+      {drop.over && (
+        <div className="ofi-drop-over" aria-hidden>
+          <p>{words(REFERENCE_UI_WORDS).dropHere(seat)}</p>
+        </div>
+      )}
       <div className="ofi-top">
         <Link to={links.back} className="cor-strip-back" data-control="volver-equipo">
           ‹ {w.back}
@@ -420,7 +452,27 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
             {waitingLine(lessonList) && <span className="ofi-head-waits"> {waitingLine(lessonList)}</span>}
           </h2>
           <div className="ofi-body">
-            <Drawing o={o} seat={seat} pick={chosen} onPick={setPick} now={now} timeZone={timeZone} onShelf={() => setShelf(true)} links={links} lessons={lessonList} />
+            <Drawing
+              o={o}
+              seat={seat}
+              pick={chosen}
+              onPick={setPick}
+              now={now}
+              timeZone={timeZone}
+              onShelf={() => setShelf(true)}
+              links={links}
+              lessons={lessonList}
+              refs={{
+                list: refsQ.data ?? [],
+                pick: refPick,
+                onPick: (id) => setSide({ kind: "ref", id }),
+                onMore: () => setSide({ kind: "refs" }),
+                line: (key) => {
+                  const r = deliveryRefs(refRunsQ.data ?? []).get(key);
+                  return r ? words(REFERENCE_UI_WORDS).runLine(r.carried, r.opened) : "";
+                },
+              }}
+            />
             <aside className="ofi-side">
               <dl className="ofi-stats">
                 <div>
@@ -451,6 +503,10 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                 <PuestoPanel o={o} seat={seat} motorLink={links.motor} onClose={() => setSide({ kind: "next" })} />
               ) : side.kind === "historia" ? (
                 <HistoryPanel l={lq.data} now={now} timeZone={timeZone} onClose={() => setSide({ kind: "next" })} />
+              ) : side.kind === "refs" ? (
+                <RefPanel slug={p.slug} agent={agent} seat={seat} refs={refsQ.data ?? []} upload={upload} onOpen={(id) => setSide({ kind: "ref", id })} onClose={() => setSide({ kind: "next" })} />
+              ) : side.kind === "ref" && refsQ.data?.some((r) => r.id === side.id) ? (
+                <RefCard key={side.id} slug={p.slug} agent={agent} seat={seat} r={refsQ.data.find((r) => r.id === side.id)!} now={now} timeZone={timeZone} onClose={() => setSide({ kind: "next" })} />
               ) : side.kind === "lessons" ? (
                 <LessonsPanel o={o} l={lq.data} onClose={() => setSide({ kind: "next" })} />
               ) : (
@@ -470,6 +526,9 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                     </Btn>
                     <Btn kind="link" onClick={() => setSide({ kind: "lessons" })} data-control="abrir-lecciones">
                       {words(LESSON_WORDS).open(lessonList.filter((l) => l.state === "active").length)}
+                    </Btn>
+                    <Btn kind="link" onClick={() => setSide({ kind: "refs" })} data-control="agregar-referencia">
+                      {words(REFERENCE_UI_WORDS).add}
                     </Btn>
                     <Btn kind="link" onClick={() => setSide({ kind: "historia" })} data-control="abrir-cambios">
                       {words(LESSON_WORDS).openHistory}

@@ -771,6 +771,16 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
 | `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_owner.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
+| `FETCH_ADDRESS_REFUSED` | 400 | safe fetch: the host is or resolves to a loopback, private, link-local, metadata or reserved address; nothing was sent (detail: address, reason) |
+| `FETCH_FAILED` | 400 | safe fetch: the connection failed (detail: reason) |
+| `FETCH_HTTP_STATUS` | 400 | safe fetch: the server answered with a status other than 2xx (detail: status) |
+| `FETCH_NOT_RESOLVED` | 400 | safe fetch: the host name does not resolve to any address (detail: host) |
+| `FETCH_REDIRECT_REFUSED` | 400 | safe fetch: the server answered with a redirect, which is never followed (detail: status, location) |
+| `FETCH_SCHEME_REFUSED` | 400 | safe fetch: only http and https addresses are fetched (detail: scheme) |
+| `FETCH_TIMEOUT` | 400 | safe fetch: resolving, connecting or reading took longer than the limit (detail: timeout_ms) |
+| `FETCH_TOO_LARGE` | 400 | safe fetch: the body is larger than the limit (detail: max_bytes) |
+| `FETCH_TYPE_REFUSED` | 400 | safe fetch: the content type is not one this use accepts (detail: content_type) |
+| `FETCH_URL_INVALID` | 400 | safe fetch: not an absolute address, longer than 2048 characters, or it carries a user name or password |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
 | `FRAME_INVALID` | 400 | attach_frames: the task is not an idea, more than 40 frames, an id repeats, or a frame's path is outside the canvases folder, missing, not a PNG/JPEG/WebP, or over 5 MB (detail: frame, hint) |
@@ -798,6 +808,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
+| `REFERENCE_FILE_EMPTY` | 400 | a reference upload with no bytes |
+| `REFERENCE_FILE_TOO_LARGE` | 400 | a reference file over 5 MB (detail: max_bytes) |
+| `REFERENCE_FILE_TYPE` | 400 | a reference file that is not PNG, JPEG, WebP or PDF by its first bytes (the name and declared type do not count) |
+| `REFERENCE_INVALID` | 400 | a reference's fields do not fit (detail: field): note up to 600 characters, stance follow|avoid, applies always|on_topic, scope agent|project, state on|off, title 1..160 |
 | `REPO_FOLDER_MISSING` | 400 | new project: the folder given as repo_path does not exist on this machine |
 | `REPO_FOLDER_NOT_EMPTY` | 400 | prepare the code: the folder has files and is not this project's git repository; Plania never initialises or overwrites it |
 | `REPO_GIT_FAILED` | 400 | prepare the code: a git step failed (detail: step) |
@@ -839,6 +853,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LESSON_NOT_FOUND` | 404 | no lesson with that id (detail: lesson) |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
+| `REFERENCE_NOT_FOUND` | 404 | no reference with that id on this seat |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
 | `SKILL_NOT_FOUND` | 404 | no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill) |
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
@@ -875,6 +890,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
+| `REFERENCE_LIMIT` | 409 | the seat already has the most references it may keep (detail: max) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |

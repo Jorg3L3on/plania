@@ -81,6 +81,8 @@ export class StreamReader {
   sessionId: string | null = null;
   // AUDIT-2: the skills the run invoked (the Skill tool, or a read of a skill's SKILL.md), without the plugin prefix.
   skillsUsed = new Set<string>();
+  // PLA-I67-4: every file the run read (the Read tool's file_path), so its end can say which references it opened.
+  filesRead = new Set<string>();
   // AUDIT-7: the context the last top-level turn carried (input + cache read + cache create). Null before any turn.
   contextTokens: number | null = null;
   private buffer = "";
@@ -146,6 +148,7 @@ export class StreamReader {
         if (part.name === "Skill" && typeof input.skill === "string" && input.skill.trim()) this.skillsUsed.add(input.skill.trim().replace(/^[a-z0-9-]+:/, "").slice(0, 60));
         const file = part.name === "Read" && typeof input.file_path === "string" ? /[\\/]skills[\\/]([a-z][a-z0-9-]{0,39})[\\/]SKILL\.md$/.exec(input.file_path) : null;
         if (file) this.skillsUsed.add(file[1]!);
+        if (part.name === "Read" && typeof input.file_path === "string" && this.filesRead.size < 500) this.filesRead.add(input.file_path.slice(0, 1000));
       }
       const id = str(message?.id);
       if (!id) return;

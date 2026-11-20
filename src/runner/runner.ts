@@ -111,6 +111,7 @@ import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowRead
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
+import { carryReferences, markOpened, referenceLines, type ReferenceLine } from "./references.js";
 import { personalize } from "../owner.js";
 import { languageLine } from "./owner-language.js";
 import { storedRunnerToken } from "../install-state.js";
@@ -909,6 +910,8 @@ export function userPrompt(input: {
   handoff?: string | null;
   // PLA-71: what the owner asked to change when he sent this delivery back (his words), newest first.
   changes?: string | null;
+  // PLA-I67-4: the seat's references, copied into the run's temp folder (src/runner/references.ts).
+  references?: ReferenceLine[];
 }): string {
   const company = input.role === "asistente";
   const startBranch = input.project.startBranch ?? DEFAULT_START_BRANCH;
@@ -953,6 +956,7 @@ export function userPrompt(input: {
   if (input.images?.length) {
     lines.push("Pictures the owner attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
   }
+  lines.push(...referenceLines(input.references ?? []));
   // PLA-I49-6: an idea (PREFIX-IDEA<n>) is not a ticket and start refuses it. Research and Artist woken on an idea's
   // stage work on the idea itself: read it, write the stage doc on it, move its stage.
   const idea = !!input.task && /-IDEA\d+$/.test(input.task.key);
@@ -1036,6 +1040,8 @@ export type ClaudeArgsInput = {
   effort?: string | null;
   // AUDIT-3: the run's kit (a plugin folder in its temp dir); also granted for reading, so a run can open a skill's file.
   pluginDir?: string | null;
+  // PLA-I67-4: more folders the run may read (its references).
+  addDirs?: string[];
   // AUDIT-3 (PLANIA_RUN_ISOLATION): "project" loads no user-level settings, skills or CLAUDE.md of the account the
   // server runs as; "bare" skips every auto-discovery. Unset: as before, the CLI's defaults.
   isolation?: string | null;
@@ -1073,6 +1079,7 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);
   if (input.pluginDir) args.push("--plugin-dir", input.pluginDir, "--add-dir", input.pluginDir);
+  for (const dir of input.addDirs ?? []) args.push("--add-dir", dir);
   if (input.isolation === "project") args.push("--setting-sources", "project,local");
   if (input.isolation === "bare") args.push("--bare");
   if (input.jsonSchema) args.push("--json-schema", JSON.stringify(input.jsonSchema));
@@ -1267,6 +1274,11 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // AUDIT-1: the builder is told the checks its delivery will meet.
   const verify = role === "taller" && ctx.task ? (project.settings?.qa?.verify ?? []).map((v) => ({ name: v.name, command: v.command })) : [];
 
+  // PLA-I67-4: the seat's references, copied into this run's temp folder and recorded as carried. Not for a question
+  // (Preguntar) or a QA review, which judge on their own.
+  const refsDir = path.join(tmp, "refs");
+  const references = consulta || qa ? [] : await carryReferences(db, { projectId: project.id, agentId: ctx.agent.id, runId: run.id, dir: refsDir }).catch(() => [] as ReferenceLine[]);
+
   const goal = await projectGoal(db, project.id);
   const planiaSession = runSession(run.id);
   const prompt = consulta
@@ -1286,6 +1298,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     handoff,
     changes: ctx.task ? await ownerChangesOf(db, project.id, ctx.task.key).catch(() => null) : null,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
+    references,
   });
   // PLA-I67-3: the owner's approved lessons ride in the prompt, bounded (not for QA, a question, or a delivery question).
   // PLA-I67-5: within what the always-on budget leaves after the role prompt, «tu manera» and the skill list.
@@ -1308,6 +1321,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     model: motor.model,
     effort: motor.effort,
     pluginDir: kit.length ? kitDir : null,
+    addDirs: references.some((r) => r.path) ? [refsDir] : [],
     isolation: isolationOf(env),
     // AUDIT-6: the QA report comes back as validated JSON (the fenced block in its brief stays as the fallback).
     jsonSchema: qa?.jsonSchema ?? null,
@@ -1525,6 +1539,8 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   });
   // PLA-I60-3: finishing is idempotent: a run another path already finished writes nothing more.
   if (finished.length === 0) return;
+  // PLA-I67-4: which of the references it carried the run opened.
+  await markOpened(db, run.id, reader.filesRead).catch(() => 0);
 
   // PLA-I57-1: a question's run never replaces the PO's own session (it ran elsewhere, with a different prompt).
   if (sessionId && !consultaRun) {

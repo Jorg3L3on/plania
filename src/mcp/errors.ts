@@ -129,6 +129,24 @@ export const ERRORS = {
   SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],
+  // PLA-I67-4: the server's own fetch of an address (src/lib/safe-fetch.ts) and an agent's references
+  // (src/references/store.ts). A refused fetch keeps the link with its code; the owner may retry it.
+  FETCH_URL_INVALID: [400, "safe fetch: not an absolute address, longer than 2048 characters, or it carries a user name or password"],
+  FETCH_SCHEME_REFUSED: [400, "safe fetch: only http and https addresses are fetched (detail: scheme)"],
+  FETCH_NOT_RESOLVED: [400, "safe fetch: the host name does not resolve to any address (detail: host)"],
+  FETCH_ADDRESS_REFUSED: [400, "safe fetch: the host is or resolves to a loopback, private, link-local, metadata or reserved address; nothing was sent (detail: address, reason)"],
+  FETCH_REDIRECT_REFUSED: [400, "safe fetch: the server answered with a redirect, which is never followed (detail: status, location)"],
+  FETCH_HTTP_STATUS: [400, "safe fetch: the server answered with a status other than 2xx (detail: status)"],
+  FETCH_TYPE_REFUSED: [400, "safe fetch: the content type is not one this use accepts (detail: content_type)"],
+  FETCH_TOO_LARGE: [400, "safe fetch: the body is larger than the limit (detail: max_bytes)"],
+  FETCH_TIMEOUT: [400, "safe fetch: resolving, connecting or reading took longer than the limit (detail: timeout_ms)"],
+  FETCH_FAILED: [400, "safe fetch: the connection failed (detail: reason)"],
+  REFERENCE_INVALID: [400, "a reference's fields do not fit (detail: field): note up to 600 characters, stance follow|avoid, applies always|on_topic, scope agent|project, state on|off, title 1..160"],
+  REFERENCE_FILE_EMPTY: [400, "a reference upload with no bytes"],
+  REFERENCE_FILE_TYPE: [400, "a reference file that is not PNG, JPEG, WebP or PDF by its first bytes (the name and declared type do not count)"],
+  REFERENCE_FILE_TOO_LARGE: [400, "a reference file over 5 MB (detail: max_bytes)"],
+  REFERENCE_LIMIT: [409, "the seat already has the most references it may keep (detail: max)"],
+  REFERENCE_NOT_FOUND: [404, "no reference with that id on this seat"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;
 
 export type ErrorCode = keyof typeof ERRORS;
