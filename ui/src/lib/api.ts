@@ -144,6 +144,8 @@ export const api = {
   qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
   // PLA-I52-4: El Probador. The delivery's pairs (antes / después per view and width), its copy, and the two clicks.
   probador: (slug: string, key: string) => request<ProbadorRead>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}`),
+  // PLA-127: the images a delivery changes, before and after.
+  probadorImagenes: (slug: string, key: string) => request<{ files: { path: string; estado: "nueva" | "cambio" | "borrada" }[] }>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/imagenes`),
   probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
   preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
   vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),

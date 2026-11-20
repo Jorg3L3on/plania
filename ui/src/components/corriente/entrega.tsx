@@ -14,6 +14,7 @@ import { Ajuste } from "./ajuste";
 import { Btn, Key, Label, Opt, ReadError, You } from "./parts";
 import { AutoSwitches } from "./pendiente";
 import { useProbadorRead, useQaRead } from "./reads";
+import { useQuery } from "@tanstack/react-query";
 import { words } from "@/lib/i18n";
 import { ENTREGA_WORDS } from "@/lib/entrega-words";
 
@@ -134,6 +135,10 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const read = useProbadorRead(p.slug, d.ref);
   const qa = useQaRead(p.slug, d.ref);
   const r = read.data;
+  // PLA-127: an icons change shows on no page; its images are shown as they land in the repo.
+  const imgs = useQuery({ queryKey: ["probador-imagenes", p.slug, d.ref], queryFn: () => api.probadorImagenes(p.slug, d.ref!), enabled: !!d.ref, staleTime: 30_000 });
+  const files = imgs.data?.files ?? [];
+  const imgUrl = (lado: "antes" | "despues", path: string) => `/api/projects/${encodeURIComponent(p.slug)}/probador/${encodeURIComponent(d.ref!)}/imagen?lado=${lado}&path=${encodeURIComponent(path)}`;
   const blind = !!r && r.vistas.length > 0 && r.vistas.every((x) => x.kind === "igual");
   // PLA-79: a held delivery (missing photos, a red check…) looked acceptable: a white «Aceptar» that did nothing. The
   // hold now leads like a blind sample: «Pedir ajuste» first, the reason said as a reason.
@@ -255,6 +260,33 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const stage = () => {
     if (read.isPending) return <div className="cor-skel" style={{ position: "absolute", inset: 0 }} role="status" aria-busy="true" aria-label={w.readingPhotos} />;
     if (read.isError) return <ReadError what={w.thePhotos} onRetry={() => void read.refetch()} />;
+    if ((!r || !r.muestra || !v) && files.length > 0)
+      return (
+        <div className="cor-imgs" data-stage="imagenes">
+          <div className="cor-imgs-h">
+            <b>{w.imagesTitle(files.length)}</b>
+            <span className="cor-text">{w.imagesLead}</span>
+          </div>
+          <ul>
+            {files.map((f) => (
+              <li key={f.path} data-estado={f.estado}>
+                <code>{f.path}</code>
+                <span className="cor-imgs-st">{w.imageState[f.estado]}</span>
+                <div className="cor-imgs-pair">
+                  <figure>
+                    {f.estado !== "nueva" ? <img src={imgUrl("antes", f.path)} alt="" /> : <i />}
+                    <figcaption>{W.antes}</figcaption>
+                  </figure>
+                  <figure>
+                    {f.estado !== "borrada" ? <img src={imgUrl("despues", f.path)} alt="" /> : <i />}
+                    <figcaption>{W.despues}</figcaption>
+                  </figure>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
     if (!r || !r.muestra || !v)
       return (
         <div className="cor-noshot" data-stage="sin-fotos">

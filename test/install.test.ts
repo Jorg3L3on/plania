@@ -268,7 +268,8 @@ test("check 7: the server refuses to start, with one sentence, when the database
     timeout: 60_000,
   });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  const lines = r.stderr.trim().split(/\r?\n/);
+  // Node may add its own warnings (an ExperimentalWarning and its «--trace-warnings» hint on Node 26): not the server's words.
+  const lines = r.stderr.trim().split(/\r?\n/).filter((l) => !/ExperimentalWarning|--trace-warnings/.test(l));
   assert.equal(lines.length, 1, r.stderr);
   assert.match(lines[0] ?? "", /No se pudo abrir la base/);
   assert.doesNotMatch(r.stdout, /plania on http/);
