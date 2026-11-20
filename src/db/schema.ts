@@ -879,6 +879,9 @@ export const agents = pgTable(
     consultaEffort: text("consulta_effort"),
     // PLA-I60 (0060): this seat's own «a la vez» (null: the project's «por agente»).
     maxParallel: integer("max_parallel"),
+    // PLA-I67-2 (0068): «tu manera», the owner's instruction for this agent, appended after the role prompt.
+    manner: text("manner"),
+    mannerUpdatedAt: timestamp("manner_updated_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -1137,13 +1140,15 @@ export const agentRuns = pgTable(
     skillsUsed: text("skills_used").array().notNull().default(sql`'{}'::text[]`),
     // AUDIT-7: the context the last turn carried (input + cache read + cache create of that turn), null when unknown.
     contextTokens: bigint("context_tokens", { mode: "number" }),
+    // PLA-I67-2 (0068): the first 8 of the sha256 of the «tu manera» the run carried (null: none).
+    mannerVersion: text("manner_version"),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
     uniqueIndex("agent_runs_active_work_unique").on(t.agentId, t.projectId, t.workKey).where(sql`${t.status} in ('queued', 'starting', 'running')`),
     index("agent_runs_live_project_idx").on(t.projectId, t.lane).where(sql`${t.status} in ('starting', 'running')`),
     index("agent_runs_live_worker_idx").on(t.workerId).where(sql`${t.status} in ('starting', 'running')`),
-    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief')`),
+    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief', 'trial')`),
     check("agent_runs_lane_check", sql`${t.lane} in ('work', 'consulta')`),
     check("agent_runs_work_key_check", sql`char_length(${t.workKey}) between 1 and 200`),
     index("agent_runs_agent_idx").on(t.agentId, t.queuedAt),
@@ -1154,7 +1159,8 @@ export const agentRuns = pgTable(
 );
 
 export type AgentRun = typeof agentRuns.$inferSelect;
-export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief"] as const;
+// PLA-I67-6: trial is the owner's «Probar» of a skill on a past delivery (src/runner/trial.ts).
+export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief", "trial"] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 export type RunLane = "work" | "consulta";
 
@@ -1733,6 +1739,290 @@ export const installState = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check("install_state_singleton", sql`${t.id} = 1`)],
+);
+
+// PLA-I67-2: skills the owner writes on screen and their immutable versions (migration 0068, ADR 0006).
+// src/runner/skills.ts resolves them with the factory kit; the newest version is what runs carry.
+export const SKILL_SCOPES = ["company", "seat", "project", "agent"] as const;
+export type SkillScope = (typeof SKILL_SCOPES)[number];
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    origin: text("origin").$type<"owner" | "factory-copy" | "imported">().notNull().default("owner"),
+    scope: text("scope").$type<SkillScope>().notNull().default("agent"),
+    role: text("role"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    state: text("state").$type<"on" | "off" | "archived">().notNull().default("on"),
+    factorySha: text("factory_sha"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull().default("owner"),
+    // PLA-I67-6 (0073): an imported skill's link and the sha256 of the content the owner saw and saved.
+    sourceUrl: text("source_url"),
+    sourceHash: text("source_hash"),
+    sourceCheckedAt: timestamp("source_checked_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("skills_slug_live_unique").on(t.slug).where(sql`${t.state} <> 'archived'`),
+    index("skills_agent_idx").on(t.agentId),
+    index("skills_project_idx").on(t.projectId),
+    check("skills_slug_check", sql`${t.slug} ~ '^[a-z][a-z0-9-]{0,39}$'`),
+    check("skills_origin_check", sql`${t.origin} in ('owner', 'factory-copy', 'imported')`),
+    check("skills_scope_check", sql`${t.scope} in ('company', 'seat', 'project', 'agent')`),
+    check("skills_state_check", sql`${t.state} in ('on', 'off', 'archived')`),
+  ],
+);
+export type OwnerSkillRow = typeof skills.$inferSelect;
+
+export type SkillFile = { path: string; content: string };
+export const skillVersions = pgTable(
+  "skill_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    body: text("body").notNull(),
+    files: jsonb("files").$type<SkillFile[]>().notNull().default([]),
+    hash: text("hash").notNull(),
+    author: text("author").notNull().default("owner"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("skill_versions_skill_n_unique").on(t.skillId, t.n), check("skill_versions_n_check", sql`${t.n} >= 1`)],
+);
+export type SkillVersionRow = typeof skillVersions.$inferSelect;
+
+// PLA-I67-6 (0073): one past delivery re-run with one version of a skill, in a throwaway copy (src/runner/trial.ts).
+export type TrialStatus = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
+export const skillTrials = pgTable(
+  "skill_trials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    versionN: integer("version_n").notNull(),
+    versionStamp: text("version_stamp").notNull(),
+    taskKey: text("task_key").notNull(),
+    taskTitle: text("task_title").notNull().default(""),
+    beforeRunId: uuid("before_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    baseCommit: text("base_commit"),
+    beforeStamp: text("before_stamp"),
+    beforeSkills: text("before_skills").array().notNull().default(sql`'{}'::text[]`),
+    beforeOutput: text("before_output"),
+    beforeDiff: text("before_diff"),
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    afterSkills: text("after_skills").array().notNull().default(sql`'{}'::text[]`),
+    afterOutput: text("after_output"),
+    afterDiff: text("after_diff"),
+    status: text("status").$type<TrialStatus>().notNull().default("queued"),
+    summary: text("summary").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("skill_trials_skill_idx").on(t.skillId, t.createdAt),
+    index("skill_trials_run_idx").on(t.runId),
+    check("skill_trials_status_check", sql`${t.status} in ('queued', 'running', 'done', 'failed', 'skipped', 'stopped')`),
+  ],
+);
+export type SkillTrialRow = typeof skillTrials.$inferSelect;
+
+// PLA-I67-3: the owner's corrections, the lessons they become, and what each run carried (migration 0069).
+// src/runner/lessons.ts reads corrections, runs the reflector and injects active lessons; only the owner approves.
+export type LessonState = "proposed" | "active" | "one-off" | "rejected" | "retired" | "expired";
+export type FeedbackKind = "changes" | "idea" | "dile";
+export const feedbackEvents = pgTable(
+  "feedback_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    taskKey: text("task_key"),
+    kind: text("kind").$type<FeedbackKind>().notNull(),
+    words: text("words").notNull(),
+    sourceEventId: bigint("source_event_id", { mode: "number" }),
+    runId: uuid("run_id"),
+    status: text("status").$type<"queued" | "reflecting" | "done" | "failed" | "skipped">().notNull().default("queued"),
+    verdict: jsonb("verdict").$type<Record<string, unknown>>(),
+    lessonId: uuid("lesson_id"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("feedback_events_source_unique").on(t.sourceEventId).where(sql`${t.sourceEventId} is not null`), index("feedback_events_agent_idx").on(t.agentId, t.createdAt), index("feedback_events_status_idx").on(t.status, t.createdAt)],
+);
+export type FeedbackEvent = typeof feedbackEvents.$inferSelect;
+
+export const lessons = pgTable(
+  "lessons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<SkillScope>().notNull().default("agent"),
+    role: text("role"),
+    text: text("text").notNull(),
+    appliesWhen: text("applies_when"),
+    state: text("state").$type<LessonState>().notNull().default("proposed"),
+    proposedBy: text("proposed_by").$type<"reflector" | "owner">().notNull().default("reflector"),
+    feedbackId: uuid("feedback_id").references(() => feedbackEvents.id, { onDelete: "set null" }),
+    ownerWords: text("owner_words"),
+    taskKey: text("task_key"),
+    runId: uuid("run_id"),
+    conflictsWith: uuid("conflicts_with").references((): AnyPgColumn => lessons.id, { onDelete: "set null" }),
+    version: integer("version").notNull().default(1),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    lastConfirmedAt: timestamp("last_confirmed_at", { withTimezone: true }),
+    // PLA-I67-5 (0072): «mantener» on a 90-day retirement proposal, and the skill a lesson was merged into.
+    keptAt: timestamp("kept_at", { withTimezone: true }),
+    mergedInto: text("merged_into"),
+    ...timestamps,
+  },
+  (t) => [
+    index("lessons_agent_idx").on(t.agentId, t.state),
+    index("lessons_project_idx").on(t.projectId, t.state),
+    check("lessons_state_check", sql`${t.state} in ('proposed', 'active', 'one-off', 'rejected', 'retired', 'expired')`),
+    check("lessons_text_check", sql`char_length(${t.text}) between 3 and 600`),
+  ],
+);
+export type Lesson = typeof lessons.$inferSelect;
+
+export const lessonVersions = pgTable(
+  "lesson_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    text: text("text").notNull(),
+    appliesWhen: text("applies_when"),
+    author: text("author").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("lesson_versions_lesson_n_unique").on(t.lessonId, t.n)],
+);
+
+export const runKnowledge = pgTable(
+  "run_knowledge",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"skill" | "lesson" | "manner" | "reference">().notNull(),
+    item: text("item").notNull(),
+    version: text("version").notNull(),
+    opened: boolean("opened").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.kind, t.item] }), index("run_knowledge_item_idx").on(t.kind, t.item)],
+);
+
+// PLA-I67-5: each time a lesson's correction came back (migration 0072). A reflector suggestion counts once confirmed.
+export const lessonRepeats = pgTable(
+  "lesson_repeats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    feedbackId: uuid("feedback_id").references(() => feedbackEvents.id, { onDelete: "set null" }),
+    taskKey: text("task_key"),
+    words: text("words"),
+    by: text("by").$type<"owner" | "reflector">().notNull().default("owner"),
+    confirmed: boolean("confirmed").notNull().default(false),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("lesson_repeats_lesson_idx").on(t.lessonId, t.createdAt), uniqueIndex("lesson_repeats_feedback_unique").on(t.feedbackId).where(sql`${t.feedbackId} is not null`)],
+);
+
+// PLA-I67-4: references, the links, images and files the owner gives one agent (migration 0070). A file lives in the
+// local store under <captures dir>/references/<project>/ (src/references/store.ts); a link keeps the text snapshot the
+// server fetched at save time (src/lib/safe-fetch.ts). agent_reference_uses says which runs carried one and opened it.
+export const REFERENCE_KINDS = ["link", "image", "file"] as const;
+export type ReferenceKind = (typeof REFERENCE_KINDS)[number];
+export const REFERENCE_MIMES = ["image/png", "image/jpeg", "image/webp", "application/pdf"] as const;
+export type ReferenceMime = (typeof REFERENCE_MIMES)[number];
+export const agentReferences = pgTable(
+  "agent_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<ReferenceKind>().notNull(),
+    title: text("title").notNull(),
+    url: text("url"),
+    snapshotText: text("snapshot_text"),
+    snapshotAt: timestamp("snapshot_at", { withTimezone: true }),
+    fetchStatus: text("fetch_status").$type<"ok" | "failed">(),
+    fetchError: text("fetch_error"),
+    file: text("file"),
+    mime: text("mime").$type<ReferenceMime>(),
+    bytes: integer("bytes"),
+    width: integer("width"),
+    height: integer("height"),
+    originalBytes: integer("original_bytes"),
+    note: text("note").notNull().default(""),
+    stance: text("stance").$type<"follow" | "avoid">().notNull().default("follow"),
+    applies: text("applies").$type<"always" | "on_topic">().notNull().default("always"),
+    scope: text("scope").$type<"agent" | "project">().notNull().default("agent"),
+    state: text("state").$type<"on" | "off">().notNull().default("on"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agent_references_agent_idx").on(t.agentId, t.createdAt),
+    index("agent_references_project_idx").on(t.projectId, t.scope),
+    check("agent_references_kind_check", sql`${t.kind} in ('link', 'image', 'file')`),
+    check("agent_references_stance_check", sql`${t.stance} in ('follow', 'avoid')`),
+    check("agent_references_applies_check", sql`${t.applies} in ('always', 'on_topic')`),
+    check("agent_references_scope_check", sql`${t.scope} in ('agent', 'project')`),
+    check("agent_references_state_check", sql`${t.state} in ('on', 'off')`),
+    check("agent_references_fetch_check", sql`${t.fetchStatus} is null or ${t.fetchStatus} in ('ok', 'failed')`),
+    check("agent_references_mime_check", sql`${t.mime} is null or ${t.mime} in ('image/png', 'image/jpeg', 'image/webp', 'application/pdf')`),
+    check("agent_references_bytes_check", sql`${t.bytes} is null or (${t.bytes} > 0 and ${t.bytes} <= 5242880)`),
+    check("agent_references_note_check", sql`char_length(${t.note}) <= 600`),
+    check("agent_references_title_check", sql`char_length(${t.title}) between 1 and 160`),
+  ],
+);
+export type AgentReference = typeof agentReferences.$inferSelect;
+
+export const agentReferenceUses = pgTable(
+  "agent_reference_uses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referenceId: uuid("reference_id")
+      .notNull()
+      .references(() => agentReferences.id, { onDelete: "cascade" }),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    opened: boolean("opened").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("agent_reference_uses_run_ref_unique").on(t.runId, t.referenceId), index("agent_reference_uses_ref_idx").on(t.referenceId)],
 );
 
 // PLA-I66-1 (0067): a project's logo, versioned. The active row is the original the screen shows and every icon will

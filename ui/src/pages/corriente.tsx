@@ -20,6 +20,7 @@ import { Asistente } from "@/components/corriente/asistente";
 import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
+import { OficioPage } from "@/components/corriente/oficio";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -400,6 +401,24 @@ export const CorrientePage = () => {
         />
       );
     }
+    // PLA-I67-1: one agent's page, inside the Equipo door.
+    if (at.ver?.kind === "oficio") {
+      const equipoHref = linkTo({ slug: p.slug, tab: "equipo" });
+      return (
+        <OficioPage
+          p={p}
+          agent={at.ver.agent}
+          now={now}
+          timeZone={timeZone}
+          links={{
+            back: equipoHref,
+            seat: (agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } }),
+            motor: linkTo({ slug: p.slug, tab: "motores" }),
+            ver: (d) => linkTo({ slug: p.slug, ver: d.kind === "idea" ? { kind: "idea", key: d.key } : { kind: "paso", key: d.key } }),
+          }}
+        />
+      );
+    }
     if (at.tab === "equipo")
       return (
         <Equipo
@@ -411,6 +430,7 @@ export const CorrientePage = () => {
           focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
           motorTo={linkTo({ slug: p.slug, tab: "motores" })}
           sumarTo={linkTo({ slug: p.slug, ver: { kind: "sumar" } })}
+          oficioTo={(agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } })}
           motorDefault={company?.motor_default}
         />
       );

@@ -49,6 +49,7 @@ import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 import { ownerEs } from "../owner.js";
 import { ownerName } from "../owner.js";
 import { defineWords, say } from "../words.js";
+import { actOnLesson, lessonRows } from "./company-decisions-lessons.js";
 
 // PLA-I2-10: Te toca's words in the install's language; the Spanish is unchanged. The owner's thread lines here
 // («Elijo …», «Sí, empiecen.») are not read back; LEGACY_ORDER_LINE below reads old Spanish scopes and stays.
@@ -177,10 +178,11 @@ export const DECISION_WORDS = defineWords({
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
-const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, step: 5, action: 6, release: 7 };
+// PLA-I67-3: leccion, a lesson the reflector proposed from the owner's correction.
+const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, leccion: 5, step: 6, action: 7, release: 8 };
 
-export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
+export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release" | "leccion";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
 export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
 // PLA-I36-8: a PO's plan for an order.
@@ -762,7 +764,9 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
   const skip = new Set(proposals.map((d) => d.id.slice(2)));
   const ceoTickets = new Set(tickets.filter((d) => !d.state).map((d) => `${d.project}/${d.ref}`));
   const [messages, pasos] = await Promise.all([messageRows(db, since, byId, skip), pasoRows(db, all, inbox, ceoTickets)]);
-  const rows = [...proposals, ...messages, ...tickets, ...questionsOut, ...pasos];
+  // PLA-I67-3: lesson proposals (src/api/company-decisions-lessons.ts).
+  const lecciones = await lessonRows(db, since, byId).catch(() => []);
+  const rows = [...proposals, ...messages, ...tickets, ...questionsOut, ...pasos, ...lecciones];
   // What unblocks the team first (a proposal, a question, a delivery), then the owner's own tickets; newest first.
   return rows.sort((a, b) => RANK[a.kind] - RANK[b.kind] || b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
 }
@@ -1121,6 +1125,12 @@ async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promi
 export async function actOnDecision(db: Db, id: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const m = /^([mtqb])-(.+)$/.exec(id);
   if (/^r-/.test(id)) return refuse("OWNER_CODE", say(DECISION_WORDS).publishInBandeja, 409);
+  // PLA-I67-3: a lesson proposal.
+  const lesson = /^l-(.+)$/.exec(id);
+  if (lesson && UUID.test(lesson[1]!)) {
+    const out = await actOnLesson(db, lesson[1]!, input.action);
+    return "error" in out ? refuse(out.error, out.hint, out.status) : after(db, id, out.state);
+  }
   if (!m || !UUID.test(m[2]!)) return refuse("DECISION_NOT_FOUND", say(DECISION_WORDS).noDecision, 404);
   if (m[1] === "m") return actOnMessage(db, id, m[2]!, input);
   if (m[1] === "t") return actOnTicket(db, id, m[2]!, input);

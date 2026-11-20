@@ -1399,6 +1399,228 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-paso.open i { outline: 2px solid var(--cor-violet-4); outline-offset: 2px; }
 @media (max-width: 639px) { .cor-lado { display: none; } }
 
+/* PLA-I67-1: «Oficio», one agent's page (sketch PLA-IDEA31). It fills the project body and never scrolls the page:
+   the drawing takes the room left and cuts its rows; the shelf scrolls inside its own card. */
+.cor-pbody:has(.cor-oficio) { display: flex; flex-direction: column; overflow: hidden; padding-top: 12px; padding-bottom: 16px; }
+.cor-oficio { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ofi-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ofi-seats { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--cor-line); background: var(--cor-surface); }
+.ofi-seat { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border-radius: 9px; font-size: 13.5px; color: var(--cor-body); }
+.ofi-seat:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.ofi-seat[aria-current="page"] { color: var(--cor-text); background: rgba(255, 255, 255, 0.08); }
+.ofi-seat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cor-muted); }
+.ofi-top .cor-btn.link { font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.4); }
+.ofi-head { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.3; }
+.ofi-body { flex: 1; min-height: 0; display: flex; gap: 24px; }
+.ofi-draw { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.ofi-svg { position: absolute; inset: 0; overflow: visible; }
+.ofi-thread { fill: none; stroke: var(--cor-violet-2); stroke-opacity: 0.85; stroke-linecap: round; }
+.ofi-thread-post { fill: none; stroke: #fff; stroke-opacity: 0.9; stroke-linecap: round; }
+.ofi-thread-off { fill: none; stroke: var(--cor-muted); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.ofi-line { stroke: var(--cor-violet-3); stroke-opacity: 0.45; stroke-width: 1.4; }
+.ofi-hub { fill: #fff; }
+.ofi-hub-halo { fill: rgba(139, 92, 246, 0.22); stroke: rgba(196, 181, 253, 0.5); stroke-width: 1; }
+.ofi-dot-first { fill: var(--cor-violet-2); }
+.ofi-dot-back { fill: var(--cor-bg); stroke: var(--cor-violet-3); stroke-width: 1.8; }
+.ofi-dot-waits { fill: var(--cor-bg); stroke: var(--cor-amber); stroke-width: 1.8; }
+.ofi-dot-live { fill: #fff; filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.9)); }
+.ofi-dot-open { fill: var(--cor-bg); stroke: var(--cor-muted); stroke-width: 1.4; }
+.ofi-pick { fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.2; }
+.ofi-rows { position: absolute; left: 0; top: 0; width: 268px; }
+.ofi-row { position: absolute; left: 0; right: 0; height: 30px; display: flex; align-items: center; gap: 12px; font-size: 13.5px; color: var(--cor-body); }
+.ofi-row.post { color: var(--cor-text); font-weight: 600; }
+.ofi-row.off { color: var(--cor-muted); }
+.ofi-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-row > .cor-cap { flex: none; }
+.ofi-bullet { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-2); }
+.ofi-bullet.post { background: #fff; }
+.ofi-bullet.off { background: transparent; border: 1px solid var(--cor-muted); }
+.ofi-empty-skills { position: absolute; left: 0; width: 268px; display: flex; flex-direction: column; gap: 2px; }
+.ofi-hub-label, .ofi-end-label { position: absolute; white-space: nowrap; pointer-events: none; }
+.ofi-end-label { transform: translateX(-50%); }
+.ofi-dot-btn { position: absolute; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.ofi-dot-btn:hover { background: rgba(255, 255, 255, 0.05); }
+.ofi-dot-btn:focus-visible { outline: 2px solid var(--cor-violet-3); outline-offset: -6px; }
+.ofi-day { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); white-space: nowrap; pointer-events: none; }
+.ofi-dot-btn[aria-pressed="true"] .ofi-day { color: var(--cor-text); }
+.ofi-card { position: absolute; overflow: hidden; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: rgba(12, 12, 16, 0.92); }
+.ofi-readout-title { font-size: 16px; font-weight: 500; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-readout-title a { display: flex; align-items: center; min-height: 44px; margin: -10px 0 -8px; color: var(--cor-text); overflow: hidden; text-overflow: ellipsis; }
+.ofi-quote { margin: 0; color: var(--cor-text); font-size: 13.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ofi-legend { position: absolute; right: 0; bottom: 0; display: flex; gap: 18px; }
+.ofi-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ofi-key { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.ofi-key.first { background: var(--cor-violet-2); }
+.ofi-key.back { border: 1.5px solid var(--cor-violet-3); }
+.ofi-key.waits { border: 1.5px solid var(--cor-amber); border-radius: 1px; transform: rotate(45deg); width: 7px; height: 7px; }
+.ofi-key.width { width: 18px; height: 3px; border-radius: 2px; background: var(--cor-violet-2); }
+.ofi-side { width: 320px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.ofi-stats { display: flex; gap: 28px; }
+.ofi-stats dd { margin-top: 4px; font-size: 22px; font-weight: 500; }
+.ofi-side-card { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.ofi-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -8px -8px -4px 0; }
+.ofi-next { display: flex; flex-direction: column; }
+.ofi-next > li { display: flex; justify-content: space-between; gap: 10px; min-height: 30px; align-items: center; font-size: 13.5px; border-bottom: 1px solid var(--cor-line); }
+.ofi-shelf { flex: 1 1 auto; }
+.ofi-shelf-hint { line-height: 1.5; }
+.ofi-shelf-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-right: -8px; padding-right: 8px; }
+.ofi-shelf-group { margin: 10px 0 2px; }
+.ofi-shelf-list > li { display: flex; flex-direction: column; padding: 2px 0 8px; border-bottom: 1px solid var(--cor-line); }
+.ofi-shelf-list .cor-switch { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
+.ofi-shelf-line { margin-top: -6px; line-height: 1.45; }
+.ofi-door { gap: 6px; }
+/* PLA-I67-2: the skill card, the new skill form and «Su puesto y tu manera» in the Oficio side column. */
+.ofi-side-tools { display: inline-flex; align-items: center; gap: 4px; }
+.ofi-side-tools .cor-switch span { font-size: 12px; color: var(--cor-muted); }
+.ofi-skill { flex: 1 1 auto; }
+.ofi-skill-body { display: flex; flex-direction: column; gap: 10px; }
+.ofi-field { display: flex; flex-direction: column; gap: 6px; }
+.ofi-field .cor-input, .ofi-field .cor-textarea, .ofi-field .cor-select { width: 100%; min-width: 0; font-size: 13.5px; }
+.ofi-field .cor-textarea { min-height: 64px; }
+.ofi-field-row { flex-direction: row; align-items: center; justify-content: space-between; }
+.ofi-field-row .cor-select { width: auto; }
+.ofi-mono { font-family: var(--cor-mono); font-size: 12.5px; }
+.ofi-wide { width: 100%; flex: none; }
+.ofi-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ofi-links { display: flex; flex-wrap: wrap; column-gap: 14px; }
+.ofi-links .cor-btn.link, .ofi-actions .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.5); }
+.ofi-links .cor-btn.link.bad { color: var(--cor-red, #f87171); text-decoration-color: rgba(248, 113, 113, 0.5); }
+.ofi-diff { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--cor-line); background: var(--cor-bg); font-family: var(--cor-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.ofi-diff-add { display: block; color: #a7f3d0; background: rgba(16, 185, 129, 0.1); }
+.ofi-diff-del { display: block; color: #fecaca; background: rgba(248, 113, 113, 0.1); text-decoration: line-through; text-decoration-color: rgba(254, 202, 202, 0.4); }
+.ofi-diff-same { display: block; color: var(--cor-body); }
+.ofi-diff-gap { display: block; color: var(--cor-muted); }
+.ofi-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(248, 113, 113, 0.35); }
+.ofi-shelf-open { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; margin-top: -8px; padding: 0; border: 0; background: transparent; text-align: left; color: var(--cor-muted); cursor: pointer; }
+.ofi-shelf-open:hover { color: var(--cor-text); }
+.ofi-shelf-open .ofi-shelf-line { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ofi-shelf-removed { flex-direction: row !important; align-items: center; justify-content: space-between; }
+.ofi-puesto-seat { font-size: 17px; font-weight: 500; }
+.ofi-motor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ofi-inline-link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.ofi-limits { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; font-size: 13px; color: var(--cor-body); }
+.ofi-limits > li::before { content: "— "; color: var(--cor-muted); }
+.ofi-side-tools .cor-switch span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* PLA-I67-3: lessons in the drawing (threads, the amber stop, the return arc), the proposal card, the lessons list,
+   the "reading your correction" line and the teach bar at the bottom of the page. */
+.ofi-thread-lesson { fill: none; stroke: var(--cor-violet-3); stroke-opacity: 0.7; stroke-width: 1.4; stroke-linecap: round; }
+.ofi-thread-waits { fill: none; stroke: var(--cor-amber); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.ofi-arc { fill: none; stroke: var(--cor-amber); stroke-opacity: 0.7; stroke-width: 1.3; stroke-dasharray: 3 4; }
+.ofi-stop { fill: var(--cor-bg); stroke: var(--cor-amber); stroke-width: 1.8; }
+.ofi-row.lesson { color: var(--cor-body); }
+.ofi-row.waits { color: var(--cor-amber); }
+.ofi-bullet.lesson { background: transparent; border: 1.4px solid var(--cor-violet-3); }
+.ofi-bullet.waits { border-color: var(--cor-amber); border-radius: 1px; transform: rotate(45deg); }
+.ofi-head-waits { color: var(--cor-amber); }
+/* PLA-I67-5: repeats, the flag with merge, the 90-day proposal, the budget bar and the change history. */
+.ofi-cap-amber { color: var(--cor-amber); }
+.ofi-lesson-acts { display: inline-flex; gap: 10px; }
+.ofi-lesson-acts .cor-btn.link, .ofi-lesson-ask .cor-btn.link, .ofi-flag .cor-btn.link, .ofi-lesson-foot .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.ofi-lesson-ask { display: flex; align-items: center; gap: 10px; }
+.ofi-flag { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255, 180, 84, 0.4); }
+.ofi-merge-pick { flex: 1 1 140px; min-width: 0; font-size: 13px; }
+.ofi-budget { flex: none; display: flex; flex-direction: column; gap: 4px; }
+.ofi-budget-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ofi-budget-bar { display: block; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.ofi-budget-bar > i { display: block; height: 100%; background: var(--cor-violet-2); }
+.ofi-budget-bar.over > i { background: var(--cor-amber); }
+.ofi-history { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--cor-body); }
+.ofi-history > li { display: grid; grid-template-columns: 56px 1fr; gap: 8px; }
+.ofi-history-at { padding-top: 1px; }
+.ofi-side-links { flex: none; column-gap: 12px; row-gap: 0; }
+.ofi-next-shelf { flex: none; align-self: flex-start; }
+.ofi-stats { gap: 16px; }
+.ofi-stats dt { white-space: nowrap; }
+.ofi-side-links .cor-btn.link { padding: 0 2px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(196, 181, 253, 0.5); }
+/* The list scrolls inside the card and always keeps two rows in view (the budget and the links sit under it). */
+.ofi-side-card > .ofi-next { flex: 1 1 auto; min-height: 62px; overflow-y: auto; overscroll-behavior: contain; }
+.ofi-side-card > .ofi-actions, .ofi-side-card > .cor-cap { flex: none; }
+.ofi-proposal { flex: 1 1 auto; border-color: rgba(255, 180, 84, 0.45); }
+.ofi-proposal-text { font-size: 16px; font-weight: 500; line-height: 1.35; }
+.ofi-quote-amber { padding-left: 10px; border-left: 2px solid rgba(255, 180, 84, 0.5); -webkit-line-clamp: 4; }
+.ofi-actions-two { display: grid; grid-template-columns: 1fr 1fr; }
+.ofi-reading { display: flex; align-items: center; gap: 8px; }
+.ofi-reading-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-2); animation: ofi-blink 1.4s ease-in-out infinite; }
+@keyframes ofi-blink { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .ofi-reading-dot { animation: none; } }
+.ofi-lesson-text { padding-top: 8px; font-size: 13.5px; line-height: 1.4; color: var(--cor-text); }
+.ofi-lesson-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ofi-teach { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 16px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-panel, rgba(255, 255, 255, 0.02)); }
+.ofi-teach-modes { display: inline-flex; gap: 4px; }
+.ofi-teach-input { flex: 1 1 auto; min-width: 0; border-color: transparent; background: transparent; }
+.ofi-teach-status { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* PLA-I67-4: references on «Oficio»: threads under the skills (44px rows with a thumbnail), the side panel with paste,
+   drop and a link field, the card with the reduced image and its token cost. The card scrolls inside its own box. */
+.cor-oficio { position: relative; }
+.ofi-drop-over { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; border: 2px dashed rgba(167, 139, 250, 0.6); border-radius: 16px; background: rgba(12, 12, 16, 0.82); pointer-events: none; }
+.ofi-drop-over p { font-size: 18px; color: var(--cor-text); }
+.ofi-ref-thread { fill: none; stroke: var(--cor-violet-3); stroke-opacity: 0.7; stroke-linecap: round; }
+.ofi-ref-thread.avoid { stroke: var(--cor-red); stroke-opacity: 0.6; stroke-dasharray: 5 4; }
+.ofi-ref-group { position: absolute; left: 0; margin: 0; }
+.ofi-ref-rows { position: absolute; left: 0; width: 268px; }
+.ofi-ref-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 8px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--cor-body); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.ofi-ref-row:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.ofi-ref-row[aria-pressed="true"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); }
+.ofi-ref-row.off { color: var(--cor-muted); }
+.ofi-ref-row.more { padding-left: 38px; }
+.ofi-ref-row > .cor-cap { flex: none; }
+.ofi-ref-bad { color: var(--cor-red); }
+.ofi-ref-thumb { flex: none; width: 28px; height: 28px; border-radius: 6px; object-fit: cover; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); display: inline-flex; align-items: center; justify-content: center; font-family: var(--cor-mono); font-size: 9.5px; color: var(--cor-body); }
+.ofi-ref-thumb.link { font-size: 14px; color: var(--cor-violet-3); }
+.ofi-ref-thumb.failed { color: var(--cor-red); border-color: rgba(255, 122, 122, 0.45); }
+.ofi-ref-add { flex: none; }
+.ofi-refs { flex: 1 1 auto; }
+.ofi-ref-link { display: flex; flex-direction: column; gap: 6px; }
+.ofi-ref-link-row { display: flex; gap: 8px; }
+.ofi-ref-link-row .cor-input { flex: 1; min-width: 0; }
+.ofi-ref-drop { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--cor-line-strong); background: transparent; color: var(--cor-text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.ofi-ref-drop:hover { border-color: rgba(167, 139, 250, 0.6); background: rgba(139, 92, 246, 0.06); }
+.ofi-ref-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; margin-right: -8px; padding-right: 8px; }
+.ofi-ref-card { flex: 1 1 auto; }
+.ofi-ref-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin-right: -8px; padding-right: 8px; }
+.ofi-ref-title { font-size: 17px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.ofi-ref-figure { position: relative; margin: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); }
+.ofi-ref-figure img { display: block; width: 100%; max-height: 132px; object-fit: cover; object-position: top; }
+.ofi-ref-figure figcaption { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(12, 12, 16, 0.86); color: var(--cor-text); font-family: var(--cor-mono); }
+.ofi-ref-file { display: flex; align-items: center; gap: 10px; }
+.ofi-ref-linkinfo { display: flex; flex-direction: column; gap: 4px; }
+.ofi-ref-url { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0; overflow-wrap: anywhere; }
+.ofi-ref-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255, 122, 122, 0.35); background: rgba(255, 122, 122, 0.05); }
+.ofi-ref-note { min-height: 64px; }
+.ofi-ref-two { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: end; }
+.ofi-ref-two > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ofi-ref-two .cor-select { width: 100%; min-width: 0; }
+.ofi-ref-opts { display: inline-flex; gap: 4px; }
+.ofi-ref-card .cor-select { width: 100%; }
+.ofi-ref-card .cor-switch { align-self: flex-start; }
+.ofi-ref-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
+.ofi-ref-foot .cor-btn.primary { flex: 1; }
+.cor-btn.link.ofi-ref-remove { color: var(--cor-red); }
+.ofi-ref-scroll > *, .ofi-refs > * { flex-shrink: 0; }
+.ofi-refs > .ofi-ref-list { flex-shrink: 1; }
+/* PLA-I67-6: «Probar» (the comparison takes the drawing's place) and «Traer de un enlace» (in the side column). */
+.ofi-trial { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.ofi-trial-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ofi-trial-title { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--cor-text); }
+.ofi-trial-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ofi-trial-col { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); }
+.ofi-trial-col[data-trial-side="after"] { border-color: rgba(196, 181, 253, 0.45); }
+.ofi-trial-col-head { flex: none; display: flex; flex-direction: column; gap: 2px; }
+.ofi-trial-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin-right: -8px; padding-right: 8px; }
+.ofi-trial-scroll > * { flex-shrink: 0; }
+.ofi-trial-answer { margin: 0; white-space: pre-wrap; }
+.ofi-trial-diff { max-height: none; }
+.ofi-trial-plan { color: var(--cor-amber, #fbbf24); }
+.ofi-trial-list li { display: flex; }
+.ofi-trial-list .ofi-shelf-open { flex: 1; margin-top: 0; }
+.ofi-import-form { display: flex; flex-direction: column; gap: 8px; }
+.ofi-import-preview { display: flex; flex-direction: column; gap: 8px; }
+.ofi-import-file { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.ofi-import-file .ofi-diff { max-height: 220px; overflow-y: auto; }
+.ofi-link-update { display: flex; flex-direction: column; gap: 4px; }
+
 /* PLA-I66-2: Marca, the project's logo and its icon files (design PLA-IDEA30). The original in the middle, six cards
    joined to it by threads (lit: in the repo and passing; dotted: missing; red: wrong), the list of files at the right. */
 .cor-switch-logo { display: inline-flex; align-items: center; flex: none; min-width: 44px; min-height: 44px; margin-left: -7px; padding: 0 7px; border-radius: 10px; }
@@ -1889,3 +2111,4 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
+

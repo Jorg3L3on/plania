@@ -1,3 +1,7 @@
+import type { Oficio } from "./oficio";
+import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
+import type { ImportPreview, TrialStarted, TrialView, TrialsRead, UpdateCheck } from "./oficio-trials";
+import type { LessonAction, LessonView, LessonsRead } from "./oficio-lessons";
 import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
@@ -28,6 +32,9 @@ export class ApiError extends Error {
     super(code);
   }
 }
+
+// PLA-I67-2: one seat's routes under the company API.
+const seatPath = (slug: string, agent: string) => `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}`;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -262,6 +269,39 @@ export const api = {
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
   packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
+  // PLA-I67-1: one agent's page, and La estantería's save (own: an empty list means it carries none).
+  oficio: (slug: string, agent: string) => request<Oficio>("GET", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/oficio`),
+  setSeatPacks: (slug: string, agent: string, packs: string[]) =>
+    request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs, own: true }),
+  // PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
+  skillCard: (slug: string, agent: string, skill: string) => request<SkillCard>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
+  createSkill: (slug: string, agent: string, d: SkillDraft) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills`, d),
+  editSkill: (slug: string, agent: string, skill: string, d: Partial<SkillDraft>) => request<SkillCard>("PUT", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`, d),
+  setSkillOn: (slug: string, agent: string, skill: string, on: boolean) => request<SkillCard>("PUT", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/state`, { on }),
+  rollbackSkill: (slug: string, agent: string, skill: string, n: number) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/rollback`, { n }),
+  duplicateSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/duplicate`),
+  deleteSkill: (slug: string, agent: string, skill: string) => request<{ archived: string }>("DELETE", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
+  restoreSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/restore`),
+  puesto: (slug: string, agent: string) => request<Puesto>("GET", `${seatPath(slug, agent)}/puesto`),
+  setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
+  // PLA-I67-6: «Traer de un enlace» and «Probar» (src/api/company-oficio-trials.ts).
+  previewImport: (slug: string, agent: string, url: string) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { url }),
+  importSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
+  checkSkillLink: (slug: string, agent: string, skill: string) => request<UpdateCheck>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/check`),
+  updateSkillLink: (slug: string, agent: string, skill: string, source_hash: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/update`, { source_hash }),
+  skillTrials: (slug: string, agent: string, skill: string) => request<TrialsRead>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/trials`),
+  startTrial: (slug: string, agent: string, skill: string, run_id: string) => request<TrialStarted>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/trials`, { run_id }),
+  trial: (slug: string, agent: string, id: string) => request<TrialView>("GET", `${seatPath(slug, agent)}/trials/${encodeURIComponent(id)}`),
+  // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
+  lessons: (slug: string, agent: string) => request<LessonsRead>("GET", `${seatPath(slug, agent)}/lessons`),
+  teachRule: (slug: string, agent: string, text: string) => request<LessonView>("POST", `${seatPath(slug, agent)}/lessons`, { text }),
+  decideLesson: (slug: string, agent: string, id: string, action: LessonAction, edit: { text?: string; applies_when?: string | null; keep?: "new" | "old" } = {}) =>
+    request<LessonView>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/decide`, { action, ...edit }),
+  // PLA-I67-5: repeats, merge into a skill, «mantener».
+  markRepeat: (slug: string, agent: string, id: string) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/repeat`, {}),
+  confirmRepeat: (slug: string, agent: string, rid: string, confirm: boolean) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/repeats/${encodeURIComponent(rid)}`, { confirm }),
+  mergeLesson: (slug: string, agent: string, id: string, skill: string | null) => request<{ skill: string }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/merge`, { skill }),
+  keepLesson: (slug: string, agent: string, id: string) => request<{ ok: true }>("POST", `${seatPath(slug, agent)}/lessons/${encodeURIComponent(id)}/keep`, {}),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -495,6 +535,8 @@ export type OrgMember = {
   next_start?: OrgNextStart | null;
   // PLA-I46-12: the skill pack slugs this role carries.
   packs?: string[];
+  // PLA-I67-1: how many skills its next run carries (its own list, else its role's default kit).
+  skills_on?: number;
   // PLA-I59-2 (Motores): what this seat's next run asks for and whether each part is its own; a PO's Preguntar
   // motor; this week's input + output tokens and share of the project. Optional for older servers.
   motor?: MotorView;
@@ -619,7 +661,8 @@ export type OrgPlan = {
 // PLA-I36-4: the destination.
 export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
-export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
+// PLA-I67-3: leccion, a lesson proposed from the owner's correction.
+export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release" | "leccion";
 // PLA-I46-11: a plan for a leg also carries the leg, its closed questions (suggested: 0-based) and the PO's
 // check list; later_at once the owner said Después.
 export type PlanQuestion = { text: string; options: string[]; suggested: number };
@@ -640,7 +683,7 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
 export type QaAxisRead = { verdict: "pass" | "fail"; notes: string };

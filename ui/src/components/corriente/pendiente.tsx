@@ -41,6 +41,8 @@ export function kindWord(d: Decision, language: Language = getLanguage()): strin
       return w.question(who);
     case "release":
       return w.release;
+    case "leccion":
+      return w.lesson(who);
     default:
       return d.file_step ? w.fileStep : w.step;
   }
@@ -396,6 +398,19 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
                       {w.postpone}
                     </Btn>
                   )}
+                </div>
+              )}
+              {d.kind === "leccion" && d.actions.length > 0 && (
+                <div className="cor-acts">
+                  <Btn kind="primary" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "aprobar" }, "aprobar")} data-action="aprobar">
+                    {busy && acts.decisions.busy?.key === "aprobar" ? "…" : w.lessonApprove}
+                  </Btn>
+                  <Btn kind="quiet" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "once" }, "once")} data-action="once">
+                    {w.lessonOnce}
+                  </Btn>
+                  <Btn kind="quiet" disabled={busy} onClick={() => acts.decisions.decide(d, { action: "rechazar" }, "rechazar")} data-action="rechazar">
+                    {w.lessonReject}
+                  </Btn>
                 </div>
               )}
               {d.kind === "release" && (

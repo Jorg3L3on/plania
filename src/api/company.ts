@@ -31,9 +31,16 @@
 // PLA-I46-12: skill packs (src/runner/packs.ts). A pack is a `Pack: <name>` doc; a role carries a list of slugs.
 //   GET  /api/company/packs                               → {packs: [{slug, name, when, doc_id}]}
 //   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
-//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug]} replaces the list → same shape
+//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug], own?} replaces the list → same shape
+//        PLA-I67-1: packs is what the next run carries (the role's default kit when the seat lists none) and own says
+//        whether the seat has its own list; own: true with an empty list means the seat carries none (La estantería)
+//   GET  /api/company/projects/:slug/team/:agent/oficio   PLA-I67-1: the agent's page (src/api/company-oficio.ts)
 //        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
 //   POST /api/company/projects/:slug/team                 {template, packs?, motor?} sets the new member's packs (and PLA-I59-2 motor) too
+//   PLA-I67-2: …/team/:agent/skills[/:skill[/state|rollback|duplicate|restore]], …/puesto and …/manner: the owner's
+//        skills and «tu manera» (src/api/company-oficio-skills.ts)
+//   PLA-I67-3: …/team/:agent/lessons[/:id[/decide]]: lessons, the teach bar's rule, the owner's verdicts
+//        (src/api/company-oficio-lessons.ts); a proposal also shows in Te toca as kind leccion (id l-<uuid>)
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -70,6 +77,10 @@ import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
+import { oficioRead } from "./company-oficio.js";
+import { oficioSkillRoutes } from "./company-oficio-skills.js";
+import { oficioTrialRoutes } from "./company-oficio-trials.js";
+import { oficioLessonRoutes } from "./company-oficio-lessons.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
@@ -323,7 +334,7 @@ companyRoutes.get("/projects/:slug/hecho", async (c) => {
 // PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
 const DecisionBody = z
   .object({
-    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "despues", "aplicar", "verificar"]),
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "despues", "aplicar", "verificar", "aprobar", "once", "rechazar"]), // PLA-I67-3: a lesson
     option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
     text: z.string().trim().min(1).max(2000).optional(),
     // PLA-I52-6, Devolver a Taller from El Probador: the pins the owner put on the pictures.
@@ -441,12 +452,21 @@ companyRoutes.get("/projects/:slug/team/:agent/packs", async (c) => {
   return c.json(out);
 });
 
-const PacksBody = z.object({ packs: PackSlugs }).strict();
+companyRoutes.get("/projects/:slug/team/:agent/oficio", async (c) => {
+  const out = await withDb((db) => oficioRead(db, c.req.param("slug"), c.req.param("agent")));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+const PacksBody = z.object({ packs: PackSlugs, own: z.boolean().optional() }).strict();
 
 companyRoutes.put("/projects/:slug/team/:agent/packs", async (c) => {
   const input = await body(c, PacksBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs));
+  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs, process.env, { own: input.own }));
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);
@@ -646,6 +666,12 @@ companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
 });
 // AUDIT-8: the owner's pick on one of the PO's decisions (POST /projects/:slug/ideas/:key/decision).
 companyRoutes.route("/", ideaDecisionRoutes);
+// PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
+companyRoutes.route("/", oficioSkillRoutes);
+// PLA-I67-6: «Traer de un enlace» and «Probar».
+companyRoutes.route("/", oficioTrialRoutes);
+// PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
+companyRoutes.route("/", oficioLessonRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
 companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {

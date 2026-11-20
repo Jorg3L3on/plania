@@ -34,6 +34,15 @@ export const ERRORS = {
   REPO_GITHUB_NOT_FOUND: [400, "GitHub: no repository with that owner/name for this gh login"],
   REPO_GITHUB_NO_WRITE: [400, "GitHub: this gh login cannot write to the repository"],
   REPO_GITHUB_FAILED: [400, "GitHub: gh failed (detail: step)"],
+  // PLA-I67-2: skills the owner writes on screen (src/runner/skills.ts).
+  SKILL_INVALID: [400, "a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint)"],
+  SKILL_NOT_ALLOWED: [400, "a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint)"],
+  // PLA-I67-6: a skill brought from a link (src/runner/skill-import.ts) and a trial of a skill (src/runner/trial.ts).
+  SKILL_IMPORT_FORMAT: [400, "the link is not a skill Plania can bring: not a SKILL.md, a GitHub folder or a GitHub file or raw address; no SKILL.md with a name and a description; or more files or folders than a skill holds (detail: reason)"],
+  SKILL_NOT_IMPORTED: [400, "only a skill brought from a link looks at its link again (detail: skill)"],
+  TRIAL_NO_DELIVERY: [400, "a trial needs one finished delivery of this agent on a ticket whose work can still be read: the run is not one, or its branch is gone (detail: reason)"],
+  // PLA-I67-3: lessons (src/runner/lessons.ts).
+  LESSON_NOT_ALLOWED: [400, "a lesson would hold a secret or personal data, or relax a test, review or check (detail: reason secret | relaxes_checks)"],
   INVALID_GOAL: [400, "a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal"],
   INVALID_PHASE: [400, "phase is not an integer 0..999"],
   INVALID_PRIORITY: [400, "priority is not P0, P1, P2 or P3"],
@@ -67,6 +76,7 @@ export const ERRORS = {
   CONSULTA_FORBIDDEN: [403, "answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent)"],
   DELEGATION_OFF: [403, "delegated answers and delegated moves are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
+  LESSON_OWNER_ONLY: [403, "only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson)"],
   // 404: something named does not exist.
   MARKS_NOT_FOUND: [404, "deliver_marks on an id that is not an open marks request of this project (detail: id)"],
   CONSULTA_NOT_FOUND: [404, "answer_consulta on an id that is not a question of this project"],
@@ -78,6 +88,8 @@ export const ERRORS = {
   FINDING_NOT_FOUND: [404, "audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix"],
   INITIATIVE_NOT_FOUND: [404, "get_next initiative_key is not an initiative of this project"],
   PROJECT_NOT_FOUND: [404, "unknown project slug"],
+  LESSON_NOT_FOUND: [404, "no lesson with that id (detail: lesson)"],
+  SKILL_NOT_FOUND: [404, "no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill)"],
   THREAD_NOT_FOUND: [404, "thread is not \"company\", a project slug with a thread, or a thread id"],
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
   RESULT_NOT_FOUND: [404, "evidence_id is not a result of this project"],
@@ -120,8 +132,30 @@ export const ERRORS = {
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],
   PING_PONG: [409, "this owner pair already assigned the other way (detail: from, to). The owner stays"],
+  LESSON_CONFLICT: [409, "approving a lesson that clashes with an active one: say which stays with keep new | old (detail: lesson, text, other {id, text})"],
+  LESSON_STATE: [409, "the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action)"],
+  SKILL_EXISTS: [409, "a live skill already has that slug (detail: slug)"],
+  SKILL_IMPORT_CHANGED: [409, "the content at the link is no longer the one the owner saw and confirmed: look at it again (detail: source_hash)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],
+  // PLA-I67-4: the server's own fetch of an address (src/lib/safe-fetch.ts) and an agent's references
+  // (src/references/store.ts). A refused fetch keeps the link with its code; the owner may retry it.
+  FETCH_URL_INVALID: [400, "safe fetch: not an absolute address, longer than 2048 characters, or it carries a user name or password"],
+  FETCH_SCHEME_REFUSED: [400, "safe fetch: only http and https addresses are fetched (detail: scheme)"],
+  FETCH_NOT_RESOLVED: [400, "safe fetch: the host name does not resolve to any address (detail: host)"],
+  FETCH_ADDRESS_REFUSED: [400, "safe fetch: the host is or resolves to a loopback, private, link-local, metadata or reserved address; nothing was sent (detail: address, reason)"],
+  FETCH_REDIRECT_REFUSED: [400, "safe fetch: the server answered with a redirect, which is never followed (detail: status, location)"],
+  FETCH_HTTP_STATUS: [400, "safe fetch: the server answered with a status other than 2xx (detail: status)"],
+  FETCH_TYPE_REFUSED: [400, "safe fetch: the content type is not one this use accepts (detail: content_type)"],
+  FETCH_TOO_LARGE: [400, "safe fetch: the body is larger than the limit (detail: max_bytes)"],
+  FETCH_TIMEOUT: [400, "safe fetch: resolving, connecting or reading took longer than the limit (detail: timeout_ms)"],
+  FETCH_FAILED: [400, "safe fetch: the connection failed (detail: reason)"],
+  REFERENCE_INVALID: [400, "a reference's fields do not fit (detail: field): note up to 600 characters, stance follow|avoid, applies always|on_topic, scope agent|project, state on|off, title 1..160"],
+  REFERENCE_FILE_EMPTY: [400, "a reference upload with no bytes"],
+  REFERENCE_FILE_TYPE: [400, "a reference file that is not PNG, JPEG, WebP or PDF by its first bytes (the name and declared type do not count)"],
+  REFERENCE_FILE_TOO_LARGE: [400, "a reference file over 5 MB (detail: max_bytes)"],
+  REFERENCE_LIMIT: [409, "the seat already has the most references it may keep (detail: max)"],
+  REFERENCE_NOT_FOUND: [404, "no reference with that id on this seat"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;
 
 export type ErrorCode = keyof typeof ERRORS;

@@ -15,6 +15,11 @@ export const START_FAILURES = [
   "worktree add",
   "read copy checkout",
   "start lost",
+  // PLA-I67-6: a «Probar» run whose trial row is gone before it starts (runner.ts).
+  "no such trial",
+  // PLA-I67-6: the trial's copy of the work: a base that is not a commit, or a copy git could not make (trial.ts).
+  "trial base",
+  "trial copy",
   // start() threw before the process ran: "fail: start (<error>)" (runner.ts, where admitted runs start).
   "start",
 ] as const;

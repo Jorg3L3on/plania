@@ -31,8 +31,8 @@ const STATES = ["running", "idle", "waiting_owner", "paused"];
 const LIGHTS = ["ok", "needs_owner", "failed", "blocked", "late", "quiet", "paused"];
 // PLA-I46-5: used is input + output; the four parts travel with it.
 const USAGE = ["cache_create", "cache_read", "input", "output", "used"];
-// PLA-I59-2 added consulta_motor, motor and used_week.
-const MEMBER = ["agent", "consulta_motor", "last", "motor", "next_start", "now", "packs", "produced", "queue", "role", "state", "template", "used_week", "waiting"];
+// PLA-I59-2 added consulta_motor, motor and used_week. PLA-I67-1 added skills_on (the «Oficio» door's count).
+const MEMBER = ["agent", "consulta_motor", "last", "motor", "next_start", "now", "packs", "produced", "queue", "role", "skills_on", "state", "template", "used_week", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();

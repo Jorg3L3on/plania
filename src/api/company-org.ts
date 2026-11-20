@@ -11,6 +11,8 @@ import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { resolveMotor } from "../runner/motor.js";
+import { NO_SKILLS } from "../runner/packs.js";
+import { defaultSkills } from "../runner/kit.js";
 import { runnerView, type RunnerView } from "./company-runner.js";
 import { capacityFacts, agentFacts, holdOf, type CapacityFacts } from "../runner/hold.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
@@ -145,6 +147,9 @@ export type TeamMember = {
   next_start: NextStart | null;
   // PLA-I46-12: the skill pack slugs this role carries (GET/PUT /api/company/projects/:slug/team/:agent/packs).
   packs: string[];
+  // PLA-I67-1: how many skills the seat's next run carries (its own list, else its role's default kit), for the
+  // «Oficio» door. Counted from the lists, not the shelf: a slug whose pack is gone still counts until it is turned off.
+  skills_on: number;
   // PLA-I59-2 (Motores): what this seat's next run asks for (resolved as the runner does, src/runner/motor.ts), and
   // whether each part is the seat's own or the company's. A PO also carries its Preguntar motor.
   motor: MotorView;
@@ -314,6 +319,14 @@ async function ticketTitle(db: Db, projectId: string | null, key: string | null)
   return t?.title ?? null;
 }
 
+function skillsOnCount(a: Agent): number {
+  const list = a.skillPacks ?? [];
+  if (list.includes(NO_SKILLS)) return 0;
+  if (list.length) return list.length;
+  const role = roleOf(a);
+  return role && process.env.PLANIA_DEFAULT_KITS !== "0" ? defaultSkills(role).length : 0;
+}
+
 async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string>; settings: RunnerSettings }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
@@ -329,7 +342,8 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     produced: await producedBy(db, ctx.threadId, a.slug, a.projectId),
     waiting,
     next_start: null,
-    packs: a.skillPacks ?? [],
+    packs: (a.skillPacks ?? []).filter((s) => s !== NO_SKILLS),
+    skills_on: skillsOnCount(a),
     motor: motorView(a, ctx.settings, false),
     consulta_motor: a.roleTemplate === "product-owner" ? motorView(a, ctx.settings, true) : null,
     used_week: null,

@@ -10,6 +10,7 @@ import { pushJob } from "./push.js";
 import { heartbeatJob } from "./heartbeat.js";
 import { stuckJob } from "./stuck.js";
 import { vercelJob } from "./vercel.js";
+import { lessonsJob } from "./lessons.js";
 
 // Background jobs for the local server (2.1). Each job runs on its own interval with the shared pool,
 // skips a tick while the previous one is still running, and writes through the normal tool
@@ -23,7 +24,8 @@ export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJ
 
 // Heartbeats join the other jobs only when wakes are on: PLANIA_JOBS=1, or (PLA-I2-2) PLANIA_JOBS unset on an
 // install made by the first-start screen.
-export const jobsToStart = (): Job[] => (wakesOn() ? [...JOBS, heartbeatJob] : [...JOBS]);
+// PLA-I67-3: the reflector uses the owner's plan like a run, so it starts with the wakes.
+export const jobsToStart = (): Job[] => (wakesOn() ? [...JOBS, heartbeatJob, lessonsJob] : [...JOBS]);
 
 import { startAdmissionLoop } from "../runner/runner.js";
 import { makeDb } from "../db/client.js";

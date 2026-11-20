@@ -98,6 +98,7 @@ export type Ver =
   | { kind: "lienzo"; key: string }
   | { kind: "entrega"; id: string }
   | { kind: "miembro"; agent: string }
+  | { kind: "oficio"; agent: string }
   | { kind: "sumar" }
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string };
@@ -106,7 +107,7 @@ export type Ver =
  *  project's list (no ver, tab todo). */
 export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
-const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "sumar", "maq", "tabla"] as const;
+const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "maq", "tabla"] as const;
 
 export function verOf(raw: string | null): Ver | null {
   if (!raw) return null;
@@ -121,7 +122,7 @@ export function verOf(raw: string | null): Ver | null {
   if (kind === "pedido" || kind === "lienzo") return { kind: "idea", key: ref };
   if (kind === "pr") return Number.isFinite(Number(ref)) && Number(ref) > 0 ? { kind, n: Number(ref) } : null;
   if (kind === "doc" || kind === "entrega") return { kind, id: ref };
-  if (kind === "miembro") return { kind, agent: ref };
+  if (kind === "miembro" || kind === "oficio") return { kind, agent: ref };
   if (kind === "maq") return { kind, what: ref };
   if (kind === "tabla") return { kind, name: ref };
   return { kind, key: ref } as Ver;
@@ -139,7 +140,8 @@ export function verParam(v: Ver): string {
     case "entrega":
       return `${v.kind}:${v.id}`;
     case "miembro":
-      return `miembro:${v.agent}`;
+    case "oficio":
+      return `${v.kind}:${v.agent}`;
     case "maq":
       return `maq:${v.what}`;
     case "tabla":
@@ -156,6 +158,7 @@ export function tabOfVer(v: Ver): Tab {
     case "doc":
       return "archivo";
     case "miembro":
+    case "oficio":
     case "sumar":
       return "equipo";
     case "maq":
@@ -243,7 +246,7 @@ export function legacyHref(at: Partial<At>): string {
                       ? `doc:${v.id}`
                       : v.kind === "lienzo"
                         ? "tab:diseno"
-                        : v.kind === "miembro"
+                        : v.kind === "miembro" || v.kind === "oficio"
                           ? `member:${v.agent}`
                           : v.kind === "sumar"
                             ? "sumar"
@@ -307,7 +310,7 @@ export function clockLine(now: number, timeZone?: string): string {
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
   tabs: [...TABS],
-  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
+  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "oficio", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");
