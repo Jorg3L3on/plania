@@ -30,7 +30,8 @@ describe("Artist's marks", () => {
     woke.push({ reason: input.reason, agent: input.agent?.slug ?? null });
     return { runId: "0123abcd-0000-4000-8000-000000000000" };
   };
-  const RUN = { agent: "plania-runner", session_id: "run-0123abcd" };
+  // PLA-119: the runner's session form since PLA-I60-1 (16 hex).
+  const RUN = { agent: "plania-runner", session_id: "run-0123abcd00004000" };
 
   before(async () => {
     raw = await resetTestDb();
@@ -130,6 +131,14 @@ describe("Artist's marks", () => {
     const again = await marks.requestMarks(db, project, { about: "Tienda", like: first.marks[0]!.id }, { wake });
     assert.equal(again.hints.like, "Esquina: La esquina del barrio.");
     assert.ok(marks.marksPrompt({ agent: "A", project: { slug: "tienda", title: "T" }, request: again, sessionId: "s", imageDir: "/x" }).includes("variations"));
+  });
+
+  test("PLA-119: the run it woke may answer in the 16-hex or the old 8-hex form; another run's session is refused", async () => {
+    const r = await marks.requestMarks(db, project, { about: "Tienda" }, { wake });
+    const one = [{ name: "A", idea: "a", svg: icon("#1d4ed8") }];
+    await assert.rejects(marks.deliverMarks(db, { project: "tienda", id: r.id, marks: one }, { agent: "plania-runner", session_id: "run-ffffffff00004000" }), { code: "MARKS_FORBIDDEN" });
+    const out = await marks.deliverMarks(db, { project: "tienda", id: r.id, marks: one }, { agent: "plania-runner", session_id: "run-0123abcd" });
+    assert.equal(out.id, r.id);
   });
 
   test("a project with no Artist and no run gets a failed request, not a silent wait", async () => {
