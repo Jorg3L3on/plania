@@ -124,14 +124,14 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, lessons
             {lessonRows.map((l, j) => {
               const y = 8 + (rows.length + j) * ROW + ROW / 2;
               if (l.state === "active") return <path key={l.id} d={thread(y)} className="ofi-thread-lesson" />;
-              // A proposal stops at the amber gate; a dashed arc comes back to it from the delivery it was learned from.
-              const gateX = x0 + 64;
+              // A proposal stops at the amber stop; a dashed arc comes back to it from the delivery it was learned from.
+              const stopX = x0 + 64;
               const from = dots.find(({ d }) => d.key === l.task_key);
               return (
-                <g key={l.id} data-gate={l.id}>
-                  <path d={`M ${x0} ${y} L ${gateX - 9} ${y}`} className="ofi-thread-waits" />
-                  {from && <path d={returnArc({ x: from.x, y: hubY }, { x: gateX, y }, Math.max(12, Math.min(34, H - 30 - Math.max(hubY, y))))} className="ofi-arc" data-arc={l.id} />}
-                  <rect x={gateX - 7} y={y - 7} width={14} height={14} transform={`rotate(45 ${gateX} ${y})`} className="ofi-gate" />
+                <g key={l.id} data-stop={l.id}>
+                  <path d={`M ${x0} ${y} L ${stopX - 9} ${y}`} className="ofi-thread-waits" />
+                  {from && <path d={returnArc({ x: from.x, y: hubY }, { x: stopX, y }, Math.max(12, Math.min(34, H - 30 - Math.max(hubY, y))))} className="ofi-arc" data-arc={l.id} />}
+                  <rect x={stopX - 7} y={y - 7} width={14} height={14} transform={`rotate(45 ${stopX} ${y})`} className="ofi-stop" />
                 </g>
               );
             })}

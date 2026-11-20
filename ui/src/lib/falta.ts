@@ -16,7 +16,10 @@ export type MachineReason =
   | "absent" // the program is not installed
   | "old" // installed, older than Plania needs
   | "no_url" // no DATABASE_URL
-  | "unreachable" // Postgres did not answer
+  | "unreachable" // Postgres did not answer: not running, or not installed (connection refused or timed out)
+  | "bad_password" // B3: Postgres answered and refused the password (28P01, or a password it asked for and none given)
+  | "auth_refused" // B3: the role does not exist, or pg_hba.conf lets it not in (28000)
+  | "no_database" // B3: Postgres answered, the database in the address does not exist (3D000)
   | "signed_out" // gh or Claude without a session
   | "no_write" // gh signed in, but its token cannot write to repositories
   | "mismatch" // pg_dump older than the server
@@ -31,6 +34,8 @@ export type MachineDetail = {
   gb?: number;
   needGb?: number;
   subtype?: string;
+  /** B3: the Postgres user in the address, when it names one. */
+  user?: string;
 };
 
 export const MIN_NODE_MAJOR = 22;
@@ -40,6 +45,7 @@ export const MIN_MEMORY_GB = 8;
 
 const v = (d: MachineDetail) => (d.version ? ` ${d.version}` : "");
 const gbOf = (d: MachineDetail) => d.gb ?? "?";
+const who = (d: MachineDetail) => (d.user ? ` ${d.user}` : "");
 
 type Said = { sentence: string; fix: string | null };
 
@@ -77,13 +83,27 @@ export const FALTA = defineWords({
     pgNoUrl: { sentence: "Plania no sabe dónde está tu Postgres.", fix: "Escribe DATABASE_URL en el archivo .env, por ejemplo postgres://localhost:5432/plania" } as Said,
     pgOld: (d: MachineDetail): Said => ({ sentence: `Postgres${v(d)} es muy viejo: Plania necesita Postgres ${MIN_POSTGRES_MAJOR} o más nuevo.`, fix: "Instala una versión más nueva: https://www.postgresql.org/download/" }),
     pgDown: {
-      sentence: "Postgres no responde: no está instalado o no está encendido.",
-      fix: "Instálalo y enciéndelo: https://www.postgresql.org/download/ (en Mac con Homebrew: brew install postgresql@16 && brew services start postgresql@16)",
+      sentence: "Postgres no responde: no está encendido, o no está instalado.",
+      fix: "Enciéndelo (en Mac con Homebrew: brew services start postgresql@16; en Windows, el servicio postgresql o Laragon), o instálalo: https://www.postgresql.org/download/",
+    } as Said,
+    // B3: Postgres answered and said no; each reason has its own fix.
+    pgBadPassword: (d: MachineDetail): Said => ({
+      sentence: `Postgres responde, pero no aceptó la contraseña del usuario${who(d)}.`,
+      fix: "Corre otra vez pnpm plania:install y escribe el usuario y la contraseña de Postgres cuando los pida, o corrige DATABASE_URL en .env (postgres://usuario:contraseña@localhost:5432/plania).",
+    }),
+    pgAuthRefused: (d: MachineDetail): Said => ({
+      sentence: `Postgres responde, pero el usuario${who(d)} no existe o no tiene permiso para entrar.`,
+      fix: "Corre otra vez pnpm plania:install y escribe un usuario de Postgres que exista (por ejemplo postgres) con su contraseña, o corrige DATABASE_URL en .env.",
+    }),
+    pgNoDatabase: {
+      sentence: "Postgres responde, pero la base de la dirección no existe.",
+      fix: "Corre pnpm plania:install: crea la base. O corrige el nombre de la base en DATABASE_URL, en .env.",
     } as Said,
     gitAbsent: { sentence: "git no está instalado.", fix: "Instala git: https://git-scm.com/downloads" } as Said,
-    ghSignedOut: { sentence: "gh está instalado pero no tiene la sesión iniciada.", fix: "En una terminal corre: gh auth login" } as Said,
-    ghNoWrite: { sentence: "gh tiene la sesión iniciada, pero sin permiso para escribir en tus repositorios.", fix: "En una terminal corre: gh auth refresh -s repo" } as Said,
-    ghAbsent: { sentence: "gh, la herramienta de GitHub, no está instalada.", fix: "Instálala: https://cli.github.com" } as Said,
+    // F2: gh is not needed to install, only before the first project with code.
+    ghSignedOut: { sentence: "gh está instalado pero no tiene la sesión iniciada; hace falta antes del primer proyecto con código.", fix: "En una terminal corre: gh auth login" } as Said,
+    ghNoWrite: { sentence: "gh tiene la sesión iniciada, pero sin permiso para escribir en tus repositorios; hace falta antes del primer proyecto con código.", fix: "En una terminal corre: gh auth refresh -s repo" } as Said,
+    ghAbsent: { sentence: "gh, la herramienta de GitHub, no está instalada; hace falta antes del primer proyecto con código.", fix: "Instálala: https://cli.github.com" } as Said,
     claudeAbsent: { sentence: "Claude Code no está instalado.", fix: "Instálalo: https://docs.claude.com/en/docs/claude-code/setup (o escribe su ruta en CLAUDE_CODE_BIN)" } as Said,
     sessionNotChecked: { sentence: "No se pudo revisar la sesión de Claude porque Claude Code no está instalado.", fix: "Instala Claude Code primero." } as Said,
     sessionFailed: (d: MachineDetail): Said => ({ sentence: `La prueba corta de Claude terminó con un error${d.subtype ? ` (${d.subtype})` : ""}.`, fix: "En una terminal corre claude y revisa que responda." }),
@@ -140,13 +160,25 @@ export const FALTA = defineWords({
     pgNoUrl: { sentence: "Plania does not know where your Postgres is.", fix: "Write DATABASE_URL in the .env file, for example postgres://localhost:5432/plania" },
     pgOld: (d: MachineDetail): Said => ({ sentence: `Postgres${v(d)} is too old: Plania needs Postgres ${MIN_POSTGRES_MAJOR} or newer.`, fix: "Install a newer version: https://www.postgresql.org/download/" }),
     pgDown: {
-      sentence: "Postgres is not answering: it is not installed or not running.",
-      fix: "Install it and start it: https://www.postgresql.org/download/ (on a Mac with Homebrew: brew install postgresql@16 && brew services start postgresql@16)",
+      sentence: "Postgres is not answering: it is not running, or not installed.",
+      fix: "Start it (on a Mac with Homebrew: brew services start postgresql@16; on Windows, the postgresql service or Laragon), or install it: https://www.postgresql.org/download/",
+    },
+    pgBadPassword: (d: MachineDetail): Said => ({
+      sentence: `Postgres is answering, but did not accept the password of the user${who(d)}.`,
+      fix: "Run pnpm plania:install again and type the Postgres user and password when it asks, or fix DATABASE_URL in .env (postgres://user:password@localhost:5432/plania).",
+    }),
+    pgAuthRefused: (d: MachineDetail): Said => ({
+      sentence: `Postgres is answering, but the user${who(d)} does not exist or is not allowed in.`,
+      fix: "Run pnpm plania:install again and type a Postgres user that exists (for example postgres) with its password, or fix DATABASE_URL in .env.",
+    }),
+    pgNoDatabase: {
+      sentence: "Postgres is answering, but the database in the address does not exist.",
+      fix: "Run pnpm plania:install: it creates the database. Or fix the database name in DATABASE_URL, in .env.",
     },
     gitAbsent: { sentence: "git is not installed.", fix: "Install git: https://git-scm.com/downloads" },
-    ghSignedOut: { sentence: "gh is installed but not signed in.", fix: "In a terminal run: gh auth login" },
-    ghNoWrite: { sentence: "gh is signed in, but cannot write to your repositories.", fix: "In a terminal run: gh auth refresh -s repo" },
-    ghAbsent: { sentence: "gh, the GitHub tool, is not installed.", fix: "Install it: https://cli.github.com" },
+    ghSignedOut: { sentence: "gh is installed but not signed in; it is needed before the first project with code.", fix: "In a terminal run: gh auth login" },
+    ghNoWrite: { sentence: "gh is signed in, but cannot write to your repositories; it is needed before the first project with code.", fix: "In a terminal run: gh auth refresh -s repo" },
+    ghAbsent: { sentence: "gh, the GitHub tool, is not installed; it is needed before the first project with code.", fix: "Install it: https://cli.github.com" },
     claudeAbsent: { sentence: "Claude Code is not installed.", fix: "Install it: https://docs.claude.com/en/docs/claude-code/setup (or write its path in CLAUDE_CODE_BIN)" },
     sessionNotChecked: { sentence: "Claude's session could not be checked because Claude Code is not installed.", fix: "Install Claude Code first." },
     sessionFailed: (d: MachineDetail): Said => ({ sentence: `Claude's short test ended with an error${d.subtype ? ` (${d.subtype})` : ""}.`, fix: "In a terminal run claude and check that it answers." }),
@@ -175,12 +207,12 @@ export const FALTA = defineWords({
 /** The item names in Spanish (kept for older readers; words(FALTA).names is the screen's language). */
 export const ITEM_NAME: Record<MachineItemId, string> = FALTA.es.names;
 
-/** Only Chrome can be missing without stopping the install. */
+/** Chrome, and gh (F2: needed only before the first project with code), can be missing without stopping the install. */
 export const REQUIRED: Record<MachineItemId, boolean> = {
   node: true,
   postgres: true,
   git: true,
-  gh: true,
+  gh: false,
   claude: true,
   claude_session: true,
   pg_dump: true,
@@ -202,6 +234,9 @@ export function machineWords(id: MachineItemId, reason: MachineReason, d: Machin
     case "postgres":
       if (reason === "no_url") return w.pgNoUrl;
       if (reason === "old") return w.pgOld(d);
+      if (reason === "bad_password") return w.pgBadPassword(d);
+      if (reason === "auth_refused") return w.pgAuthRefused(d);
+      if (reason === "no_database") return w.pgNoDatabase;
       return w.pgDown;
     case "git":
       return w.gitAbsent;

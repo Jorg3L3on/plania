@@ -36,7 +36,8 @@ if (!url) {
   process.exit(1);
 }
 
-const sys = { platform: process.platform, uid: userInfo().uid, home: homedir(), ...detectSystem() };
+// PLA-I2-19: Windows' stop and start requests run with this Node and package.
+const sys = { platform: process.platform, uid: userInfo().uid, home: homedir(), ...detectSystem(), node: process.execPath, root, localAppData: process.env.LOCALAPPDATA };
 let service: { stop: () => Promise<void>; start: () => Promise<void> } | null = null;
 if (!values["no-service"]) {
   const stop = stopCommand(sys);
@@ -46,8 +47,8 @@ if (!values["no-service"]) {
     process.exit(1);
   }
   service = {
-    stop: async () => void execFileSync(stop.cmd, stop.args, { stdio: "inherit" }),
-    start: async () => void execFileSync(start.cmd, start.args, { stdio: "inherit" }),
+    stop: async () => void execFileSync(stop.cmd, stop.args, { stdio: "inherit", cwd: root }),
+    start: async () => void execFileSync(start.cmd, start.args, { stdio: "inherit", cwd: root }),
   };
 }
 

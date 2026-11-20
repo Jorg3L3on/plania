@@ -49,6 +49,8 @@ import { lessonBlock, lessonsForRun, recordKnowledge } from "./lessons.js";
 import { addTrialCopy, setTrial, trialById, trialIdOfRun, trialKit, trialPathFor, trialPrompt, trialResult, trialScope, trialStatusOf } from "./trial.js";
 import { fixedWords, lessonRoomOf } from "./lesson-watch.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
+import { marksPrompt, marksRequestOfRun } from "../brand/marks.js";
+import { uploadDir } from "../brand/upload.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
 import { runSession } from "./run-session.js";
 import {
@@ -1290,12 +1292,14 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const h = await (deps.git ?? defaultGit)(["rev-parse", "HEAD"], cwd).catch(() => null);
     askHeads.set(run.id, h && h.code === 0 ? h.stdout.trim() : null);
   }
-  const readOnly = !!consulta || role === "qa" || asks;
+  // PLA-I66-5: Artist drawing logo marks reads only (its scratch folder) and answers with deliver_marks.
+  const marksReq = !consulta && !trial && role === "artist" && !ctx.task ? marksRequestOfRun(project.slug, run.reason) : null;
+  const readOnly = !!consulta || role === "qa" || asks || !!marksReq;
   // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
   // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
   const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
-  const laneRules = consulta ? CONSULTA_DENY_RULES : trial ? TRIAL_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
+  const laneRules = consulta ? CONSULTA_DENY_RULES : trial ? TRIAL_DENY_RULES : marksReq ? QA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
   writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   // PLA-I67-6: a trial reaches no Plania server at all, so it cannot write to the delivery's ticket.
@@ -1325,7 +1329,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     ? trialPrompt({ agent: ctx.agent.name, role, project: { slug: project.slug, title: project.title }, trial, scope: await trialScope(db, trial.projectId, trial.taskKey).catch(() => null), cwd, kit })
     : consulta
     ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession, copy: readCopy })
-    : qa?.prompt ?? userPrompt({
+    : marksReq
+      ? marksPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, request: marksReq, sessionId: planiaSession, imageDir: uploadDir(project.slug) })
+      : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
     project: { slug: project.slug, title: project.title, startBranch: startBranchOf(project.settings) },

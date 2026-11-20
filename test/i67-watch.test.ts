@@ -314,3 +314,14 @@ test("PLA-I67-5: migration 0072 is safe to run twice", async () => {
   await raw.query(sql);
   await raw.query(sql);
 });
+
+test("PLA-I67-2/5: an unknown lesson or skill, and a lesson that is no longer active, are refused with their codes", async () => {
+  const skills = await import("../src/runner/skills.js");
+  const owner = { owner: true };
+  await assert.rejects(watch.markRepeat(db, "00000000-0000-4000-8000-000000000000", owner), { code: "LESSON_NOT_FOUND" });
+  await assert.rejects(watch.confirmRepeat(db, "00000000-0000-4000-8000-000000000000", true, owner), { code: "LESSON_NOT_FOUND" });
+  const id = await teach("Nombra cada pantalla igual que en el menú.");
+  await raw.query(`update lessons set state = 'retired' where id = $1`, [id]);
+  await assert.rejects(watch.markRepeat(db, id, owner), { code: "LESSON_STATE" });
+  await assert.rejects(skills.rollbackSkill(db, "no-existe", 1), { code: "SKILL_NOT_FOUND" });
+});

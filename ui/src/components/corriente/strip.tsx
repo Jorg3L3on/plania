@@ -16,6 +16,8 @@ import { archivoCount, barState, peerTitle, switcherLabel, switcherMenu, teEsper
 import { words } from "@/lib/i18n";
 import { useFicha } from "./listas";
 import { Logo } from "./parts";
+import { MarcaCount } from "./marca";
+import { marcaWords } from "@/lib/marca";
 
 const Chevron = ({ d }: { d: string }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -58,7 +60,7 @@ const LaneItem = ({ l, i, current, to, onPick }: { l: Lane; i: number; current: 
 );
 
 /** The project's name as a button; its menu lists the projects in the order ↑/↓ walks them. */
-export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { slug: string; title: string; lanes: Lane[]; href: (slug: string) => string; initialOpen?: boolean }) => {
+export const Switcher = ({ slug, title, lanes, href, initialOpen = false, logoTo }: { slug: string; title: string; lanes: Lane[]; href: (slug: string) => string; initialOpen?: boolean; logoTo?: string }) => {
   const [open, setOpen] = useState(initialOpen);
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -87,8 +89,14 @@ export const Switcher = ({ slug, title, lanes, href, initialOpen = false }: { sl
   return (
     <div className="cor-switch" ref={box}>
       <h1 className="cor-switch-h">
+        {/* PLA-I66-2: the logo opens the project's Marca door; the name keeps the project switcher. */}
+        {logoTo && (
+          <Link to={logoTo} className="cor-switch-logo" aria-label={marcaWords().title(title)} data-control="abrir-marca">
+            <Logo slug={slug} title={title} size="md" />
+          </Link>
+        )}
         <button ref={button} type="button" className="cor-switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label={switcherLabel(title)} onClick={() => setOpen((o) => !o)} data-control="cambiar-proyecto">
-          <Logo slug={slug} title={title} size="md" />
+          {!logoTo && <Logo slug={slug} title={title} size="md" />}
           <span className="cor-ellipsis">{title}</span>
           <Chevron d="M4.5 6.5 8 10l3.5-3.5" />
         </button>
@@ -190,7 +198,7 @@ export const ProjectBar = ({
         {/* PLA-I3-7: a phone shows the chevron alone; the word stays the link's name. */}
         <span className="cor-strip-back-t">{w.corriente}</span>
       </Link>
-      <Switcher slug={slug} title={title} lanes={lanes} href={projectHref} initialOpen={switcherOpen} />
+      <Switcher slug={slug} title={title} lanes={lanes} href={projectHref} initialOpen={switcherOpen} logoTo={href("marca")} />
       <nav className="cor-doors" aria-label={w.doorsOf(title)}>
         {BAR_DOORS.map((t) => (
           <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
@@ -198,6 +206,7 @@ export const ProjectBar = ({
             {t === "todo" && todo && <span className="n">{todo}</span>}
             {t === "archivo" && <ArchivoCount slug={slug} />}
             {t === "equipo" && team && <span className="n">{team}</span>}
+            {t === "marca" && <MarcaCount slug={slug} />}
           </Link>
         ))}
       </nav>

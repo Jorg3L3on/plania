@@ -16,6 +16,7 @@ import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
 import { envLine, flightsOf, headlineOf, liveServersOf, tileOf } from "@/lib/home";
 import { HOME_PAGE } from "@/lib/home-words";
 import { words } from "@/lib/i18n";
+import { listedProjects } from "@/lib/proyectos-visibles";
 
 // Re-render now and then so "hace 42 min" keeps moving without a refetch.
 function useNow(everyMs = 30_000) {
@@ -37,7 +38,8 @@ export function HomePage() {
   const nowMs = useNow();
 
   const model = useMemo(() => {
-    const list = projects.data ?? [];
+    // F7: the home project stays off Inicio while it holds no work.
+    const list = listedProjects(projects.data ?? []);
     const items = machine.data?.items ?? [];
     const flights = flightsOf(list, items);
     const all = cityOf(list, decisions);
@@ -77,7 +79,7 @@ export function HomePage() {
       <GuiaPrimeraEntrega />
 
       {/* 2.12: one field to ask for something in any project. */}
-      <PedirHome projects={projects.data} />
+      <PedirHome projects={listedProjects(projects.data)} />
 
       {/* 2.12: what changed since "Visto", and what waits on the owner, above the city. */}
       <Hoy names={names} />

@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+  # PLA-I66-3: sharp ships prebuilt binaries for Mac, Linux and Windows; its source build is not needed.
+  sharp: false

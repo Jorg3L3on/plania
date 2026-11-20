@@ -1,5 +1,5 @@
 // PLA-I67-3: lessons on the Oficio page, without a browser: which rows they take (proposals first), how much room they
-// get, the return arc from a delivery to the gate, the amber end of the headline and the refusals in words.
+// get, the return arc from a delivery to the stop, the amber end of the headline and the refusals in words.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { lessonError, lessonRoom, lessonRowsOf, returnArc, waitingLine, type LessonView } from "../ui/src/lib/oficio-lessons.js";
@@ -15,7 +15,7 @@ test("PLA-I67-3: proposals take the first lesson rows, then active ones newest f
   assert.equal(lessonRoom([], 10), 0);
 });
 
-test("PLA-I67-3: the return arc leaves the delivery downwards and comes up into the gate", () => {
+test("PLA-I67-3: the return arc leaves the delivery downwards and comes up into the stop", () => {
   const d = returnArc({ x: 600, y: 300 }, { x: 340, y: 420 }, 30);
   assert.match(d, /^M 600 308 L 600 436 Q 600 450 586 450 L 354 450 Q 340 450 340 436 L 340 429$/);
 });

@@ -18,6 +18,7 @@ import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
+import type { MarcaRead, MarksRequest, PixelTests, Plan, Staged, VersionRef } from "@/lib/marca";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -107,6 +108,9 @@ export const api = {
   language: () => request<{ language: Language; chosen: boolean; languages: Language[] }>("GET", "/language"),
   setLanguage: (language: Language) => request<{ language: Language }>("PUT", "/language", { language }),
   finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string; language?: Language }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  // The first-install audit: gh before a project with code (F2), and Claude Code's own token (P5, shown once).
+  githubAccess: () => request<{ access: string }>("GET", "/onboarding/github"),
+  connectClaudeCode: () => request<{ url: string; secret: string }>("POST", "/onboarding/claude-code", {}),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-7: the page of limits, built from the real rules.
   limits: () => request<LimitsPage>("GET", "/limits"),
@@ -200,6 +204,38 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I66-1: every project logo (src/brand/logos.ts).
   logos: () => request<{ logos: Record<string, LogoRef> }>("GET", "/company/logos"),
+  // PLA-I66-2: the Marca door (src/brand/marca.ts); fresh reads the repo again now.
+  marca: (slug: string, fresh = false) => request<MarcaRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca${fresh ? "?fresh=1" : ""}`),
+  // PLA-I66-3: the owner's own logo (src/api/marca.ts).
+  marcaUpload: async (slug: string, file: File): Promise<Staged> => {
+    const res = await fetch(`/api/company/projects/${encodeURIComponent(slug)}/logo/upload?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) {
+      const { error, ...detail } = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+      throw new ApiError(res.status, error ?? `HTTP_${res.status}`, detail);
+    }
+    return (await res.json()) as Staged;
+  },
+  marcaPreview: (slug: string, body: { up: string; scale: number; bg: string | null }) => request<{ png: string; tests: PixelTests }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/preview`, body),
+  marcaUse: (slug: string, body: { up: string; name: string; scale: number; bg: string | null }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo`, body),
+  marcaCandidate: (slug: string, path: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/candidate`, { path }),
+  marcaVersions: (slug: string) => request<{ versions: VersionRef[] }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/versions`),
+  marcaGoBack: (slug: string, v: number) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/versions/${v}`),
+  marcaRelease: (slug: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/release`),
+  // PLA-I66-4: the files into the repo.
+  // PLA-I66-6: the switch for the native app icons and the launch screens.
+  marcaNative: (slug: string, on: boolean) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/native`, { on }),
+  // PLA-I66-5: Artist's marks.
+  marcaMarks: (slug: string) => request<{ request: MarksRequest | null }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/marks`),
+  marcaAskMarks: (slug: string, hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null }) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks`, hints),
+  marcaUseMark: (slug: string, id: string, mark: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${mark}`),
+  marcaKeep: (slug: string, sha: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/keep`, { sha }),
+  marcaPlan: (slug: string, mode: "faltan" | "todo") => request<{ plan: Plan; set: string; dir: string }>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/plan?mode=${mode}`),
+  marcaRequest: (slug: string, mode: "faltan" | "todo") => request<{ key: string; read: MarcaRead }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/pedido`, { mode }),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
@@ -525,6 +561,8 @@ export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "wa
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
+  // F7: the home project while it holds no work; lists leave it out (lib/proyectos-visibles.ts).
+  quiet_home?: boolean;
   // PLA-I60-5: «a la vez» (absent on older servers: Motores then shows the model and effort only).
   runner?: RunnerView;
   slug: string;

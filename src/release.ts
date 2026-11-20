@@ -2,7 +2,7 @@
 // manifest) and `VERSION` at its root; a git checkout has neither and reads the version from package.json and the
 // commit from git. The server shows it in /health/ui and the screen (Plomería), and serves CHANGELOG.md as the notes.
 //
-// The manifest's format is the contract the update command (PLA-I2-8) builds on; README "Packaging" describes it.
+// The manifest's format is the contract the update command (PLA-I2-8) builds on; docs/releasing.md describes it.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
