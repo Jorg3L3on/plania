@@ -10,6 +10,7 @@ import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type pg from "pg";
 import { resetTestDb, useTestEnv } from "./helpers.js";
+import { needs } from "./platform.js";
 
 useTestEnv();
 const TMP = mkdtempSync(path.join(tmpdir(), "plania-i68-4-"));
@@ -216,7 +217,7 @@ describe("the runner and the CI option", () => {
     assert.ok((await commitHooks(db, p, TMP, "sandbox"))!.PostToolUse);
   });
 
-  test("the PR-title workflow: no permissions, no action, and its pattern works under grep -E", () => {
+  test("the PR-title workflow: no permissions, no action, and its pattern works under grep -E", { skip: needs({ posix: true }) }, () => {
     const yml = C.prTitleWorkflow("conventional", S({ types: ["feat", "fix"], scope: "opcional", ticket: "no" }), "en")!;
     assert.match(yml, /^permissions: \{\}$/m);
     assert.doesNotMatch(yml, /uses:/);

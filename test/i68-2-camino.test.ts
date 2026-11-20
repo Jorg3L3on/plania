@@ -9,6 +9,7 @@ import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type pg from "pg";
 import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { needs } from "./platform.js";
 
 useTestEnv();
 const TMP = mkdtempSync(path.join(tmpdir(), "plania-i68-2-"));
@@ -139,7 +140,7 @@ describe("where keys live", () => {
     assert.ok(seen.every((s) => !s.args.join(" ").includes(SECRET)), "the key is never an argument");
   });
 
-  test("the file store is 0600 in a 0700 folder and a group-readable file is not trusted", async () => {
+  test("the file store is 0600 in a 0700 folder and a group-readable file is not trusted", { skip: needs({ posix: true }) }, async () => {
     const dir = path.join(TMP, "keys");
     const fs = new keys.FileCaminoKeyStore(dir, "darwin");
     await fs.set("zigzag", "neon", SECRET);
