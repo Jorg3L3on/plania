@@ -10,6 +10,8 @@
 //   Expiry. An active lesson not carried, confirmed or kept in EXPIRY_DAYS is proposed for retirement; nothing is
 //   removed without the owner.
 //   History. One list per agent of what changed, when and by whom, read from the rows that already record it.
+import { carriedReferences } from "../references/store.js";
+import { MAX_CARRIED_REFERENCES } from "./references.js";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { lessonRepeats, lessons, skillVersions, skills, type Agent, type Lesson } from "../db/schema.js";
@@ -130,7 +132,9 @@ export type Budget = { budget: number; role: number; manner: number; skills: num
 export async function fixedWords(db: Db, a: Agent, skillsCarried: Pick<ResolvedSkill, "slug" | "when">[], env: NodeJS.ProcessEnv = process.env): Promise<{ role: number; manner: number; skills: number; references: number }> {
   const role = roleOf(a);
   const prompt = role ? await rolePrompt(db, role as RunnerRole, env).catch(() => null) : null;
-  return { role: wordsIn(prompt?.markdown), manner: wordsIn(a.manner), skills: skillsCarried.reduce((n, s) => n + skillLineWords(s), 0), references: 0 };
+  // PLA-I67-4: each reference the run carries adds its manifest line (title and the owner's note, plus the path).
+  const refs = a.projectId ? await carriedReferences(db, a.projectId, a.id, MAX_CARRIED_REFERENCES).catch(() => []) : [];
+  return { role: wordsIn(prompt?.markdown), manner: wordsIn(a.manner), skills: skillsCarried.reduce((n, s) => n + skillLineWords(s), 0), references: refs.reduce((n, r) => n + wordsIn(`${r.title} ${r.note}`) + 4, 0) };
 }
 
 export const lessonRoomOf = (fixed: { role: number; manner: number; skills: number; references: number }, budget = ALWAYS_ON_WORDS): number =>
