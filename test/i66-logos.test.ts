@@ -244,7 +244,7 @@ describe("the refresh keeps the original in Plania", () => {
   });
 
   test("a logo the owner chose is never replaced by the repo", async () => {
-    await logos.addLogoVersion(db, project, { file: `${"b".repeat(64)}.png`, mime: "image/png", bytes: 10, variant: "icon", source: "upload", sourcePath: "mio.png", colors: [], actor: { agent: "owner", session_id: "s" } });
+    await logos.addLogoVersion(db, project, { file: `${"b".repeat(64)}.png`, mime: "image/png", bytes: 10, variant: "icon", source: "upload", sourcePath: "mio.png", colors: [], chosen: true, actor: { agent: "owner", session_id: "s" } });
     const r = await logos.scanProjectLogo(db, project, { git: fakeGit(repo()) });
     assert.equal(r.status, "kept");
     assert.equal(r.logo?.source, "upload");

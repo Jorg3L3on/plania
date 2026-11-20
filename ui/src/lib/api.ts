@@ -14,7 +14,7 @@ import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
-import type { MarcaRead } from "@/lib/marca";
+import type { MarcaRead, PixelTests, Staged, VersionRef } from "@/lib/marca";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -196,6 +196,26 @@ export const api = {
   logos: () => request<{ logos: Record<string, LogoRef> }>("GET", "/company/logos"),
   // PLA-I66-2: the Marca door (src/brand/marca.ts); fresh reads the repo again now.
   marca: (slug: string, fresh = false) => request<MarcaRead>("GET", `/company/projects/${encodeURIComponent(slug)}/marca${fresh ? "?fresh=1" : ""}`),
+  // PLA-I66-3: the owner's own logo (src/api/marca.ts).
+  marcaUpload: async (slug: string, file: File): Promise<Staged> => {
+    const res = await fetch(`/api/company/projects/${encodeURIComponent(slug)}/logo/upload?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!res.ok) {
+      const { error, ...detail } = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+      throw new ApiError(res.status, error ?? `HTTP_${res.status}`, detail);
+    }
+    return (await res.json()) as Staged;
+  },
+  marcaPreview: (slug: string, body: { up: string; scale: number; bg: string | null }) => request<{ png: string; tests: PixelTests }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/preview`, body),
+  marcaUse: (slug: string, body: { up: string; name: string; scale: number; bg: string | null }) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo`, body),
+  marcaCandidate: (slug: string, path: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/candidate`, { path }),
+  marcaVersions: (slug: string) => request<{ versions: VersionRef[] }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/versions`),
+  marcaGoBack: (slug: string, v: number) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/versions/${v}`),
+  marcaRelease: (slug: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/release`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

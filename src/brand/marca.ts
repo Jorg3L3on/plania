@@ -14,7 +14,7 @@ import { activeLogo, filesAt, listTree, readBlob, realGit, RECHECK_MS, scanProje
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
   slug: string;
-  logo: (LogoRef & { versions: number }) | null;
+  logo: (LogoRef & { versions: number; chosen: boolean }) | null;
   repo: "ok" | "none" | "no_code";
   branch: string;
   ref: string | null;
@@ -36,7 +36,7 @@ async function logoRef(db: Db, projectId: string): Promise<MarcaRead["logo"]> {
   const l = await activeLogo(db, projectId);
   if (!l) return null;
   const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(projectLogos).where(eq(projectLogos.projectId, projectId));
-  return { v: l.version, file: l.file, mime: l.mime, variant: l.variant, colors: l.colors, source: l.source, path: l.sourcePath, versions: Number(n) };
+  return { v: l.version, file: l.file, mime: l.mime, variant: l.variant, colors: l.colors, source: l.source, path: l.sourcePath, versions: Number(n), chosen: l.chosen };
 }
 
 async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
@@ -104,3 +104,14 @@ export async function marcaFile(db: Db, slug: string, file: string, deps: LogoDe
   const bytes = await readBlob(deps.git ?? realGit, repoPathOf(p.slug, p.settings, deps.env), c.commit, file);
   return bytes ? { bytes, mime } : null;
 }
+
+/** The candidates the last read listed, and its commit (picking another logo reads only from these). */
+export function marcaCandidates(projectId: string): { commit: string; paths: string[] } | null {
+  const c = cache.get(projectId);
+  return c?.commit ? { commit: c.commit, paths: c.read.candidates.map((x) => x.path) } : null;
+}
+
+/** Drops one project's read, so the next one reflects a change made from the screen. */
+export const forgetMarcaOf = (projectId: string): void => {
+  cache.delete(projectId);
+};

@@ -12,7 +12,7 @@ export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | 
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
   slug: string;
-  logo: (LogoRef & { versions: number }) | null;
+  logo: (LogoRef & { versions: number; chosen: boolean }) | null;
   repo: "ok" | "none" | "no_code";
   branch: string;
   commit: string | null;
@@ -23,6 +23,30 @@ export type MarcaRead = {
   splash: string | null;
   checkedAt: string;
 };
+
+// PLA-I66-3: an upload as the server staged it, the pixel tests, a version.
+export type UpCheck = Coded & { ok: boolean | "warn" };
+export type Staged = { up: string; name: string; kind: "svg" | "png" | "jpeg" | "webp"; width: number; height: number; hasAlpha: boolean; checks: UpCheck[]; block: string | null; palette: string[]; corner: string };
+export type PixelTests = { small: { ok: boolean; v: number }; circle: { ok: boolean; v: number }; contrast: { ok: boolean; v: number } };
+export type VersionRef = { v: number; source: LogoRef["source"]; path: string | null; variant: "icon" | "mark"; active: boolean; chosen: boolean; at: string };
+
+/** Where an upload starts: a see-through logo gets a background and room around it; an opaque one fills its tile. */
+export function startAdjust(s: Pick<Staged, "hasAlpha" | "palette" | "corner" | "width" | "height">): { scale: number; bg: string | null } {
+  if (s.hasAlpha) return { scale: 70, bg: s.palette[0] ?? "#18181f" };
+  const square = Math.abs(s.width - s.height) / Math.max(s.width, s.height) < 0.02;
+  return { scale: 100, bg: square ? null : s.corner };
+}
+
+/** The three tests as worded lines. */
+export function testLines(t: PixelTests, w: MarcaWords = marcaWords()): { ok: boolean; text: string }[] {
+  return [
+    { ok: t.small.ok, text: t.small.ok ? w.tests.smallOk : w.tests.smallBad(Math.round(t.small.v * 100)) },
+    { ok: t.circle.ok, text: t.circle.ok ? w.tests.circleOk(Math.round(t.circle.v * 100)) : w.tests.circleBad(Math.round(t.circle.v * 100)) },
+    { ok: t.contrast.ok, text: t.contrast.ok ? w.tests.contrastOk(t.contrast.v) : w.tests.contrastBad(t.contrast.v) },
+  ];
+}
+
+export const versionUrl = (slug: string, v: number): string => `/api/company/projects/${encodeURIComponent(slug)}/logo/versions/${v}`;
 
 export const FACES: { id: Face; side: "l" | "r" }[] = [
   { id: "nav", side: "l" },
@@ -128,6 +152,74 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean): string => (has ? "en carriles, tira y brief" : "hoy: una letra"),
     optional: "opcional",
     reread: "Revisar el repo ahora",
+    change: "Cambiar el logo",
+    menu: {
+      upload: "Subir uno",
+      uploadHint: "SVG, o PNG de 1024 px",
+      repo: "Otro del repo",
+      repoHint: (n: number) => (n === 1 ? "1 encontrado" : `${n} encontrados`),
+      versions: "Versiones",
+      versionsHint: (n: number) => `${n} guardadas`,
+      release: "Que mande el repo",
+      releaseHint: "Plania vuelve a elegir del repo",
+    },
+    repoTitle: "Logos en el repo",
+    repoLead: (branch: string) => `Lo que Plania encontró en la rama ${branch}. Un SVG gana a un PNG; uno grande a uno chico.`,
+    inUse: "en uso",
+    useThis: "Usar este",
+    versionsTitle: "Versiones del logo",
+    versionsLead: "Cada cambio guarda una versión. Volver a una la deja como tu elección.",
+    goBack: "Volver a esta",
+    active: "activa",
+    when: (iso: string) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    up: {
+      title: (name: string) => `Subir un logo para ${name}`,
+      lead: "SVG o PNG de 1024 px o más. Plania lo revisa al momento y te muestra cómo queda en cada lugar.",
+      drop: "Suelta tu logo aquí",
+      dropHint: "o toca para elegir un archivo · SVG, PNG, JPG o WebP",
+      reading: "Revisando el archivo…",
+      circle: "Círculo de Android",
+      iphone: "Recorte de iPhone",
+      other: "Otro archivo",
+      size: "Tamaño dentro del ícono",
+      background: "Fondo",
+      none: "Sin fondo",
+      checks: (name: string) => `Revisión de ${name}`,
+      use: "Usar este logo",
+      back: "Volver",
+      saved: "Es el nuevo original. El anterior queda en Versiones.",
+      faces: { tab: "Pestaña · 16 px", ios: "iPhone · 180 px", and: "Android · círculo", pwa: "Instalar", share: "Compartir · 1200 × 630", cia: "Compañía" },
+      empty: "Aquí ves cómo queda en las seis caras antes de usarlo.",
+      rules: [
+        ["Formato", "SVG gana; PNG, JPG o WebP también sirven"],
+        ["Tamaño", "1024 px o más; menos de 512 no se acepta"],
+        ["Forma", "cuadrado o casi; si no, se centra en un cuadro"],
+        ["Fondo", "si es transparente, eliges uno para iPhone y Android"],
+        ["Limpieza", "un SVG con scripts o enlaces de afuera se limpia"],
+        ["16 px, círculo y contraste", "las pruebas de cada logo, sobre sus píxeles"],
+      ] as [string, string][],
+      rulesTitle: "Lo que Plania revisa",
+    },
+    upCheck: {
+      format: (v: Record<string, string | number>) => `${v.kind} de ${v.w} × ${v.h} px`,
+      svg_clean: "SVG limpio: sin scripts ni enlaces de afuera",
+      svg_cleaned: "Tenía scripts o enlaces de afuera: se quitaron",
+      too_small: (v: Record<string, string | number>) => `Muy chico: ${v.px} px. Súbelo de 1024 px o en SVG`,
+      small: (v: Record<string, string | number>) => `Sirve, pero 1024 px es mejor (tiene ${v.px})`,
+      big_enough: "1024 px o más",
+      square: "Cuadrado",
+      not_square: (v: Record<string, string | number>) => `No es cuadrado (${v.w} × ${v.h}): se centra en un cuadro`,
+      transparent: "Fondo transparente: elige uno para iPhone y Android",
+      own_background: "Trae su propio fondo",
+    } as Record<string, string | ((v: Record<string, string | number>) => string)>,
+    tests: {
+      smallOk: "Se lee a 16 px",
+      smallBad: (pct: number) => `A 16 px se pierde el ${pct} % del dibujo`,
+      circleOk: (pct: number) => `Cabe en el círculo de Android (llega al ${pct} %)`,
+      circleBad: (pct: number) => `Se sale del círculo de Android (llega al ${pct} %, máx. 40)`,
+      contrastOk: (v: number) => `Contraste ${v} : 1`,
+      contrastBad: (v: number) => `Poco contraste: ${v} : 1 (mín. 3)`,
+    },
   },
   en: {
     door: "Brand",
@@ -221,6 +313,74 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
+    change: "Change the logo",
+    menu: {
+      upload: "Upload one",
+      uploadHint: "SVG, or a 1024 px PNG",
+      repo: "Another from the repo",
+      repoHint: (n: number) => `${n} found`,
+      versions: "Versions",
+      versionsHint: (n: number) => `${n} kept`,
+      release: "Let the repo lead",
+      releaseHint: "Plania picks from the repo again",
+    },
+    repoTitle: "Logos in the repo",
+    repoLead: (branch: string) => `What Plania found on the ${branch} branch. An SVG beats a PNG; a big one beats a small one.`,
+    inUse: "in use",
+    useThis: "Use this one",
+    versionsTitle: "Logo versions",
+    versionsLead: "Every change keeps a version. Going back to one makes it your choice.",
+    goBack: "Go back to this one",
+    active: "active",
+    when: (iso: string) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    up: {
+      title: (name: string) => `Upload a logo for ${name}`,
+      lead: "SVG or a PNG of 1024 px or more. Plania checks it right away and shows how it looks everywhere.",
+      drop: "Drop your logo here",
+      dropHint: "or tap to pick a file · SVG, PNG, JPG or WebP",
+      reading: "Checking the file…",
+      circle: "Android circle",
+      iphone: "iPhone crop",
+      other: "Another file",
+      size: "Size inside the icon",
+      background: "Background",
+      none: "No background",
+      checks: (name: string) => `Checks on ${name}`,
+      use: "Use this logo",
+      back: "Back",
+      saved: "It is the new original. The previous one stays in Versions.",
+      faces: { tab: "Tab · 16 px", ios: "iPhone · 180 px", and: "Android · circle", pwa: "Install", share: "Sharing · 1200 × 630", cia: "Company" },
+      empty: "Here you see how it looks on the six faces before using it.",
+      rules: [
+        ["Format", "SVG wins; PNG, JPG or WebP work too"],
+        ["Size", "1024 px or more; under 512 is refused"],
+        ["Shape", "square or nearly; otherwise it is centred in a square"],
+        ["Background", "if it is transparent, you pick one for iPhone and Android"],
+        ["Cleaning", "an SVG with scripts or outside links is cleaned"],
+        ["16 px, circle and contrast", "every logo's tests, on its pixels"],
+      ] as [string, string][],
+      rulesTitle: "What Plania checks",
+    },
+    upCheck: {
+      format: (v: Record<string, string | number>) => `${v.kind} of ${v.w} × ${v.h} px`,
+      svg_clean: "Clean SVG: no scripts or outside links",
+      svg_cleaned: "It had scripts or outside links: they were removed",
+      too_small: (v: Record<string, string | number>) => `Too small: ${v.px} px. Upload it at 1024 px or as SVG`,
+      small: (v: Record<string, string | number>) => `It works, but 1024 px is better (it has ${v.px})`,
+      big_enough: "1024 px or more",
+      square: "Square",
+      not_square: (v: Record<string, string | number>) => `Not square (${v.w} × ${v.h}): it is centred in a square`,
+      transparent: "Transparent background: pick one for iPhone and Android",
+      own_background: "Brings its own background",
+    } as Record<string, string | ((v: Record<string, string | number>) => string)>,
+    tests: {
+      smallOk: "Reads at 16 px",
+      smallBad: (pct: number) => `At 16 px ${pct} % of the drawing is lost`,
+      circleOk: (pct: number) => `Fits Android's circle (reaches ${pct} %)`,
+      circleBad: (pct: number) => `Leaves Android's circle (reaches ${pct} %, max 40)`,
+      contrastOk: (v: number) => `Contrast ${v} : 1`,
+      contrastBad: (v: number) => `Low contrast: ${v} : 1 (min 3)`,
+    },
   },
 });
 

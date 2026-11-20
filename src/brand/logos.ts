@@ -127,7 +127,8 @@ export async function scanProjectLogo(db: Db, project: Project, deps: LogoDeps =
   const repo = repoPathOf(project.slug, project.settings, deps.env);
   const commit = (await startCommit(git, repo, startBranchOf(project.settings)))?.sha ?? null;
   if (!commit) return { status: "no_repo", logo: current, commit: null };
-  if (current && current.source !== "repo") return { status: "kept", logo: current, commit };
+  // PLA-I66-3: a logo the owner chose (an upload, a candidate, an Artist mark, a version gone back to) stays.
+  if (current?.chosen) return { status: "kept", logo: current, commit };
   if (current?.sourceCommit === commit) return { status: "same", logo: current, commit };
   const { best } = detectLogo(await filesAt(git, repo, commit, project.slug), project.slug);
   if (!best) return { status: "none", logo: current, commit };

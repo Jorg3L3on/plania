@@ -1738,6 +1738,7 @@ export const installState = pgTable(
 export type LogoMime = "image/svg+xml" | "image/png";
 export type LogoVariant = "icon" | "mark"; // icon: drawn on its own background; mark: the bare drawing
 export type LogoSource = "repo" | "upload" | "artist";
+export type LogoAdjust = { raw: string; name: string; scale: number; bg: string | null };
 export const projectLogos = pgTable(
   "project_logos",
   {
@@ -1757,6 +1758,10 @@ export const projectLogos = pgTable(
     sourceCommit: text("source_commit"),
     colors: text("colors").array().notNull().default(sql`'{}'::text[]`),
     active: boolean("active").notNull().default(true),
+    // PLA-I66-3 (0071): the owner chose it (upload, a repo candidate, an Artist mark): the detector never replaces it.
+    chosen: boolean("chosen").notNull().default(false),
+    // PLA-I66-3: how an upload was fitted: its raw file in the store, the size inside the tile, the background.
+    adjust: jsonb("adjust").$type<LogoAdjust>(),
     actor: jsonb("actor").$type<Actor>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

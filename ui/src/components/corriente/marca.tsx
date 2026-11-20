@@ -6,7 +6,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, counts, faceState, fileUrl, has, marcaWords, sentence, sortedRows, type Face, type MarcaRead, type MarcaRow, type MarcaWords } from "@/lib/marca";
+import { FACES, counts, faceState, fileUrl, has, marcaWords, sentence, sortedRows, startAdjust, testLines, versionUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Staged } from "@/lib/marca";
+import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { Logo, ReadError } from "./parts";
 
 type Shape = "circle" | "squircle" | "drop";
@@ -24,6 +26,14 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const [sel, setSel] = useState<Face | null>(null);
   const [hover, setHover] = useState<Face | null>(null);
   const [rereading, setRereading] = useState(false);
+  // PLA-I66-3: the aside shows the repo's candidates or the versions instead of the files; the upload takes the door.
+  const [panel, setPanel] = useState<"repo" | "versiones" | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const took = (next: MarcaRead) => {
+    client.setQueryData(["marca", p.slug], next);
+    void client.invalidateQueries({ queryKey: ["logos"] });
+    void client.invalidateQueries({ queryKey: ["marca-versions", p.slug] });
+  };
   const reread = async () => {
     setRereading(true);
     try {
@@ -35,8 +45,15 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
   const r = q.data;
   if (!r) return <div className="cor-skel" style={{ flex: 1 }} role="status" aria-busy="true" aria-label={w.loading} />;
+  if (uploading) return <Upload p={p} r={r} w={w} onBack={() => setUploading(false)} onUsed={(next) => { took(next); setUploading(false); toast(w.up.saved); }} />;
   const c = counts(r.rows);
   const lit = hover ?? sel;
+  const actions: CoreActions = {
+    upload: () => setUploading(true),
+    repo: () => { setSel(null); setPanel("repo"); },
+    versions: () => { setSel(null); setPanel("versiones"); },
+    release: async () => took(await api.marcaRelease(p.slug)),
+  };
   return (
     <div className={`mk${lit ? " hl" : ""}`} data-marca={p.slug}>
       <header className="mk-head">
@@ -70,16 +87,26 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         </div>
       </header>
       <div className="mk-grid">
-        <Scene r={r} w={w} title={p.title} lit={lit} sel={sel} onPick={setSel} onHover={setHover} />
+        <Scene r={r} w={w} title={p.title} lit={lit} sel={sel} onPick={(f) => { setPanel(null); setSel(f); }} onHover={setHover} actions={actions} />
         <aside className="mk-list" aria-label={w.files}>
-          {sel ? <Ficha r={r} face={sel} w={w} onBack={() => setSel(null)} /> : <Rows r={r} w={w} onPick={setSel} onHover={setHover} />}
+          {panel === "repo" ? (
+            <RepoPanel r={r} w={w} onBack={() => setPanel(null)} onUse={async (path) => took(await api.marcaCandidate(p.slug, path))} />
+          ) : panel === "versiones" ? (
+            <VersionsPanel r={r} w={w} onBack={() => setPanel(null)} onGoBack={async (v) => took(await api.marcaGoBack(p.slug, v))} />
+          ) : sel ? (
+            <Ficha r={r} face={sel} w={w} onBack={() => setSel(null)} />
+          ) : (
+            <Rows r={r} w={w} onPick={setSel} onHover={setHover} />
+          )}
         </aside>
       </div>
     </div>
   );
 }
 
-function Scene({ r, w, title, lit, sel, onPick, onHover }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void }) {
+type CoreActions = { upload: () => void; repo: () => void; versions: () => void; release: () => Promise<void> };
+
+function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRead; w: MarcaWords; title: string; lit: Face | null; sel: Face | null; onPick: (f: Face) => void; onHover: (f: Face | null) => void; actions: CoreActions }) {
   const scene = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<{ face: Face; d: string; x: number; y: number }[]>([]);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -156,7 +183,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover }: { r: MarcaRead; w: Ma
     return x && x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path) : null;
   };
   const orig = r.logo ? logoUrl(r.slug, r.logo) : null;
-  const fav = src("ico") ?? src("svg") ?? orig;
+  const fav = src("ico") ?? src("svg");
   const apple = has(r.rows, "apple") ? src("apple") : null;
   const masked = has(r.rows, "mask") ? src("mask") : has(r.rows, "a512") ? src("a512") : null;
   const mono = has(r.rows, "mono") ? src("mono") : null;
@@ -164,7 +191,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover }: { r: MarcaRead; w: Ma
   const ogRow = row("og");
   const og = ogRow?.state === "ok" && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path) : null;
   const ogCode = ogRow?.state === "ok" && !og;
-  const installIcon = src("a192") ?? src("a512") ?? orig;
+  const installIcon = src("a192") ?? src("a512");
   return (
     <div className="mk-scene" ref={scene}>
       <svg className="mk-threads" width={box.w} height={box.h} viewBox={`0 0 ${box.w || 1} ${box.h || 1}`} aria-hidden>
@@ -238,7 +265,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover }: { r: MarcaRead; w: Ma
           </>,
         )}
       </div>
-      <Core r={r} w={w} title={title} />
+      <Core r={r} w={w} title={title} actions={actions} />
       <div className="mk-col r">
         {face(
           "pwa",
@@ -283,8 +310,19 @@ function Scene({ r, w, title, lit, sel, onPick, onHover }: { r: MarcaRead; w: Ma
   );
 }
 
-function Core({ r, w, title }: { r: MarcaRead; w: MarcaWords; title: string }) {
+function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: string; actions: CoreActions }) {
   const l = r.logo;
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("pointerdown", off);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("pointerdown", off); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  const pick = (fn: () => void | Promise<void>) => () => { setOpen(false); void fn(); };
   return (
     <div className="mk-core">
       <div className={`mk-orig${l?.variant === "mark" ? " bare" : ""}`}>
@@ -317,6 +355,265 @@ function Core({ r, w, title }: { r: MarcaRead; w: MarcaWords; title: string }) {
           <span>{w.colors}</span>
         </div>
       )}
+      <div className="mk-change" ref={box}>
+        <button type="button" className="cor-btn secondary small" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-control="marca-cambiar">
+          {w.change}
+        </button>
+        {open && (
+          <div className="mk-menu" role="menu">
+            <button type="button" role="menuitem" onClick={pick(actions.upload)} data-control="marca-subir">
+              <b>{w.menu.upload}</b>
+              <span>{w.menu.uploadHint}</span>
+            </button>
+            {r.candidates.length > 0 && (
+              <button type="button" role="menuitem" onClick={pick(actions.repo)} data-control="marca-del-repo">
+                <b>{w.menu.repo}</b>
+                <span>{w.menu.repoHint(r.candidates.length)}</span>
+              </button>
+            )}
+            {l && l.versions > 1 && (
+              <button type="button" role="menuitem" onClick={pick(actions.versions)} data-control="marca-versiones">
+                <b>{w.menu.versions}</b>
+                <span>{w.menu.versionsHint(l.versions)}</span>
+              </button>
+            )}
+            {l?.chosen && r.repo === "ok" && (
+              <button type="button" role="menuitem" onClick={pick(actions.release)} data-control="marca-que-mande-el-repo">
+                <b>{w.menu.release}</b>
+                <span>{w.menu.releaseHint}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RepoPanel({ r, w, onBack, onUse }: { r: MarcaRead; w: MarcaWords; onBack: () => void; onUse: (path: string) => Promise<void> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  return (
+    <div className="mk-ficha" data-panel="repo">
+      <button type="button" className="mk-back" onClick={onBack} data-control="marca-volver">
+        {w.back}
+      </button>
+      <h3>{w.repoTitle}</h3>
+      <p>{w.repoLead(r.branch)}</p>
+      <ul className="mk-picks">
+        {r.candidates.map((c) => (
+          <li key={c.path} data-candidate={c.path}>
+            <img src={fileUrl(r.slug, c.path)} alt="" className={c.variant === "icon" ? "tile" : ""} />
+            <span className="mk-pick-tx">
+              <code>{c.path}</code>
+              <span>{w.variant[c.variant]}</span>
+            </span>
+            {c.inUse ? (
+              <span className="mk-fi-st ok">{w.inUse}</span>
+            ) : (
+              <button type="button" className="mk-mini" disabled={busy !== null} onClick={async () => { setBusy(c.path); try { await onUse(c.path); } finally { setBusy(null); } }}>
+                {w.useThis}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function VersionsPanel({ r, w, onBack, onGoBack }: { r: MarcaRead; w: MarcaWords; onBack: () => void; onGoBack: (v: number) => Promise<void> }) {
+  const q = useQuery({ queryKey: ["marca-versions", r.slug], queryFn: () => api.marcaVersions(r.slug) });
+  const [busy, setBusy] = useState<number | null>(null);
+  return (
+    <div className="mk-ficha" data-panel="versiones">
+      <button type="button" className="mk-back" onClick={onBack} data-control="marca-volver">
+        {w.back}
+      </button>
+      <h3>{w.versionsTitle}</h3>
+      <p>{w.versionsLead}</p>
+      <ul className="mk-picks">
+        {(q.data?.versions ?? []).map((v) => (
+          <li key={v.v} data-version={v.v}>
+            <img src={versionUrl(r.slug, v.v)} alt="" className={v.variant === "icon" ? "tile" : ""} />
+            <span className="mk-pick-tx">
+              <b>
+                {w.version(v.v)} · {w.source[v.source]}
+              </b>
+              <span>{w.when(v.at)}</span>
+            </span>
+            {v.active ? (
+              <span className="mk-fi-st ok">{w.active}</span>
+            ) : (
+              <button type="button" className="mk-mini" disabled={busy !== null} onClick={async () => { setBusy(v.v); try { await onGoBack(v.v); } finally { setBusy(null); } }}>
+                {w.goBack}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** PLA-I66-3: the upload view (design frames C1, C2): drop or pick, fit and pick a background, see the six faces, use it. */
+function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string }; r: MarcaRead; w: MarcaWords; onBack: () => void; onUsed: (next: MarcaRead) => void }) {
+  const [staged, setStaged] = useState<Staged | null>(null);
+  const [scale, setScale] = useState(100);
+  const [bg, setBg] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ png: string; tests: PixelTests } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [over, setOver] = useState(false);
+  const [ov, setOv] = useState({ circle: false, iphone: false });
+  const input = useRef<HTMLInputElement>(null);
+  const take = async (file: File) => {
+    setError(null);
+    setBusy(true);
+    setPreview(null);
+    try {
+      const s = await api.marcaUpload(p.slug, file);
+      const start = startAdjust(s);
+      setStaged(s);
+      setScale(start.scale);
+      setBg(start.bg);
+    } catch (e) {
+      setStaged(null);
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (!staged) return;
+    const t = setTimeout(() => {
+      api.marcaPreview(p.slug, { up: staged.up, scale, bg }).then(setPreview, (e) => setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)));
+    }, 140);
+    return () => clearTimeout(t);
+  }, [p.slug, staged, scale, bg]);
+  const use = async () => {
+    if (!staged) return;
+    setBusy(true);
+    try {
+      onUsed(await api.marcaUse(p.slug, { up: staged.up, name: staged.name, scale, bg }));
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const swatches = staged ? [...new Set([...staged.palette, ...(r.logo?.colors ?? []), "#ffffff", "#000000"])].slice(0, 6) : [];
+  const img = preview?.png;
+  const face = (key: keyof MarcaWords["up"]["faces"], body: ReactNode) => (
+    <div className="mk-uf" data-uf={key}>
+      <div className="mk-uf-b">{body}</div>
+      <span>{w.up.faces[key]}</span>
+    </div>
+  );
+  return (
+    <div className="mk mk-up" data-marca-subir={p.slug}>
+      <header className="mk-head">
+        <div className="mk-head-l">
+          <h2 className="cor-door-h">{w.up.title(p.title)}</h2>
+          <p className="cor-text">{w.up.lead}</p>
+        </div>
+        <div className="mk-head-r">
+          <button type="button" className="cor-btn secondary small" onClick={onBack} data-control="marca-subir-volver">
+            {w.up.back}
+          </button>
+          <button type="button" className="cor-btn primary" disabled={!staged || !!staged.block || busy || !preview} onClick={() => void use()} data-control="marca-usar">
+            {w.up.use}
+          </button>
+        </div>
+      </header>
+      <div className="mk-ugrid">
+        <section className="mk-drop-col">
+          <label
+            className={`mk-drop${staged ? " has" : ""}${over ? " over" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) void take(f); }}
+          >
+            {staged && img ? (
+              <span className="mk-u-tile">
+                <img src={img} alt="" />
+                {ov.circle && <i className="ov circ" />}
+                {ov.iphone && <i className="ov sq" />}
+              </span>
+            ) : (
+              <span className="mk-drop-t">
+                <b>{busy ? w.up.reading : w.up.drop}</b>
+                <span>{w.up.dropHint}</span>
+              </span>
+            )}
+            <input ref={input} type="file" accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" className="sr-only" aria-label={w.up.drop} onChange={(e) => { const f = e.target.files?.[0]; if (f) void take(f); e.target.value = ""; }} data-control="marca-archivo" />
+          </label>
+          {staged && (
+            <>
+              <div className="mk-u-ov">
+                <button type="button" className="mk-mini" aria-pressed={ov.circle} onClick={() => setOv((o) => ({ ...o, circle: !o.circle }))}>{w.up.circle}</button>
+                <button type="button" className="mk-mini" aria-pressed={ov.iphone} onClick={() => setOv((o) => ({ ...o, iphone: !o.iphone }))}>{w.up.iphone}</button>
+                <button type="button" className="mk-mini" onClick={() => input.current?.click()}>{w.up.other}</button>
+              </div>
+              <div className="mk-u-ctl">
+                <label htmlFor="mk-scale">
+                  {w.up.size} <b>{scale} %</b>
+                </label>
+                <input id="mk-scale" type="range" min={40} max={100} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
+                <div className="mk-u-bg" role="radiogroup" aria-label={w.up.background}>
+                  <span>{w.up.background}</span>
+                  {swatches.map((c) => (
+                    <button key={c} type="button" role="radio" aria-checked={bg === c} className={`sw${bg === c ? " on" : ""}`} style={{ background: c }} aria-label={c} title={c} onClick={() => setBg(c)} />
+                  ))}
+                  <button type="button" role="radio" aria-checked={bg === null} className={`sw none${bg === null ? " on" : ""}`} aria-label={w.up.none} title={w.up.none} onClick={() => setBg(null)} />
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+        <section className="mk-u-faces" aria-label={w.files}>
+          {img ? (
+            <>
+              {face("tab", <span className="mk-tabs light mini"><span className="mk-tab on"><img src={img} width={16} height={16} alt="" />{p.title}</span></span>)}
+              {face("ios", <span className="mk-uf-ios"><img src={img} alt="" /></span>)}
+              {face("and", <span className="mk-uf-and"><img src={img} alt="" /></span>)}
+              {face("pwa", <span className="mk-uf-pwa"><img src={img} alt="" /><b>{p.title}</b></span>)}
+              {face("share", <span className="mk-uf-og"><img src={img} alt="" /><b>{p.title}</b></span>)}
+              {face("cia", <span className="mk-uf-cia"><img src={img} alt="" /><b>{p.title}</b></span>)}
+            </>
+          ) : (
+            <div className="mk-u-empty">{w.up.empty}</div>
+          )}
+        </section>
+        <aside className="mk-u-checks">
+          {staged ? (
+            <>
+              <div className="mk-p-lbl">{w.up.checks(staged.name)}</div>
+              <ul className="mk-res">
+                {staged.checks.map((c, i) => (
+                  <li key={i} className={c.ok === true ? "y" : c.ok === "warn" ? "w" : "n"}>{sentence(w.upCheck, c)}</li>
+                ))}
+                {preview && testLines(preview.tests, w).map((t, i) => (
+                  <li key={`t${i}`} className={t.ok ? "y" : "n"}>{t.text}</li>
+                ))}
+              </ul>
+              {staged.block && <p className="mk-block">{staged.block}</p>}
+            </>
+          ) : (
+            <>
+              <div className="mk-p-lbl">{w.up.rulesTitle}</div>
+              <ul className="mk-tests">
+                {w.up.rules.map(([b, t]) => (
+                  <li key={b}>
+                    <b>{b}</b>
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {error && <p className="mk-block" role="alert">{error}</p>}
+        </aside>
+      </div>
     </div>
   );
 }
