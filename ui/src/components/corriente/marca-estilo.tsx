@@ -657,7 +657,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       )}
     </div>
   );
-  const codeText = code ?? codeOf(x, fmt);
+  const codeText = code ?? codeOf(x, fmt, r.cssOpts);
   const codePanel = (
     <aside className="es-code" aria-label={w.expert.code}>
       <div className="es-h">

@@ -85,6 +85,10 @@ test("#3 the repo's name and texts are read from the manifest and the layout's m
   files = { "index.html": Buffer.from(`<html><head><title>Vite Tienda</title><meta name="description" content="Una tienda."></head></html>`) };
   const h = await voz.readRepoNames(view(), "");
   assert.deepEqual({ title: h.title, desc: h.desc }, { title: "Vite Tienda", desc: "Una tienda." });
+  // A layout that reads a site config, whose name disagrees with the manifest's.
+  files = { "src/app/manifest.ts": Buffer.from(MAN), "src/app/layout.tsx": Buffer.from(`import { site } from "@/lib/site";\nexport const metadata = { title: site.name, description: site.description };`), "src/lib/site.ts": Buffer.from(`export const site = { name: "Tiendas Centro", description: "Otra." } as const;`) };
+  const s = await voz.readRepoNames(view(), "");
+  assert.deepEqual({ name: s.name, title: s.title, files: s.files }, { name: "Tienda Centro", title: "Tiendas Centro", files: ["src/app/manifest.ts", "src/app/layout.tsx", "src/lib/site.ts"] });
 });
 
 test("#4 versions, the names that differ, and the request: one at a time, nothing when the repo already has them", async () => {
@@ -95,6 +99,12 @@ test("#4 versions, the names that differ, and the request: one at a time, nothin
   assert.equal(voz.voiceBlock("tienda", "Tienda"), "", "no voice set: runs get nothing");
   await voz.saveVoice(db, "tienda", { trato: "usted" });
   await assert.rejects(voz.requestNames(db, project, { git }), /ya son los del repo/);
+  files["src/lib/site.ts"] = Buffer.from(`export const site = { name: "Tiendas Centro" };`);
+  files["src/app/layout.tsx"] = Buffer.from(`export const metadata = { title: site.name };`);
+  voz.forgetVoice();
+  assert.deepEqual((await voz.voiceRead(db, "tienda", { git }))!.names, ["name"], "the page says another name than the manifest: the name is pending");
+  reset();
+  await voz.voiceRead(db, "tienda", { git, fresh: true });
   const r = (await voz.saveVoice(db, "tienda", { short: "Centro", desc: "Compra sin hacer fila, desde tu teléfono." }))!;
   assert.deepEqual(r.names.sort(), ["desc", "short"]);
   assert.equal(r.versions, 2);

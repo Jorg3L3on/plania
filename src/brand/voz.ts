@@ -123,6 +123,17 @@ export async function readRepoNames(view: { paths: Map<string, number>; read: (p
     out.title = str(meta, "default") ?? str(meta, "title");
     out.desc ??= str(meta, "description");
     out.files.push(layout);
+    // The metadata often reads a site config (title: site.name): read the name and description there.
+    if (!out.title) {
+      const cfg = paths.find((p) => /(^|\/)(src\/)?(lib|config)\/(site|config|brand)\.(ts|js|mjs)$/.test(p));
+      if (cfg) {
+        const c = (await view.read(cfg))?.toString("utf8") ?? "";
+        out.title = str(c, "name") ?? str(c, "title");
+        const d = str(c, "description");
+        if (d && !out.desc) out.desc = d;
+        if (out.title) out.files.push(cfg);
+      }
+    }
   } else {
     const html = paths.find((p) => /(^|\/)index\.html$/.test(p) && !p.includes("node_modules"));
     if (html) {
@@ -175,8 +186,11 @@ export async function voiceRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     .where(and(eq(tasks.projectId, p.id), ilike(tasks.scope, MARK), notInArray(tasks.status, ["Merged", "Released", "Done", "Won't do"])))
     .limit(1);
   // Which texts differ from the repo (only when the owner has set them).
+  // The name differs when either place the repo names the app (manifest, page title) says something else.
   const names = current
-    ? (["name", "short", "desc"] as const).filter((k) => (base[k] ?? "") !== ((k === "name" ? c!.repo.name ?? c!.repo.title : c!.repo[k]) ?? ""))
+    ? (["name", "short", "desc"] as const).filter((k) =>
+        k === "name" ? [c!.repo.name, c!.repo.title].some((n) => (n ?? base.name) !== base.name) || (!c!.repo.name && !c!.repo.title) : (base[k] ?? "") !== (c!.repo[k] ?? ""),
+      )
     : [];
   return { voice: current, base, guide: guideOf(base, p.title), repo: c.repo, names: [...names], versions: load(slug)?.versions.length ?? 0, pedido: open ?? null, limits: LIMITS };
 }

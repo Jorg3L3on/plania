@@ -16,7 +16,7 @@ import { webCtx } from "../mcp/tx.js";
 import { bus } from "../events.js";
 import { say } from "../words.js";
 import { HEX, contrast, distance, oklchCss, onColor, scale, toLch, fromLch } from "./color.js";
-import { listTree, readBlob, realGit, type LogoDeps } from "./logos.js";
+import { listTree, readBlob, realGit, type Git, type LogoDeps } from "./logos.js";
 import { repoPathOf } from "../runner/worktree.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { startCommit } from "./logos.js";
@@ -102,7 +102,7 @@ export function sound(input: Partial<Style>, base: Style): Style {
 }
 
 // ---------- the repo's style, as it is ----------
-export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; files: string[] };
+export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
 const TEXT = /\.(css|scss|tsx|ts|jsx|js|mjs|html|vue|svelte)$/;
 const SKIP = /(^|\/)(node_modules|dist|build|\.next|out|coverage|public|vendor|\.git)\//;
 const cssValue = (v: string): string | undefined => {
@@ -117,11 +117,15 @@ export async function readRepoStyle(view: { paths: Map<string, number>; read: (p
   const css = [...view.paths.keys()].filter((p) => p.startsWith(root) && p.endsWith(".css") && !SKIP.test(p) && (view.paths.get(p) ?? 0) < 300_000).slice(0, 8);
   for (const p of css) {
     const t = (await view.read(p))?.toString("utf8") ?? "";
-    const v = (re: RegExp) => { const m = t.match(re); return m ? cssValue(m[1]!) : undefined; };
-    const b = v(/--(?:color-)?(?:brand|primary)\s*:\s*([^;}\n]+)/);
-    const a = v(/--(?:color-)?accent\s*:\s*([^;}\n]+)/);
+    // The first declaration that is a colour (a repo often aliases first: --color-primary: var(--primary)).
+    const v = (re: RegExp) => { for (const m of t.matchAll(re)) { const c = cssValue(m[1]!); if (c) return c; } return undefined; };
+    // PLA-I69-4: shadcn/ui's variables (--primary with --primary-foreground) mean other things by --accent and --muted.
+    if (/--primary-foreground\s*:/.test(t)) out.shadcn = true;
+    const b = v(/--(?:color-)?(?:brand|primary)\s*:\s*([^;}\n]+)/g);
+    const a = out.shadcn ? undefined : v(/--(?:color-)?accent\s*:\s*([^;}\n]+)/g);
     const r = t.match(/--radius(?:-md)?\s*:\s*([\d.]+)(rem|px)/);
     if (b && !out.brand) { out.brand = b; out.files.push(p); }
+    else if (out.shadcn && !out.files.includes(p)) out.files.push(p);
     if (/(^|[\s,}])\.dark\b|prefers-color-scheme:\s*dark|\[data-theme=["']?dark/.test(t)) out.dark = true;
     if (a && !out.accent) out.accent = a;
     if (r && out.radius === undefined) out.radius = Math.round(Number(r[1]) * (r[2] === "rem" ? 16 : 1));
@@ -145,8 +149,24 @@ export async function readRepoStyle(view: { paths: Map<string, number>; read: (p
 }
 
 /** Colours of an older logo (or the repo's old brand) written by hand in the code, file by file. */
+export const oldTargets = (old: string[], keep: string): string[] => [...new Set(old.filter((c) => HEX.test(c) && distance(c, keep) > 0.06).map((c) => c.toLowerCase()))].sort();
+/** The same, in one `git grep` over the commit (a real repo: one process instead of one per file). */
+export async function oldColorsGrep(git: Git, repo: string, sha: string, root: string, targets: string[]): Promise<{ path: string; n: number; colors: string[] }[]> {
+  if (!targets.length) return [];
+  const r = await git(repo, ["grep", "-I", "-i", "-o", "-F", ...targets.flatMap((c) => ["-e", c]), sha, "--", root || "."]);
+  const by = new Map<string, { n: number; colors: Set<string> }>();
+  for (const line of r.stdout.toString("utf8").split("\n")) {
+    const m = line.match(/^[0-9a-f]{40}:(.+):(#[0-9a-fA-F]{6})$/);
+    if (!m || !TEXT.test(m[1]!) || SKIP.test(m[1]!) || /brand\.css$|tokens\.json$/.test(m[1]!)) continue;
+    const e = by.get(m[1]!) ?? { n: 0, colors: new Set<string>() };
+    e.n++;
+    e.colors.add(m[2]!.toLowerCase());
+    by.set(m[1]!, e);
+  }
+  return [...by].map(([path, e]) => ({ path, n: e.n, colors: [...e.colors] })).sort((a, b) => b.n - a.n).slice(0, 30);
+}
 export async function oldColors(view: { paths: Map<string, number>; read: (p: string) => Promise<Buffer | null> }, root: string, old: string[], keep: string): Promise<{ path: string; n: number; colors: string[] }[]> {
-  const targets = [...new Set(old.filter((c) => HEX.test(c) && distance(c, keep) > 0.06).map((c) => c.toLowerCase()))];
+  const targets = oldTargets(old, keep);
   if (!targets.length) return [];
   const out: { path: string; n: number; colors: string[] }[] = [];
   let scanned = 0;
@@ -175,8 +195,11 @@ export function tokens(s: Style): Tokens {
   const N = (L: number) => fromLch(L, nc, nh);
   const darkBg = N(0.17);
   const darkBrand = contrast(s.brand, darkBg) >= 3 ? s.brand : sc[3]!;
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), brand: s.brand, "on-brand": onColor(s.brand), accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
-  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), brand: darkBrand, "on-brand": onColor(darkBrand), accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
+  // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
+  const [bL, bC] = toLch(s.brand);
+  const [dL, dC, dH] = toLch(darkBrand);
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
+  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
   const duration = { ninguno: 0, calmo: 320, normal: 200, vivo: 140 }[s.motion];
@@ -187,20 +210,35 @@ export function tokens(s: Style): Tokens {
     shadow: s.shadow === "plana" ? "none" : s.shadow === "marcada" ? "0 8px 24px rgb(0 0 0 / .18)" : "0 1px 2px rgb(0 0 0 / .06), 0 4px 12px rgb(0 0 0 / .07)",
   };
 }
-const fam = (f: string) => (f === SYSTEM ? "system-ui" : `"${f}"`);
+const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+/** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
+ * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
+export type CssOpts = { next?: boolean; shadcn?: boolean };
+export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 /** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
-export function brandCss(s: Style): string {
+export function brandCss(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
-  const vars = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `  --${k}: ${v};`).join("\n");
+  const ff = (f: string) => (f === SYSTEM ? "system-ui" : o.next ? `var(${fontVar(f)})` : `"${f}"`);
+  const vars = (x: Record<string, string>) => Object.entries(x).map(([k, v]) => `  --${k}: ${v};`).join("\n");
+  const side = (x: Record<string, string>): Record<string, string> =>
+    o.shadcn
+      ? {
+          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
+          background: x.background!, foreground: x.foreground!, card: x.card!, "card-foreground": x.foreground!, popover: x.card!, "popover-foreground": x.foreground!,
+          border: x.border!, input: x.input!, "muted-foreground": x.muted!, destructive: x.danger!,
+          "sidebar-primary": x.brand!, "sidebar-primary-foreground": x["on-brand"]!, "sidebar-ring": x.brand!, "sidebar-accent": x.tint!, "sidebar-accent-foreground": x["on-tint"]!,
+          brand: x.brand!, "brand-accent": x.accent!, "on-brand-accent": x["on-accent"]!, success: x.success!, warning: x.warning!,
+        }
+      : x;
   return `/* The brand's style, kept by Plania (Marca → Estilo). Change it there; this file is remade from it. */
 @theme {
-${t.scale.map((c, i) => `  --color-brand-${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950][i]}: ${c};`).join("\n")}
+${t.scale.map((c, i) => `  --color-brand-${STEP[i]}: ${c};`).join("\n")}
   --color-brand: var(--brand);
-  --color-accent: var(--accent);
+  --color-${o.shadcn ? "brand-accent: var(--brand-accent)" : "accent: var(--accent)"};
 ${t.chart.map((c, i) => `  --color-chart-${i + 1}: ${c};`).join("\n")}
-  --font-heading: ${fam(s.head)}, ui-sans-serif, system-ui, sans-serif;
-  --font-sans: ${fam(s.body)}, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ${fam(s.mono)}, ui-monospace, monospace;
+  --font-heading: ${ff(s.head)}, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ${ff(s.body)}, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ${ff(s.mono)}, ui-monospace, monospace;
   --text-base: ${s.base / 16}rem;
   --radius-md: ${t.radius}px;
   --spacing: ${t.spacing};
@@ -209,7 +247,7 @@ ${t.chart.map((c, i) => `  --color-chart-${i + 1}: ${c};`).join("\n")}
 }
 
 :root {
-${vars(t.light)}
+${vars(side(t.light))}
   --radius: ${t.radius}px;
   --radius-button: ${t.button}px;
   --shadow-card: ${t.shadow};
@@ -219,10 +257,14 @@ ${vars(t.light)}
 }
 
 .dark {
-${vars(t.dark)}
+${vars(side(t.dark))}
 }
 
 svg.lucide { stroke-width: var(--icon-stroke); }
+
+@layer base {
+  h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
@@ -272,6 +314,7 @@ export type StyleRead = {
   css: string;
   json: string;
   logo: { theme: string | null; colors: string[] };
+  cssOpts: CssOpts;
 };
 
 /** Where the style starts before the owner touches it: the repo's values, then the logo's colours, then defaults. */
@@ -287,16 +330,43 @@ export function startStyle(repo: RepoStyle, logo: { colors: string[]; theme: str
 }
 
 type RepoView = { paths: Map<string, number>; read: (p: string) => Promise<Buffer | null> };
-async function repoView(p: Project, deps: LogoDeps): Promise<RepoView | null> {
+type Part = { sha: string | null; repo: RepoStyle; framework: StyleRead["framework"]; root: string; view: RepoView | null; path: string; git: Git };
+// The repo's side, per commit: reading it again only when the start branch moves (or after a minute, to notice that).
+const parts = new Map<string, { at: number; part: Part }>();
+const olds = new Map<string, StyleRead["old"]>();
+export const forgetStyle = (slug?: string): void => {
+  if (!slug) { parts.clear(); olds.clear(); return; }
+  parts.delete(slug);
+  for (const k of olds.keys()) if (k.startsWith(`${slug}|`)) olds.delete(k);
+};
+async function partOf(p: Project, deps: LogoDeps, hasOriginal: boolean): Promise<Part> {
+  const now = (deps.now ?? Date.now)();
+  const had = parts.get(p.slug);
+  if (had && now - had.at < 60_000 && !deps.fresh) return had.part;
   const git = deps.git ?? realGit;
-  const repo = repoPathOf(p.slug, p.settings, deps.env);
-  const c = await startCommit(git, repo, startBranchOf(p.settings));
-  if (!c) return null;
-  const tree = await listTree(git, repo, c.sha);
-  return { paths: tree, read: (f) => readBlob(git, repo, c.sha, f) };
+  const path_ = repoPathOf(p.slug, p.settings, deps.env);
+  const c = await startCommit(git, path_, startBranchOf(p.settings)).catch(() => null);
+  if (had && c && had.part.sha === c.sha && !deps.fresh) {
+    had.at = now;
+    return had.part;
+  }
+  let part: Part = { sha: null, repo: { files: [] }, framework: "static", root: "", view: null, path: path_, git };
+  if (c) {
+    const tree = await listTree(git, path_, c.sha);
+    const view: RepoView = { paths: tree, read: (f) => readBlob(git, path_, c.sha, f) };
+    const { checkRepo } = await import("./check.js");
+    const ck = await checkRepo(view, { hasOriginal, slug: p.slug });
+    const repo = await readRepoStyle(view, ck.root);
+    const man = ck.rows.find((r) => r.id === "man")?.checks.find((x) => x.k === "man_colors")?.v?.theme;
+    if (typeof man === "string" && HEX.test(man)) repo.theme = man.toLowerCase();
+    part = { sha: c.sha, repo, framework: ck.framework, root: ck.root, view, path: path_, git };
+  }
+  parts.set(p.slug, { at: now, part });
+  return part;
 }
-const cache = new Map<string, { at: number; key: string; read: Omit<StyleRead, "style" | "base" | "changes" | "versions" | "pedido" | "css" | "json" | "logo"> }>();
-export const forgetStyle = (slug?: string): void => { if (slug) cache.delete(slug); else cache.clear(); };
+async function repoView(p: Project, deps: LogoDeps): Promise<RepoView | null> {
+  return (await partOf(p, deps, false)).view;
+}
 
 export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Promise<StyleRead | null> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
@@ -306,24 +376,19 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   const { logoTheme } = await import("./theme.js");
   const theme = logoTheme(active);
   const current = styleOf(slug);
-  const now = (deps.now ?? Date.now)();
-  const key = `${active?.id ?? ""}|${current?.brand ?? ""}`;
-  let c = cache.get(slug);
-  if (!c || now - c.at > 60_000 || c.key !== key || deps.fresh) {
-    const view = await repoView(p, deps);
-    const { checkRepo } = await import("./check.js");
-    const ck = view ? await checkRepo(view, { hasOriginal: !!active, slug }) : null;
-    const root = ck?.root ?? "";
-    const repo = view ? await readRepoStyle(view, root) : { files: [] };
-    const man = ck?.rows.find((r) => r.id === "man")?.checks.find((x) => x.k === "man_colors")?.v?.theme;
-    if (typeof man === "string" && HEX.test(man)) repo.theme = man.toLowerCase();
-    const keep = current?.brand ?? theme ?? repo.brand ?? "#000000";
-    const olds = [...logos.filter((l) => !l.active).flatMap((l) => l.colors), ...(repo.brand && current && distance(repo.brand, current.brand) > 0.06 ? [repo.brand] : [])];
-    const old = view && current ? await oldColors(view, root, olds, keep) : [];
-    c = { at: now, key, read: { repo, old, framework: ck?.framework ?? "static", root } };
-    cache.set(slug, c);
+  const part = await partOf(p, deps, !!active);
+  const repo = part.repo;
+  const keep = current?.brand ?? theme ?? repo.brand ?? "#000000";
+  const targets = current ? oldTargets([...logos.filter((l) => !l.active).flatMap((l) => l.colors), ...(repo.brand && distance(repo.brand, current.brand) > 0.06 ? [repo.brand] : [])], keep) : [];
+  const okey = `${slug}|${part.sha}|${targets.join(",")}`;
+  let old = olds.get(okey);
+  if (!old) {
+    old = !part.view || !part.sha || !targets.length ? [] : deps.git ? await oldColors(part.view, part.root, targets, keep) : await oldColorsGrep(part.git, part.path, part.sha, part.root, targets);
+    olds.set(okey, old);
   }
+  const c = { read: { repo, old, framework: part.framework, root: part.root } };
   const base = current ?? startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
+  const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn };
   // A brand that follows the logo takes the logo's colour as it changes.
   const eff = base.brandTie === "sigue" && theme ? { ...base, brand: theme } : base;
   const [open] = await db
@@ -338,9 +403,10 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     changes: current ? changesOf(eff, c.read.repo, { theme }) : [],
     versions: load(slug)?.versions.length ?? 0,
     pedido: open ?? null,
-    css: brandCss(eff),
+    css: brandCss(eff, cssOpts),
     json: tokensJson(eff),
     logo: { theme, colors: active?.colors ?? [] },
+    cssOpts,
   };
 }
 
@@ -357,7 +423,6 @@ export async function saveStyle(db: Db, slug: string, patch: Partial<Style>): Pr
   if (f.versions.length > 60) f.versions = f.versions.slice(-60);
   f.current = v;
   save(slug, f);
-  forgetStyle(slug);
   bus.publish({ type: "project", project: slug });
   return styleRead(db, slug);
 }
@@ -413,7 +478,8 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
     "",
     `## ${w.code}`,
     `- ${paths.globals ? `\`${paths.globals}\`` : w.globalsUnknown}: ${w.importCss(paths.css)}`,
-    ...(paths.layout ? [`- \`${paths.layout}\`: ${w.fontsNext(fonts)}`] : [`- ${w.fontsOther(fonts)}`]),
+    ...(paths.layout ? [`- \`${paths.layout}\`: ${w.fontsNext(fonts.map((f) => [f, fontVar(f)] as [string, string]))}`] : [`- ${w.fontsOther(fonts)}`]),
+    ...(r.cssOpts.shadcn ? [`- ${w.shadcn(paths.globals ?? w.globalsUnknown)}`] : []),
     `- ${w.darkClass}`,
     ...(r.repo.theme && distance(r.repo.theme, s.brand) > 0.02 ? [`- ${w.manifest(s.brand)}`] : []),
     ...(r.old.length ? ["", `## ${w.oldTitle}`, ...r.old.map((o) => `- \`${o.path}\`: ${o.colors.join(", ")} (${o.n})`)] : []),

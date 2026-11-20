@@ -15,3 +15,10 @@ export function logoTheme(l: ThemeSource | null | undefined): string | null {
 
 export const sameColor = (a: string | null | undefined, b: string | null | undefined): boolean =>
   !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** PLA-I69-4: once the owner set a style (Marca → Estilo), the app's colour is its brand colour (which may follow the
+ * logo); before that, the chosen logo's. One rule for the icons request and the style request, so they never disagree. */
+export function appTheme(style: { brand: string; brandTie: "sigue" | "fijo" } | null, l: ThemeSource | null | undefined): string | null {
+  if (style) return style.brandTie === "sigue" ? (logoTheme(l) ?? style.brand.toLowerCase()) : style.brand.toLowerCase();
+  return logoTheme(l);
+}

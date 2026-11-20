@@ -21,7 +21,8 @@ import { readLogoFile } from "./logos.js";
 import { marcaRead, forgetMarcaOf, type MarcaRead } from "./marca.js";
 import { MARCA_WORDS } from "./words.js";
 import { LogoError } from "./upload.js";
-import { logoTheme } from "./theme.js";
+import { appTheme } from "./theme.js";
+import { styleOf } from "./style.js";
 
 export const MARKER = (id: string, rows: string[]) => `<!-- plania:marca set=${id} rows=${rows.join(",")} -->`;
 
@@ -52,7 +53,7 @@ export async function staleRows(input: { slug: string; title: string; rows: Row[
   const plan = planFor(input.rows, { framework: input.framework, root: input.root }, "todo", o.mime === "image/svg+xml", input.native);
   plan.items = plan.items.filter((i) => COMPARED.includes(i.key));
   // PLA-I69-1: the colour comes from the logo the owner chose, so a share image on an older logo's colour reads old.
-  const theme = logoTheme(input.logo) ?? themeOfRows(input.rows);
+  const theme = appTheme(styleOf(input.slug), input.logo) ?? themeOfRows(input.rows);
   const key = `${input.slug}|${setId(o, plan, own)}|${theme ?? ""}`;
   let files = made.get(key);
   if (!files) {
@@ -96,7 +97,7 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null });
   const id = setId(o, plan, own);
   // PLA-I69-1: the logo's colour, and a version for the manifest's icon URLs (installed apps see a new URL).
-  const theme = logoTheme(l) ?? themeOf(r);
+  const theme = appTheme(styleOf(project.slug), l) ?? themeOf(r);
   const version = id.slice(0, 8);
   // PLA-I69-3: install screenshots come from El Probador's latest stills; without any, that item waits.
   let shots: { narrow: Buffer[]; wide: Buffer[] } | undefined;
@@ -140,10 +141,9 @@ export async function requestIcons(db: Db, project: Project, mode: "faltan" | "t
     MARKER(set.id, [...set.plan.items.map((i) => (i.key === "manifest" ? "man" : i.key)), ...(set.plan.edits.some((e) => e.what === "manifest_theme") ? ["man"] : [])]),
     w.lead(set.dir),
     ...(surface ? ["", w.surfaceLead(w.surface[surface]!)] : []),
-    "",
-    `## ${w.files}`,
+    ...(set.files.length ? ["", `## ${w.files}`] : []),
     ...set.plan.items.map((i) => `- \`${i.path}\` (${i.op === "+" ? w.add : w.replace})`),
-    ...(set.plan.edits.length ? ["", `## ${w.code}`, ...set.plan.edits.map((e) => `- \`${e.path}\`: ${w.edit[e.what]}${e.what === "manifest_theme" && set.theme ? ` (${set.theme})` : e.what === "manifest_version" ? ` (?v=${set.version})` : ""}`)] : []),
+    ...(set.plan.edits.length ? ["", `## ${w.code}`, ...set.plan.edits.map((e) => `- \`${e.path}\`: ${w.edit[e.what]}${e.what === "manifest_theme" && set.theme ? ` (${set.theme})${w.viewport}` : e.what === "manifest_version" ? ` (?v=${set.version})` : ""}`)] : []),
     "",
     w.rules,
   ];
@@ -190,7 +190,7 @@ export async function madeFile(db: Db, project: Project, key: GenKey): Promise<{
   const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, "todo", o.mime === "image/svg+xml", r.native, [key]);
   if (!plan.items.length) return null;
   const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l.adjust?.raw ?? null });
-  const theme = logoTheme(l) ?? themeOf(r);
+  const theme = appTheme(styleOf(project.slug), l) ?? themeOf(r);
   const id = `${project.slug}|${setId(o, plan, own)}|${theme ?? ""}|${key}`;
   let f = one.get(id);
   if (!f) {

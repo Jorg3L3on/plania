@@ -94,8 +94,9 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
     ? { "--b": t.light.brand, "--on": t.light["on-brand"], "--bg": t.light.background, "--card": t.light.card, "--fg": t.light.foreground, "--mu": t.light.muted, "--bd": t.light.border, "--er": t.light.danger, "--r": `${t.radius}px`, "--rb": `${t.button}px`, "--fh": family(style.head), "--fb": family(style.body) }
     : {}) as React.CSSProperties;
   // Which texts differ from the repo right now (the draft, not only what was saved).
-  const repoOf = { name: r.repo.name ?? r.repo.title ?? "", short: r.repo.short ?? "", desc: r.repo.desc ?? "" };
-  const differ = (["name", "short", "desc"] as const).filter((k) => (x[k] ?? "") !== repoOf[k]);
+  const repoNames = [...new Set([r.repo.name, r.repo.title].filter((n): n is string => !!n))];
+  const repoOf = { name: repoNames.join(" · "), short: r.repo.short ?? "", desc: r.repo.desc ?? "" };
+  const differ = (["name", "short", "desc"] as const).filter((k) => (k === "name" ? !repoNames.length || repoNames.some((n) => n !== x.name) : (x[k] ?? "") !== repoOf[k]));
   const send = async () => {
     setSending(true);
     try {

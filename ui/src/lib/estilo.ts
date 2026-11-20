@@ -12,7 +12,7 @@ export type Style = {
   lib: string; stroke: number; fill: boolean; motion: "ninguno" | "calmo" | "normal" | "vivo";
   img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
-export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; files: string[] };
+export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
 export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string };
 export type StyleRead = {
   style: Style | null;
@@ -29,6 +29,7 @@ export type StyleRead = {
   json: string;
   fonts: string[];
   logo: { theme: string | null; colors: string[] };
+  cssOpts: CssOpts;
 };
 
 export const SYSTEM = "system-ui";
@@ -60,8 +61,11 @@ export function tokens(s: Style): Tokens {
   const N = (L: number) => fromLch(L, nc, nh);
   const darkBg = N(0.17);
   const darkBrand = contrast(s.brand, darkBg) >= 3 ? s.brand : sc[3]!;
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), brand: s.brand, "on-brand": onColor(s.brand), accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
-  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), brand: darkBrand, "on-brand": onColor(darkBrand), accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
+  // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
+  const [bL, bC] = toLch(s.brand);
+  const [dL, dC, dH] = toLch(darkBrand);
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
+  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
   const duration = { ninguno: 0, calmo: 320, normal: 200, vivo: 140 }[s.motion];
@@ -72,20 +76,35 @@ export function tokens(s: Style): Tokens {
     shadow: s.shadow === "plana" ? "none" : s.shadow === "marcada" ? "0 8px 24px rgb(0 0 0 / .18)" : "0 1px 2px rgb(0 0 0 / .06), 0 4px 12px rgb(0 0 0 / .07)",
   };
 }
-const fam = (f: string) => (f === SYSTEM ? "system-ui" : `"${f}"`);
 const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
-export function brandCss(s: Style): string {
+/** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
+ * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
+export type CssOpts = { next?: boolean; shadcn?: boolean };
+export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+/** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
+export function brandCss(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
-  const vars = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `  --${k}: ${v};`).join("\n");
+  const ff = (f: string) => (f === SYSTEM ? "system-ui" : o.next ? `var(${fontVar(f)})` : `"${f}"`);
+  const vars = (x: Record<string, string>) => Object.entries(x).map(([k, v]) => `  --${k}: ${v};`).join("\n");
+  const side = (x: Record<string, string>): Record<string, string> =>
+    o.shadcn
+      ? {
+          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
+          background: x.background!, foreground: x.foreground!, card: x.card!, "card-foreground": x.foreground!, popover: x.card!, "popover-foreground": x.foreground!,
+          border: x.border!, input: x.input!, "muted-foreground": x.muted!, destructive: x.danger!,
+          "sidebar-primary": x.brand!, "sidebar-primary-foreground": x["on-brand"]!, "sidebar-ring": x.brand!, "sidebar-accent": x.tint!, "sidebar-accent-foreground": x["on-tint"]!,
+          brand: x.brand!, "brand-accent": x.accent!, "on-brand-accent": x["on-accent"]!, success: x.success!, warning: x.warning!,
+        }
+      : x;
   return `/* The brand's style, kept by Plania (Marca → Estilo). Change it there; this file is remade from it. */
 @theme {
 ${t.scale.map((c, i) => `  --color-brand-${STEP[i]}: ${c};`).join("\n")}
   --color-brand: var(--brand);
-  --color-accent: var(--accent);
+  --color-${o.shadcn ? "brand-accent: var(--brand-accent)" : "accent: var(--accent)"};
 ${t.chart.map((c, i) => `  --color-chart-${i + 1}: ${c};`).join("\n")}
-  --font-heading: ${fam(s.head)}, ui-sans-serif, system-ui, sans-serif;
-  --font-sans: ${fam(s.body)}, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ${fam(s.mono)}, ui-monospace, monospace;
+  --font-heading: ${ff(s.head)}, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ${ff(s.body)}, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ${ff(s.mono)}, ui-monospace, monospace;
   --text-base: ${s.base / 16}rem;
   --radius-md: ${t.radius}px;
   --spacing: ${t.spacing};
@@ -94,7 +113,7 @@ ${t.chart.map((c, i) => `  --color-chart-${i + 1}: ${c};`).join("\n")}
 }
 
 :root {
-${vars(t.light)}
+${vars(side(t.light))}
   --radius: ${t.radius}px;
   --radius-button: ${t.button}px;
   --shadow-card: ${t.shadow};
@@ -104,10 +123,14 @@ ${vars(t.light)}
 }
 
 .dark {
-${vars(t.dark)}
+${vars(side(t.dark))}
 }
 
 svg.lucide { stroke-width: var(--icon-stroke); }
+
+@layer base {
+  h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
@@ -128,15 +151,8 @@ export function tokensJson(s: Style): string {
     2,
   )}\n`;
 }
-/** The same values as shadcn/ui's variables, for a repo that uses them. */
-export function shadcnCss(s: Style): string {
-  const t = tokens(s);
-  const rem = (px: number) => `${(px / 16).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}rem`;
-  const side = (o: Record<string, string>) => `  --primary: ${o.brand};\n  --primary-foreground: ${o["on-brand"]};\n  --accent: ${o.accent};\n  --accent-foreground: ${o["on-accent"]};\n  --background: ${o.background};\n  --foreground: ${o.foreground};\n  --card: ${o.card};\n  --muted-foreground: ${o.muted};\n  --border: ${o.border};\n  --destructive: ${o.danger};`;
-  return `:root {\n${side(t.light)}\n  --radius: ${rem(t.radius)};\n}\n.dark {\n${side(t.dark)}\n}\n`;
-}
 export type CodeFmt = "tailwind" | "shadcn" | "w3c";
-export const codeOf = (s: Style, f: CodeFmt) => (f === "w3c" ? tokensJson(s) : f === "shadcn" ? shadcnCss(s) : brandCss(s));
+export const codeOf = (s: Style, f: CodeFmt, o: CssOpts = {}) => (f === "w3c" ? tokensJson(s) : f === "shadcn" ? brandCss(s, { ...o, shadcn: true }) : brandCss(s, o));
 
 /** An expert's code, read back: brand, accent, radius and the fonts Plania knows. What is not recognised is left. */
 export function fromCode(txt: string, s: Style, fonts: string[]): { next: Style; n: number } {

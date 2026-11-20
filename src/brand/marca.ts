@@ -15,7 +15,8 @@ import { looksSame } from "./same.js";
 import { isVariant, knotOf, surfacesOf } from "./surfaces.js";
 import { staleRows } from "./pedido.js";
 import { and, desc, gte, ilike, notInArray, or } from "drizzle-orm";
-import { logoTheme, sameColor } from "./theme.js";
+import { appTheme, logoTheme, sameColor } from "./theme.js";
+import { styleOf } from "./style.js";
 import { latestStills } from "../captures/store.js";
 import { tasks } from "../db/schema.js";
 
@@ -192,7 +193,7 @@ async function judge(p: Project, part: Part, current: Awaited<ReturnType<typeof 
     const old = await staleRows({ slug: p.slug, title: p.title, rows, framework: pre.framework, root: pre.root, native: pre.native, logo: current, read: part.read });
     if (old.length) rows = rows.map((r) => (old.includes(r.id) ? { ...r, state: "viejo" as const, checks: [...r.checks, { k: "old_logo", ok: false }] } : r));
     // PLA-I69-1: the manifest's colour follows a logo the owner chose; one still on another colour reads old.
-    const want = logoTheme(current);
+    const want = appTheme(styleOf(p.slug), current);
     rows = rows.map((r) => {
       if (r.id !== "man" || r.state !== "ok" || !want) return r;
       const have = r.checks.find((c) => c.k === "man_colors")?.v?.theme;
@@ -230,7 +231,8 @@ export async function marcaRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   }
   const req = await openRequest(db, p.id);
   const active = await activeLogo(db, p.id);
-  const key = `${active?.id ?? ""}|${active?.version ?? 0}|${JSON.stringify(active?.adjust ?? null)}|${surfacesStamp(p.slug)}|${p.title}`;
+  const st = styleOf(p.slug);
+  const key = `${active?.id ?? ""}|${active?.version ?? 0}|${JSON.stringify(active?.adjust ?? null)}|${surfacesStamp(p.slug)}|${p.title}|${st ? `${st.brandTie}:${st.brand}` : ""}`;
   // Several reads at once (the screen asks for a few images right after a change) share one judgement.
   if (!c.judged || c.judged.key !== key) {
     if (!c.judging || c.judging.key !== key) c.judging = { key, p: judge(p, c.part, active) };

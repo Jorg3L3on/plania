@@ -158,11 +158,11 @@ test("#6 the request: files written as the repo will hold them, old colours list
   const made = await style.requestStyle(db, project, { git });
   assert.ok(existsSync(path.join(made.dir, "src/app/brand.css")));
   assert.ok(existsSync(path.join(made.dir, "brand/tokens.json")));
-  assert.match(readFileSync(path.join(made.dir, "src/app/brand.css"), "utf8"), /"DM Sans"/);
+  assert.match(readFileSync(path.join(made.dir, "src/app/brand.css"), "utf8"), /--font-sans: var\(--font-dm-sans\)/, "next/font hashes family names: brand.css uses its variable");
   const t = (await raw.query("select scope, status from tasks where key = $1", [made.key])).rows[0];
   assert.match(t.scope, /<!-- plania:marca-estilo set=[0-9a-f]{16} -->/);
   assert.match(t.scope, /src\/app\/globals\.css/);
-  assert.match(t.scope, /next\/font\/google/);
+  assert.match(t.scope, /«DM Sans» con variable: "--font-dm-sans"/);
   assert.match(t.scope, /src\/components\/boton\.tsx`: #8c2f39 \(2\)/);
   assert.equal(t.status, "Ready");
   assert.equal(((await style.styleRead(db, "tienda", { git }))!).pedido?.key, made.key);
@@ -190,4 +190,61 @@ test("#7 the screen makes the same files as the server, reads an expert's code b
   assert.equal(typeOnly.brand, s.brand);
   assert.equal(typeOnly.head, "Bricolage Grotesque");
   assert.deepEqual(Object.keys(ui.FONT_CAT).sort(), [...style.FONTS].sort(), "the screen knows every font the server offers");
+});
+
+test("#8 a shadcn/ui repo (an alias before the value, its own --accent): read right, and brand.css writes shadcn's variables", async () => {
+  const css = `@theme inline {\n  --color-primary: var(--primary);\n  --font-sans: var(--font-inter);\n}\n:root {\n  --primary: #8e1b3a;\n  --primary-foreground: #ffffff;\n  --accent: #f1d9df;\n  --radius: 0.75rem;\n}\n.dark { --primary: #c04060; }\n`;
+  files["src/app/globals.css"] = Buffer.from(css);
+  files["src/app/layout.tsx"] = Buffer.from(`import { Inter } from "next/font/google";\nconst inter = Inter({ variable: "--font-inter" });`);
+  const r = await style.readRepoStyle(view(), "");
+  assert.equal(r.brand, "#8e1b3a", "the alias is skipped for the first real colour");
+  assert.equal(r.shadcn, true);
+  assert.equal(r.accent, undefined, "shadcn's --accent is a surface, not the brand's accent");
+  assert.equal(r.radius, 12);
+  assert.equal(r.body, "Inter");
+  assert.equal(r.dark, true);
+  const s = { ...style.startStyle(r, null), head: "Fraunces" };
+  const out = style.brandCss(s, { next: true, shadcn: true });
+  const root = out.slice(out.indexOf(":root {"), out.indexOf(".dark {"));
+  assert.match(root, /--primary: #8e1b3a;/);
+  assert.match(root, /--primary-foreground: #ffffff;/);
+  assert.doesNotMatch(root, /\n  --muted:|\n  --secondary:/, "shadcn's own --muted and --secondary are left alone");
+  const t = style.tokens(s);
+  assert.match(root, new RegExp(`--accent: ${t.scale[1]};`), "shadcn's accent is a tint of the brand");
+  assert.match(root, /--primary-hover: #[0-9a-f]{6};/);
+  assert.match(root, /--sidebar-primary: #8e1b3a;/);
+  const input = root.match(/--input: (#[0-9a-f]{6});/)![1]!;
+  assert.ok(color.contrast(input, "#ffffff") >= 3 && color.contrast(input, t.light.background!) >= 3, "a field's border keeps 3:1 (WCAG 1.4.11)");
+  const dark = out.slice(out.indexOf(".dark {"));
+  const dInput = dark.match(/--input: (#[0-9a-f]{6});/)![1]!;
+  assert.ok(color.contrast(dInput, t.dark.card!) >= 3, "and on dark");
+  assert.match(out, /--font-heading: var\(--font-fraunces\)/);
+  assert.match(out, /h1, h2, h3, h4 \{ font-family: var\(--font-heading\)/, "headings take the heading font even where the app never used font-heading");
+  assert.match(out, /--font-sans: var\(--font-inter\)/);
+  const ui = await import("../ui/src/lib/estilo.js");
+  for (const o of [{}, { next: true }, { shadcn: true }, { next: true, shadcn: true }]) assert.equal(ui.brandCss(s, o), style.brandCss(s, o));
+});
+
+test("#9 old colours in a real repo: one git grep over the commit, filtered like the file scan", async () => {
+  const sha = "a".repeat(40);
+  const seen: string[][] = [];
+  const grep: import("../src/brand/logos.js").Git = async (_cwd, args) => {
+    seen.push(args);
+    return { code: 0, stdout: Buffer.from([`${sha}:src/a.tsx:#8C2F39`, `${sha}:src/a.tsx:#8c2f39`, `${sha}:src/b.css:#123456`, `${sha}:node_modules/x/y.js:#8c2f39`, `${sha}:public/logo.svg:#8c2f39`, `${sha}:src/app/brand.css:#8c2f39`].join("\n")) };
+  };
+  const out = await style.oldColorsGrep(grep, "/repo", sha, "", ["#123456", "#8c2f39"]);
+  assert.deepEqual(out, [{ path: "src/a.tsx", n: 2, colors: ["#8c2f39"] }, { path: "src/b.css", n: 1, colors: ["#123456"] }]);
+  assert.deepEqual(seen[0]!.slice(0, 5), ["grep", "-I", "-i", "-o", "-F"]);
+  assert.deepEqual(await style.oldColorsGrep(grep, "/repo", sha, "", []), [], "nothing to look for: no git call");
+  assert.equal(seen.length, 1);
+});
+
+test("#10 one app colour: the chosen logo's until a style is set, then the style's brand (or the logo's, if it follows)", async () => {
+  const { appTheme } = await import("../src/brand/theme.js");
+  const logo = { chosen: true, colors: ["#4a1f3d"], adjust: { bg: null } };
+  assert.equal(appTheme(null, logo), "#4a1f3d");
+  assert.equal(appTheme({ brand: "#5D314F", brandTie: "fijo" }, logo), "#5d314f");
+  assert.equal(appTheme({ brand: "#5d314f", brandTie: "sigue" }, logo), "#4a1f3d");
+  assert.equal(appTheme({ brand: "#5d314f", brandTie: "sigue" }, { ...logo, chosen: false }), "#5d314f", "a logo only found in the repo does not lead");
+  assert.equal(appTheme(null, { ...logo, chosen: false }), null);
 });

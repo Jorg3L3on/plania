@@ -98,7 +98,7 @@ test("#3 the request edits the manifest's colour (never rewrites it) and the sha
   assert.equal(`#${[data[0]!, data[1]!, data[2]!].map((v) => v.toString(16).padStart(2, "0")).join("")}`, "#1f2b5c");
   const req = await pedido.requestIcons(db, project, "faltan");
   const [t] = (await raw.query("select scope from tasks where key = $1", [req.key])).rows;
-  assert.match(t.scope, /theme_color y background_color con el color del logo \(#1f2b5c\)/);
+  assert.match(t.scope, /theme_color y background_color con el color de la app \(#1f2b5c\); también viewport\.themeColor/);
   assert.match(t.scope, /rows=[a-z0-9_,]*\bman\b/, "the manifest is on its way with the request");
 });
 
