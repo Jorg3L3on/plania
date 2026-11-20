@@ -1758,6 +1758,9 @@ li[data-st="falta"] .mk-row-tx b, li[data-st="mal"] .mk-row-tx b { color: var(--
   .mk-slot, .mk-r-orbit ellipse, .mk-r-center.has::before { animation: none; }
 }
 
+/* PLA-I66-6: the native switch under the list of files. */
+.mk-list-native { flex: none; padding: 6px 14px; border-top: 1px solid var(--cor-line); font-size: 12.5px; }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */

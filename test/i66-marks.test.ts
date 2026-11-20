@@ -70,7 +70,7 @@ describe("Artist's marks", () => {
   test("the run's prompt carries the hints, the images to look at, the drawing rules and the one call to make", async () => {
     const r = await marks.requestMarks(db, project, { about: "Una tienda de barrio", feel: ["cálida"], avoid: ["carritos"], colors: ["#c2410c"], images: [`${"b".repeat(64)}.png`] }, { wake });
     const text = marks.marksPrompt({ agent: "Artist", project: { slug: "tienda", title: "Tienda" }, request: r, sessionId: "run-x", imageDir: "/store/up" });
-    for (const bit of ["«Una tienda de barrio»", "cálida", "carritos", "#c2410c", `/store/up/${"b".repeat(64)}.png`, "viewBox 0 0 100 100", "radius 38", `id: "${r.id}"`, "deliver_marks", "Spanish"]) assert.ok(text.includes(bit), bit);
+    for (const bit of ['"Una tienda de barrio"', "cálida", "carritos", "#c2410c", `/store/up/${"b".repeat(64)}.png`, "viewBox 0 0 100 100", "radius 38", `id: "${r.id}"`, "deliver_marks", "Spanish"]) assert.ok(text.includes(bit), bit);
   });
 
   test("deliver_marks: only the run it woke; marks cleaned, rendered and tested; unusable ones said with the reason", async () => {

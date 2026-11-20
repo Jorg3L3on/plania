@@ -128,12 +128,12 @@ export function marksPrompt(input: { agent: string; project: { slug: string; tit
   const imgs = h.images.map((u) => path.join(input.imageDir, u));
   return [
     `You are ${input.agent}, the designer of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to draw logo marks. Nothing else: no code, no files in any repo, no tickets.`,
-    `What the project is about: «${h.about || input.project.title}».`,
+    `What the project is about: "${h.about || input.project.title}".`,
     h.feel.length ? `It should feel: ${h.feel.join(", ")}.` : "",
     h.avoid.length ? `It must not have: ${h.avoid.join(", ")}.` : "",
     h.colors.length ? `Colours taken from the owner's inspiration: ${h.colors.join(", ")}.` : "",
     imgs.length ? `Inspiration images (look at each with the Read tool; take mood and colour, never copy them): ${imgs.join(", ")}.` : "",
-    h.like ? `The owner liked «${h.like}»: draw six variations of that idea (shape, weight, colour), not new ideas.` : "",
+    h.like ? `The owner liked "${h.like}": draw six variations of that idea (shape, weight, colour), not new ideas.` : "",
     "Draw 6 marks that are different ideas (a letterform, a geometric shape, a symbol of what the project does), each an app icon: a square SVG with viewBox 0 0 100 100, its own background filling the whole square (a <rect> or a gradient) and the drawing on it.",
     "Rules: at most 6 shapes, no <text>, no images, no scripts, no external references, two or three colours, strokes 8 or more units wide (they must survive at 16 px), the drawing inside a circle of radius 38 around the centre (Android crops the rest), strong contrast between drawing and background.",
     `Name each mark in two or three words and give its idea in one sentence, both in ${ownerLanguage()}.`,

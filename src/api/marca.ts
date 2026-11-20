@@ -23,7 +23,10 @@ import { withDb } from "../db/client.js";
 import { projects, type Project } from "../db/schema.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { activateVersion, listVersions, LogoError, MAX_UPLOAD_BYTES, previewUpload, releaseChoice, stageUpload, useCandidate, useUpload, versionBytes } from "../brand/upload.js";
-import { marcaRead } from "../brand/marca.js";
+import { forgetMarcaOf, marcaRead } from "../brand/marca.js";
+import { setProject } from "../mcp/project.js";
+import { ToolError } from "../mcp/errors.js";
+import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
 import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
 import { latestRequest, markFile, requestMarks, settle, useMark } from "../brand/marks.js";
@@ -250,6 +253,23 @@ marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
     await withDb((db) => useMark(db, p, c.req.param("id")!, c.req.param("mark")!, WEB_ACTOR));
     return c.json(await withDb((db) => marcaRead(db, p.slug)));
   } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I66-6: the switch that adds the native app icons and the iPhone launch screens (settings.marca.native).
+marcaRoutes.use("/projects/:slug/marca/native", guard);
+marcaRoutes.post("/projects/:slug/marca/native", async (c) => {
+  try {
+    const body = await json(c, z.object({ on: z.boolean() }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    await withDb((db) => setProject(db, { project: p.slug, version: p.version, settings: { marca: { native: body.on } } }, settingsCtx));
+    forgetMarcaOf(p.id);
+    return c.json(await withDb((db) => marcaRead(db, p.slug)));
+  } catch (e) {
+    if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
     return fail(c, e);
   }
 });

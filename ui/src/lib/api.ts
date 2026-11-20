@@ -217,6 +217,8 @@ export const api = {
   marcaGoBack: (slug: string, v: number) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/versions/${v}`),
   marcaRelease: (slug: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/release`),
   // PLA-I66-4: the files into the repo.
+  // PLA-I66-6: the switch for the native app icons and the launch screens.
+  marcaNative: (slug: string, on: boolean) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/native`, { on }),
   // PLA-I66-5: Artist's marks.
   marcaMarks: (slug: string) => request<{ request: MarksRequest | null }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/marks`),
   marcaAskMarks: (slug: string, hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null }) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks`, hints),

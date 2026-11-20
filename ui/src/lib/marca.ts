@@ -6,7 +6,7 @@ import type { LogoRef } from "./logos.js";
 
 export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
 export type RowState = "ok" | "falta" | "mal";
-export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl";
+export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
 export type Coded = { k: string; v?: Record<string, string | number> };
 export type MarcaRow = { id: RowId; face: Face; state: RowState; path: string | null; optional?: boolean; size?: string; note?: Coded; checks: (Coded & { ok: boolean })[] };
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
@@ -21,6 +21,8 @@ export type MarcaRead = {
   rows: MarcaRow[];
   candidates: MarcaCandidate[];
   splash: string | null;
+  /** PLA-I66-6: the switch that adds the native app icons and the launch screens. */
+  native: boolean;
   /** PLA-I66-4: the open ticket bringing icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
@@ -121,6 +123,8 @@ export const MARCA_WORDS = defineWords({
       mono: { name: "Ícono monocromo", spec: "opcional: íconos temáticos de Android" },
       og: { name: "Imagen para compartir", spec: "1200 × 630" },
       pl: { name: "La copia de Plania", spec: "el original, en Plania" },
+      ios_app: { name: "Ícono de la app de iOS", spec: "1024 × 1024, opaco" },
+      and_app: { name: "Ícono adaptable de Android", spec: "frente, fondo y monocromo" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "en el repo", falta: "falta", mal: "mal" } as Record<RowState, string>,
     plState: { ok: "en Plania", falta: "falta", mal: "mal" } as Record<RowState, string>,
@@ -148,6 +152,13 @@ export const MARCA_WORDS = defineWords({
       og_meta: "Declarada en los metadatos",
       pl_kept: "Plania guarda el original",
       pl_used: "Es el que usa Compañía",
+      splash_full: (v: Record<string, string | number>) => `Cubre los ${v.n} tamaños de iPhone y iPad`,
+      native_expo: "App de Expo (app.json)",
+      native_capacitor: "App de Capacitor",
+      native_app: "El repo tiene una app nativa",
+      adaptive_fg: "Capa de frente",
+      adaptive_bg: "Capa de fondo",
+      adaptive_mono: "Capa monocroma (íconos temáticos)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `Hay ${v.n} copias iguales (${v.list}). Funciona; basta una.`,
@@ -155,6 +166,7 @@ export const MARCA_WORDS = defineWords({
       mask_edge: "Pasa, pero al límite del círculo.",
       og_code: "La dibuja el código: Plania la revisa, no la reemplaza.",
       pl_none: "Sin original, Compañía dibuja la inicial del proyecto.",
+      web_only: "El repo no tiene app nativa todavía: Plania deja listos los archivos en assets/.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "en el repo", missing: (n: number): string => (n === 1 ? "falta" : "faltan"), wrong: "mal" },
     doorCount: (n: number) => (n === 1 ? "1 FALTA" : `${n} FALTAN`),
@@ -187,6 +199,7 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean): string => (has ? "en carriles, tira y brief" : "hoy: una letra"),
     optional: "opcional",
     reread: "Revisar el repo ahora",
+    native: "App nativa y pantallas de arranque",
     gen: {
       menu: "Pedir marcas a Artist",
       menuHint: "desde pistas e inspiración",
@@ -238,8 +251,12 @@ export const MARCA_WORDS = defineWords({
         layout_theme: "themeColor y appleWebApp",
         html_links: "enlaces de íconos en el head",
         html_manifest: "enlace al manifest",
+        layout_splash: "pantallas de arranque en appleWebApp.startupImage",
+        html_splash: "enlaces apple-touch-startup-image",
+        expo_icons: "icon, ios.icon y android.adaptiveIcon",
+        capacitor_assets: "correr @capacitor/assets con estas fuentes",
       } as Record<string, string>,
-      file: { ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos" } as Record<string, string>,
+      file: { splash: "19 pantallas de arranque", ios_app: "1024 × 1024, opaco", and_app: "frente, monocromo y fondo", ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos" } as Record<string, string>,
       way: "Cómo llega",
       steps: [
         ["Plania arma los archivos", "Desde el original, con tamaños exactos. Sin servicios de pago."],
@@ -356,6 +373,8 @@ export const MARCA_WORDS = defineWords({
       mono: { name: "Monochrome icon", spec: "optional: Android themed icons" },
       og: { name: "Share image", spec: "1200 × 630" },
       pl: { name: "Plania's copy", spec: "the original, in Plania" },
+      ios_app: { name: "iOS app icon", spec: "1024 × 1024, opaque" },
+      and_app: { name: "Android adaptive icon", spec: "foreground, background and monochrome" },
     } as Record<RowId, { name: string; spec: string }>,
     state: { ok: "in the repo", falta: "missing", mal: "wrong" } as Record<RowState, string>,
     plState: { ok: "in Plania", falta: "missing", mal: "wrong" } as Record<RowState, string>,
@@ -383,6 +402,13 @@ export const MARCA_WORDS = defineWords({
       og_meta: "Declared in the metadata",
       pl_kept: "Plania keeps the original",
       pl_used: "It is what Company shows",
+      splash_full: (v: Record<string, string | number>) => `Covers the ${v.n} iPhone and iPad sizes`,
+      native_expo: "Expo app (app.json)",
+      native_capacitor: "Capacitor app",
+      native_app: "The repo holds a native app",
+      adaptive_fg: "Foreground layer",
+      adaptive_bg: "Background layer",
+      adaptive_mono: "Monochrome layer (themed icons)",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     note: {
       copies: (v: Record<string, string | number>) => `There are ${v.n} identical copies (${v.list}). It works; one is enough.`,
@@ -390,6 +416,7 @@ export const MARCA_WORDS = defineWords({
       mask_edge: "It passes, but right at the edge of the circle.",
       og_code: "Code draws it: Plania checks it, never replaces it.",
       pl_none: "Without an original, Company draws the project's initial.",
+      web_only: "The repo has no native app yet: Plania leaves the files ready in assets/.",
     } as Record<string, string | ((v: Record<string, string | number>) => string)>,
     count: { ok: "in the repo", missing: (_n: number) => "missing", wrong: "wrong" },
     doorCount: (n: number) => `${n} MISSING`,
@@ -422,6 +449,7 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
+    native: "Native app and launch screens",
     gen: {
       menu: "Ask Artist for marks",
       menuHint: "from hints and inspiration",
@@ -473,8 +501,12 @@ export const MARCA_WORDS = defineWords({
         layout_theme: "themeColor and appleWebApp",
         html_links: "icon links in the head",
         html_manifest: "a link to the manifest",
+        layout_splash: "launch screens in appleWebApp.startupImage",
+        html_splash: "apple-touch-startup-image links",
+        expo_icons: "icon, ios.icon and android.adaptiveIcon",
+        capacitor_assets: "run @capacitor/assets with these sources",
       } as Record<string, string>,
-      file: { ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons" } as Record<string, string>,
+      file: { splash: "19 launch screens", ios_app: "1024 × 1024, opaque", and_app: "foreground, monochrome and background", ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons" } as Record<string, string>,
       way: "How it arrives",
       steps: [
         ["Plania makes the files", "From the original, at exact sizes. No paid services."],

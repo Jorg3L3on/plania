@@ -29,6 +29,8 @@ export type MarcaRead = {
   candidates: MarcaCandidate[];
   /** One of the launch screens, when the repo has them (the iPhone card shows it). */
   splash: string | null;
+  /** PLA-I66-6: the switch that adds the native app icons and the launch screens. */
+  native: boolean;
   /** PLA-I66-4: the open ticket that brings icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
@@ -39,7 +41,7 @@ export type MarcaRead = {
 type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido">; files: Set<string> };
 
 // PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
-const REQ = /<!-- plania:marca set=([0-9a-f]{16}) rows=([a-z0-9,]*) -->/;
+const REQ = /<!-- plania:marca set=([0-9a-f]{16}) rows=([a-z0-9_,]*) -->/;
 async function openRequest(db: Db, projectId: string): Promise<{ key: string; status: string; rows: string[] } | null> {
   const [t] = await db
     .select({ key: tasks.key, status: tasks.status, scope: tasks.scope })
@@ -64,7 +66,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const git = deps.git ?? realGit;
   const now = (deps.now ?? Date.now)();
   const branch = startBranchOf(p.settings);
-  const base = { slug: p.slug, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
+  const base = { slug: p.slug, native: !!p.settings?.marca?.native, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
   const scan = await scanProjectLogo(db, p, deps);
   const hasOriginal = !!(await activeLogo(db, p.id));
   if (scan.status === "no_repo" || !scan.commit) {
@@ -75,7 +77,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const commit = scan.commit;
   const tree = await listTree(git, repo, commit);
   const view = { paths: tree, read: (f: string) => readBlob(git, repo, commit, f) };
-  const check = await checkRepo(view, { hasOriginal, slug: p.slug });
+  const check = await checkRepo(view, { hasOriginal, slug: p.slug, native: !!p.settings?.marca?.native });
   const current = await activeLogo(db, p.id);
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
   // PLA-I66-4: the owner's choice leads, and the repo's best logo is another picture (not the same logo regenerated).

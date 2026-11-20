@@ -9,7 +9,7 @@ import { logoUrl } from "@/lib/logos";
 import { FACES, RING, counts, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { Logo, ReadError } from "./parts";
+import { Logo, ReadError, Switch } from "./parts";
 
 type Shape = "circle" | "squircle" | "drop";
 
@@ -142,7 +142,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           ) : sel ? (
             <Ficha r={r} face={sel} w={w} onBack={() => setSel(null)} />
           ) : (
-            <Rows r={r} w={w} onPick={setSel} onHover={setHover} />
+            <Rows r={r} w={w} onPick={setSel} onHover={setHover} onNative={async (on) => took(await api.marcaNative(p.slug, on))} />
           )}
         </aside>
       </div>
@@ -668,7 +668,8 @@ function Upload({ p, r, w, onBack, onUsed }: { p: { slug: string; title: string 
   );
 }
 
-function Rows({ r, w, onPick, onHover }: { r: MarcaRead; w: MarcaWords; onPick: (f: Face) => void; onHover: (f: Face | null) => void }) {
+function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords; onPick: (f: Face) => void; onHover: (f: Face | null) => void; onNative: (on: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
   return (
     <>
       <header className="mk-list-h">
@@ -693,6 +694,10 @@ function Rows({ r, w, onPick, onHover }: { r: MarcaRead; w: MarcaWords; onPick: 
           );
         })}
       </ul>
+      {/* PLA-I66-6: off by default; on, the list and the request also cover the native icons and the launch screens. */}
+      <footer className="mk-list-native">
+        <Switch on={r.native} label={w.native} disabled={busy} onChange={async (on) => { setBusy(true); try { await onNative(on); } finally { setBusy(false); } }} data-control="marca-nativo" />
+      </footer>
     </>
   );
 }

@@ -19,7 +19,8 @@ export type SettingControl =
   | "ajustes.arranque"
   | "ajustes.avanzado"
   | "motores"
-  | "piso.siguiente";
+  | "piso.siguiente"
+  | "marca.nativo";
 // defecto: the default in plain Spanish, for the screen; every advanced key has one.
 // owner_only: why an agent setting it would weaken a control the owner keeps. Only the owner's screen (a context with
 // human: true, from the session cookie) writes such a key; set_project from an agent refuses it with INVALID_FILTER,
@@ -42,6 +43,7 @@ export const SETTING_WORDS = defineWords<SettingWords>({
       plan_approval: "Un plan del PO espera tu «Sí, empiecen».",
       auto_accept: "Una entrega con sus pruebas en verde entra a la copia de prueba sin esperarte.",
       auto_accept_invisible: "Solo lo que no cambia la pantalla entra sin esperarte.",
+      marca: "La puerta Marca también cuenta los íconos de la app nativa y las pantallas de arranque de iPhone.",
       runner: "Cuántos agentes y preguntas trabajan a la vez en este proyecto.",
       next_first: "El paso listo que va primero.",
       start_branch: "La rama de donde parte el equipo y a la que entra lo que aceptas. Nunca la rama publicada.",
@@ -83,6 +85,7 @@ export const SETTING_WORDS = defineWords<SettingWords>({
       plan_approval: "A PO's plan waits for your «Yes, go ahead».",
       auto_accept: "A delivery with its tests green goes into the test copy without waiting for you.",
       auto_accept_invisible: "Only what does not change the screen goes in without waiting for you.",
+      marca: "The Marca door also counts the native app icons and the iPhone launch screens.",
       runner: "How many agents and questions work at once in this project.",
       next_first: "The ready step that goes first.",
       start_branch: "The branch the team starts from and that what you accept goes into. Never the published branch.",
@@ -132,6 +135,8 @@ export const SETTINGS = {
   qa: { tier: "basic", control: "ajustes.pruebas", default: "no verify list; the other QA switches off", get frase() { return say(SETTING_WORDS).frase.qa; } },
   capture: { tier: "basic", control: "ajustes.arranque", default: "none until Máquinas guesses it from the dev script", get frase() { return say(SETTING_WORDS).frase.capture; } },
   preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "ajustes.vista", default: "none", get frase() { return say(SETTING_WORDS).frase.preview_url; } },
+  // PLA-I66-6: the switch on the Marca door.
+  marca: { tier: "basic", control: "marca.nativo", default: "off: only the web files are counted", get frase() { return say(SETTING_WORDS).frase.marca; } },
   plan_approval: { owner_only: "off, a PO's plan makes tickets without the owner's «Sí, empiecen»", tier: "basic", control: "ajustes.vista", default: "on for a new project", get frase() { return say(SETTING_WORDS).frase.plan_approval; } },
   auto_accept: { owner_only: "on, deliveries enter the test copy without the owner", tier: "basic", control: "ajustes.vista", default: "off", get frase() { return say(SETTING_WORDS).frase.auto_accept; } },
   auto_accept_invisible: { owner_only: "on, deliveries enter the test copy without the owner", tier: "basic", control: "ajustes.vista", default: "off", get frase() { return say(SETTING_WORDS).frase.auto_accept_invisible; } },

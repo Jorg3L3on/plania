@@ -41,7 +41,7 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   const [l] = await db.select().from(projectLogos).where(and(eq(projectLogos.projectId, project.id), eq(projectLogos.active, true))).limit(1);
   const o = l ? originalOf(project.slug, l) : null;
   if (!o) return null;
-  const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml");
+  const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, mode, o.mime === "image/svg+xml", r.native);
   const files = await generate(o, plan, { name: project.title, theme: themeOf(r), rows: r.rows, root: r.root });
   const id = setId(o, plan);
   const dir = path.join(capturesDir(), "_marca", project.slug, "sets", id);

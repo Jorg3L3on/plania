@@ -5,14 +5,14 @@
 // draws (opengraph-image.tsx) is never replaced.
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import { reach } from "./check.js";
+import { reach, SPLASH_SIZES } from "./check.js";
 import type { Framework, Row, RowId } from "./check.js";
 
 export type Original = { bytes: Buffer; mime: "image/svg+xml" | "image/png"; variant: "icon" | "mark"; colors: string[]; bg?: string | null };
-export type GenKey = Exclude<RowId, "pl" | "splash" | "man"> | "manifest";
+export type GenKey = Exclude<RowId, "pl" | "man"> | "manifest";
 export type GenFile = { key: GenKey; path: string; bytes: Buffer };
 export type PlanItem = { key: GenKey; path: string; op: "+" | "~" };
-export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" };
+export type Edit = { path: string; what: "manifest_icons" | "manifest_mono" | "layout_svg" | "layout_theme" | "html_links" | "html_manifest" | "layout_splash" | "html_splash" | "expo_icons" | "capacitor_assets"; value?: string };
 export type Plan = { items: PlanItem[]; edits: Edit[]; kept: number; framework: Framework; mode: "faltan" | "todo" };
 
 const DARK = "#0c0c10";
@@ -39,17 +39,25 @@ export function placeOf(key: GenKey, rows: Row[], f: { framework: Framework; roo
     mono: `${pub}/icons/icon-monochrome.png`,
     og: next ? `${app}/opengraph-image.png` : `${pub}/og.png`,
     manifest: next ? `${app}/manifest.ts` : `${pub}/manifest.webmanifest`,
+    splash: `${pub}/splash/`,
+    ios_app: existing?.path ?? `${f.root}assets/icon.png`,
+    and_app: existing?.path ?? `${f.root}assets/adaptive-icon.png`,
   };
+  // PLA-I66-6: Capacitor builds its icons from sources in assets/ (@capacitor/assets): Plania gives those.
+  const cap = rows.some((r) => r.checks.some((c) => c.k === "native_capacitor"));
+  if (cap && key === "ios_app") return `${f.root}assets/icon-only.png`;
+  if (cap && key === "and_app") return `${f.root}assets/icon-foreground.png`;
   return at[key];
 }
 
-const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", a192: "a192", a512: "a512", mask: "mask", mono: "mono", og: "og", manifest: "man" };
+const ROW_OF: Record<GenKey, RowId> = { ico: "ico", svg: "svg", apple: "apple", a192: "a192", a512: "a512", mask: "mask", mono: "mono", og: "og", manifest: "man", splash: "splash", ios_app: "ios_app", and_app: "and_app" };
 
 /** What a request to Taller would change: the missing or wrong files (faltan), or every file (todo). */
-export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean): Plan {
+export function planFor(rows: Row[], f: { framework: Framework; root: string }, mode: "faltan" | "todo", svgOriginal: boolean, native = false): Plan {
   const items: PlanItem[] = [];
   let kept = 0;
-  for (const key of ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest"] as GenKey[]) {
+  const keys: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "manifest", ...(native ? (["splash", "ios_app", "and_app"] as GenKey[]) : [])];
+  for (const key of keys) {
     const row = rows.find((r) => r.id === ROW_OF[key]);
     if (!row) continue;
     if (key === "svg" && !svgOriginal) continue; // a raster original has no SVG to give
@@ -74,6 +82,13 @@ export function planFor(rows: Row[], f: { framework: Framework; root: string }, 
     if (items.some((i) => ["ico", "svg", "apple"].includes(i.key))) edits.push({ path: html, what: "html_links" });
     if (touches("manifest")) edits.push({ path: html, what: "html_manifest" });
     if (man?.state === "ok" && touches("mono")) edits.push({ path: man.path!, what: "manifest_mono" });
+  }
+  if (touches("splash")) edits.push(f.framework === "next-app" ? { path: `${f.root}${(rows.find((r) => r.id === "ico")?.path ?? "src/app/").replace(/favicon\.ico$/, "")}layout.tsx`.replace(`${f.root}${f.root}`, f.root), what: "layout_splash" } : { path: `${f.root}index.html`, what: "html_splash" });
+  if (touches("ios_app") || touches("and_app")) {
+    const cap = rows.some((r) => r.checks.some((c) => c.k === "native_capacitor"));
+    const expo = rows.some((r) => r.checks.some((c) => c.k === "native_expo"));
+    if (expo) edits.push({ path: `${f.root}app.json`, what: "expo_icons" });
+    if (cap) edits.push({ path: `${f.root}assets/`, what: "capacitor_assets" });
   }
   return { items, edits: dedupe(edits), kept, framework: f.framework, mode };
 }
@@ -205,14 +220,55 @@ export function manifestText(f: Framework, name: string, theme: string, at: (k: 
   return `import type { MetadataRoute } from "next";\n\nexport default function manifest(): MetadataRoute.Manifest {\n  return ${JSON.stringify(data, null, 2).replace(/\n/g, "\n  ")};\n}\n`;
 }
 
+/** One launch screen: the icon, rounded, in the middle of the theme colour. */
+async function splashOf(t: Buffer, w: number, h: number, bg: string): Promise<Buffer> {
+  const s = Math.round(Math.min(w, h) * 0.28);
+  const r = Math.round(s * 0.2237);
+  const icon = await sharp(t).resize(s, s).composite([{ input: Buffer.from(`<svg width="${s}" height="${s}"><rect width="${s}" height="${s}" rx="${r}" ry="${r}"/></svg>`), blend: "dest-in" }]).png().toBuffer();
+  return sharp({ create: { width: w, height: h, channels: 4, background: rgba(bg) } }).composite([{ input: icon, gravity: "center" }]).flatten().png({ compressionLevel: 9, palette: true }).toBuffer();
+}
+
+/** Android's adaptive foreground: the drawing alone (its background removed), inside the 66 dp of 108 safe zone. */
+async function adaptive(o: Original, t: Buffer): Promise<{ fg: Buffer; mono: Buffer; bg: string }> {
+  const N = 1024;
+  const bg = await cornerOf(t);
+  const mono = await monochrome(o, t); // 512, white silhouette on nothing
+  let fgFull: Buffer;
+  if (o.variant === "mark") fgFull = await sharp(o.bytes, { density: density(o) }).resize(N, N, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+  else {
+    // The tile's colours where the silhouette is, nothing elsewhere.
+    const a = await sharp(mono).resize(N, N).extractChannel(3).toBuffer();
+    fgFull = await sharp(await sharp(t).resize(N, N).removeAlpha().toBuffer()).joinChannel(a).png().toBuffer();
+  }
+  const inner = Math.round(N * 0.6);
+  const fg = await sharp({ create: { width: N, height: N, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite([{ input: await sharp(fgFull).resize(inner, inner).png().toBuffer(), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
+  const monoOut = await sharp({ create: { width: N, height: N, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite([{ input: await sharp(mono).resize(inner, inner).png().toBuffer(), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
+  return { fg, mono: monoOut, bg };
+}
+
 /** The plan's files, made. */
 export async function generate(o: Original, plan: Plan, opts: { name: string; theme: string | null; rows: Row[]; root: string }): Promise<GenFile[]> {
   const t = await tile(o);
   const out: GenFile[] = [];
   const f = { framework: plan.framework, root: opts.root };
   for (const it of plan.items) {
+    if (it.key === "splash") {
+      const bg = opts.theme && /^#[0-9a-f]{6}$/i.test(opts.theme) ? opts.theme : await cornerOf(t);
+      for (const [w, h] of SPLASH_SIZES) out.push({ key: "splash", path: `${it.path.replace(/\/?$/, "/")}apple-splash-${w}x${h}.png`, bytes: await splashOf(t, w, h, bg) });
+      continue;
+    }
+    if (it.key === "and_app") {
+      const a = await adaptive(o, t);
+      const dir = it.path.replace(/[^/]+$/, "");
+      const cap = it.path.endsWith("icon-foreground.png");
+      out.push({ key: "and_app", path: it.path, bytes: a.fg });
+      out.push({ key: "and_app", path: `${dir}${cap ? "icon-monochrome.png" : "adaptive-monochrome.png"}`, bytes: a.mono });
+      if (cap) out.push({ key: "and_app", path: `${dir}icon-background.png`, bytes: await sharp({ create: { width: 1024, height: 1024, channels: 3, background: rgba(a.bg) } }).png().toBuffer() });
+      continue;
+    }
     let bytes: Buffer;
     switch (it.key) {
+      case "ios_app": bytes = await opaque(t, 1024); break;
       case "ico": bytes = await ico(t); break;
       case "svg": bytes = o.bytes; break;
       case "apple": bytes = await opaque(t, 180); break;

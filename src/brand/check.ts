@@ -10,7 +10,7 @@ import { looksLikeLogo } from "./detect.js";
 
 export type Face = "nav" | "ios" | "and" | "pwa" | "share" | "cia";
 export type RowState = "ok" | "falta" | "mal";
-export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl";
+export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app";
 // A check or a note is a code and its values; the screen words them in the install's language (ui/src/lib/marca.ts).
 export type Check = { k: string; ok: boolean; v?: Record<string, string | number> };
 export type Note = { k: string; v?: Record<string, string | number> };
@@ -23,6 +23,11 @@ export type RepoCheck = { framework: Framework; root: string; rows: Row[] };
 // sha256 of the favicon.ico that create-next-app writes.
 export const TEMPLATE_ICO = new Set(["c28fdd2a4f31e2dc64f653962286da5c82a4cdfc518b242d32812c624e9a19a4"]);
 export const SAFE_ZONE = 0.4;
+// PLA-I66-6: the iPhone and iPad portrait launch-screen sizes (the device list pwa-asset-generator ships, MIT).
+export const SPLASH_SIZES: [number, number][] = [
+  [1320, 2868], [1206, 2622], [1290, 2796], [1179, 2556], [1284, 2778], [1170, 2532], [1125, 2436], [1242, 2688], [828, 1792], [1242, 2208],
+  [750, 1334], [640, 1136], [1260, 2736], [2048, 2732], [1668, 2388], [1640, 2360], [1488, 2266], [1536, 2048], [2064, 2752],
+];
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const ok = (k: string, v?: Check["v"]): Check => ({ k, ok: true, ...(v ? { v } : {}) });
@@ -133,7 +138,7 @@ function findRoot(paths: Map<string, number>): { root: string; framework: Framew
 }
 
 /** The icon files of the repo, as rows. hasOriginal: Plania keeps an original for the project (the Company row). */
-export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; slug: string }): Promise<RepoCheck> {
+export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; slug: string; native?: boolean }): Promise<RepoCheck> {
   const { paths } = view;
   const { root, framework, appDir } = findRoot(paths);
   const pub = `${root}public`;
@@ -220,10 +225,13 @@ export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; sl
   {
     const splash = [...paths.keys()].filter((q) => q.startsWith(pub + "/") && /apple-splash|startup|launch/i.test(q) && q.endsWith(".png"));
     const linked = /startupImage/.test(layout) || /apple-touch-startup-image/i.test(html);
+    // PLA-I66-6: with the native switch on, launch screens count, and the set must cover every device size.
+    const need = !!opts.native;
+    const full = splash.length >= SPLASH_SIZES.length;
     rows.push(
       splash.length && (linked || !html)
-        ? { id: "splash", face: "ios", state: "ok", optional: true, path: path.dirname(splash[0]!) + "/", size: `${splash.length}`, checks: [ok("splash_count", { n: splash.length }), linked ? ok("linked") : no("linked")] }
-        : { id: "splash", face: "ios", state: "falta", optional: true, path: `${pub}/splash/`, checks: [no("exists")] },
+        ? { id: "splash", face: "ios", state: need && !full ? "mal" : "ok", optional: !need, path: path.dirname(splash[0]!) + "/", size: `${splash.length}`, checks: [ok("splash_count", { n: splash.length }), linked ? ok("linked") : no("linked"), ...(need ? [full ? ok("splash_full", { n: SPLASH_SIZES.length }) : no("splash_full", { n: SPLASH_SIZES.length })] : [])] }
+        : { id: "splash", face: "ios", state: "falta", optional: !need, path: `${pub}/splash/`, checks: [no("exists")] },
     );
   }
 
@@ -310,10 +318,64 @@ export async function checkRepo(view: RepoView, opts: { hasOriginal: boolean; sl
     else rows.push({ id: "og", face: "share", state: "falta", path: appDir ? `${appDir}/opengraph-image.png` : `${pub}/og.png`, checks: [no("exists")] });
   }
 
+  if (opts.native) rows.push(...(await nativeRows(view, root)));
   rows.push(
     opts.hasOriginal
       ? { id: "pl", face: "cia", state: "ok", path: null, checks: [ok("pl_kept"), ok("pl_used")] }
       : { id: "pl", face: "cia", state: "falta", path: null, note: { k: "pl_none" }, checks: [no("pl_kept")] },
   );
   return { framework, root, rows };
+}
+
+/** The kind of native app the repo holds, if any: Expo (app.json with expo) or Capacitor (capacitor.config). */
+export async function nativeKind(view: RepoView, root: string): Promise<{ kind: "expo" | "capacitor" | null; app: Record<string, unknown> | null }> {
+  const appJson = view.paths.has(`${root}app.json`) ? (await view.read(`${root}app.json`))?.toString("utf8") ?? "" : "";
+  if (appJson) {
+    try {
+      const j = JSON.parse(appJson) as { expo?: Record<string, unknown> };
+      if (j.expo) return { kind: "expo", app: j.expo };
+    } catch {
+      /* not JSON: not Expo's */
+    }
+  }
+  if (["capacitor.config.ts", "capacitor.config.json", "capacitor.config.js"].some((f) => view.paths.has(`${root}${f}`))) return { kind: "capacitor", app: null };
+  return { kind: null, app: null };
+}
+
+/** PLA-I66-6: the iOS app icon and the Android adaptive icon, read from Expo's app.json or Capacitor's projects. */
+async function nativeRows(view: RepoView, root: string): Promise<Row[]> {
+  const { kind, app } = await nativeKind(view, root);
+  const rel = (p: unknown) => (typeof p === "string" ? `${root}${p.replace(/^\.\//, "")}` : null);
+  const out: Row[] = [];
+  const kindCheck: Check = kind ? ok(kind === "expo" ? "native_expo" : "native_capacitor") : no("native_app");
+  // iOS: one 1024 px opaque square; the system makes the rest.
+  {
+    const ios = (app?.ios as Record<string, unknown> | undefined) ?? {};
+    const appiconset = `${root}ios/App/App/Assets.xcassets/AppIcon.appiconset/`;
+    const p = kind === "expo" ? rel(ios.icon ?? app?.icon) : kind === "capacitor" ? [...view.paths.keys()].find((f) => f.startsWith(appiconset) && f.endsWith(".png")) ?? null : null;
+    const b = p && view.paths.has(p) ? await view.read(p) : null;
+    const png = b ? readPng(b) : null;
+    if (!png) out.push({ id: "ios_app", face: "ios", state: "falta", path: p ?? `${root}assets/icon.png`, note: kind ? undefined : { k: "web_only" }, checks: [kindCheck, no("exists")] });
+    else {
+      const right = png.width === 1024 && png.height === 1024;
+      const op = opaque(b!);
+      out.push({ id: "ios_app", face: "ios", state: right && op !== false ? "ok" : "mal", path: p, size: `${png.width} × ${png.height}`, checks: [kindCheck, right ? ok("size", { want: "1024 × 1024" }) : no("size", { want: "1024 × 1024", got: `${png.width} × ${png.height}` }), op === false ? no("opaque") : ok("opaque")] });
+    }
+  }
+  // Android: a foreground over a background, plus a monochrome layer for themed icons.
+  {
+    const ad = ((app?.android as Record<string, unknown> | undefined)?.adaptiveIcon as Record<string, unknown> | undefined) ?? null;
+    const xml = `${root}android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`;
+    if (kind === "expo") {
+      const fg = rel(ad?.foregroundImage);
+      const has = (q: string | null) => !!q && view.paths.has(q);
+      const checks = [kindCheck, has(fg) ? ok("adaptive_fg") : no("adaptive_fg"), ad?.backgroundColor || has(rel(ad?.backgroundImage)) ? ok("adaptive_bg") : no("adaptive_bg"), has(rel(ad?.monochromeImage)) ? ok("adaptive_mono") : no("adaptive_mono")];
+      out.push({ id: "and_app", face: "and", state: !has(fg) ? "falta" : checks.every((c) => c.ok) ? "ok" : "mal", path: fg ?? `${root}assets/adaptive-icon.png`, checks });
+    } else if (kind === "capacitor" && view.paths.has(xml)) {
+      const t = (await view.read(xml))?.toString("utf8") ?? "";
+      const checks = [kindCheck, /<foreground/.test(t) ? ok("adaptive_fg") : no("adaptive_fg"), /<background/.test(t) ? ok("adaptive_bg") : no("adaptive_bg"), /<monochrome/.test(t) ? ok("adaptive_mono") : no("adaptive_mono")];
+      out.push({ id: "and_app", face: "and", state: checks.every((c) => c.ok) ? "ok" : "mal", path: xml, checks });
+    } else out.push({ id: "and_app", face: "and", state: "falta", path: kind === "capacitor" ? xml : `${root}assets/adaptive-icon.png`, note: kind ? undefined : { k: "web_only" }, checks: [kindCheck, no("exists")] });
+  }
+  return out;
 }
