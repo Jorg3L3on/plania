@@ -224,6 +224,7 @@ const Hints = z
     colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(6).optional(),
     images: z.array(z.string().max(80)).max(6).optional(),
     like: z.string().max(40).nullable().optional(),
+    change: z.string().max(200).nullable().optional(),
   })
   .strict();
 

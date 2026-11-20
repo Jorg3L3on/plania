@@ -34,9 +34,9 @@ export const marksRequestOfRun = (slug: string, reason: string | null | undefine
   return r?.status === "drawing" ? r : null;
 };
 
-export type Hints = { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null };
+export type Hints = { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null };
 export type Mark = { id: string; name: string; idea: string; file: string; tile: string; variant: "icon" | "mark"; colors: string[]; tests: PixelTests };
-export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: Hints; runId: string | null; at: string; marks: Mark[]; rejected: { name: string; why: string }[] };
+export type MarksRequest = { id: string; slug: string; status: "drawing" | "ready" | "failed"; hints: Hints; runId: string | null; at: string; marks: Mark[]; rejected: { name: string; why: string }[]; why?: string | null };
 
 function dirOf(slug: string, id?: string): string {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new Error(`bad project slug ${slug}`);
@@ -96,6 +96,8 @@ export async function requestMarks(db: Db, project: Pick<Project, "id" | "slug" 
     colors: (input.colors ?? []).filter((c) => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 6),
     images: (input.images ?? []).filter((u) => /^[0-9a-f]{64}\.(png|jpeg|webp|svg)$/.test(u)).slice(0, 6),
     like: null,
+    // PLA-120: what the owner would change, in their words (with «Más como esta» or on its own).
+    change: String(input.change ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null,
   };
   // «Más como esta»: the liked mark of the last round, as words Artist can draw from.
   if (input.like && open?.status === "ready") {
@@ -106,7 +108,12 @@ export async function requestMarks(db: Db, project: Pick<Project, "id" | "slug" 
   save(r);
   const agent = await artistOf(db, project.id);
   const w = await (deps.wake ?? realWake)(db, { agent, project, reason: `${MARKS_MARK} ${r.id}] Draw logo marks for ${project.title}; answer with deliver_marks` });
-  if (!w.runId && !agent) r.status = "failed";
+  // PLA-120: a wake that queued nothing (no Artist, the project or the company paused) fails now, with its reason;
+  // before, the request said «drawing» forever with no run behind it.
+  if (!w.runId) {
+    r.status = "failed";
+    r.why = agent ? (w.why ?? "no run") : "no agent";
+  }
   r.runId = w.runId;
   save(r);
   return r;
@@ -132,9 +139,10 @@ export function marksPrompt(input: { agent: string; project: { slug: string; tit
     `What the project is about: "${h.about || input.project.title}".`,
     h.feel.length ? `It should feel: ${h.feel.join(", ")}.` : "",
     h.avoid.length ? `It must not have: ${h.avoid.join(", ")}.` : "",
-    h.colors.length ? `Colours taken from the owner's inspiration: ${h.colors.join(", ")}.` : "",
+    h.colors.length ? `Colours the owner chose or took from their inspiration: ${h.colors.join(", ")}.` : "",
     imgs.length ? `Inspiration images (look at each with the Read tool; take mood and colour, never copy them): ${imgs.join(", ")}.` : "",
     h.like ? `The owner liked "${h.like}": draw six variations of that idea (shape, weight, colour), not new ideas.` : "",
+    h.change ? `The owner asks for this change, in their words: "${h.change}". Apply it to every mark.` : "",
     "Draw 6 marks that are different ideas (a letterform, a geometric shape, a symbol of what the project does), each an app icon: a square SVG with viewBox 0 0 100 100, its own background filling the whole square (a <rect> or a gradient) and the drawing on it.",
     "Rules: at most 6 shapes, no <text>, no images, no scripts, no external references, two or three colours, strokes 8 or more units wide (they must survive at 16 px), the drawing inside a circle of radius 38 around the centre (Android crops the rest), strong contrast between drawing and background.",
     `Name each mark in two or three words and give its idea in one sentence, both in ${ownerLanguage()}.`,

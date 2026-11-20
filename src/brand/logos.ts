@@ -57,9 +57,10 @@ export function readLogoFile(slug: string, file: string): Buffer | null {
   return existsSync(p) ? readFileSync(p) : null;
 }
 
-/** The commit the logo is read from: the start branch, its remote twin, or HEAD when the repo has neither. */
+/** The commit the logo is read from: the start branch as GitHub has it, the local one, or HEAD when the repo has neither.
+ * PLA-120: origin first, so a checkout nobody pulled still shows what was merged. */
 export async function startCommit(git: Git, repo: string, branch: string): Promise<{ sha: string; ref: string } | null> {
-  for (const ref of [branch, `origin/${branch}`, "HEAD"]) {
+  for (const ref of [`origin/${branch}`, branch, "HEAD"]) {
     const r = await git(repo, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     const sha = r.stdout.toString("utf8").trim();
     if (r.code === 0 && /^[0-9a-f]{40}$/.test(sha)) return { sha, ref };
