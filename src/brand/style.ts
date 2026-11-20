@@ -216,7 +216,8 @@ export function tokens(s: Style): Tokens {
 const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
 /** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
  * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
-export type CssOpts = { next?: boolean; shadcn?: boolean };
+// PLA-130: dark false = the repo has no dark mode; Plania writes none, so the app's themes stay as they are.
+export type CssOpts = { next?: boolean; shadcn?: boolean; dark?: boolean };
 export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 /** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
 export function brandCss(s: Style, o: CssOpts = {}): string {
@@ -259,11 +260,11 @@ ${vars(side(t.light))}
   --icon-stroke: ${s.stroke};
 }
 
-.dark {
+${o.dark === false ? "" : `.dark {
 ${vars(side(t.dark))}
 }
 
-svg.lucide { stroke-width: var(--icon-stroke); }
+`}svg.lucide { stroke-width: var(--icon-stroke); }
 
 @layer base {
   h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
@@ -275,12 +276,12 @@ svg.lucide { stroke-width: var(--icon-stroke); }
 `;
 }
 /** The same values in the W3C design-token format (2025.10). */
-export function tokensJson(s: Style): string {
+export function tokensJson(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
   const c = (v: string) => ({ $type: "color", $value: v });
   return `${JSON.stringify(
     {
-      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950][i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) },
+      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950][i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), ...(o.dark === false ? {} : { dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) }) },
       font: { heading: { $type: "fontFamily", $value: [s.head, "sans-serif"] }, body: { $type: "fontFamily", $value: [s.body, "sans-serif"] }, mono: { $type: "fontFamily", $value: [s.mono, "monospace"] } },
       dimension: { radius: { $type: "dimension", $value: { value: t.radius, unit: "px" } }, "text-base": { $type: "dimension", $value: { value: s.base, unit: "px" } } },
       duration: { base: { $type: "duration", $value: { value: t.duration, unit: "ms" } } },
@@ -391,7 +392,7 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   }
   const c = { read: { repo, old, framework: part.framework, root: part.root } };
   const base = current ?? startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
-  const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn };
+  const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn, dark: !!c.read.repo.dark };
   // A brand that follows the logo takes the logo's colour as it changes.
   const eff = base.brandTie === "sigue" && theme ? { ...base, brand: theme } : base;
   const [open] = await db
@@ -407,7 +408,7 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     versions: load(slug)?.versions.length ?? 0,
     pedido: open ?? null,
     css: brandCss(eff, cssOpts),
-    json: tokensJson(eff),
+    json: tokensJson(eff, cssOpts),
     logo: { theme, colors: active?.colors ?? [] },
     cssOpts,
   };
@@ -483,7 +484,7 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
     `- ${paths.globals ? `\`${paths.globals}\`` : w.globalsUnknown}: ${w.importCss(paths.css)}`,
     ...(paths.layout ? [`- \`${paths.layout}\`: ${w.fontsNext(fonts.map((f) => [f, fontVar(f)] as [string, string]))}`] : [`- ${w.fontsOther(fonts)}`]),
     ...(r.cssOpts.shadcn ? [`- ${w.shadcn(paths.globals ?? w.globalsUnknown)}`] : []),
-    `- ${w.darkClass}`,
+    `- ${r.cssOpts.dark === false ? w.noDark : w.darkClass}`,
     ...(r.repo.theme && distance(r.repo.theme, s.brand) > 0.02 ? [`- ${w.manifest(s.brand)}`] : []),
     ...(r.old.length ? ["", `## ${w.oldTitle}`, ...r.old.map((o) => `- \`${o.path}\`: ${o.colors.join(", ")} (${o.n})`)] : []),
     ...(s.lib !== "Lucide" ? ["", w.libLater(s.lib)] : []),

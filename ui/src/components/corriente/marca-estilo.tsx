@@ -4,6 +4,7 @@
 // repo has today. «Modo experto» adds every value's variable and the code (Tailwind 4, shadcn/ui, W3C tokens), which
 // can be edited and applied. Every change is a version kept in Plania; «Llevar al repo» asks Taller.
 // Logic and words: @/lib/estilo. Styles: corriente.css («Marca · Estilo»).
+import { Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -751,8 +752,14 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
             <span className="es-lbl wide"><b>{w.expert.mode[mode]}</b> · {w.expert.live}</span>
             <Seg label={w.expert.mode.claro!} value={mode} opts={[["claro", w.expert.mode.claro!], ["oscuro", w.expert.mode.oscuro!]]} onPick={setMode} />
           </div>
-          <Fit className="es-spec one"><Spec x={x} dark={mode === "oscuro"} logo={logo} title={title} w={w} play={play} /></Fit>
-          {reflection(mode === "oscuro", true)}
+          {mode === "oscuro" && !r.repo.dark ? (
+            <Locked title={w.caps.lockedDark} line={w.caps.lockedDarkLine} />
+          ) : (
+            <>
+              <Fit className="es-spec one"><Spec x={x} dark={mode === "oscuro"} logo={logo} title={title} w={w} play={play} /></Fit>
+              {reflection(mode === "oscuro", true)}
+            </>
+          )}
         </div>
       ) : (
         <div className="es-right">
@@ -763,17 +770,28 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
               <Fit className="es-spec"><Spec x={x} dark={false} logo={logo} title={title} w={w} play={play} /></Fit>
             </div>
             <div>
-              <span className="es-cap">{w.caps.dark}</span>
-              <Fit className="es-spec"><Spec x={x} dark logo={logo} title={title} w={w} play={play} /></Fit>
+              <span className="es-cap">{r.repo.dark ? w.caps.dark : w.caps.darkLocked}</span>
+              {r.repo.dark ? <Fit className="es-spec"><Spec x={x} dark logo={logo} title={title} w={w} play={play} /></Fit> : <Locked title={w.caps.lockedDark} line={w.caps.lockedDarkLine} />}
             </div>
           </div>
           <div className="es-specs">
             {reflection(false)}
-            {reflection(true)}
+            {r.repo.dark ? reflection(true) : <div />}
           </div>
         </div>
       )}
       {expert && codePanel}
+    </div>
+  );
+}
+
+/** PLA-130: a theme the app does not have: locked, never redrawn, and the request does not add it. */
+function Locked({ title, line }: { title: string; line: string }) {
+  return (
+    <div className="es-locked" role="note">
+      <Lock aria-hidden size={22} strokeWidth={1.8} />
+      <b>{title}</b>
+      <span>{line}</span>
     </div>
   );
 }

@@ -248,3 +248,17 @@ test("#10 one app colour: the chosen logo's until a style is set, then the style
   assert.equal(appTheme({ brand: "#5d314f", brandTie: "sigue" }, { ...logo, chosen: false }), "#5d314f", "a logo only found in the repo does not lead");
   assert.equal(appTheme(null, { ...logo, chosen: false }), null);
 });
+
+test("PLA-130: a repo with no dark mode gets none: no .dark block, no dark tokens, and the screen's copy agrees", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const s = style.startStyle({ files: [] }, null);
+  const css = style.brandCss(s, { dark: false });
+  assert.doesNotMatch(css, /\.dark\s*\{/, "no dark block for an app with no dark mode");
+  assert.match(style.brandCss(s), /\.dark\s*\{/, "the default still carries it");
+  assert.match(style.brandCss(s, { dark: true }), /\.dark\s*\{/);
+  const j = JSON.parse(style.tokensJson(s, { dark: false }));
+  assert.equal(j.color.dark, undefined);
+  assert.ok(j.color.light, "light stays");
+  assert.equal(ui.brandCss(s, { dark: false }), css);
+  assert.equal(ui.tokensJson(s, { dark: false }), style.tokensJson(s, { dark: false }));
+});

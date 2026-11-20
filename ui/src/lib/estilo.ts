@@ -79,7 +79,8 @@ export function tokens(s: Style): Tokens {
 const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
 /** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
  * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
-export type CssOpts = { next?: boolean; shadcn?: boolean };
+// PLA-130: dark false = the repo has no dark mode; Plania writes none, so the app's themes stay as they are.
+export type CssOpts = { next?: boolean; shadcn?: boolean; dark?: boolean };
 export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 /** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
 export function brandCss(s: Style, o: CssOpts = {}): string {
@@ -122,11 +123,11 @@ ${vars(side(t.light))}
   --icon-stroke: ${s.stroke};
 }
 
-.dark {
+${o.dark === false ? "" : `.dark {
 ${vars(side(t.dark))}
 }
 
-svg.lucide { stroke-width: var(--icon-stroke); }
+`}svg.lucide { stroke-width: var(--icon-stroke); }
 
 @layer base {
   h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
@@ -137,12 +138,12 @@ svg.lucide { stroke-width: var(--icon-stroke); }
 }
 `;
 }
-export function tokensJson(s: Style): string {
+export function tokensJson(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
   const c = (v: string) => ({ $type: "color", $value: v });
   return `${JSON.stringify(
     {
-      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${STEP[i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) },
+      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${STEP[i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), ...(o.dark === false ? {} : { dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) }) },
       font: { heading: { $type: "fontFamily", $value: [s.head, "sans-serif"] }, body: { $type: "fontFamily", $value: [s.body, "sans-serif"] }, mono: { $type: "fontFamily", $value: [s.mono, "monospace"] } },
       dimension: { radius: { $type: "dimension", $value: { value: t.radius, unit: "px" } }, "text-base": { $type: "dimension", $value: { value: s.base, unit: "px" } } },
       duration: { base: { $type: "duration", $value: { value: t.duration, unit: "ms" } } },
@@ -152,7 +153,7 @@ export function tokensJson(s: Style): string {
   )}\n`;
 }
 export type CodeFmt = "tailwind" | "shadcn" | "w3c";
-export const codeOf = (s: Style, f: CodeFmt, o: CssOpts = {}) => (f === "w3c" ? tokensJson(s) : f === "shadcn" ? brandCss(s, { ...o, shadcn: true }) : brandCss(s, o));
+export const codeOf = (s: Style, f: CodeFmt, o: CssOpts = {}) => (f === "w3c" ? tokensJson(s, o) : f === "shadcn" ? brandCss(s, { ...o, shadcn: true }) : brandCss(s, o));
 
 /** An expert's code, read back: brand, accent, radius and the fonts Plania knows. What is not recognised is left. */
 export function fromCode(txt: string, s: Style, fonts: string[]): { next: Style; n: number } {
@@ -371,7 +372,10 @@ export const ESTILO_WORDS = defineWords({
       dark: "▲ LA MISMA, EN OSCURO",
       repo: (s: string) => `▼ LA MISMA PANTALLA CON LO QUE HAY HOY EN EL REPO · ${s}`,
       repoDark: "▼ LA MISMA PANTALLA CON LO QUE HAY HOY EN EL REPO · modo oscuro",
-      noDark: "El repo no tiene modo oscuro. Plania lo agrega con estos colores.",
+      noDark: "El repo no tiene modo oscuro.",
+      darkLocked: "▲ MODO OSCURO",
+      lockedDark: "Tu app no tiene modo oscuro",
+      lockedDarkLine: "Plania no lo dibuja ni lo agrega: el pedido solo cambia el modo claro.",
       unknown: "Plania no reconoció colores ni letra en el repo: se muestra lo que usaría el navegador.",
       sys: "letra del sistema",
       corners: (n: number) => `esquinas ${n} px`,
@@ -556,7 +560,10 @@ export const ESTILO_WORDS = defineWords({
       dark: "▲ THE SAME, DARK",
       repo: (s: string) => `▼ THE SAME SCREEN WITH WHAT THE REPO HAS TODAY · ${s}`,
       repoDark: "▼ THE SAME SCREEN WITH WHAT THE REPO HAS TODAY · dark mode",
-      noDark: "The repo has no dark mode. Plania adds it with these colours.",
+      noDark: "The repo has no dark mode.",
+      darkLocked: "▲ DARK MODE",
+      lockedDark: "Your app has no dark mode",
+      lockedDarkLine: "Plania neither draws nor adds it: the request only changes light mode.",
       unknown: "Plania found no colours or fonts in the repo: this is what the browser would use.",
       sys: "system font",
       corners: (n: number) => `corners ${n} px`,
