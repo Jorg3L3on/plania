@@ -671,3 +671,36 @@ test("PLA-58 #3: no shared or overlapping path starts side by side; a ticket tha
   assert.ok(!touchedMod.isShared("src/app/panel/page.tsx", touchedMod.sharedAreasOf(undefined)));
   await finishAll(f);
 });
+
+// ---- PLA-118: logo marks are the owner's own ask, with no ticket
+
+test("PLA-118 #1 #2: a queued Artist run for a drawing marks request starts with no ticket; one with no marker is still skipped", async () => {
+  await t2Reset();
+  process.env.PLANIA_CAPTURES_DIR = path.join(scratch, "captures");
+  const marks = await import("../src/brand/marks.js");
+  const { ensureMember } = await import("../src/runner/team.js");
+  const project = (await raw.query(`select id, slug, title from projects where slug = 'micasa'`)).rows[0] as { id: string; slug: string; title: string };
+  await ensureMember(db, project as never, "artist", { note: "test" } as never);
+  const artist = (await raw.query(`select slug from agents where project_id = $1 and role_template = 'artist'`, [project.id])).rows[0].slug as string;
+  const actor = JSON.stringify({ agent: "test", session_id: "s" });
+  await raw.query(`insert into docs (project_id, title, markdown, actor) select $1, 'Prompt: Artist', '# Artist', $2 where not exists (select 1 from docs where project_id = $1 and title = 'Prompt: Artist')`, [project.id, actor]);
+  // The request as the screen makes it; the wake is the queue row below.
+  const req = await marks.requestMarks(db, project, { about: "Una tienda de barrio" }, { wake: async () => ({ runId: null, why: "test" }) });
+  assert.equal(req.status, "drawing");
+  const queueArtist = async (reason: string) =>
+    (
+      await raw.query(
+        `insert into agent_runs (agent_id, project_id, role, status, summary, task_key, work_key, trigger, lane, reason) values ((select id from agents where slug = $1), $2, 'artist', 'queued', 'queued: event x', null, $3, 'event', 'work', $4) returning id`,
+        [artist, project.id, `general:${crypto.randomUUID()}`, reason],
+      )
+    ).rows[0].id as string;
+  const plain = await queueArtist("look around");
+  const f = fakes();
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  const plainRow = (await raw.query(`select status, summary from agent_runs where id = $1`, [plain])).rows[0];
+  assert.deepEqual([plainRow.status, plainRow.summary], ["skipped", "no ready work"], "an Artist with no ticket and no marks marker has nothing to do");
+  const drawing = await queueArtist(`${marks.MARKS_MARK} ${req.id}] Draw logo marks for ${project.title}; answer with deliver_marks`);
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal((await statusOf(drawing)).status, "running", JSON.stringify((await raw.query(`select status, summary from agent_runs where id = $1`, [drawing])).rows[0]));
+  await finishAll(f);
+});
