@@ -1,0 +1,169 @@
+name: Install from zero
+
+# PLA-I2-4 (from zero): the release package installed by the real one-line installer on a runner of each system, the
+# way a person with a new computer runs it: --from the packed archive, --yes (no questions), --no-open. The runner's
+# own Postgres is removed first, so the installer installs and starts one itself. Then Plania must answer on
+# localhost:3737, serve the first-start page, and leave with `pnpm uninstall:plania --delete-data`.
+# Claude Code is not installed or signed in here: the install goes on without it and names it at the end, as it does
+# for a person. A macOS runner has 7 GB of memory, under the 8 Plania asks for: PLANIA_UNSUPPORTED_SKIP_CHECK=memory
+# lets the gate pass that one item. It is for this job only and unsupported for users.
+on:
+  push:
+    branches: ["jl/**"]
+  pull_request:
+    paths:
+      - "scripts/bootstrap/**"
+      - "scripts/install.ts"
+      - "scripts/uninstall.ts"
+      - "scripts/release-pack.ts"
+      - "src/install/**"
+      - "src/packaging/**"
+      - "src/machine-check/**"
+      - "src/uninstall/**"
+      - ".github/workflows/install.yml"
+  workflow_dispatch:
+  # The release workflow runs this before it publishes.
+  workflow_call:
+
+concurrency:
+  group: install-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: Pack the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm release:pack
+        run: pnpm release:pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            release/plania-*.tar.gz
+            release/plania-*.tar.gz.sha256
+            release/install.sh
+            release/install.ps1
+          if-no-files-found: error
+          retention-days: 7
+
+  install:
+    name: Install from zero (${{ matrix.os }})
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PLANIA_UNSUPPORTED_SKIP_CHECK: memory
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # No checkout: the runner gets only what a person downloads.
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      - name: What the runner has before
+        run: |
+          node --version || echo "no node"
+          git --version || echo "no git"
+          (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null && echo "something answers on 5432" || echo "nothing on 5432"
+
+      # Remove the runner's own Postgres, so the installer's Postgres path runs on every system.
+      - name: Remove Postgres (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo systemctl stop postgresql 2>/dev/null || true
+          sudo apt-get purge -y -q 'postgresql*' >/dev/null || true
+          sudo rm -rf /var/lib/postgresql /etc/postgresql
+          # A person's desktop session runs user services; the runner's user gets one the same way.
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+      - name: Remove Postgres (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for f in $(brew list --formula 2>/dev/null | grep -E '^postgresql(@[0-9]+)?$' || true); do
+            brew services stop "$f" || true
+            brew uninstall --force --ignore-dependencies "$f"
+          done
+      - name: Remove Postgres (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The image ships Postgres with an initialized data folder; a new install would reuse it and keep its
+          # password, so it is uninstalled and its folder removed.
+          Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "service $($_.Name)"
+            Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem "$env:ProgramFiles\PostgreSQL" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "removing $($_.FullName)"
+            $un = Join-Path $_.FullName 'uninstall-postgresql.exe'
+            if (Test-Path $un) { Start-Process -FilePath $un -ArgumentList '--mode', 'unattended' -Wait }
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { & sc.exe delete $_.Name | Out-Null }
+          winget list --id PostgreSQL --accept-source-agreements --disable-interactivity
+          winget --version
+      - name: Nothing answers on 5432
+        run: |
+          if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then echo "::error::a Postgres still answers on 5432"; exit 1; fi
+
+      - name: Install (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: |
+          cd "$RUNNER_TEMP/release"
+          archive="$(ls plania-*.tar.gz | grep -v latest | head -n 1)"
+          sh ./install.sh --from "$archive" --yes --no-open
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        # Windows PowerShell 5.1, what a person's machine has.
+        shell: powershell
+        run: |
+          $archive = Get-ChildItem "$env:RUNNER_TEMP\release\plania-*.tar.gz" | Where-Object { $_.Name -notlike '*latest*' } | Select-Object -First 1
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\release\install.ps1" -From $archive.FullName -Yes -NoOpen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Plania answers
+        run: |
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:3737/health/ui
+          echo
+          page="$(curl -fsS http://localhost:3737/primer-arranque)"
+          echo "$page" | grep -qi '<div id="root"\|<html' || { echo "::error::/primer-arranque did not serve the screen"; echo "$page" | head -n 20; exit 1; }
+          echo "/primer-arranque serves the screen"
+          grep -q '^DATABASE_URL=' ~/plania/.env
+
+      - name: The server's log
+        if: failure()
+        run: |
+          for f in ~/.local/state/plania/server.log ~/Library/Logs/plania/server.log "$LOCALAPPDATA/plania/logs/server.log"; do
+            [ -f "$f" ] && { echo "== $f"; tail -n 100 "$f"; }
+          done
+          if [ "$RUNNER_OS" = Linux ]; then systemctl --user status plania --no-pager || true; journalctl --user -n 50 --no-pager || true; fi
+          true
+
+      - name: pnpm uninstall:plania --delete-data
+        run: |
+          cd ~/plania
+          want="$(node -p 'require("./package.json").packageManager.replace(/^pnpm@/, "").replace(/\+.*$/, "")')"
+          if command -v pnpm >/dev/null && [ "$(pnpm --version)" = "$want" ]; then pnpm=pnpm; else pnpm="npx --yes pnpm@$want"; fi
+          # It asks for the database's name before it deletes anything.
+          echo plania | $pnpm uninstall:plania --delete-data
+          if curl -fsS --max-time 3 http://localhost:3737/health >/dev/null 2>&1; then echo "::error::Plania still answers after uninstall"; exit 1; fi
+          echo "Plania is gone"

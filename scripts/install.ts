@@ -2,6 +2,7 @@
 //   pnpm plania:install                       database `plania` on localhost:5432, created here
 //   pnpm plania:install --database <name>     another database name (an existing one is used only when named)
 //   pnpm plania:install --url postgres://user@host:5432/<name>
+//   PLANIA_INSTALL_URL=<address> pnpm plania:install   the same, from the one-line installer (never printed)
 //   pnpm plania:install --port <n>            the port Plania answers on (3737)
 //   pnpm plania:install --no-start            do not start Plania at the end
 //   pnpm plania:install --no-open             do not open the browser at the end
@@ -17,12 +18,13 @@ import { findChrome } from "../src/captures/chrome.js";
 import { install, InstallError, INSTALL_WORDS, type MachineCheck } from "../src/db/install.js";
 import { withDatabase } from "../src/db/migrate.js";
 import { terminalAsk, workingAddress } from "../src/install/connect.js";
-import { browserCommand, finishInstall } from "../src/install/finish.js";
+import { browserCommand, finishInstall, FINISH_WORDS } from "../src/install/finish.js";
 import { followSystemLocale, installLanguage } from "../src/language.js";
 import { pgBinFolder } from "../src/lib/pg-bin.js";
-import { formatMachineCheck, installGate } from "../src/machine-check/index.js";
+import { formatMachineCheck, installGate, skippedChecks, type MachineItem } from "../src/machine-check/index.js";
 import { detectSystem, servicePlatform } from "../src/packaging/service.js";
 import { say } from "../src/words.js";
+import { words } from "../ui/src/lib/i18n.js";
 
 const repoDir = path.resolve(import.meta.dirname, "..");
 const envPath = path.join(repoDir, ".env");
@@ -50,7 +52,10 @@ const log = (line: string) => console.log(line);
 
 // The URL: --url, else the one already in .env (a re-run), else the default; --database renames it.
 const existing = existsSync(envPath) ? parseEnv(readFileSync(envPath, "utf8")).DATABASE_URL : undefined;
-let url = values.url ?? (existing || DEFAULT_URL);
+// PLA-I2-4 (from zero): a Postgres the one-line installer just installed comes in PLANIA_INSTALL_URL, not --url, so its
+// password is never echoed (pnpm prints a script's command line) nor seen in the process list. --url still wins.
+const handed = process.env.PLANIA_INSTALL_URL?.trim() || undefined;
+let url = values.url ?? handed ?? (existing || DEFAULT_URL);
 if (values.database) url = withDatabase(url, values.database);
 
 // B3: an address that fails on credentials gets the user and password asked here, and the one that works is used.
@@ -58,9 +63,12 @@ url = (await workingAddress(url, { ask: terminalAsk(), log, language })).url;
 
 // PLA-I2-12: the machine check runs before anything changes. The database may not exist yet, so Postgres is
 // probed through the server's own `postgres` database. F3: when nothing blocks, only what is not ready is shown.
+// PLA-I2-4 (from zero): Claude Code missing does not stop the install; it is said again after the closing box.
+let later: MachineItem[] = [];
 const machineCheck: MachineCheck = async () => {
-  const gate = await installGate({ env: { ...process.env, DATABASE_URL: withDatabase(url, "postgres") }, language });
+  const gate = await installGate({ env: { ...process.env, DATABASE_URL: withDatabase(url, "postgres") }, language }, { skip: skippedChecks() });
   if (!gate.proceed) return { ok: false, lines: [gate.text] };
+  later = gate.later;
   const notReady = gate.items.filter((i) => i.state !== "ready");
   return { ok: true, lines: notReady.length ? [formatMachineCheck(notReady, language)] : [] };
 };
@@ -83,7 +91,7 @@ const port = Number(values.port ?? process.env.PORT ?? 3737);
 try {
   const r = await install({
     url,
-    named: Boolean(values.database || values.url),
+    named: Boolean(values.database || values.url || handed),
     envPath,
     examplePath,
     machineCheck,
@@ -130,6 +138,7 @@ try {
     log,
   });
   console.log(`\n${done.box}`);
+  if (later.length) console.log(`\n${words(FINISH_WORDS, language).stillMissing}\n${formatMachineCheck(later, language)}`);
 } catch (e) {
   if (e instanceof InstallError) {
     console.error(e.message);

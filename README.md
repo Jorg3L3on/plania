@@ -8,39 +8,39 @@ in your browser where you follow the work and answer what only you can answer.
 
 ### What you need
 
-- **Claude Code, installed and signed in** ([claude.com/claude-code](https://claude.com/claude-code)). Plania's
-  agents run on it, and only you can sign it in.
-- **Postgres 14 or newer, running.** Plania keeps everything in it. If you don't have it:
-  - macOS: `brew install postgresql@17`, then `brew services start postgresql@17`.
-  - Linux: your system's package, for example `sudo apt install postgresql`.
-  - Windows: `winget install PostgreSQL.PostgreSQL.17`, or the installer from
-    [postgresql.org/download](https://www.postgresql.org/download/). Remember the password it asks you to choose.
+A computer with Windows, macOS or Linux, 8 GB of memory and 10 GB free. The installer gets the rest: it lists what
+the machine lacks (Node 22 or newer, git, Postgres), asks once, and installs it with the system's own tool (winget on
+Windows, Homebrew on macOS, apt or dnf on Linux). Expect your computer's password or Windows' permission prompt.
 
-  If Plania can't connect on its own, the installer asks for the user name and password and saves what works.
-- **Node 22 or newer.** The installer checks it and tells you how to get it if it's missing (`brew install node`,
-  `winget install OpenJS.NodeJS.LTS`, or [nodejs.org](https://nodejs.org)).
-
-The installer handles the rest: pnpm, the download and its checksum, the database, the settings and the background
-service. git and the GitHub CLI are only needed later, for projects with code; Plania's guide tells you when.
+- **macOS** needs Homebrew for that. If it's missing, the installer says so: get it from [brew.sh](https://brew.sh)
+  and run the line again.
+- **Postgres** installed by the installer gets a generated password, kept only in Plania's `.env`: you never type it.
+  If a Postgres already answers on this machine, Plania uses it, and asks for the user name and password only if it
+  can't connect on its own.
+- **Claude Code** stays yours to install and sign in
+  ([claude.com/claude-code](https://claude.com/claude-code)): Plania's agents run on it, and only you can sign it in.
+  Plania installs without it and reminds you at the end.
+- **The GitHub CLI** is only needed later, for projects with code; Plania's guide tells you when.
 
 ### One line
 
 On macOS or Linux, in a terminal:
 
 ```bash
-curl -fsSL https://<download-address>/install.sh | sh
+curl -fsSL https://github.com/Jorg3L3on/plania/releases/latest/download/install.sh | sh
 ```
 
-On Windows, in PowerShell (no administrator window needed):
+On Windows, in PowerShell:
 
 ```powershell
-irm https://<download-address>/install.ps1 | iex
+irm https://github.com/Jorg3L3on/plania/releases/latest/download/install.ps1 | iex
 ```
 
-It installs into the `plania` folder in your home folder, and asks first in case you want another.
+It installs into the `plania` folder in your home folder, and asks first in case you want another. Releases live on
+this repository's [GitHub Releases](https://github.com/Jorg3L3on/plania/releases); the installer checks the package
+against its `.sha256` before it unpacks anything.
 
-Where releases are downloaded from is not decided yet (see Before selling), so `<download-address>` is a placeholder.
-Until then, install from a package file you were given, with the installer that came beside it:
+From a package file you already have, with the installer that came beside it:
 
 ```bash
 sh install.sh --from plania-<version>.tar.gz
@@ -50,16 +50,17 @@ sh install.sh --from plania-<version>.tar.gz
 powershell -ExecutionPolicy Bypass -File install.ps1 -From plania-<version>.tar.gz
 ```
 
-Options: `--dir <folder>` (`-Dir`) installs elsewhere, `--no-service` (`-NoService`) skips the background service, and
+Options: `--dir <folder>` (`-Dir`) installs elsewhere, `--yes` (`-Yes`) asks nothing and installs what is missing,
+`--no-service` (`-NoService`) skips the background service, `--no-open` (`-NoOpen`) leaves the browser closed, and
 anything after `--` (`-InstallArgs`) goes to `pnpm plania:install`, for example
 `-- --url postgres://user@localhost:5432/plania`.
 
 ### What you'll see
 
-The installer checks your machine first and, if something is missing, stops with one sentence and the fix before it
-changes anything. Then it unpacks Plania, sets up the database, starts Plania in the background and opens your
-browser on the first-start page. Type your name and a password, and the guide takes you to your first project.
-Nothing runs, and nothing is spent, until you press resume.
+The installer checks your machine first and, if something it can't install is missing, stops with one sentence and
+the fix before it changes anything. Then it unpacks Plania, sets up the database, starts Plania in the background and
+opens your browser on the first-start page. Type your name and a password, and the guide takes you to your first
+project. Nothing runs, and nothing is spent, until you press resume.
 
 If the browser doesn't open, go to `http://localhost:3737` and type the code the installer printed last.
 
@@ -80,8 +81,8 @@ same report as a button. More in [Getting help](#getting-help).
 - **Licence.** `LICENSE` is still a placeholder, and `pnpm release:pack` warns while it is. Write the licence before
   anyone else installs Plania. Plania's copy may say that it runs Claude Code, but its own name and logo never use
   Claude's or Anthropic's names or marks.
-- **Download address.** Decide where releases live, then pack with `PLANIA_DOWNLOAD_BASE` set so the one-line
-  installers point there ([docs/releasing.md](docs/releasing.md)).
+- **Releases.** Pushing a `v<version>` tag publishes the GitHub Release the one-line installers download from
+  ([docs/releasing.md](docs/releasing.md)).
 
 ## For developers
 

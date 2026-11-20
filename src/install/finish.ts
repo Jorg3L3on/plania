@@ -16,6 +16,8 @@ export const FINISH_WORDS = defineWords({
     code: (code: string) => `Código de un solo uso: ${code}`,
     startHint: "Enciéndela con: pnpm start",
     serviceHint: "Para que arranque sola: pnpm service:install",
+    // PLA-I2-4 (from zero): what the install went on without (Claude Code), said again after the box.
+    stillMissing: "Plania ya funciona. Para que los agentes trabajen, falta esto:",
   },
   en: {
     starting: "Starting Plania as a service…",
@@ -26,6 +28,7 @@ export const FINISH_WORDS = defineWords({
     code: (code: string) => `One-time code: ${code}`,
     startHint: "Start it with: pnpm start",
     serviceHint: "To have it start on its own: pnpm service:install",
+    stillMissing: "Plania works now. For the agents to work, this is still missing:",
   },
 });
 

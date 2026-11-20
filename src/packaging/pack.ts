@@ -55,7 +55,7 @@ export const BUYER_SCRIPTS = [
 export const BOOTSTRAP_SCRIPTS = ["install.sh", "install.ps1"];
 
 // The installer with this release's version, and the download address when one is given (PLANIA_DOWNLOAD_BASE while
-// packing); without one the placeholder stays and the installer asks for the address or --from.
+// packing); without one the installers keep their default, the latest GitHub Release (PLA-I2-4, from zero).
 export function stampBootstrap(text: string, o: { version: string; downloadBase?: string | null }): string {
   let out = text.replace(/^DEFAULT_VERSION=.*$/m, `DEFAULT_VERSION="${o.version}"`).replace(/^\$DefaultVersion = .*$/m, `$DefaultVersion = '${o.version}'`);
   const base = o.downloadBase?.trim().replace(/\/+$/, "");
@@ -78,7 +78,7 @@ export type PackOptions = {
   now: Date;
   // Writes the THIRD_PARTY_NOTICES text for the production dependencies.
   notices: (root: string) => string;
-  // The download address stamped into the installers (PLANIA_DOWNLOAD_BASE); omitted, they keep the placeholder.
+  // The download address stamped into the installers (PLANIA_DOWNLOAD_BASE); omitted, they keep their default.
   downloadBase?: string | null;
   // Makes <archive> from the folder <dir> (both under outDir); omitted, no archive is made.
   archive?: (outDir: string, dirName: string, archiveName: string) => void;
