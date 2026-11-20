@@ -1,5 +1,6 @@
 import type { Oficio } from "./oficio";
-import type { Puesto, SkillCard, SkillDraft } from "./oficio-skills";
+import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
+import type { ImportPreview, TrialStarted, TrialView, TrialsRead, UpdateCheck } from "./oficio-trials";
 import type { LessonAction, LessonView, LessonsRead } from "./oficio-lessons";
 import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
@@ -247,6 +248,14 @@ export const api = {
   restoreSkill: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/restore`),
   puesto: (slug: string, agent: string) => request<Puesto>("GET", `${seatPath(slug, agent)}/puesto`),
   setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
+  // PLA-I67-6: «Traer de un enlace» and «Probar» (src/api/company-oficio-trials.ts).
+  previewImport: (slug: string, agent: string, url: string) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { url }),
+  importSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
+  checkSkillLink: (slug: string, agent: string, skill: string) => request<UpdateCheck>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/check`),
+  updateSkillLink: (slug: string, agent: string, skill: string, source_hash: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/update`, { source_hash }),
+  skillTrials: (slug: string, agent: string, skill: string) => request<TrialsRead>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/trials`),
+  startTrial: (slug: string, agent: string, skill: string, run_id: string) => request<TrialStarted>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/trials`, { run_id }),
+  trial: (slug: string, agent: string, id: string) => request<TrialView>("GET", `${seatPath(slug, agent)}/trials/${encodeURIComponent(id)}`),
   // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
   lessons: (slug: string, agent: string) => request<LessonsRead>("GET", `${seatPath(slug, agent)}/lessons`),
   teachRule: (slug: string, agent: string, text: string) => request<LessonView>("POST", `${seatPath(slug, agent)}/lessons`, { text }),

@@ -1600,6 +1600,26 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-btn.link.ofi-ref-remove { color: var(--cor-red); }
 .ofi-ref-scroll > *, .ofi-refs > * { flex-shrink: 0; }
 .ofi-refs > .ofi-ref-list { flex-shrink: 1; }
+/* PLA-I67-6: «Probar» (the comparison takes the drawing's place) and «Traer de un enlace» (in the side column). */
+.ofi-trial { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.ofi-trial-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ofi-trial-title { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--cor-text); }
+.ofi-trial-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ofi-trial-col { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); }
+.ofi-trial-col[data-trial-side="after"] { border-color: rgba(196, 181, 253, 0.45); }
+.ofi-trial-col-head { flex: none; display: flex; flex-direction: column; gap: 2px; }
+.ofi-trial-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin-right: -8px; padding-right: 8px; }
+.ofi-trial-scroll > * { flex-shrink: 0; }
+.ofi-trial-answer { margin: 0; white-space: pre-wrap; }
+.ofi-trial-diff { max-height: none; }
+.ofi-trial-plan { color: var(--cor-amber, #fbbf24); }
+.ofi-trial-list li { display: flex; }
+.ofi-trial-list .ofi-shelf-open { flex: 1; margin-top: 0; }
+.ofi-import-form { display: flex; flex-direction: column; gap: 8px; }
+.ofi-import-preview { display: flex; flex-direction: column; gap: 8px; }
+.ofi-import-file { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.ofi-import-file .ofi-diff { max-height: 220px; overflow-y: auto; }
+.ofi-link-update { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */

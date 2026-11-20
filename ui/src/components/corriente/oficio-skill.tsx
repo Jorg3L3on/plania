@@ -11,6 +11,8 @@ import { skillWords, shelfNext, type Oficio } from "@/lib/oficio";
 import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 import { cardHead, changedOnly, draftChanged, saveError, scopeOptions, versionDiff, versionNote, type SkillCard, type SkillDraft, type SkillScope } from "@/lib/oficio-skills";
 import { Btn, Label, ReadError, Switch } from "./parts";
+import { LinkUpdate } from "./oficio-trial";
+import { TRIAL_WORDS } from "@/lib/oficio-trial-words";
 
 const errOf = (e: unknown): string | null => (e instanceof ApiError ? saveError(e.code, typeof e.detail.field === "string" ? e.detail.field : null) : e ? saveError("NETWORK") : null);
 
@@ -120,7 +122,7 @@ const Diff = ({ card, onBack, onRollback, busy }: { card: SkillCard; onBack: () 
   );
 };
 
-export const SkillPanel = ({ o, seat, slug, onClose, onOpen }: { o: Oficio; seat: string; slug: string; onClose: () => void; onOpen: (slug: string) => void }) => {
+export const SkillPanel = ({ o, seat, slug, onClose, onOpen, onTry }: { o: Oficio; seat: string; slug: string; onClose: () => void; onOpen: (slug: string) => void; onTry?: (slug: string) => void }) => {
   const w = words(SKILL_CARD_WORDS);
   const refresh = useRefresh(o);
   const q = useQuery({ queryKey: ["skill", o.project, o.agent, slug], queryFn: () => api.skillCard(o.project, o.agent, slug) });
@@ -192,9 +194,23 @@ export const SkillPanel = ({ o, seat, slug, onClose, onOpen }: { o: Oficio; seat
                 </div>
               ) : (
                 <>
-                  <Btn kind="primary" className="ofi-wide" disabled={busy || !draftChanged({ ...card, name: shown!.name }, d)} onClick={() => save.mutate()} data-control="guardar-habilidad">
-                    {w.save}
-                  </Btn>
+                  {/* PLA-I67-6: «Probar» beside «Guardar» (sketch frame 3): it tries the saved version of an owner skill. */}
+                  <div className="ofi-actions-two">
+                    <Btn kind="primary" disabled={busy || !draftChanged({ ...card, name: shown!.name }, d)} onClick={() => save.mutate()} data-control="guardar-habilidad">
+                      {w.save}
+                    </Btn>
+                    <Btn
+                      kind="secondary"
+                      disabled={busy || card.source !== "owner" || draftChanged({ ...card, name: shown!.name }, d) || !onTry}
+                      title={card.source !== "owner" || draftChanged({ ...card, name: shown!.name }, d) ? words(TRIAL_WORDS).tryHint : undefined}
+                      onClick={() => onTry?.(slug)}
+                      data-control="probar"
+                    >
+                      {words(TRIAL_WORDS).try}
+                    </Btn>
+                  </div>
+                  {(card.source !== "owner" || draftChanged({ ...card, name: shown!.name }, d)) && <p className="cor-cap">{words(TRIAL_WORDS).tryHint}</p>}
+                  <LinkUpdate o={o} card={card} />
                   <div className="ofi-links">
                     {n && n > 1 && (
                       <Btn kind="link" onClick={() => setMode("diff")} data-control="que-cambio">

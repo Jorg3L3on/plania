@@ -17,6 +17,9 @@ import { OFICIO_WORDS } from "@/lib/oficio-words";
 import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord, rowsOf, shelfNext, skillWords, threadWidth, type Oficio, type OficioDelivery, type Row } from "@/lib/oficio";
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
 import { NewSkillPanel, PuestoPanel, SkillPanel } from "./oficio-skill";
+// PLA-I67-6: «Probar» and «Traer de un enlace».
+import { ImportPanel, TrialCompare, TrialPanel } from "./oficio-trial";
+import { IMPORT_WORDS } from "@/lib/oficio-trial-words";
 import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 import { BudgetBar, HistoryPanel, LessonsPanel, ProposalCard, Reading, TeachBar } from "./oficio-lessons";
 import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
@@ -29,7 +32,7 @@ import { REF_ROW, RefCard, RefPanel, RefThreads, refsHeight, useRefDrop, useRefU
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
 
-type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" } | { kind: "lessons" } | { kind: "historia" } | { kind: "refs" } | { kind: "ref"; id: string };
+type Side = { kind: "next" } | { kind: "shelf" } | { kind: "skill"; slug: string } | { kind: "new" } | { kind: "puesto" } | { kind: "lessons" } | { kind: "historia" } | { kind: "refs" } | { kind: "ref"; id: string } | { kind: "trial"; slug: string; show: string | null } | { kind: "import" };
 
 const ROW = 30;
 const LABEL_W = 268;
@@ -245,7 +248,7 @@ const Readout = ({ d, o, now, timeZone, links, style, refLine }: { d: OficioDeli
   );
 };
 
-const Shelf = ({ o, seat, onClose, onOpen, onNew }: { o: Oficio; seat: string; onClose: () => void; onOpen: (slug: string) => void; onNew: () => void }) => {
+const Shelf = ({ o, seat, onClose, onOpen, onNew, onImport }: { o: Oficio; seat: string; onClose: () => void; onOpen: (slug: string) => void; onNew: () => void; onImport: () => void }) => {
   const w = words(OFICIO_WORDS);
   const ws = words(SKILL_CARD_WORDS);
   const client = useQueryClient();
@@ -317,6 +320,9 @@ const Shelf = ({ o, seat, onClose, onOpen, onNew }: { o: Oficio; seat: string; o
       <Btn kind="secondary" className="ofi-wide" onClick={onNew} data-control="nueva-habilidad">
         {ws.newSkill}
       </Btn>
+      <Btn kind="quiet" className="ofi-wide" onClick={onImport} data-control="traer-de-enlace">
+        {words(IMPORT_WORDS).open}
+      </Btn>
       <p className="cor-cap ofi-shelf-hint">
         {w.onCount(numWord(onCount, undefined, true), onCount)} {w.focusHint} {onCount > 6 ? w.tooMany : ""}
       </p>
@@ -385,6 +391,9 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   // PLA-I67-2: the side column shows one thing: the next run, the shelf, a skill's card, the new skill form, the
   // puesto, the lessons, the history, or (PLA-I67-4) the references and one reference's card.
   const [side, setSide] = useState<Side>({ kind: "next" });
+  // PLA-I67-6: the tried skill's card (its name, its newest version and the hashes of its versions).
+  const trialSlug = side.kind === "trial" ? side.slug : null;
+  const trialCard = useQuery({ queryKey: ["skill", p.slug, agent, trialSlug], queryFn: () => api.skillCard(p.slug, agent, trialSlug!), enabled: !!trialSlug });
   // PLA-I67-3: its lessons, and whether a correction is being read.
   const lq = useQuery({ queryKey: ["lessons", p.slug, agent], queryFn: () => api.lessons(p.slug, agent), refetchInterval: 30_000 });
   const lessonList = lq.data?.lessons ?? [];
@@ -452,6 +461,9 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
             {waitingLine(lessonList) && <span className="ofi-head-waits"> {waitingLine(lessonList)}</span>}
           </h2>
           <div className="ofi-body">
+            {side.kind === "trial" && side.show ? (
+              <TrialCompare o={o} id={side.show} card={trialCard.data} onClose={() => setSide({ kind: "trial", slug: side.slug, show: null })} />
+            ) : (
             <Drawing
               o={o}
               seat={seat}
@@ -473,6 +485,7 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                 },
               }}
             />
+            )}
             <aside className="ofi-side">
               <dl className="ofi-stats">
                 <div>
@@ -494,9 +507,22 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                 </div>
               </dl>
               {side.kind === "shelf" ? (
-                <Shelf o={o} seat={seat} onClose={() => setShelf(false)} onOpen={(slug) => setSide({ kind: "skill", slug })} onNew={() => setSide({ kind: "new" })} />
+                <Shelf o={o} seat={seat} onClose={() => setShelf(false)} onOpen={(slug) => setSide({ kind: "skill", slug })} onNew={() => setSide({ kind: "new" })} onImport={() => setSide({ kind: "import" })} />
               ) : side.kind === "skill" ? (
-                <SkillPanel o={o} seat={seat} slug={side.slug} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
+                <SkillPanel o={o} seat={seat} slug={side.slug} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} onTry={(slug) => setSide({ kind: "trial", slug, show: null })} />
+              ) : side.kind === "trial" ? (
+                <TrialPanel
+                  o={o}
+                  slug={side.slug}
+                  name={trialCard.data?.name ?? side.slug}
+                  n={trialCard.data?.n ?? 1}
+                  now={now}
+                  timeZone={timeZone}
+                  onClose={() => setSide({ kind: "skill", slug: side.slug })}
+                  onShow={(id) => setSide({ kind: "trial", slug: side.slug, show: id })}
+                />
+              ) : side.kind === "import" ? (
+                <ImportPanel o={o} seat={seat} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
               ) : side.kind === "new" ? (
                 <NewSkillPanel o={o} seat={seat} onClose={() => setShelf(true)} onOpen={(slug) => setSide({ kind: "skill", slug })} />
               ) : side.kind === "puesto" ? (

@@ -23,6 +23,8 @@ export type SkillCard = {
   factory_changed: boolean;
   archived_at: string | null;
   carried: number;
+  // PLA-I67-6: an imported skill's link and the content hash it is pinned to.
+  link?: { url: string; hash: string; checked_at: string | null } | null;
 };
 export type Puesto = {
   project: string;
@@ -103,6 +105,8 @@ export function versionNote(v: Pick<SkillCardVersion, "note">, language: Languag
   const w = words(SKILL_CARD_WORDS, language);
   if (!v.note) return null;
   if (v.note === "factory") return w.fromFactory;
+  // PLA-I67-6: a version brought from a link.
+  if (v.note.startsWith("link:")) return w.fromLink;
   const m = /^rollback:(\d+)$/.exec(v.note);
   return m ? w.rolledBack(Number(m[1])) : null;
 }
