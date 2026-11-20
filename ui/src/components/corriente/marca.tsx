@@ -256,7 +256,10 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
         onBlur={() => onHover(null)}
       >
         <header>
-          <span className="mk-face-n">{w.face[f].name}</span>
+          <span className="mk-face-n">
+            {w.face[f].name}
+            {SURFACE_OF[f] && r.surfaces?.[SURFACE_OF[f]!] && <span className="mk-own" data-own={SURFACE_OF[f]}>{w.solo.own}</span>}
+          </span>
           <span className={`mk-cnt ${s.worst}`}>{label}</span>
         </header>
         <div className="mk-face-b">{body}</div>
@@ -286,14 +289,13 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
     if (!s || !r.logo) return null;
     return r.surfaces?.[s] ? (
       <>
-        <span className="mk-own" data-own={s}>{w.solo.own}</span>
         {!r.pedido && (
-          <button type="button" className="mk-mini" onClick={() => actions.send(s)} data-control={`marca-enviar-${s}`}>
-            {w.solo.send}
+          <button type="button" className="mk-mini" onClick={() => actions.send(s)} title={w.solo.send} aria-label={w.solo.send} data-control={`marca-enviar-${s}`}>
+            {w.solo.sendShort}
           </button>
         )}
-        <button type="button" className="mk-mini" onClick={() => void actions.reset(s)} data-control={`marca-volver-${s}`}>
-          {w.solo.back}
+        <button type="button" className="mk-mini" onClick={() => void actions.reset(s)} title={w.solo.back} aria-label={w.solo.back} data-control={`marca-volver-${s}`}>
+          {w.solo.backShort}
         </button>
       </>
     ) : (
