@@ -1732,3 +1732,76 @@ export const installState = pgTable(
   },
   (t) => [check("install_state_singleton", sql`${t.id} = 1`)],
 );
+
+// PLA-I67-4: references, the links, images and files the owner gives one agent (migration 0070). A file lives in the
+// local store under <captures dir>/references/<project>/ (src/references/store.ts); a link keeps the text snapshot the
+// server fetched at save time (src/lib/safe-fetch.ts). agent_reference_uses says which runs carried one and opened it.
+export const REFERENCE_KINDS = ["link", "image", "file"] as const;
+export type ReferenceKind = (typeof REFERENCE_KINDS)[number];
+export const REFERENCE_MIMES = ["image/png", "image/jpeg", "image/webp", "application/pdf"] as const;
+export type ReferenceMime = (typeof REFERENCE_MIMES)[number];
+export const agentReferences = pgTable(
+  "agent_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<ReferenceKind>().notNull(),
+    title: text("title").notNull(),
+    url: text("url"),
+    snapshotText: text("snapshot_text"),
+    snapshotAt: timestamp("snapshot_at", { withTimezone: true }),
+    fetchStatus: text("fetch_status").$type<"ok" | "failed">(),
+    fetchError: text("fetch_error"),
+    file: text("file"),
+    mime: text("mime").$type<ReferenceMime>(),
+    bytes: integer("bytes"),
+    width: integer("width"),
+    height: integer("height"),
+    originalBytes: integer("original_bytes"),
+    note: text("note").notNull().default(""),
+    stance: text("stance").$type<"follow" | "avoid">().notNull().default("follow"),
+    applies: text("applies").$type<"always" | "on_topic">().notNull().default("always"),
+    scope: text("scope").$type<"agent" | "project">().notNull().default("agent"),
+    state: text("state").$type<"on" | "off">().notNull().default("on"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agent_references_agent_idx").on(t.agentId, t.createdAt),
+    index("agent_references_project_idx").on(t.projectId, t.scope),
+    check("agent_references_kind_check", sql`${t.kind} in ('link', 'image', 'file')`),
+    check("agent_references_stance_check", sql`${t.stance} in ('follow', 'avoid')`),
+    check("agent_references_applies_check", sql`${t.applies} in ('always', 'on_topic')`),
+    check("agent_references_scope_check", sql`${t.scope} in ('agent', 'project')`),
+    check("agent_references_state_check", sql`${t.state} in ('on', 'off')`),
+    check("agent_references_fetch_check", sql`${t.fetchStatus} is null or ${t.fetchStatus} in ('ok', 'failed')`),
+    check("agent_references_mime_check", sql`${t.mime} is null or ${t.mime} in ('image/png', 'image/jpeg', 'image/webp', 'application/pdf')`),
+    check("agent_references_bytes_check", sql`${t.bytes} is null or (${t.bytes} > 0 and ${t.bytes} <= 5242880)`),
+    check("agent_references_note_check", sql`char_length(${t.note}) <= 600`),
+    check("agent_references_title_check", sql`char_length(${t.title}) between 1 and 160`),
+  ],
+);
+export type AgentReference = typeof agentReferences.$inferSelect;
+
+export const agentReferenceUses = pgTable(
+  "agent_reference_uses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referenceId: uuid("reference_id")
+      .notNull()
+      .references(() => agentReferences.id, { onDelete: "cascade" }),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    opened: boolean("opened").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("agent_reference_uses_run_ref_unique").on(t.runId, t.referenceId), index("agent_reference_uses_ref_idx").on(t.referenceId)],
+);

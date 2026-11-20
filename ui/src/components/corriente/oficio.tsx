@@ -16,6 +16,10 @@ import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { OFICIO_WORDS } from "@/lib/oficio-words";
 import { carriedLine, dayLabel, dotsX, firstPick, headline, labelEvery, numWord, rowsOf, shelfNext, skillWords, threadWidth, type Oficio, type OficioDelivery, type Row } from "@/lib/oficio";
 import { Agent, Btn, Label, ReadError, Switch } from "./parts";
+// PLA-I67-4: the seat's references (threads, the side panel, the card, paste and drop).
+import { REFERENCE_UI_WORDS } from "@/lib/references-words";
+import { deliveryRefs, refRoom, refsApi, type Reference } from "@/lib/references";
+import { REF_ROW, RefCard, RefPanel, RefThreads, refsHeight, useRefDrop, useRefUpload } from "./oficio-refs";
 
 export type OficioLinks = { back: string; seat: (agent: string) => string; motor: string; ver: (d: { key: string; kind: string }) => string };
 
@@ -52,14 +56,21 @@ const Mark = ({ d, x, y, on }: { d: OficioDelivery; x: number; y: number; on: bo
   </g>
 );
 
-const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks }) => {
+type RefsInDrawing = { list: Reference[]; pick: string | null; onPick: (id: string) => void; onMore: () => void; line: (key: string) => string };
+
+const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links, refs }: { o: Oficio; seat: string; pick: string | null; onPick: (k: string) => void; now: number; timeZone?: string; onShelf: () => void; links: OficioLinks; refs?: RefsInDrawing }) => {
   const w = words(OFICIO_WORDS);
   const [ref, { w: W, h: H }] = useSize<HTMLDivElement>();
-  const rows: Row[] = rowsOf(o.skills, Math.floor((H - 40) / ROW));
+  // PLA-I67-4: the references take up to a third of the rows' room, under the skills.
+  const refList = refs?.list ?? [];
+  const refN = refRoom(Math.floor((H - 40) / REF_ROW), refList.length);
+  const refPx = refsHeight(refN, 0);
+  const rows: Row[] = rowsOf(o.skills, Math.floor((H - 40 - (refPx ? refPx + 6 : 0)) / ROW));
   const maxUsed = Math.max(0, ...o.skills.map((s) => s.deliveries_used));
   const x0 = LABEL_W + 12;
   const hubX = Math.round(x0 + Math.min(220, Math.max(120, W * 0.16)));
-  const rowsMid = 8 + (rows.length * ROW) / 2;
+  const refTop = 8 + rows.length * ROW + 6 + (o.skills.some((s) => s.on) ? 0 : 76);
+  const rowsMid = refPx ? (8 + refTop + refPx) / 2 : 8 + (rows.length * ROW) / 2;
   const hubY = Math.round(Math.min(Math.max(rowsMid, CARD_H + 56), Math.max(CARD_H + 56, H - 70)));
   const lineX0 = hubX + 46;
   const lineX1 = W - 44;
@@ -91,6 +102,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: 
               <Mark key={d.key} d={d} x={x} y={hubY} on={d.key === pick} />
             ))}
           </svg>
+          {refs && refN > 0 && <RefThreads refs={refList} room={refN} top={refTop} W={W} H={H} thread={thread} pick={refs.pick} onPick={refs.onPick} onMore={refs.onMore} seat={seat} />}
           <ul className="ofi-rows" aria-label={w.groupSkills}>
             {rows.map((r, i) => {
               const top = 8 + i * ROW;
@@ -152,7 +164,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: 
               <p className="cor-text">{w.noDeliveries}</p>
             </div>
           ) : (
-            picked && <Readout d={picked} o={o} now={now} timeZone={timeZone} links={links} style={{ left: lineX0 - 6, bottom: H - hubY + 40, maxHeight: hubY - 40, width: Math.max(260, Math.min(460, W - lineX0 - 20)) }} />
+            picked && <Readout d={picked} o={o} now={now} timeZone={timeZone} links={links} refLine={refs?.line(picked.key)} style={{ left: lineX0 - 6, bottom: H - hubY + 40, maxHeight: hubY - 40, width: Math.max(260, Math.min(460, W - lineX0 - 20)) }} />
           )}
           <p className="ofi-legend cor-cap" aria-hidden>
             <span><i className="ofi-key first" /> {w.legendFirst}</span>
@@ -166,7 +178,7 @@ const Drawing = ({ o, seat, pick, onPick, now, timeZone, onShelf, links }: { o: 
   );
 };
 
-const Readout = ({ d, o, now, timeZone, links, style }: { d: OficioDelivery; o: Oficio; now: number; timeZone?: string; links: OficioLinks; style: React.CSSProperties }) => {
+const Readout = ({ d, o, now, timeZone, links, style, refLine }: { d: OficioDelivery; o: Oficio; now: number; timeZone?: string; links: OficioLinks; style: React.CSSProperties; refLine?: string }) => {
   const w = words(OFICIO_WORDS);
   const status =
     d.outcome === "primera" ? w.landedFirst : d.outcome === "espera" ? w.waitsForYou : d.outcome === "trabajando" ? w.stillWorking : d.outcome === "descartada" ? w.dropped : w.stillOpen;
@@ -189,7 +201,7 @@ const Readout = ({ d, o, now, timeZone, links, style }: { d: OficioDelivery; o: 
         <p className="cor-text">{status}</p>
       )}
       <p className="cor-cap">
-        {carriedLine(d, o.skills)} {w.runs(d.runs)}
+        {carriedLine(d, o.skills)} {w.runs(d.runs)} {refLine}
       </p>
     </section>
   );
@@ -283,15 +295,35 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
   const seat = seatName(member?.role ?? q.data?.role ?? agent);
   const [pick, setPick] = useState<string | null>(null);
   const [shelf, setShelf] = useState(false);
+  // PLA-I67-4: the side panel may show the references ("refs") or one reference's card (its id).
+  const [refSide, setRefSide] = useState<string | null>(null);
+  const refsQ = useQuery({ queryKey: ["refs", p.slug, agent], queryFn: () => refsApi.list(p.slug, agent), refetchInterval: 30_000 });
+  const refRunsQ = useQuery({ queryKey: ["refs", p.slug, agent, "runs"], queryFn: () => refsApi.runs(p.slug, agent), refetchInterval: 30_000 });
+  const upload = useRefUpload(p.slug, agent, (r) => setRefSide(r.id));
+  const drop = useRefDrop((f) => {
+    setShelf(false);
+    setRefSide("refs");
+    upload.mutate(f);
+  });
+  const openShelf = (on: boolean) => {
+    setShelf(on);
+    if (on) setRefSide(null);
+  };
   useEffect(() => {
     setPick(null);
     setShelf(false);
+    setRefSide(null);
   }, [agent]);
   const o = q.data;
   const chosen = o ? (o.deliveries.some((d) => d.key === pick) ? pick : firstPick(o.deliveries)) : null;
   const head = o ? headline(o, seat) : null;
   return (
-    <div className="cor-oficio" data-oficio={agent}>
+    <div className="cor-oficio" data-oficio={agent} {...drop.handlers}>
+      {drop.over && (
+        <div className="ofi-drop-over" aria-hidden>
+          <p>{words(REFERENCE_UI_WORDS).dropHere(seat)}</p>
+        </div>
+      )}
       <div className="ofi-top">
         <Link to={links.back} className="cor-strip-back" data-control="volver-equipo">
           ‹ {w.back}
@@ -304,7 +336,7 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
             </Link>
           ))}
         </nav>
-        <Btn kind="link" onClick={() => setShelf(!shelf)} aria-expanded={shelf} data-control="estanteria">
+        <Btn kind="link" onClick={() => openShelf(!shelf)} aria-expanded={shelf} data-control="estanteria">
           {w.shelf}
         </Btn>
         <Link to={links.motor} className="cor-btn link" data-control="motor">
@@ -329,7 +361,32 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
             {head!.lead} <span className="cor-muted">{head!.rest}</span>
           </h2>
           <div className="ofi-body">
-            <Drawing o={o} seat={seat} pick={chosen} onPick={setPick} now={now} timeZone={timeZone} onShelf={() => setShelf(true)} links={links} />
+            <Drawing
+              o={o}
+              seat={seat}
+              pick={chosen}
+              onPick={setPick}
+              now={now}
+              timeZone={timeZone}
+              onShelf={() => openShelf(true)}
+              links={links}
+              refs={{
+                list: refsQ.data ?? [],
+                pick: refSide,
+                onPick: (id) => {
+                  setShelf(false);
+                  setRefSide(id);
+                },
+                onMore: () => {
+                  setShelf(false);
+                  setRefSide("refs");
+                },
+                line: (key) => {
+                  const r = deliveryRefs(refRunsQ.data ?? []).get(key);
+                  return r ? words(REFERENCE_UI_WORDS).runLine(r.carried, r.opened) : "";
+                },
+              }}
+            />
             <aside className="ofi-side">
               <dl className="ofi-stats">
                 <div>
@@ -345,7 +402,20 @@ export const OficioPage = ({ p, agent, now, timeZone, links }: { p: OrgProject; 
                   </dd>
                 </div>
               </dl>
-              {shelf ? <Shelf o={o} seat={seat} onClose={() => setShelf(false)} /> : <NextRun o={o} onShelf={() => setShelf(true)} />}
+              {shelf ? (
+                <Shelf o={o} seat={seat} onClose={() => setShelf(false)} />
+              ) : refSide === "refs" ? (
+                <RefPanel slug={p.slug} agent={agent} seat={seat} refs={refsQ.data ?? []} upload={upload} onOpen={setRefSide} onClose={() => setRefSide(null)} />
+              ) : refSide && refsQ.data?.some((r) => r.id === refSide) ? (
+                <RefCard key={refSide} slug={p.slug} agent={agent} seat={seat} r={refsQ.data.find((r) => r.id === refSide)!} now={now} timeZone={timeZone} onClose={() => setRefSide(null)} />
+              ) : (
+                <>
+                  <NextRun o={o} onShelf={() => openShelf(true)} />
+                  <Btn kind="secondary" className="ofi-ref-add" onClick={() => setRefSide("refs")} data-control="agregar-referencia">
+                    {words(REFERENCE_UI_WORDS).add}
+                  </Btn>
+                </>
+              )}
             </aside>
           </div>
         </>

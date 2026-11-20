@@ -1591,3 +1591,51 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .ofi-shelf-list .cor-switch { width: 100%; justify-content: space-between; flex-direction: row-reverse; }
 .ofi-shelf-line { margin-top: -6px; line-height: 1.45; }
 .ofi-door { gap: 6px; }
+
+/* PLA-I67-4: references on «Oficio»: threads under the skills (44px rows with a thumbnail), the side panel with paste,
+   drop and a link field, the card with the reduced image and its token cost. The card scrolls inside its own box. */
+.cor-oficio { position: relative; }
+.ofi-drop-over { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; border: 2px dashed rgba(167, 139, 250, 0.6); border-radius: 16px; background: rgba(12, 12, 16, 0.82); pointer-events: none; }
+.ofi-drop-over p { font-size: 18px; color: var(--cor-text); }
+.ofi-ref-thread { fill: none; stroke: var(--cor-violet-3); stroke-opacity: 0.7; stroke-linecap: round; }
+.ofi-ref-thread.avoid { stroke: var(--cor-red); stroke-opacity: 0.6; stroke-dasharray: 5 4; }
+.ofi-ref-group { position: absolute; left: 0; margin: 0; }
+.ofi-ref-rows { position: absolute; left: 0; width: 268px; }
+.ofi-ref-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 8px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--cor-body); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.ofi-ref-row:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.ofi-ref-row[aria-pressed="true"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); }
+.ofi-ref-row.off { color: var(--cor-muted); }
+.ofi-ref-row.more { padding-left: 38px; }
+.ofi-ref-row > .cor-cap { flex: none; }
+.ofi-ref-bad { color: var(--cor-red); }
+.ofi-ref-thumb { flex: none; width: 28px; height: 28px; border-radius: 6px; object-fit: cover; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); display: inline-flex; align-items: center; justify-content: center; font-family: var(--cor-mono); font-size: 9.5px; color: var(--cor-body); }
+.ofi-ref-thumb.link { font-size: 14px; color: var(--cor-violet-3); }
+.ofi-ref-thumb.failed { color: var(--cor-red); border-color: rgba(255, 122, 122, 0.45); }
+.ofi-ref-add { flex: none; }
+.ofi-refs { flex: 1 1 auto; }
+.ofi-ref-link { display: flex; flex-direction: column; gap: 6px; }
+.ofi-ref-link-row { display: flex; gap: 8px; }
+.ofi-ref-link-row .cor-input { flex: 1; min-width: 0; }
+.ofi-ref-drop { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--cor-line-strong); background: transparent; color: var(--cor-text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.ofi-ref-drop:hover { border-color: rgba(167, 139, 250, 0.6); background: rgba(139, 92, 246, 0.06); }
+.ofi-ref-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; margin-right: -8px; padding-right: 8px; }
+.ofi-ref-card { flex: 1 1 auto; }
+.ofi-ref-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; margin-right: -8px; padding-right: 8px; }
+.ofi-ref-title { font-size: 17px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.ofi-ref-figure { position: relative; margin: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); }
+.ofi-ref-figure img { display: block; width: 100%; max-height: 132px; object-fit: cover; object-position: top; }
+.ofi-ref-figure figcaption { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(12, 12, 16, 0.86); color: var(--cor-text); font-family: var(--cor-mono); }
+.ofi-ref-file { display: flex; align-items: center; gap: 10px; }
+.ofi-ref-linkinfo { display: flex; flex-direction: column; gap: 4px; }
+.ofi-ref-url { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0; overflow-wrap: anywhere; }
+.ofi-ref-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255, 122, 122, 0.35); background: rgba(255, 122, 122, 0.05); }
+.ofi-ref-note { min-height: 64px; }
+.ofi-ref-two { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: end; }
+.ofi-ref-two > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ofi-ref-two .cor-select { width: 100%; min-width: 0; }
+.ofi-ref-opts { display: inline-flex; gap: 4px; }
+.ofi-ref-card .cor-select { width: 100%; }
+.ofi-ref-card .cor-switch { align-self: flex-start; }
+.ofi-ref-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
+.ofi-ref-foot .cor-btn.primary { flex: 1; }
+.ofi-ref-remove { color: var(--cor-red); }

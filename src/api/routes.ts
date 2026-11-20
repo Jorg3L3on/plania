@@ -44,6 +44,7 @@ import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
 import { companyRoutes } from "./company.js";
 import { pedidoImageRoutes } from "./pedido-images.js";
+import { oficioRefRoutes } from "./company-oficio-refs.js";
 import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
@@ -203,6 +204,8 @@ api.post("/delegated/reviewed", async (c) => {
 // is told 403 (not 401): the cookie alone opens it (src/api/company.ts checks both).
 // PLA-I54-2: pictures on a request (src/api/pedido-images.ts), cookie only, the same way.
 api.route("/company", pedidoImageRoutes);
+// PLA-I67-4: a seat's references (src/api/company-oficio-refs.ts), cookie only, the same way.
+api.route("/company", oficioRefRoutes);
 api.route("/company", companyRoutes);
 // PLA-I32-3: the threads, the same way (src/api/threads.ts).
 api.route("/threads", threadRoutes);
