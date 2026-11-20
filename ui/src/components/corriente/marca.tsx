@@ -274,7 +274,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
   const row = (id: MarcaRow["id"]) => r.rows.find((x) => x.id === id);
   const src = (id: MarcaRow["id"]) => {
     const x = row(id);
-    return x && x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path) : null;
+    return x && x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path, r.commit) : null;
   };
   const orig = r.logo ? logoUrl(r.slug, r.logo) : null;
   // PLA-122: a surface's own icon shows on its card; PLA-120 (guided test): with nothing in the repo yet, the card
@@ -307,7 +307,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
   const mono = has(r.rows, "mono") ? src("mono") : null;
   const theme = String(row("man")?.checks.find((x) => x.k === "man_colors")?.v?.theme ?? "#0e0e12");
   const ogRow = row("og");
-  const og = ogRow?.state === "ok" && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path) : null;
+  const og = ogRow?.state === "ok" && ogRow.path?.endsWith(".png") ? fileUrl(r.slug, ogRow.path, r.commit) : null;
   const ogCode = ogRow?.state === "ok" && !og;
   const installIcon = src("a192") ?? src("a512");
   return (
@@ -356,7 +356,7 @@ function Scene({ r, w, title, lit, sel, onPick, onHover, actions }: { r: MarcaRe
               </span>
             </div>
             <div className="mk-splash" style={{ background: theme }}>
-              {r.splash ? <img src={fileUrl(r.slug, r.splash)} alt="" /> : <span>{w.splashNone}</span>}
+              {r.splash ? <img src={fileUrl(r.slug, r.splash, r.commit)} alt="" /> : <span>{w.splashNone}</span>}
             </div>
           </div>,
           solo("ios"),
@@ -527,7 +527,7 @@ function RepoPanel({ r, w, onBack, onUse }: { r: MarcaRead; w: MarcaWords; onBac
       <ul className="mk-picks">
         {r.candidates.map((c) => (
           <li key={c.path} data-candidate={c.path}>
-            <img src={fileUrl(r.slug, c.path)} alt="" className={c.variant === "icon" ? "tile" : ""} />
+            <img src={fileUrl(r.slug, c.path, r.commit)} alt="" className={c.variant === "icon" ? "tile" : ""} />
             <span className="mk-pick-tx">
               <code>{c.path}</code>
               <span>{w.variant[c.variant]}</span>
@@ -774,7 +774,7 @@ function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords
       </header>
       <ul className="mk-rows">
         {sortedRows(r.rows).map((x) => {
-          const img = x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path) : x.id === "pl" && r.logo ? logoUrl(r.slug, r.logo) : null;
+          const img = x.state !== "falta" && x.path && /\.(png|svg|ico)$/.test(x.path) ? fileUrl(r.slug, x.path, r.commit) : x.id === "pl" && r.logo ? logoUrl(r.slug, r.logo) : null;
           return (
             <li key={x.id} data-row={x.id} data-st={x.state}>
               <button type="button" className="mk-row" onClick={() => onPick(x.face)} onMouseEnter={() => onHover(x.face)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(x.face)} onBlur={() => onHover(null)}>

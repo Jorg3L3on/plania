@@ -693,4 +693,5 @@ export function doorCount(rows: MarcaRow[], w: MarcaWords = marcaWords()): strin
 export const has = (rows: MarcaRow[], id: RowId): boolean => rows.find((r) => r.id === id)?.state === "ok";
 
 /** A repo file's address for a card (the read lists which files may be fetched). */
-export const fileUrl = (slug: string, p: string): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/file?path=${encodeURIComponent(p)}`;
+// PLA-125: the commit in the address, so a merge shows the new file at once instead of the cached one.
+export const fileUrl = (slug: string, p: string, commit?: string | null): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/file?path=${encodeURIComponent(p)}${commit ? `&c=${commit.slice(0, 12)}` : ""}`;
