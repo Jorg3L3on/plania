@@ -65,7 +65,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         // The machine job and register/release_footprint tell every screen the inventory changed.
         if (event.type === "footprint") void queryClient.invalidateQueries({ queryKey: ["machine"] });
         // PLA-I66-1: a project logo may have changed (a new version found in its repo).
-        if (event.type === "project") void queryClient.invalidateQueries({ queryKey: ["logos"] });
+        if (event.type === "project") {
+          void queryClient.invalidateQueries({ queryKey: ["logos"] });
+          void queryClient.invalidateQueries({ queryKey: ["marca", event.project] });
+        }
         if (!event.key) return;
         const id = `${event.project}/${event.key}`;
         if (Date.now() - (local.current.get(id) ?? 0) < LOCAL_ECHO_MS) return; // our own write

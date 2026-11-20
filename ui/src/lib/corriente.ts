@@ -16,12 +16,13 @@ export type View = (typeof VIEWS)[number];
 // PLA-I64-7: inside a project there is one list (todo, the entry) and its doors: Archivo, Hecho, Equipo (with
 // Motores behind it) and Máquinas. The old tabs' addresses still open: each lands on its new place (OLD_TAB).
 // NEWPROJ-6: Ajustes, the project's settings (where the code is, the release step, QA's list, the context notes).
-export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "ajustes"] as const;
+// PLA-I66-2: Marca, the project's logo and its icon files, before Ajustes.
+export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "marca", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
-export const DOORS = ["archivo", "equipo", "maquinas", "ajustes"] as const;
+export const DOORS = ["archivo", "equipo", "maquinas", "marca", "ajustes"] as const;
 export const CORRIENTE_LIB_WORDS = defineWords({
   es: {
-    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", ajustes: "Ajustes" } as Record<Tab, string>,
+    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", ajustes: "Ajustes" } as Record<Tab, string>,
     // The ask box's three modes (the same words as the building's).
     modes: {
       forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
@@ -50,7 +51,7 @@ export const CORRIENTE_LIB_WORDS = defineWords({
     oneFem: "Una",
   },
   en: {
-    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", ajustes: "Settings" },
+    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", ajustes: "Settings" },
     modes: {
       forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
       ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },
