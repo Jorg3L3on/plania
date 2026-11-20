@@ -304,13 +304,13 @@ const publishError = (code: string, detail: Record<string, unknown> = {}): strin
 
 // PLA-I68-6: Camino's production environment reviews the SQL and asks for the owner's approval of the exact file of a
 // destructive migration; the sheet lists them, approves each one, and Publicar can then run again.
-type GateFile = { path: string; sha256?: string; statements?: string[]; issues?: { rule: string; message: string }[] };
-const MigrationGate = ({ slug, code, detail }: { slug: string; code: string; detail: Record<string, unknown> }) => {
+type HoldFile = { path: string; sha256?: string; statements?: string[]; issues?: { rule: string; message: string }[] };
+const MigrationHold = ({ slug, code, detail }: { slug: string; code: string; detail: Record<string, unknown> }) => {
   const w = words(HOJAS_WORDS);
   const [done, setDone] = useState<Set<string>>(new Set());
-  const files = (Array.isArray(detail.files) ? detail.files : []) as GateFile[];
+  const files = (Array.isArray(detail.files) ? detail.files : []) as HoldFile[];
   return (
-    <div className="cor-state bad" role="alert" data-publish-gate={code}>
+    <div className="cor-state bad" role="alert" data-publish-hold={code}>
       <p>{code === "CAMINO_SQL_REVIEW" ? w.sqlReview : w.needsApproval}</p>
       <ul className="cor-hoja-list">
         {files.map((f) => (
@@ -432,7 +432,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
         </p>
       )}
       {ship.isError && ship.error instanceof ApiError && (ship.error.code === "CAMINO_NEEDS_APPROVAL" || ship.error.code === "CAMINO_SQL_REVIEW") ? (
-        <MigrationGate slug={p.slug} code={ship.error.code} detail={ship.error.detail} />
+        <MigrationHold slug={p.slug} code={ship.error.code} detail={ship.error.detail} />
       ) : (
         ship.isError && <p className="cor-state bad" role="alert" data-publish-error>{ship.error instanceof ApiError ? publishError(ship.error.code, ship.error.detail) : w.notNow}</p>
       )}
