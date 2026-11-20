@@ -7,6 +7,11 @@
 //   GET  /api/company/projects/:slug/logo/versions/:v    one version's file
 //   POST /api/company/projects/:slug/logo/versions/:v    go back to that version
 //   POST /api/company/projects/:slug/logo/release        let the repo's logo lead again
+//   POST /api/company/projects/:slug/logo/keep           {sha}: keep this logo over the one the repo now shows
+// PLA-I66-4:
+//   GET  /api/company/projects/:slug/marca/plan?mode=    what a request to Taller would change (faltan | todo)
+//   GET  /api/company/projects/:slug/marca/zip?mode=     the same files as a .zip
+//   POST /api/company/projects/:slug/marca/pedido        {mode}: the ticket for Taller
 // Refusals carry a code and the owner's sentence (src/brand/words.ts).
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -20,6 +25,7 @@ import { WEB_ACTOR } from "../mcp/tx.js";
 import { activateVersion, listVersions, LogoError, MAX_UPLOAD_BYTES, previewUpload, releaseChoice, stageUpload, useCandidate, useUpload, versionBytes } from "../brand/upload.js";
 import { marcaRead } from "../brand/marca.js";
 import { forgetLogoLooks } from "../brand/logos.js";
+import { buildSet, keepOver, requestIcons, zipOf } from "../brand/pedido.js";
 
 export const marcaRoutes = new Hono();
 const BASE = "/projects/:slug/logo";
@@ -31,6 +37,9 @@ async function guard(c: Context, next: () => Promise<void>) {
 }
 marcaRoutes.use(BASE, guard);
 marcaRoutes.use(`${BASE}/*`, guard);
+marcaRoutes.use("/projects/:slug/marca/plan", guard);
+marcaRoutes.use("/projects/:slug/marca/zip", guard);
+marcaRoutes.use("/projects/:slug/marca/pedido", guard);
 
 function fail(c: Context, e: unknown): Response {
   if (e instanceof LogoError) return c.json({ error: e.code, message: e.message }, e.status);
@@ -145,4 +154,49 @@ marcaRoutes.post(`${BASE}/release`, async (c) => {
   await withDb((db) => releaseChoice(db, p));
   forgetLogoLooks();
   return c.json(await withDb((db) => marcaRead(db, p.slug, { fresh: true })));
+});
+
+const Mode = (v: string | undefined): "faltan" | "todo" => (v === "todo" ? "todo" : "faltan");
+
+marcaRoutes.post(`${BASE}/keep`, async (c) => {
+  const body = await json(c, z.object({ sha: z.string().regex(/^[0-9a-f]{64}$/) }).strict());
+  if (body instanceof Response) return body;
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  await withDb((db) => keepOver(db, p, body.sha));
+  return c.json(await withDb((db) => marcaRead(db, p.slug)));
+});
+
+marcaRoutes.get("/projects/:slug/marca/plan", async (c) => {
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const set = await withDb((db) => buildSet(db, p, Mode(c.req.query("mode"))));
+  if (!set) return c.json({ error: "LOGO_NONE" }, 409);
+  return c.json({ plan: set.plan, set: set.id, dir: set.dir });
+});
+
+marcaRoutes.get("/projects/:slug/marca/zip", async (c) => {
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const mode = Mode(c.req.query("mode"));
+  const z = await withDb((db) => zipOf(db, p, mode));
+  if (!z) return c.json({ error: "LOGO_NONE" }, 409);
+  return c.body(new Uint8Array(z), 200, {
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="${p.slug}-iconos.zip"`,
+    "Cache-Control": "no-store",
+  });
+});
+
+marcaRoutes.post("/projects/:slug/marca/pedido", async (c) => {
+  try {
+    const body = await json(c, z.object({ mode: z.enum(["faltan", "todo"]) }).strict());
+    if (body instanceof Response) return body;
+    const p = await projectOf(c);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const r = await withDb((db) => requestIcons(db, p, body.mode));
+    return c.json({ key: r.key, read: await withDb((db) => marcaRead(db, p.slug)) });
+  } catch (e) {
+    return fail(c, e);
+  }
 });

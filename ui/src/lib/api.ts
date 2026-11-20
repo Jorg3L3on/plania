@@ -14,7 +14,7 @@ import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { LogoRef } from "@/lib/logos";
-import type { MarcaRead, PixelTests, Staged, VersionRef } from "@/lib/marca";
+import type { MarcaRead, PixelTests, Plan, Staged, VersionRef } from "@/lib/marca";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -216,6 +216,10 @@ export const api = {
   marcaVersions: (slug: string) => request<{ versions: VersionRef[] }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/versions`),
   marcaGoBack: (slug: string, v: number) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/versions/${v}`),
   marcaRelease: (slug: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/release`),
+  // PLA-I66-4: the files into the repo.
+  marcaKeep: (slug: string, sha: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/keep`, { sha }),
+  marcaPlan: (slug: string, mode: "faltan" | "todo") => request<{ plan: Plan; set: string; dir: string }>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/plan?mode=${mode}`),
+  marcaRequest: (slug: string, mode: "faltan" | "todo") => request<{ key: string; read: MarcaRead }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/pedido`, { mode }),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

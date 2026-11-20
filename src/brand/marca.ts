@@ -9,7 +9,11 @@ import { repoPathOf } from "../runner/worktree.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { detectLogo } from "./detect.js";
 import { checkRepo, type Framework, type Row } from "./check.js";
-import { activeLogo, filesAt, listTree, readBlob, realGit, RECHECK_MS, scanProjectLogo, type LogoDeps, type LogoRef } from "./logos.js";
+import { activeLogo, filesAt, listTree, readBlob, readLogoFile, realGit, RECHECK_MS, scanProjectLogo, type LogoDeps, type LogoRef } from "./logos.js";
+import { createHash } from "node:crypto";
+import { looksSame } from "./same.js";
+import { and, desc, ilike, notInArray } from "drizzle-orm";
+import { tasks } from "../db/schema.js";
 
 export type MarcaCandidate = { path: string; variant: "icon" | "mark"; mime: string; inUse: boolean };
 export type MarcaRead = {
@@ -25,10 +29,27 @@ export type MarcaRead = {
   candidates: MarcaCandidate[];
   /** One of the launch screens, when the repo has them (the iPhone card shows it). */
   splash: string | null;
+  /** PLA-I66-4: the open ticket that brings icon files, and the rows it carries. */
+  pedido: { key: string; status: string; rows: string[] } | null;
+  /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
+  drift: { path: string; sha: string } | null;
   checkedAt: string;
 };
 
-type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo">; files: Set<string> };
+type Cached = { commit: string | null; at: number; read: Omit<MarcaRead, "logo" | "pedido">; files: Set<string> };
+
+// PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
+const REQ = /<!-- plania:marca set=([0-9a-f]{16}) rows=([a-z0-9,]*) -->/;
+async function openRequest(db: Db, projectId: string): Promise<{ key: string; status: string; rows: string[] } | null> {
+  const [t] = await db
+    .select({ key: tasks.key, status: tasks.status, scope: tasks.scope })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), ilike(tasks.scope, "%<!-- plania:marca set=%"), notInArray(tasks.status, ["Done", "Won't do"])))
+    .orderBy(desc(tasks.createdAt))
+    .limit(1);
+  const m = t?.scope?.match(REQ);
+  return t && m ? { key: t.key, status: t.status, rows: m[2]!.split(",").filter(Boolean) } : null;
+}
 const cache = new Map<string, Cached>();
 export const forgetMarca = (): void => cache.clear();
 
@@ -43,7 +64,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const git = deps.git ?? realGit;
   const now = (deps.now ?? Date.now)();
   const branch = startBranchOf(p.settings);
-  const base = { slug: p.slug, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, checkedAt: new Date(now).toISOString() };
+  const base = { slug: p.slug, branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
   const scan = await scanProjectLogo(db, p, deps);
   const hasOriginal = !!(await activeLogo(db, p.id));
   if (scan.status === "no_repo" || !scan.commit) {
@@ -57,6 +78,14 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const check = await checkRepo(view, { hasOriginal, slug: p.slug });
   const current = await activeLogo(db, p.id);
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
+  // PLA-I66-4: the owner's choice leads, and the repo's best logo is another picture (not the same logo regenerated).
+  let drift: MarcaRead["drift"] = null;
+  const best = candidates[0];
+  if (current?.chosen && best && !(current.source === "repo" && current.sourcePath === best.path)) {
+    const sha = createHash("sha256").update(best.bytes).digest("hex");
+    const mine = readLogoFile(p.slug, current.file);
+    if (sha !== current.adjust?.keptOver && mine && !(await looksSame(mine, best.bytes))) drift = { path: best.path, sha };
+  }
   const files = new Set<string>([...check.rows.map((r) => r.path).filter((x): x is string => !!x && tree.has(x)), ...candidates.map((c) => c.path)]);
   // Launch screens are a folder: the first image stands for them on the card.
   const splash = [...tree.keys()].find((f) => /apple-splash|startup|launch/i.test(f) && f.endsWith(".png") && f.startsWith(`${check.root}public/`));
@@ -74,6 +103,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
       root: check.root,
       rows: check.rows,
       splash: splash ?? null,
+      drift,
       candidates: candidates.slice(0, 6).map((c) => ({ path: c.path, variant: c.variant, mime: c.mime, inUse: current?.source === "repo" && current.sourcePath === c.path })),
     },
   };
@@ -90,7 +120,8 @@ export async function marcaRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     cache.set(p.id, next);
     c = next;
   }
-  return { ...c.read, logo: await logoRef(db, p.id) };
+  const req = await openRequest(db, p.id);
+  return { ...c.read, logo: await logoRef(db, p.id), pedido: req ? { key: req.key, status: req.status, rows: req.rows } : null };
 }
 
 /** A file of the repo that the last read showed (a card's real file), at that read's commit. */

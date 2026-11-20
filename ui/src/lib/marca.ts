@@ -21,8 +21,18 @@ export type MarcaRead = {
   rows: MarcaRow[];
   candidates: MarcaCandidate[];
   splash: string | null;
+  /** PLA-I66-4: the open ticket bringing icon files, and the rows it carries. */
+  pedido: { key: string; status: string; rows: string[] } | null;
+  /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
+  drift: { path: string; sha: string } | null;
   checkedAt: string;
 };
+export type PlanItem = { key: string; path: string; op: "+" | "~" };
+export type Plan = { items: PlanItem[]; edits: { path: string; what: string }[]; kept: number; framework: "next-app" | "vite" | "static"; mode: "faltan" | "todo" };
+
+/** A row the open request carries and the repo does not have yet: it shows as on its way. */
+export const onItsWay = (r: Pick<MarcaRead, "pedido">, row: MarcaRow): boolean => !!r.pedido?.rows.includes(row.id) && row.state !== "ok";
+export const zipUrl = (slug: string, mode: "faltan" | "todo" = "todo"): string => `/api/company/projects/${encodeURIComponent(slug)}/marca/zip?mode=${mode}`;
 
 // PLA-I66-3: an upload as the server staged it, the pixel tests, a version.
 export type UpCheck = Coded & { ok: boolean | "warn" };
@@ -30,9 +40,28 @@ export type Staged = { up: string; name: string; kind: "svg" | "png" | "jpeg" | 
 export type PixelTests = { small: { ok: boolean; v: number }; circle: { ok: boolean; v: number }; contrast: { ok: boolean; v: number } };
 export type VersionRef = { v: number; source: LogoRef["source"]; path: string | null; variant: "icon" | "mark"; active: boolean; chosen: boolean; at: string };
 
-/** Where an upload starts: a see-through logo gets a background and room around it; an opaque one fills its tile. */
+const lumOf = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * f((n >> 16) & 255) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
+};
+const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+export const DARK_PLATE = "#18181f";
+
+/**
+ * Where an upload starts: a see-through logo gets room around it and the plate (white or near black) it stands out
+ * on most, never its own colour; an opaque one fills its tile.
+ */
 export function startAdjust(s: Pick<Staged, "hasAlpha" | "palette" | "corner" | "width" | "height">): { scale: number; bg: string | null } {
-  if (s.hasAlpha) return { scale: 70, bg: s.palette[0] ?? "#18181f" };
+  if (s.hasAlpha) {
+    const ink = s.palette[0];
+    if (!ink) return { scale: 70, bg: DARK_PLATE };
+    const l = lumOf(ink);
+    return { scale: 70, bg: ratio(l, 1) >= ratio(l, lumOf(DARK_PLATE)) ? "#ffffff" : DARK_PLATE };
+  }
   const square = Math.abs(s.width - s.height) / Math.max(s.width, s.height) < 0.02;
   return { scale: 100, bg: square ? null : s.corner };
 }
@@ -152,6 +181,47 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean): string => (has ? "en carriles, tira y brief" : "hoy: una letra"),
     optional: "opcional",
     reread: "Revisar el repo ahora",
+    sheet: {
+      open: "Ponerlos en el repo",
+      zip: "Descargar .zip",
+      title: (name: string) => `Poner la marca en el repo de ${name}`,
+      lead: "Plania arma los archivos desde el original, en esta máquina. Taller solo los pone donde van y los enlaza; no los redibuja.",
+      changes: "Lo que cambia",
+      framework: { "next-app": "Next.js · App Router", vite: "Vite", static: "Sitio estático" } as Record<string, string>,
+      faltan: "Solo lo que falta",
+      todo: "Rehacer todo desde el original",
+      kept: (n: number) => `${n} ya están bien: no se tocan`,
+      edits: "Código que enlaza",
+      edit: {
+        manifest_icons: "íconos del manifest",
+        manifest_mono: "ícono monocromo en el manifest",
+        layout_svg: "enlaza el SVG en la metadata",
+        layout_theme: "themeColor y appleWebApp",
+        html_links: "enlaces de íconos en el head",
+        html_manifest: "enlace al manifest",
+      } as Record<string, string>,
+      file: { ico: "favicon 16 · 32 · 48", svg: "ícono SVG", apple: "180 × 180, opaco", a192: "192 × 192", a512: "512 × 512", mask: "512, dibujo dentro del 40 %", mono: "silueta para íconos temáticos", og: "1200 × 630", manifest: "nombre, colores e íconos" } as Record<string, string>,
+      way: "Cómo llega",
+      steps: [
+        ["Plania arma los archivos", "Desde el original, con tamaños exactos. Sin servicios de pago."],
+        ["Taller abre un PR", "Rama nueva desde la rama de inicio; pone y enlaza los archivos."],
+        ["QA corre la lista", "La lista de verificación del proyecto."],
+        ["El Probador muestra antes y después", "La pestaña, el ícono y la imagen para compartir."],
+        ["Tú aceptas", "Y la lista vuelve a revisar el repo sola."],
+      ] as [string, string][],
+      count: (n: number) => (n === 1 ? "1 cambio · un pedido para Taller" : `${n} cambios · un pedido para Taller`),
+      cancel: "Cancelar",
+      send: "Pedírselo a Taller",
+      sent: (key: string) => `Taller tiene el pedido «Los íconos de la marca» (${key}). Las filas se ponen verdes cuando llega a la rama de inicio.`,
+      loading: "Armando los archivos…",
+    },
+    inPr: (key: string) => `Taller trabaja · ${key}`,
+    camino: "en el PR de Taller",
+    drift: {
+      text: (p: string) => `El repo trae otro logo: ${p}. Plania sigue con el tuyo hasta que decidas.`,
+      use: "Usar el del repo",
+      keep: "Mantener el mío",
+    },
     change: "Cambiar el logo",
     menu: {
       upload: "Subir uno",
@@ -313,6 +383,47 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
+    sheet: {
+      open: "Put them in the repo",
+      zip: "Download .zip",
+      title: (name: string) => `Put the brand in ${name}'s repo`,
+      lead: "Plania makes the files from the original, on this machine. Taller only puts them where they go and links them; it never redraws them.",
+      changes: "What changes",
+      framework: { "next-app": "Next.js · App Router", vite: "Vite", static: "Static site" } as Record<string, string>,
+      faltan: "Only what is missing",
+      todo: "Redo everything from the original",
+      kept: (n: number) => `${n} are already right: left alone`,
+      edits: "Code that links them",
+      edit: {
+        manifest_icons: "the manifest's icons",
+        manifest_mono: "monochrome icon in the manifest",
+        layout_svg: "links the SVG in the metadata",
+        layout_theme: "themeColor and appleWebApp",
+        html_links: "icon links in the head",
+        html_manifest: "a link to the manifest",
+      } as Record<string, string>,
+      file: { ico: "favicon 16 · 32 · 48", svg: "SVG icon", apple: "180 × 180, opaque", a192: "192 × 192", a512: "512 × 512", mask: "512, drawing inside 40 %", mono: "silhouette for themed icons", og: "1200 × 630", manifest: "name, colours and icons" } as Record<string, string>,
+      way: "How it arrives",
+      steps: [
+        ["Plania makes the files", "From the original, at exact sizes. No paid services."],
+        ["Taller opens a PR", "A new branch from the start branch; it places and links the files."],
+        ["QA runs the list", "The project's verify list."],
+        ["El Probador shows before and after", "The tab, the icon and the share image."],
+        ["You accept", "And the list checks the repo again by itself."],
+      ] as [string, string][],
+      count: (n: number) => `${n} changes · one request for Taller`,
+      cancel: "Cancel",
+      send: "Ask Taller",
+      sent: (key: string) => `Taller has the request «The brand's icons» (${key}). The rows turn green when it lands on the start branch.`,
+      loading: "Making the files…",
+    },
+    inPr: (key: string) => `Taller is working · ${key}`,
+    camino: "in Taller's PR",
+    drift: {
+      text: (p: string) => `The repo shows another logo: ${p}. Plania keeps yours until you decide.`,
+      use: "Use the repo's",
+      keep: "Keep mine",
+    },
     change: "Change the logo",
     menu: {
       upload: "Upload one",

@@ -1738,7 +1738,8 @@ export const installState = pgTable(
 export type LogoMime = "image/svg+xml" | "image/png";
 export type LogoVariant = "icon" | "mark"; // icon: drawn on its own background; mark: the bare drawing
 export type LogoSource = "repo" | "upload" | "artist";
-export type LogoAdjust = { raw: string; name: string; scale: number; bg: string | null };
+// keptOver: a repo logo the owner chose to keep this one over (the drift question, PLA-I66-4).
+export type LogoAdjust = { raw?: string; name?: string; scale?: number; bg?: string | null; keptOver?: string };
 export const projectLogos = pgTable(
   "project_logos",
   {

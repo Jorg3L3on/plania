@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, counts, faceState, fileUrl, has, marcaWords, sentence, sortedRows, startAdjust, testLines, versionUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Staged } from "@/lib/marca";
+import { FACES, counts, faceState, fileUrl, has, marcaWords, onItsWay, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError } from "./parts";
@@ -29,6 +29,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   // PLA-I66-3: the aside shows the repo's candidates or the versions instead of the files; the upload takes the door.
   const [panel, setPanel] = useState<"repo" | "versiones" | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const took = (next: MarcaRead) => {
     client.setQueryData(["marca", p.slug], next);
     void client.invalidateQueries({ queryKey: ["logos"] });
@@ -84,8 +85,50 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
               {w.reread}
             </button>
           )}
+          {r.logo && (
+            <a className="cor-btn secondary small" href={zipUrl(p.slug)} download data-control="marca-zip">
+              {w.sheet.zip}
+            </a>
+          )}
+          {r.pedido ? (
+            <span className="mk-live" data-pedido={r.pedido.key}>
+              <i aria-hidden />
+              {w.inPr(r.pedido.key)}
+            </span>
+          ) : (
+            r.logo &&
+            r.repo === "ok" &&
+            c.missing + c.wrong > 0 && (
+              <button type="button" className="cor-btn primary" onClick={() => setSheet(true)} data-control="marca-al-repo">
+                {w.sheet.open}
+              </button>
+            )
+          )}
         </div>
       </header>
+      {r.drift && (
+        <div className="mk-drift" role="status" data-drift={r.drift.path}>
+          <span>{w.drift.text(r.drift.path)}</span>
+          <button type="button" className="cor-btn amber small" onClick={async () => took(await api.marcaCandidate(p.slug, r.drift!.path))} data-control="marca-usar-repo">
+            {w.drift.use}
+          </button>
+          <button type="button" className="cor-btn secondary small" onClick={async () => took(await api.marcaKeep(p.slug, r.drift!.sha))} data-control="marca-mantener">
+            {w.drift.keep}
+          </button>
+        </div>
+      )}
+      {sheet && (
+        <Sheet
+          p={p}
+          w={w}
+          onClose={() => setSheet(false)}
+          onSent={(key, next) => {
+            took(next);
+            setSheet(false);
+            toast(w.sheet.sent(key));
+          }}
+        />
+      )}
       <div className="mk-grid">
         <Scene r={r} w={w} title={p.title} lit={lit} sel={sel} onPick={(f) => { setPanel(null); setSel(f); }} onHover={setHover} actions={actions} />
         <aside className="mk-list" aria-label={w.files}>
@@ -632,10 +675,10 @@ function Rows({ r, w, onPick, onHover }: { r: MarcaRead; w: MarcaWords; onPick: 
           return (
             <li key={x.id} data-row={x.id} data-st={x.state}>
               <button type="button" className="mk-row" onClick={() => onPick(x.face)} onMouseEnter={() => onHover(x.face)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(x.face)} onBlur={() => onHover(null)}>
-                <StIcon st={x.optional && x.state === "falta" ? "opt" : x.state} />
+                <StIcon st={onItsWay(r, x) ? "camino" : x.optional && x.state === "falta" ? "opt" : x.state} />
                 <span className="mk-row-tx">
                   <b>{w.row[x.id].name}</b>
-                  <span>{x.size ? `${x.size} · ` : ""}{x.path ?? w.row[x.id].spec}</span>
+                  <span>{onItsWay(r, x) ? `${w.camino} · ` : x.size ? `${x.size} · ` : ""}{x.path ?? w.row[x.id].spec}</span>
                 </span>
                 {img ? <img className="mk-row-img" src={img} alt="" /> : <span className="mk-row-img none" />}
               </button>
@@ -687,4 +730,110 @@ export function MarcaCount({ slug }: { slug: string }) {
   const c = counts(q.data.rows);
   const bad = c.missing + c.wrong;
   return <span className={`n${bad ? "" : " ok"}`}>{bad ? marcaWords().doorCount(bad) : marcaWords().doorComplete}</span>;
+}
+
+/** PLA-I66-4: «Ponerlos en el repo» (design frame D1): what changes, file by file, and how it arrives. */
+function Sheet({ p, w, onClose, onSent }: { p: { slug: string; title: string }; w: MarcaWords; onClose: () => void; onSent: (key: string, next: MarcaRead) => void }) {
+  const [mode, setMode] = useState<"faltan" | "todo">("faltan");
+  const plan = useQuery({ queryKey: ["marca-plan", p.slug, mode], queryFn: () => api.marcaPlan(p.slug, mode) });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const first = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    first.current?.focus();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.marcaRequest(p.slug, mode);
+      onSent(r.key, r.read);
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pl: Plan | undefined = plan.data?.plan;
+  const n = pl ? pl.items.length + pl.edits.length : 0;
+  return (
+    <div className="cor-hoja-back" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="cor-hoja mk-sheet" role="dialog" aria-modal="true" aria-labelledby="mk-sheet-h" data-sheet="marca">
+        <header className="mk-sh-head">
+          <h3 id="mk-sheet-h">{w.sheet.title(p.title)}</h3>
+          <button ref={first} type="button" className="mk-x" onClick={onClose} aria-label={w.sheet.cancel}>
+            ×
+          </button>
+        </header>
+        <p className="cor-text">{w.sheet.lead}</p>
+        <div className="mk-sh-grid">
+          <div>
+            <div className="mk-sh-lbl">
+              {w.sheet.changes} {pl && <span>{w.sheet.framework[pl.framework]}</span>}
+            </div>
+            <div className="mk-opts" role="radiogroup" aria-label={w.sheet.changes}>
+              {(["faltan", "todo"] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} data-control={`marca-modo-${m}`}>
+                  {w.sheet[m]}
+                </button>
+              ))}
+            </div>
+            {!pl ? (
+              <p className="cor-text" role="status">{w.sheet.loading}</p>
+            ) : (
+              <ul className="mk-tree">
+                {pl.items.map((i) => (
+                  <li key={i.path} data-op={i.op}>
+                    <i className={i.op === "+" ? "ka" : "km"}>{i.op}</i>
+                    <code>{i.path}</code>
+                    <span>{w.sheet.file[i.key] ?? ""}</span>
+                  </li>
+                ))}
+                {pl.edits.map((e) => (
+                  <li key={`${e.path}-${e.what}`} data-op="~">
+                    <i className="km">~</i>
+                    <code>{e.path}</code>
+                    <span>{w.sheet.edit[e.what] ?? ""}</span>
+                  </li>
+                ))}
+                {pl.kept > 0 && (
+                  <li className="same">
+                    <i className="ks">=</i>
+                    <span>{w.sheet.kept(pl.kept)}</span>
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+          <div>
+            <div className="mk-sh-lbl">{w.sheet.way}</div>
+            <ol className="mk-way">
+              {w.sheet.steps.map(([b, t]) => (
+                <li key={b}>
+                  <b>{b}</b>
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+        {error && <p className="mk-block" role="alert">{error}</p>}
+        <footer className="mk-sh-foot">
+          <span className="mk-sh-note">{pl ? w.sheet.count(n) : ""}</span>
+          <a className="cor-btn secondary" href={zipUrl(p.slug, mode)} download data-control="marca-zip-hoja">
+            {w.sheet.zip}
+          </a>
+          <button type="button" className="cor-btn secondary" onClick={onClose}>
+            {w.sheet.cancel}
+          </button>
+          <button type="button" className="cor-btn primary" disabled={!pl || n === 0 || busy} onClick={() => void send()} data-control="marca-pedir">
+            {w.sheet.send}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
 }

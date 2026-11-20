@@ -60,7 +60,9 @@ describe("checking an upload", () => {
     assert.ok(s.hasAlpha);
     assert.ok(s.checks.some((c) => c.k === "svg_cleaned"));
     assert.ok(s.palette[0]?.startsWith("#2"));
-    assert.deepEqual(ui.startAdjust(s), { scale: 70, bg: s.palette[0] });
+    // A blue mark starts on white (its best plate), never on its own colour.
+    assert.deepEqual(ui.startAdjust(s), { scale: 70, bg: "#ffffff" });
+    assert.deepEqual(ui.startAdjust({ ...s, palette: ["#fde68a"] }), { scale: 70, bg: ui.DARK_PLATE });
   });
 
   test("refusals carry a code: empty, too big, not an image, nothing left after cleaning", async () => {
