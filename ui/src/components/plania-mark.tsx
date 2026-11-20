@@ -1,6 +1,9 @@
 import { useId, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { logoGradient, logoOf, logoUrl, readableOnDark, setLogos, type LogoRef } from "@/lib/logos";
 
 // A brand mark: a glyph cut from a two-stop gradient, with an optional darker shade cut from
 // the same glyph. Ids are scoped per instance so several marks on one page don't share (and
@@ -105,19 +108,55 @@ export function CrossMark({ className }: { className?: string }) {
   return <BrandMark brand={CROSS} className={cn("shrink-0", className)} />;
 }
 
-/** The project's mark: Plania's own, else a monogram in its slug's colours (PLA-I2-3: every project has one). */
+// PLA-I66-1: the projects' real logos, read once for the whole screen (every ProjectMark shares the query).
+function useLogos(): Record<string, LogoRef> {
+  const q = useQuery({
+    queryKey: ["logos"],
+    queryFn: () =>
+      api.logos().then((r) => {
+        setLogos(r.logos);
+        return r.logos;
+      }),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+  return q.data ?? {};
+}
+
+/**
+ * The project's mark: its own logo when Plania has one (found in its repo, uploaded or chosen; PLA-I66-1), else
+ * Plania's built-in mark for Plania, else a monogram in its slug's colours (PLA-I2-3: every project has one).
+ */
 export function ProjectMark({ slug, className, name }: { slug: string; className?: string; fallback?: boolean; name?: string }) {
+  const logo = useLogos()[slug];
+  if (logo) {
+    return (
+      <img
+        src={logoUrl(slug, logo)}
+        alt=""
+        aria-hidden
+        draggable={false}
+        data-logo={logo.source}
+        className={cn("shrink-0", logo.variant === "icon" ? "rounded-[22%] object-cover" : "object-contain", className)}
+      />
+    );
+  }
   const brand = PROJECTS[slug] ?? monogram(slug, name);
   return <BrandMark brand={brand} className={cn("shrink-0", className)} />;
 }
 
 export const hasProjectMark = (_slug: string) => true;
 
-/** The project's accent taken from its logo, when it has one. */
-export const projectBrandAccent = (slug: string): string | undefined => PROJECTS[slug]?.accent;
+/** The project's accent taken from its logo, when it has one (made readable on the dark surfaces). */
+export const projectBrandAccent = (slug: string): string | undefined => {
+  const g = logoGradient(logoOf(slug));
+  return g ? readableOnDark(g[0]) : PROJECTS[slug]?.accent;
+};
 
 /** The project's two gradient stops (its logo's, else its fallback pair), for bands and stripes. */
 export const projectGradient = (slug: string): [string, string] => {
+  const g = logoGradient(logoOf(slug));
+  if (g) return g;
   const b = PROJECTS[slug];
   return b ? [b.from, b.to] : fallbackAccent(slug);
 };
