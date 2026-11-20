@@ -42,6 +42,9 @@ const ALLOW: { path: string; why: string }[] = [
   { path: "ui/src/lib/ahora.ts", why: "PLA-I2-14: waits from a server before protocol 2.24 still read" },
 ];
 const TEXT = /\.(ts|tsx|js|mjs|md|css|html|json|sql|py|sh|toml|txt|ya?ml)$/;
+// The product's own home: releases are published from this GitHub repository, so its address may appear (the
+// installers' default download address, the README's one-liners). Only the full repository address is let through.
+const RELEASE_HOME = /github\.com\/jorg3l3on\/plania\b/gi;
 
 function walk(rel: string): string[] {
   const abs = path.join(ROOT, rel);
@@ -69,7 +72,7 @@ test("check 1: the scan finds none of the first owner's words outside the allow-
     readFileSync(path.join(ROOT, file), "utf8")
       .split("\n")
       .forEach((line, i) => {
-        if (WORDS.test(line)) hits.push(`${file}:${i + 1}: ${line.trim().slice(0, 100)}`);
+        if (WORDS.test(line.replace(RELEASE_HOME, ""))) hits.push(`${file}:${i + 1}: ${line.trim().slice(0, 100)}`);
       });
   }
   assert.deepEqual(hits, []);

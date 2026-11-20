@@ -205,7 +205,7 @@ export async function installGate(
 export const AFTER_INSTALL: MachineItemId[] = ["claude", "claude_session"];
 
 /**
- * Items the install's gate ignores, from PLANIA_UNSUPPORTED_SKIP_CHECK (comma-separated ids). Only the clean-machine
+ * Items the install's machine check ignores, from PLANIA_UNSUPPORTED_SKIP_CHECK (comma-separated ids). Only the clean-machine
  * CI job sets it (a macOS runner has 7 GB of memory); unsupported for users.
  */
 export function skippedChecks(env: NodeJS.ProcessEnv = process.env): MachineItemId[] {

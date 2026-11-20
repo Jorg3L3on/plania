@@ -117,8 +117,8 @@ against a stand-in pnpm, with `PLANIA_BOOTSTRAP_SKIP_DEPS=1` so nothing is insta
 `/primer-arranque` serves the screen, and runs `pnpm uninstall:plania --delete-data`. It runs on pushes to `jl/**`,
 on pull requests that touch the installers, by hand, and before every release. Claude Code is not on the runners; the
 install goes on without it, as it does for a person. A macOS runner has 7 GB of memory, under Plania's 8, so the job
-sets `PLANIA_UNSUPPORTED_SKIP_CHECK=memory`: a comma-separated list of machine-check items the install's gate lets
-pass. It exists for that job and is not supported for users.
+sets `PLANIA_UNSUPPORTED_SKIP_CHECK=memory`: a comma-separated list of machine-check items the install lets
+pass when they are missing. It exists for that job and is not supported for users.
 
 To try a release before it is published:
 
