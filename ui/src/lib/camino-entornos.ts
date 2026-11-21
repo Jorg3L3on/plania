@@ -96,6 +96,11 @@ export const ENTORNOS_WORDS = defineWords({
     nothingThere: "La llave no abre ningún proyecto.",
     keyRefused: (s: string) => `${s} rechazó la llave guardada: no es que no tengas proyectos. Cámbiala en Conexiones y llaves.`,
     rollback: "Volver atrás",
+    manualTitle: "Cómo se hace a mano",
+    manualLead: "Escribe cómo se despliega y cómo se vuelve atrás. Plania lo guarda en este entorno y lo muestra; nunca corre estos comandos.",
+    manualDeploy: "Comando que despliega",
+    manualRollback: "Comando que vuelve atrás",
+    manualCheck: "Qué comprobar después (una cosa por línea)",
     window: "Ventana para restaurar",
     dbName: "Base",
     dbNameHint: "de las bases de esta Mac",
@@ -180,6 +185,11 @@ export const ENTORNOS_WORDS = defineWords({
     nothingThere: "The key opens no project.",
     keyRefused: (s: string) => `${s} refused the saved key: it is not that you have no projects. Change it in Connections and keys.`,
     rollback: "Rollback",
+    manualTitle: "How it is done by hand",
+    manualLead: "Write how it deploys and how it rolls back. Plania keeps it on this environment and shows it; it never runs these commands.",
+    manualDeploy: "Command that deploys",
+    manualRollback: "Command that rolls back",
+    manualCheck: "What to check afterwards (one per line)",
     window: "Restore window",
     dbName: "Database",
     dbNameHint: "from this Mac's databases",
@@ -286,7 +296,7 @@ export const ENV_CHANGE_WORDS = defineWords({
     added: (n: string) => `Nuevo entorno «${n}»`,
     removed: (n: string) => `Se quita el entorno «${n}»`,
     field: (env: string, what: string, from: string, to: string) => `${env}: ${what} pasa de ${from} a ${to}`,
-    what: { name: "el nombre", kind: "el tipo", runs: "lo que corre", url: "la dirección", server: "el servidor", project: "el proyecto del servicio", db: "la base de datos", dbName: "el nombre de la base", data: "los datos", when: "cuándo se migra", lock: "el candado de migración", sql: "la revisión del SQL", approve: "pedir tu aprobación si se borran datos", backup: "la copia antes de migrar", roles: "los tres usuarios", health: "la dirección de salud", pages: "las páginas a abrir", freeze: "no publicar viernes tarde", vars: "las variables marcadas" },
+    what: { name: "el nombre", kind: "el tipo", runs: "lo que corre", url: "la dirección", server: "el servidor", project: "el proyecto del servicio", db: "la base de datos", dbName: "el nombre de la base", data: "los datos", when: "cuándo se migra", lock: "el candado de migración", sql: "la revisión del SQL", approve: "pedir tu aprobación si se borran datos", backup: "la copia antes de migrar", roles: "los tres usuarios", health: "la dirección de salud", pages: "las páginas a abrir", deploy: "el comando que despliega", rollback: "el comando que vuelve atrás", check: "lo que se comprueba", freeze: "no publicar viernes tarde", vars: "las variables marcadas" },
     yes: "sí",
     no: "no",
     nothing: "nada",
@@ -296,7 +306,7 @@ export const ENV_CHANGE_WORDS = defineWords({
     added: (n: string) => `New environment «${n}»`,
     removed: (n: string) => `Environment «${n}» is removed`,
     field: (env: string, what: string, from: string, to: string) => `${env}: ${what} goes from ${from} to ${to}`,
-    what: { name: "the name", kind: "the type", runs: "what runs", url: "the address", server: "the server", project: "the service project", db: "the database", dbName: "the database name", data: "the data", when: "when it migrates", lock: "the migration lock", sql: "the SQL review", approve: "asking for your approval when data is deleted", backup: "the backup before migrating", roles: "the three users", health: "the health address", pages: "the pages to open", freeze: "no Friday-evening releases", vars: "the ticked variables" },
+    what: { name: "the name", kind: "the type", runs: "what runs", url: "the address", server: "the server", project: "the service project", db: "the database", dbName: "the database name", data: "the data", when: "when it migrates", lock: "the migration lock", sql: "the SQL review", approve: "asking for your approval when data is deleted", backup: "the backup before migrating", roles: "the three users", health: "the health address", pages: "the pages to open", deploy: "the deploy command", rollback: "the rollback command", check: "what is checked", freeze: "no Friday-evening releases", vars: "the ticked variables" },
     yes: "yes",
     no: "no",
     nothing: "nothing",
@@ -305,7 +315,8 @@ export const ENV_CHANGE_WORDS = defineWords({
 });
 
 /** One plain line per changed field between the environments as read and as staged. */
-export function envChanges(before: CaminoEnv[], after: CaminoEnv[], language: Language = getLanguage()): string[] {
+/** nameOf turns a service id into its name (the screen passes serviceName; ids are never shown). */
+export function envChanges(before: CaminoEnv[], after: CaminoEnv[], language: Language = getLanguage(), nameOf: (id: string) => string = (id) => id): string[] {
   const w = words(ENV_CHANGE_WORDS, language);
   const e = words(ENTORNOS_WORDS, language);
   const out: string[] = [];
@@ -323,11 +334,14 @@ export function envChanges(before: CaminoEnv[], after: CaminoEnv[], language: La
     line(w.what.kind, e.kinds[b.kind], e.kinds[a.kind]);
     line(w.what.runs, w.runs(b.runs), w.runs(a.runs));
     line(w.what.url, nz(b.url), nz(a.url));
-    line(w.what.server, nz(b.server.provider), nz(a.server.provider));
+    line(w.what.server, b.server.provider ? nameOf(b.server.provider) : w.nothing, a.server.provider ? nameOf(a.server.provider) : w.nothing);
     line(w.what.project, nz(b.server.project), nz(a.server.project));
+    line(w.what.deploy, nz(b.server.manual?.deploy), nz(a.server.manual?.deploy));
+    line(w.what.rollback, nz(b.server.manual?.rollback), nz(a.server.manual?.rollback));
+    line(w.what.check, b.server.manual?.check.join(", ") || w.nothing, a.server.manual?.check.join(", ") || w.nothing);
     const d0 = b.database;
     const d1 = a.database;
-    line(w.what.db, nz(d0?.provider), nz(d1?.provider));
+    line(w.what.db, d0?.provider ? nameOf(d0.provider) : w.nothing, d1?.provider ? nameOf(d1.provider) : w.nothing);
     if (d1) {
       line(w.what.dbName, nz(d0?.name), nz(d1.name));
       line(w.what.data, d0 ? e.dataOpts[d0.data]! : w.nothing, e.dataOpts[d1.data]!);

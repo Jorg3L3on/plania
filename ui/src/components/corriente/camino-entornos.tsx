@@ -32,7 +32,7 @@ export function useSetEnvs(r: CaminoRead, cambios: Cambios) {
     if (JSON.stringify(next) === JSON.stringify(r.config.envs)) return cambios.drop("envs");
     const from = sayEnvs(r.config.envs);
     const to = sayEnvs(next);
-    cambios.stage({ key: "envs", change: { kind: "config", label: w.label(what), patch: { envs: next } }, dest: "plania", from, to: to === from ? `${to} · ${w.edited}` : to, lines: envChanges(r.config.envs, next) });
+    cambios.stage({ key: "envs", change: { kind: "config", label: w.label(what), patch: { envs: next } }, dest: "plania", from, to: to === from ? `${to} · ${w.edited}` : to, lines: envChanges(r.config.envs, next, undefined, (id) => serviceName(id as ProviderId)) });
   };
 }
 
@@ -230,6 +230,50 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
                 </p>
               ))}
           </>
+        )}
+        {server?.badge === "manual" && (
+          // PLA-I70-19: a Manual service's own commands and checklist. Stored and shown; Plania never runs them.
+          <div className="cam-field" data-manual={server.id}>
+            <span className="cam-lab">{w.manualTitle}</span>
+            <span className="cam-hint">{w.manualLead}</span>
+            <label className="cam-field">
+              <span className="cam-lab">{w.manualDeploy}</span>
+              <input
+                key={`md-${cambios.epoch}`}
+                className="cor-input cor-mono"
+                defaultValue={e.server.manual?.deploy ?? ""}
+                onBlur={(ev) => (ev.target.value.trim() || null) !== (e.server.manual?.deploy ?? null) && set({ server: { ...e.server, manual: { deploy: ev.target.value.trim() || null, rollback: e.server.manual?.rollback ?? null, check: e.server.manual?.check ?? [] } } })}
+                autoComplete="off"
+                spellCheck={false}
+                data-campo="manual-despliega"
+              />
+            </label>
+            <label className="cam-field">
+              <span className="cam-lab">{w.manualRollback}</span>
+              <input
+                key={`mr-${cambios.epoch}`}
+                className="cor-input cor-mono"
+                defaultValue={e.server.manual?.rollback ?? ""}
+                onBlur={(ev) => (ev.target.value.trim() || null) !== (e.server.manual?.rollback ?? null) && set({ server: { ...e.server, manual: { deploy: e.server.manual?.deploy ?? null, rollback: ev.target.value.trim() || null, check: e.server.manual?.check ?? [] } } })}
+                autoComplete="off"
+                spellCheck={false}
+                data-campo="manual-vuelve"
+              />
+            </label>
+            <label className="cam-field">
+              <span className="cam-lab">{w.manualCheck}</span>
+              <textarea
+                key={`mc-${cambios.epoch}`}
+                className="cor-input cam-ta"
+                defaultValue={(e.server.manual?.check ?? []).join("\n")}
+                onBlur={(ev) => {
+                  const check = ev.target.value.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 20);
+                  if (check.join("\n") !== (e.server.manual?.check ?? []).join("\n")) set({ server: { ...e.server, manual: { deploy: e.server.manual?.deploy ?? null, rollback: e.server.manual?.rollback ?? null, check } } });
+                }}
+                data-campo="manual-comprobar"
+              />
+            </label>
+          </div>
         )}
         <label className="cam-field">
           <span className="cam-lab">

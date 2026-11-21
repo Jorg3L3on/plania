@@ -96,3 +96,13 @@ test("B3: the pill is never green when GitHub could not be read", () => {
   assert.equal(ready.text, "No se pudo comprobar");
   assert.notEqual(ready.dot, "ok");
 });
+
+test("I14: a Manual service's commands and checklist are stored on the environment and said in the review", () => {
+  const e = { ...ent.newEnv([], "produccion", "Producción", "main"), server: { provider: "own_server" as const, project: null, note: null } };
+  const next = { ...e, server: { ...e.server, manual: { deploy: "ssh srv ./deploy.sh", rollback: "ssh srv ./rollback.sh", check: ["abre /", "login"] } } };
+  assert.deepEqual(ent.envChanges([e], [next], "es"), [
+    "Producción: el comando que despliega pasa de nada a ssh srv ./deploy.sh",
+    "Producción: el comando que vuelve atrás pasa de nada a ssh srv ./rollback.sh",
+    "Producción: lo que se comprueba pasa de nada a abre /, login",
+  ]);
+});

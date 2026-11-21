@@ -73,7 +73,13 @@ export type CaminoEnv = {
   kind: EnvKind;
   runs: EnvRuns;
   url: string | null;
-  server: { provider: ProviderId | null; project: string | null; note: string | null };
+  server: {
+    provider: ProviderId | null;
+    project: string | null;
+    note: string | null;
+    /** PLA-I70-19: a Manual service's own commands and checklist, written by the owner. Plania stores and shows them; it never runs them. */
+    manual?: { deploy: string | null; rollback: string | null; check: string[] };
+  };
   database: {
     provider: ProviderId | null;
     name: string | null;
