@@ -64,7 +64,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// PLA-113: /p/<slug> opens La corriente unless Archivo asked for the old page (?pagina).
+// PLA-113: /p/<slug> opens La corriente unless Ajustes asked for the old page (?pagina). PLA-135: it was Archivo.
 function ProjectRoute() {
   const { slug = "" } = useParams();
   const location = useLocation();

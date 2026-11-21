@@ -15,8 +15,6 @@ export const BARRA_WORDS = defineWords({
     switcherMenu: "Proyectos",
     teEspera: ", te espera",
     todoCount: (open: number) => `${open} ${open === 1 ? "ABIERTA" : "ABIERTAS"}`,
-    archivoEmpty: "VACÍO",
-    archivoCount: (docs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"}`,
     teamAgents: (n: number) => `${n} ${n === 1 ? "AGENTE" : "AGENTES"}`,
     noGoal: "Sin meta todavía",
     noDate: "sin fecha",
@@ -34,8 +32,6 @@ export const BARRA_WORDS = defineWords({
     switcherMenu: "Projects",
     teEspera: ", waiting on you",
     todoCount: (open: number) => `${open} OPEN`,
-    archivoEmpty: "EMPTY",
-    archivoCount: (docs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"}`,
     teamAgents: (n: number) => `${n} ${n === 1 ? "AGENT" : "AGENTS"}`,
     noGoal: "No goal yet",
     noDate: "no date",
@@ -69,9 +65,6 @@ export const peerTitle = (title: string, waits: boolean, language: Language = ge
 
 /** Todo's count beside its door: the open things, nothing when there are none. */
 export const todoCount = (open: number, language: Language = getLanguage()): string | null => (open > 0 ? w(language).todoCount(open) : null);
-
-/** Archivo's count beside its door («24 DOCS»). PLA-I68-2: PRs moved to Camino's Propuestas. */
-export const archivoCount = (docs: number, language: Language = getLanguage()): string => (docs === 0 ? w(language).archivoEmpty : w(language).archivoCount(docs));
 
 /** Equipo's word beside its door: «4 AGENTES» (PLA-I71-1: Equipo is about the agents; who works shows on the list). */
 export const teamWord = (members: number, language: Language = getLanguage()): string => w(language).teamAgents(members);

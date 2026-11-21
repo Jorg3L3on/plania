@@ -42,7 +42,6 @@ test("I62-1: a part not drawn yet links to its place in the building with the ri
   assert.equal(lib.legacyHref({}), "/ceo");
   assert.equal(lib.legacyHref({ view: "asistente" }), "/ceo?asistente");
   assert.equal(lib.legacyHref({ slug: "filmia", tab: "todo" }), "/ceo?piso=filmia");
-  assert.equal(lib.legacyHref({ slug: "filmia", tab: "archivo" }), "/ceo?piso=filmia&f=tab%3Adocs");
   assert.equal(lib.legacyHref({ slug: "filmia", ver: { kind: "paso", key: "FIL-42" } }), "/ceo?piso=filmia&f=step%3AFIL-42");
   assert.equal(lib.legacyHref({ slug: "filmia", ver: { kind: "entrega", id: "d1" } }), "/ceo?piso=filmia&decision=d1");
   assert.equal(lib.legacyHref({ slug: "filmia", tab: "maquinas" }), "/ceo?piso=filmia&nivel=maquinas");
@@ -194,16 +193,18 @@ const ahoraLinks = { entrega: (d: { id: string }) => `/e/${d.id}`, tetoca: () =>
 
 test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switcher keeps the door, the doors, not the tabs", () => {
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-1")), { slug: "filmia", tab: "todo" });
-  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=archivo")), { slug: "filmia" });
+  // PLA-135: Archivo is gone; its address lands on the list, and a door steps back to it.
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=archivo")), { view: "corriente" });
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=ajustes")), { slug: "filmia" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=motores")), { slug: "filmia", tab: "equipo" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia")), { view: "corriente" });
   assert.deepEqual(page.escFrom(lib.atOf("?v=tetoca")), { view: "corriente" });
   const lanes = [stream.laneOf(project("filmia", { team: [member("t", "taller", "running", { ticket: null })] }), undefined, [decision("d", "filmia", "deliverable")]), stream.laneOf(project("micasa"), undefined, [])];
-  const base = { slug: "filmia", title: "Filmia", lanes, href: (t: string) => `/t/${t}`, projectHref: (s: string) => `/c?proyecto=${s}&t=archivo`, back: "/c", pedirTo: "/pedir", pauseHref: "/pausar" };
+  const base = { slug: "filmia", title: "Filmia", lanes, href: (t: string) => `/t/${t}`, projectHref: (s: string) => `/c?proyecto=${s}&t=ajustes`, back: "/c", pedirTo: "/pedir", pauseHref: "/pausar" };
   // PLA-I3-2: the strip's chips, each with its mini stream. PLA-129: the bar has no project menu any more.
-  const out = html(h(strip.ProjectBar, { ...base, tab: "archivo", paused: false }));
-  assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=archivo"|href="\/c\?proyecto=filmia&amp;t=archivo"[^>]*aria-current="page"/);
-  assert.match(out, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
+  const out = html(h(strip.ProjectBar, { ...base, tab: "ajustes", paused: false }));
+  assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=ajustes"|href="\/c\?proyecto=filmia&amp;t=ajustes"[^>]*aria-current="page"/);
+  assert.match(out, /href="\/c\?proyecto=micasa&amp;t=ajustes"/);
   assert.match(out, /class="t yo"/);
   assert.match(out, /class="t ag"/);
   // PLA-I3-6: no Pedir in the bar; the bar at the foot is the only one.
@@ -216,11 +217,11 @@ test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switch
   // PLA-I3-2: the strip on top is back: one chip per project, the open one marked, each a link to the same door.
   assert.match(bar, /data-strip/);
   assert.match(bar, /data-chip="micasa"/);
-  assert.match(bar, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
+  assert.match(bar, /href="\/c\?proyecto=micasa&amp;t=ajustes"/);
   assert.match(bar, /aria-current="page"[^>]*data-chip="filmia"/);
   assert.ok(bar.indexOf("data-strip") < bar.indexOf('class="cor-topbar"'), "the strip sits above the bar");
-  for (const t of ["Todo", "Archivo", "Equipo", "Máquinas", "Ajustes", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
-  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Motores", "Borrar"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} in the bar`);
+  for (const t of ["Todo", "Equipo", "Máquinas", "Ajustes", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
+  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Archivo", "Motores", "Borrar"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} in the bar`);
   assert.match(bar, /aria-current="page"[^>]*>Equipo/, "Motores opens from Equipo");
   assert.match(bar, /data-estado="marcha"[^>]*>.*En marcha/);
   // Paused, the bar shows the state only: no Reanudar, no Pausar.

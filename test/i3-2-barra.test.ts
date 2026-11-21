@@ -27,10 +27,8 @@ test("I3-2: the bar's words", () => {
   assert.equal(words.todoCount(0), null);
   assert.equal(words.todoCount(1), "1 ABIERTA");
   assert.equal(words.todoCount(7), "7 ABIERTAS");
-  // PLA-I68-2: PRs moved to Camino; Archivo counts its docs.
-  assert.equal(words.archivoCount(0), "VACÍO");
-  assert.equal(words.archivoCount(1), "1 DOC");
-  assert.equal(words.archivoCount(24), "24 DOCS");
+  // PLA-135: Archivo and its count are gone.
+  assert.equal((words as Record<string, unknown>).archivoCount, undefined);
   // PLA-I71-1: the door counts agents, not who works (that shows on the list).
   assert.equal(words.teamWord(4), "4 AGENTES");
   assert.equal(words.teamWord(1), "1 AGENTE");
@@ -80,7 +78,7 @@ test("I3-2: Borrar opens from Ajustes (the same ?hoja=borrar sheet), not from th
   assert.ok(out.includes(ajustesWords.SECCIONES.borrar.titulo));
   assert.match(out, /<a class="cor-btn danger" data-control="borrar" href="\/ceo\?proyecto=cafe-lindo&amp;t=ajustes&amp;hoja=borrar:cafe-lindo"[^>]*>Borrar Café Lindo<\/a>/);
   assert.equal(ajustesWords.borrarBoton("Café Lindo"), "Borrar Café Lindo");
-  assert.match(page, /<Ajustes p=\{p\} borrarTo=\{hojaHref\("borrar", p\.slug\)\} \/>/);
+  assert.match(page, /<Ajustes p=\{p\} borrarTo=\{hojaHref\("borrar", p\.slug\)\} docTo=/);
   assert.ok(!/data-control="borrar"/.test(strip), "the bar has no Borrar");
   assert.ok(!/deleteHref/.test(page));
 });
@@ -88,9 +86,9 @@ test("I3-2: Borrar opens from Ajustes (the same ?hoja=borrar sheet), not from th
 test("I3-2: the page draws one bar for a project and keeps its keys", () => {
   assert.ok(!/\bStrip\b/.test(page.replace(/cor-strip-back/g, "")), "the strip is gone");
   assert.equal((page.match(/<ProjectBar\b/g) ?? []).length, 1);
-  // ↑/↓ walk the lanes, A/E/M open doors, Esc steps out: the handler is unchanged.
+  // ↑/↓ walk the lanes, E/M open doors, Esc steps out. PLA-135: A opened Archivo, which is gone.
   assert.match(page, /e\.key === "ArrowUp" \|\| e\.key === "ArrowDown"/);
-  assert.match(page, /k === "a" \? "archivo" : k === "e" \? "equipo" : k === "m" \? "maquinas"/);
+  assert.match(page, /const door: Tab \| null = k === "e" \? "equipo" : k === "m" \? "maquinas" : null;/);
   assert.match(page, /go\(escFrom\(at\), true\)/);
   // PLA-129: no project menu in the bar any more (nothing to close on Esc): the name links to Todo.
   assert.ok(!/aria-haspopup/.test(strip), "no menu");

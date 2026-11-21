@@ -1,7 +1,7 @@
 // PLA-I62: La corriente, Compañía redesigned (PLA-IDEA25), served at /ceo (pages/ceo.tsx moves the building's old
 // addresses here first). Data and calls are the ones /ceo uses (GET /api/company, GET /api/projects and friends); only the
 // drawing is new. The address (lib/corriente.ts) says which screen shows.
-// Keys (inside a project): ↑ ↓ change project; A Archivo, E Equipo, M Máquinas (and back to the list); Esc steps out
+// Keys (inside a project): ↑ ↓ change project; E Equipo, M Máquinas (and back to the list); Esc steps out
 // (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
 // 1-7 (the retired tabs) do nothing.
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -25,7 +25,7 @@ import { TiendaPage } from "@/components/corriente/tienda";
 import { TraerPage } from "@/components/corriente/traer";
 import { AdoptarPage, CompaniaPage, EquiposPage } from "@/components/corriente/equipos";
 import { Idea } from "@/components/corriente/idea";
-import { Docs, Prs } from "@/components/corriente/listas";
+import { Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
@@ -44,7 +44,9 @@ import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
 import { PasoLado } from "@/components/corriente/lado";
 import { cosaOfPaso } from "@/lib/lado";
 import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
-import { Archivo, HechoView } from "@/components/corriente/archivo";
+import { HechoView } from "@/components/corriente/hecho";
+import { DocLector } from "@/components/corriente/docs-proyecto";
+import { thingVer } from "@/lib/docs-proyecto";
 import { Camino } from "@/components/corriente/camino";
 import { Ajustes } from "@/components/corriente/ajustes";
 import { Marca } from "@/components/corriente/marca";
@@ -209,7 +211,7 @@ export const CorrientePage = () => {
         return;
       }
       const k = e.key.toLowerCase();
-      const door: Tab | null = k === "a" ? "archivo" : k === "e" ? "equipo" : k === "m" ? "maquinas" : null;
+      const door: Tab | null = k === "e" ? "equipo" : k === "m" ? "maquinas" : null;
       const to: Tab | null = door ? (at.tab === door && !at.ver ? "todo" : door) : null;
       if (to) {
         e.preventDefault();
@@ -457,43 +459,40 @@ export const CorrientePage = () => {
           motorDefault={company?.motor_default}
         />
       );
-    // PLA-I64-6: the Archivo and Hecho doors; a doc or PR opened from Archivo shows today's detail and comes back.
-    // PLA-I68-2: a PR opens from Camino's Propuestas and comes back there (an old Archivo address still opens it).
-    if ((at.tab === "archivo" || at.tab === "camino") && (at.ver?.kind === "doc" || at.ver?.kind === "pr")) {
-      const home: Tab = at.ver.kind === "pr" && at.tab === "camino" ? "camino" : "archivo";
+    // PLA-135: a doc opens across the whole page: from Ajustes («Docs del proyecto») it goes back there, from a thing's
+    // ficha (or an old Archivo address) back to the list.
+    if (at.ver?.kind === "doc" && (at.tab === "todo" || at.tab === "ajustes")) {
+      const home = at.tab;
+      return (
+        <DocLector
+          key={at.ver.id}
+          p={p}
+          id={at.ver.id}
+          back={home}
+          backTo={linkTo({ slug: p.slug, tab: home })}
+          docTo={(id) => linkTo({ slug: p.slug, tab: home, ver: { kind: "doc", id } })}
+          thingTo={(key) => linkTo({ slug: p.slug, ver: thingVer(key) })}
+        />
+      );
+    }
+    // PLA-I68-2: a PR opens from Camino's Propuestas and comes back there.
+    if (at.tab === "camino" && at.ver?.kind === "pr") {
       const back = (
-        <Link to={linkTo({ slug: p.slug, tab: home, ...(home === "camino" ? { ver: { kind: "camino", sec: "propuestas" } } : {}) })} className="cor-strip-back cor-door-back" data-control={`volver-${home}`}>
+        <Link to={linkTo({ slug: p.slug, tab: "camino", ver: { kind: "camino", sec: "propuestas" } })} className="cor-strip-back cor-door-back" data-control="volver-camino">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9.5 3.5 5 8l4.5 4.5" />
           </svg>
-          {home === "camino" ? tabName("camino") : w.archive}
+          {tabName("camino")}
         </Link>
       );
-      const arch = { slug: p.slug, tab: home };
+      const arch = { slug: p.slug, tab: "camino" as Tab };
       return (
         <>
           {back}
-          {at.ver.kind === "doc" ? (
-            <Docs p={p} open={at.ver.id} links={{ doc: (id) => linkTo({ ...arch, ver: { kind: "doc", id } }), iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }) }} />
-          ) : (
-            <Prs p={p} decisions={decisions} open={at.ver.n} links={{ pr: (n) => linkTo({ ...arch, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "entrega", id: d.id } }) }} />
-          )}
+          <Prs p={p} decisions={decisions} open={at.ver.n} links={{ pr: (n) => linkTo({ ...arch, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "entrega", id: d.id } }) }} />
         </>
       );
     }
-    if (at.tab === "archivo")
-      return (
-        <Archivo
-          p={p}
-          timeZone={timeZone}
-          links={{
-            doc: (id) => linkTo({ slug: p.slug, tab: "archivo", ver: { kind: "doc", id } }),
-            pr: (n) => linkTo({ slug: p.slug, tab: "archivo", ver: { kind: "pr", n } }),
-            idea: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "idea", key } }),
-            todo: linkTo({ slug: p.slug, tab: "todo" }),
-          }}
-        />
-      );
     if (at.tab === "hecho")
       return (
         <HechoView
@@ -543,7 +542,7 @@ export const CorrientePage = () => {
       );
     // NEWPROJ-6: the project's settings.
     // PLA-I3-2: Borrar opens from here (the same ?hoja=borrar sheet), no longer from the bar.
-    if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} />;
+    if (at.tab === "ajustes") return <Ajustes p={p} borrarTo={hojaHref("borrar", p.slug)} docTo={(id) => linkTo({ slug: p.slug, tab: "ajustes", ver: { kind: "doc", id } })} />;
     // PLA-I66-2: the project's logo, its six faces and the repo's icon files.
     if (at.tab === "marca") return <Marca p={p} />;
     // PLA-I68-2: Camino, how the project's code reaches people.

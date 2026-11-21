@@ -9,7 +9,9 @@ import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 export type AjustesCodigo = { repo_path: string | null; github_repo: string | null; no_code: boolean };
 export type AjustesContextoId = "glossary" | "commands" | "map";
-export type AjustesContexto = { id: AjustesContextoId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string };
+export type AjustesContexto = { id: AjustesContextoId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string; updated_at?: string | null };
+/** PLA-135: a doc of the project's library (its own docs other than the context notes, the prompts and the packs). */
+export type AjustesDoc = { id: string; title: string; version: number; updated_at: string; first: string };
 export type Ajustes = {
   slug: string;
   title: string;
@@ -20,6 +22,7 @@ export type Ajustes = {
   preview_url: string | null;
   plan_approval: boolean;
   context: AjustesContexto[];
+  library?: AjustesDoc[];
   // PLA-I2-6: «Cómo arranca la app» and «Avanzado» (@/lib/ajustes-avanzado).
   capture: ArranqueRead | null;
   avanzado: AvanzadoRead[];

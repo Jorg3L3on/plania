@@ -1,15 +1,11 @@
-// PLA-I62-7: a project's PRs and Docs details (boards C4, C5), from the ficha read (GET /company/projects/:slug/ficha).
-// PRs: the list and the open one beside it (Rama, Fusionado, Ver la entrega, Ver el paso, GitHub). Docs: by
-// initiative, the open one beside it. PLA-I64-7: they open from Archivo; the Ideas and Diseño tabs are retired (the
-// list's rows and Archivo's Diseños took their place).
-import { useState } from "react";
+// PLA-I62-7: a project's PRs details (board C4), from the ficha read (GET /company/projects/:slug/ficha): the list and
+// the open one beside it (Rama, Fusionado, Ver la entrega, Ver el paso, GitHub). PLA-135: the Docs detail left with
+// Archivo; a doc opens in the reader (docs-proyecto.tsx).
 import { useQuery } from "@tanstack/react-query";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
 import { api, type Decision, type OrgFicha, type OrgProject } from "@/lib/api";
 import { deliveryFor } from "@/lib/etapas";
-import { Btn, Key, Label, ReadError, You } from "./parts";
+import { Key, Label, ReadError, You } from "./parts";
 import { LOCALE } from "@/lib/locale";
 import { words } from "@/lib/i18n";
 import { LISTAS_WORDS } from "@/lib/listas-words";
@@ -131,70 +127,3 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
   );
 };
 
-export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; links: { doc: (id: string) => string; iniciativa: (key: string) => string } }) => {
-  const w = words(LISTAS_WORDS);
-  const f = useFicha(p.slug, true);
-  const docs = f.data?.docs ?? [];
-  const sel = docs.find((x) => x.id === open) ?? docs[0] ?? null;
-  const body = useQuery({ queryKey: ["ficha-doc", p.slug, sel?.id], queryFn: () => api.projectDoc(p.slug, sel!.id), enabled: !!sel });
-  const [others, setOthers] = useState(false);
-  if (f.isError) return <ReadError what={w.theDocs} onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label={w.readingDocs} />;
-  // Grouped by initiative: the open one's first, then the project's own docs.
-  const groups = new Map<string, typeof docs>();
-  for (const d of docs) groups.set(d.task_key ?? "", [...(groups.get(d.task_key ?? "") ?? []), d]);
-  const keys = [...groups.keys()].sort((a, b) => (a === (sel?.task_key ?? "") ? -1 : b === (sel?.task_key ?? "") ? 1 : a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
-  const shownKeys = others ? keys : keys.slice(0, 2);
-  return (
-    <div className="cor-docs" data-docs={docs.length}>
-      <nav className="cor-docs-list" aria-label={w.projectDocs}>
-        {docs.length === 0 && (
-          <p className="cor-text" data-sin-docs>
-            {w.noDocs}
-          </p>
-        )}
-        {shownKeys.map((k) => (
-          <section key={k || "proyecto"}>
-            <Label as="h2">{k ? w.ofKey(k) : w.ofProject}</Label>
-            <ul>
-              {groups
-                .get(k)!
-                .slice(0, 5)
-                .map((d) => (
-                  <li key={d.id}>
-                    <Link className="cor-docrow" to={links.doc(d.id)} aria-current={sel?.id === d.id ? "true" : undefined} data-doc={d.id}>
-                      <b className="cor-ellipsis">{d.title}</b>
-                      <span className="cor-cap">{`${k || w.ofProjectLower} · ${dayOf(d.updated_at)}`.toUpperCase()}</span>
-                    </Link>
-                  </li>
-                ))}
-            </ul>
-          </section>
-        ))}
-        {keys.length > 2 && (
-          <Btn kind="link" onClick={() => setOthers((x) => !x)}>
-            {others ? w.seeLess : w.seeOthers}
-          </Btn>
-        )}
-      </nav>
-      {sel && (
-        <article className="cor-card cor-docview" aria-label={sel.title} data-doc-open={sel.id}>
-          <div className="cor-docview-head">
-            <span>
-              <Label>{w.docHead(sel.task_key, body.data ? body.data.version : null, dayOf(sel.updated_at))}</Label>
-              <h2 className="cor-h2">{sel.title}</h2>
-            </span>
-            {sel.task_key && (
-              <Link className="cor-btn secondary" to={links.iniciativa(sel.task_key)} data-control="ver-iniciativa">
-                {w.seeInitiative}
-              </Link>
-            )}
-          </div>
-          <div className="cor-md cor-docbody" data-doc-body tabIndex={0} role="region" aria-label={w.textOf(sel.title)}>
-            {body.isError ? <ReadError what={w.theDoc} onRetry={() => void body.refetch()} /> : body.data ? <Markdown remarkPlugins={[remarkGfm]}>{body.data.markdown}</Markdown> : <div className="cor-skel" style={{ height: 200 }} />}
-          </div>
-        </article>
-      )}
-    </div>
-  );
-};

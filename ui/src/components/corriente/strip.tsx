@@ -1,8 +1,8 @@
-// PLA-I62-3: inside a project the stream shrinks to a bar on top (board B1). PLA-I64-7: the doors (Archivo, Equipo,
+// PLA-I62-3: inside a project the stream shrinks to a bar on top (board B1). PLA-I64-7: the doors (Equipo,
 // Máquinas) replace the seven work tabs. PLA-I3-2 (boards «En marcha», «En pausa»): the strip and the project's bar
 // are one 56 px bar: back to Corriente; the project's mark and name as a switcher whose menu holds every project with
 // its mini stream (a tick per stage: lit when work waits there, white where an agent works, amber where something
-// waits on the owner); the doors Todo, Archivo, Equipo, Máquinas, Ajustes with their small counts; the project's
+// waits on the owner); the doors Todo, Equipo, Máquinas, Ajustes with their small counts; the project's
 // state («En marcha» with Pausar, or «En pausa» alone). PLA-I3-6: no Pedir here; the bar at the foot is the only one.
 // Reanudar lives under the sentence (todo.tsx) and Borrar in Ajustes. Words: @/lib/barra.
 // PLA-I3-7: on a phone (corriente.css) back, the switcher and the state share the first row and the doors scroll
@@ -14,9 +14,8 @@ import { Link } from "react-router";
 import { DOORS, tabName, type Tab } from "@/lib/corriente";
 import { STRIP } from "@/lib/corriente-parts-words";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
-import { archivoCount, barState, peerTitle, switcherMenu, teEspera, todoCount } from "@/lib/barra";
+import { barState, peerTitle, switcherMenu, teEspera, todoCount } from "@/lib/barra";
 import { words } from "@/lib/i18n";
-import { useFicha } from "./listas";
 import { Logo } from "./parts";
 import { MarcaCount } from "./marca";
 import { marcaWords } from "@/lib/marca";
@@ -26,14 +25,6 @@ const Chevron = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 );
-
-/** Archivo's count beside its door, from the ficha's counts. */
-// PLA-I68-2: PRs moved to Camino; Archivo counts its docs.
-const ArchivoCount = ({ slug }: { slug: string }) => {
-  const f = useFicha(slug);
-  if (!f.data) return null;
-  return <span className="n">{archivoCount(f.data.counts.docs)}</span>;
-};
 
 /** PLA-I68-2: Camino's dot and its word: «N POR RESOLVER» or «LISTO». */
 const CaminoCount = ({ slug }: { slug: string }) => {
@@ -155,7 +146,6 @@ export const ProjectBar = ({
           <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
             {tabName(t)}
             {t === "todo" && todo && <span className="n">{todo}</span>}
-            {t === "archivo" && <ArchivoCount slug={slug} />}
             {t === "equipo" && team && <span className="n">{team}</span>}
             {t === "marca" && <MarcaCount slug={slug} />}
             {t === "camino" && <CaminoCount slug={slug} />}

@@ -80,7 +80,8 @@ English column is what is written in English sentences around it.
 | Asistente | stays | A role name in prompts and the roster. |
 | El Probador | stays | A tool's name. |
 | Motores | Engines | A plain word. |
-| Archivo | Archive | A plain word. |
+| Docs del proyecto | Project docs | A plain phrase. |
+| Biblioteca | Library | A plain word. |
 | Tablero | Board | A plain word. |
 | Ficha | Card | A plain word. |
 | Novedades | What's new | A plain word. |

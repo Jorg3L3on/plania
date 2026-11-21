@@ -923,11 +923,13 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - Clicking any ticket opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
   blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
-- **Ajustes** (NEWPROJ-6): a project's settings, a door beside Archivo, Equipo and Máquinas in Compañía
+- **Ajustes** (NEWPROJ-6): a project's settings, a door beside Equipo and Máquinas in Compañía
   (`/ceo?proyecto=<slug>&t=ajustes`), also linked from the readiness list and from `/p/<slug>`. It sets where the code
   is (a folder on this machine, checked with git before it is saved; a GitHub repo; or no code yet), the release step
   (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
-  and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
+  and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. PLA-135: those three
+  and the project's other docs (its library, `PUT …/settings/docs`) sit in «Docs del proyecto», drawn as who reads
+  what; a doc opens across the page to read and edit. Archivo, the door that listed docs, is gone. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
   concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
   command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A project with code made

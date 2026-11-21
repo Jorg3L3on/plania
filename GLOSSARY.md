@@ -112,7 +112,7 @@ Which screen names keep their Spanish form in English is in [docs/screen-words.m
 | Digest | What changed since a given moment, per project. |
 | Buzón | The first stop of La corriente: where a pedido lands before anyone shapes it. |
 | Plomería | The machine's plumbing on one page: whether the company runs, the plan's brake, what the models spent, the switches per project, the last runs, the language. |
-| Archivo | What a project wrote, drew and merged, together: its docs, each thing's docs, the designs. |
+| Docs del proyecto | A project's own docs, in Ajustes: the three context notes every run reads, and the library the team looks up. Archivo, which listed every doc, is gone (PLA-135). |
 | Tablero | The board of one project's work, by stage; also the building's switchboard of apps on Máquinas. |
 | Ficha | The card of one thing (pedido, idea, initiative, ticket) with everything about it, opened from any list. |
 | Máquinas | A project's services on the Mac: how its app starts, what is running, the test copies. |
