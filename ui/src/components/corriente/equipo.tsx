@@ -4,6 +4,7 @@
 // corrida, Dile algo, Que empiece ya) live on the work pages: the step's page and the Motores queue.
 // PLA-I71-3: Sumar is its own page (components/corriente/sumar.tsx); a PO's proposal shows on the chart as an amber
 // dashed card.
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { ApiError, api, type OrgMember, type OrgProject, type SeatProposalView } from "@/lib/api";
@@ -73,8 +74,15 @@ export type EquipoLinks = { member: (agent: string) => string; equipo: string; m
 
 export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: string; store?: string; teams?: string }; at: "chart" | "motores" | "store" | "teams" }) => {
   const w = words(ORGANIGRAMA_WORDS);
+  // PLA-138: when the places scroll sideways (a phone), the current one is brought into view.
+  const nav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = nav.current;
+    const cur = el?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (el && cur && el.scrollWidth > el.clientWidth) el.scrollLeft = Math.max(0, cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2);
+  }, [at]);
   return (
-    <nav className="eq-places" aria-label={w.places}>
+    <nav ref={nav} className="eq-places" aria-label={w.places}>
       <Link to={links.equipo} aria-current={at === "chart" ? "page" : undefined} data-control="lugar-organigrama">
         {w.chart}
       </Link>
