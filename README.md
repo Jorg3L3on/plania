@@ -650,7 +650,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
 | `CAMINO_ACTIONLINT` | 400 | camino: actionlint found errors in a workflow Camino would propose; no PR was opened (detail: errors [{line, column, message, kind}]) |
-| `CAMINO_CHANGE_INVALID` | 400 | camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch |
+| `CAMINO_CHANGE_INVALID` | 400 | camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch, a protected or malformed start branch |
 | `CAMINO_KEY_INVALID` | 400 | camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved |
 | `CAMINO_KEY_REJECTED` | 400 | camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words) |
 | `CAMINO_PROVIDER_UNKNOWN` | 400 | camino: no key can be saved for that service; it is Detected or Manual, or not a service Camino knows (detail: provider) |
