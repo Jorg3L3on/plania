@@ -221,7 +221,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       {/* PLA-I69-2: the waterline. Each surface as Plania would make it, its reflection from the repo, and a drawer. */}
       <div className={`mk-world${sel || panel ? " open" : ""}`}>
         <Orilla r={r} w={w} title={p.title} sel={sel} core={<Core r={r} w={w} title={p.title} actions={actions} />} onPick={(f) => { setPanel(null); setSel((cur) => (cur === f ? null : f)); }} />
-        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} />}
+        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} onGo={(f) => setSel(f)} onStyle={() => goDoor("estilo")} />}
         {sel === "more" && !panel && (
           <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={w.extras.title}>
             <button type="button" className="mk-x" onClick={() => setSel(null)} aria-label={w.cajon.close}>×</button>
@@ -282,10 +282,7 @@ function TripActions({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug
         </a>
       )}
       {open ? (
-        <span className="cor-btn secondary small mk-onway" aria-disabled="true" title={w.trip.waiting[Math.min(Math.max(step, 0), 5)]} data-pedido={r.pedido!.key}>
-          <i className="mk-trip-dot" aria-hidden />
-          {w.trip.onWay}
-        </span>
+        <TripSteps w={w} step={step} pedido={r.pedido!.key} />
       ) : (
         p.files > 0 &&
         r.logo && (
@@ -295,6 +292,43 @@ function TripActions({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug
         )
       )}
     </>
+  );
+}
+
+/** PLA-130: «En camino» opens the request's six steps (the rail that lived in the bottom bar), the current one lit. */
+function TripSteps({ w, step, pedido }: { w: MarcaWords; step: number; pedido: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const out = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    window.addEventListener("keydown", esc);
+    window.addEventListener("mousedown", out);
+    return () => { window.removeEventListener("keydown", esc); window.removeEventListener("mousedown", out); };
+  }, [open]);
+  const now = Math.min(Math.max(step, 0), 5);
+  return (
+    <div className="mk-steps-box" ref={box}>
+      <button type="button" className="cor-btn secondary small mk-onway" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)} data-pedido={pedido} data-control="marca-en-camino">
+        <i className="mk-trip-dot" aria-hidden />
+        {w.trip.onWay}
+      </button>
+      {open && (
+        <div className="mk-steps" role="dialog" aria-label={w.trip.open}>
+          <b>{w.trip.open}</b>
+          <ol>
+            {w.trip.stations.map((st, i) => (
+              <li key={st} className={i < now ? "done" : i === now ? (i === 3 ? "you" : "now") : ""} aria-current={i === now ? "step" : undefined}>
+                <i aria-hidden />
+                {st}
+              </li>
+            ))}
+          </ol>
+          <p>{w.trip.waiting[now]}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -337,7 +371,7 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
           {w.source[l.source]}
           {l.path && <code>{l.path}</code>}
           <span>
-            {w.variant[l.variant]} · {r.branch}
+            {w.variant[l.variant]}
           </span>
         </div>
       ) : (
@@ -348,7 +382,8 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
       )}
       {l && l.colors.length > 0 && (
         <div className="mk-colors">
-          {l.colors.map((c) => (
+          {/* PLA-130: the logo's theme colour can also be in its palette; one swatch each. */}
+          {[...new Set(l.colors.map((c) => c.toLowerCase()))].map((c) => (
             <i key={c} style={{ background: c }} title={c} />
           ))}
           <span>{w.colors}</span>
@@ -401,7 +436,7 @@ function RepoPanel({ r, w, onBack, onUse }: { r: MarcaRead; w: MarcaWords; onBac
         {w.back}
       </button>
       <h3>{w.repoTitle}</h3>
-      <p>{w.repoLead(r.branch)}</p>
+      <p>{w.repoLead}</p>
       <ul className="mk-picks">
         {r.candidates.map((c) => (
           <li key={c.path} data-candidate={c.path}>
@@ -648,7 +683,7 @@ function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords
       <header className="mk-list-h">
         <span className="mk-list-t">{w.files}</span>
         <span className="mk-list-n">{r.rows.length}</span>
-        <span className="mk-list-f">{w.checked(clock(r.checkedAt), r.branch)}</span>
+        <span className="mk-list-f">{w.checked(clock(r.checkedAt))}</span>
       </header>
       <ul className="mk-rows">
         {sortedRows(r.rows).map((x) => {

@@ -2667,3 +2667,24 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
 .es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }
 .es-diff small { font-size: 10.5px; color: var(--cor-muted); }
+/* PLA-130: a card's name never truncates; on a narrow card its mode pill becomes a dot (the words on hover). */
+.mk-c { container-type: inline-size; }
+.mk-lab > span:first-child { flex: none; }
+@container (max-width: 175px) {
+  .mk-lab .mk-tie:not(.more) { width: 10px; height: 10px; padding: 0; border-radius: 50%; font-size: 0; letter-spacing: 0; }
+  .mk-lab .mk-tie.sigue { background: var(--cor-violet-2); }
+  .mk-lab .mk-tie.variante { background: #5eead4; }
+  .mk-lab .mk-tie.propia { background: #f9a8d4; }
+}
+/* PLA-130: the open request's steps, from «En camino». */
+.mk-steps-box { position: relative; }
+.mk-onway { cursor: pointer; }
+.mk-steps { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 300px; max-width: calc(100vw - 32px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 8px; }
+.mk-steps b { font-size: 13px; color: var(--cor-text); }
+.mk-steps ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.mk-steps li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--cor-muted); }
+.mk-steps li i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.3); flex: none; }
+.mk-steps li.done { color: var(--cor-body); } .mk-steps li.done i { background: var(--cor-green); border-color: var(--cor-green); }
+.mk-steps li.now { color: var(--cor-violet-3); } .mk-steps li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); }
+.mk-steps li.you { color: var(--cor-amber); } .mk-steps li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
+.mk-steps p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--cor-body); }
