@@ -1,36 +1,19 @@
-// NEWPROJ-6: a project's Ajustes door. Where the code is (the folder is checked before it is saved), the release step,
-// QA's verify list, the preview address and plan approval, and the three context notes each run reads. Every save
-// sends the version it read (GET/PUT /api/company/projects/:slug/settings…, src/api/project-settings.ts); the preview
-// and plan approval keep the options route. After a save the readiness list and the floor read again.
+// NEWPROJ-6: a project's Ajustes door: QA's verify list, plan approval, how the app starts, the three context notes
+// each run reads, «Avanzado» and Borrar. PLA-132: where the code is, the release step and the production address
+// moved to Despliegue (camino-codigo.tsx, camino-entornos.tsx), which already edited the same values. Every save
+// sends the version it read (GET/PUT /api/company/projects/:slug/settings…, src/api/project-settings.ts); plan
+// approval keeps the options route. After a save the readiness list and the floor read again.
 // Wording and checks: @/lib/ajustes. Token fields are never shown here: they stay MCP-only, as variable names.
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
-import {
-  ajustesError,
-  ajustesWords,
-  borrarBoton,
-  codigoOpciones,
-  codigoBody,
-  type CodigoOpcion,
-  codigoDe,
-  comandos,
-  comandosAviso,
-  contextoEstado,
-  lanzamientoBody,
-  type LanzamientoForm,
-  vistaPreviaOk,
-  type Ajustes as AjustesRead,
-  type AjustesContexto,
-} from "@/lib/ajustes";
+import { ajustesError, ajustesWords, borrarBoton, comandos, comandosAviso, contextoEstado, type Ajustes as AjustesRead, type AjustesContexto } from "@/lib/ajustes";
 import { Btn, ReadError, Switch } from "./parts";
 import { words } from "@/lib/i18n";
 import { AJUSTES_VIEW_WORDS } from "@/lib/ajustes-words";
 import { Arranque, Avanzado } from "./ajustes-avanzado";
-import { PrepararCodigo } from "./preparar-codigo";
-import { publicarWords } from "@/lib/publicar";
 
 const errorOf = (e: unknown) => (e instanceof ApiError ? ajustesError(e.code, e.detail) : ajustesError(null));
 
@@ -66,129 +49,6 @@ export const Falla = ({ error }: { error: unknown }) =>
     </p>
   ) : null;
 
-const Codigo = ({ a }: { a: AjustesRead }) => {
-  const [opcion, setOpcion] = useState<CodigoOpcion | null>(codigoDe(a.code));
-  const [carpeta, setCarpeta] = useState(a.code.repo_path ?? "");
-  const [repo, setRepo] = useState(a.code.github_repo ?? "");
-  const save = useGuardar(a.slug, (body: NonNullable<ReturnType<typeof codigoBody>>) => api.ajustesCodigo(a.slug, { version: a.version, ...body }));
-  const body = codigoBody(opcion, carpeta, repo);
-  const w = words(AJUSTES_VIEW_WORDS);
-  const S = ajustesWords().secciones;
-  return (
-    <Seccion id="codigo" titulo={S.codigo.titulo} texto={S.codigo.texto}>
-      <form
-        className="cor-ajustes-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (body) save.mutate(body);
-        }}
-      >
-        <div className="cor-opts" role="radiogroup" aria-label={w.codeChoice}>
-          {codigoOpciones().map((o) => (
-            <button key={o.key} type="button" role="radio" aria-checked={opcion === o.key} className="cor-opt" onClick={() => setOpcion(o.key)} data-codigo-opcion={o.key}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-        {(opcion === "carpeta" || opcion === "github") && (
-          <span className="cor-hoja-two">
-            {opcion === "carpeta" && (
-              <label style={{ flex: 2 }}>
-                <span className="cor-text">{w.folder}</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder={w.folderPlaceholder} autoComplete="off" spellCheck={false} data-campo="carpeta" />
-              </label>
-            )}
-            <label>
-              <span className="cor-text">{opcion === "carpeta" ? w.githubIfAny : w.githubRepo}</span>
-              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} data-campo="github" />
-            </label>
-          </span>
-        )}
-        {opcion === "github" && <p className="cor-cap">{w.githubNoFolder}</p>}
-        {opcion === "ninguno" && <p className="cor-cap">{w.noFolder}</p>}
-        <Falla error={save.error} />
-        <div className="cor-acts">
-          <Btn kind="secondary" type="submit" disabled={!body || save.isPending} data-control="guardar-codigo">
-            {save.isPending ? (opcion === "carpeta" ? w.checkingFolder : w.saving) : w.save}
-          </Btn>
-        </div>
-      </form>
-      {/* PLA-I2-5: Plania prepares the code and the working branch (./preparar-codigo.tsx). */}
-      <PrepararCodigo a={a} />
-    </Seccion>
-  );
-};
-
-const Lanzamiento = ({ a }: { a: AjustesRead }) => {
-  const [form, setForm] = useState<LanzamientoForm>({ from: a.release?.from ?? "", into: a.release?.into ?? "", env: a.release?.env ?? "", merge: a.release ? a.release.mode === "merge" : true, prod: a.release?.prod_migrations ?? "" });
-  const pw = publicarWords();
-  const save = useGuardar(a.slug, (release: ReturnType<typeof lanzamientoBody>) => api.ajustesLanzamiento(a.slug, { version: a.version, release }));
-  const body = lanzamientoBody(form);
-  const w = words(AJUSTES_VIEW_WORDS);
-  const { secciones: S, lanzamientoCampos: C } = ajustesWords();
-  const field = (k: "from" | "into" | "env") => (
-    <label>
-      <span className="cor-text">{C[k].label}</span>
-      <input className="cor-input cor-mono" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} autoComplete="off" spellCheck={false} data-campo={k} />
-      <span className="cor-cap">{C[k].hint}</span>
-    </label>
-  );
-  return (
-    <Seccion id="lanzamiento" titulo={S.lanzamiento.titulo} texto={S.lanzamiento.texto}>
-      <form
-        className="cor-ajustes-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (body) save.mutate(body);
-        }}
-      >
-        <span className="cor-hoja-two cor-ajustes-three">
-          {field("from")}
-          {field("into")}
-          {field("env")}
-        </span>
-        {/* PLA-I68-1: who migrates production; the local test copy is never it. */}
-        <label>
-          <span className="cor-text">{pw.field}</span>
-          <select className="cor-input" value={form.prod ?? ""} onChange={(e) => setForm({ ...form, prod: e.target.value as LanzamientoForm["prod"] })} data-campo="prod_migrations">
-            <option value="">{pw.unsetOption}</option>
-            {(["deploy", "owner", "none"] as const).map((k) => (
-              <option key={k} value={k}>
-                {pw.options[k].label}
-              </option>
-            ))}
-          </select>
-          <span className="cor-cap">{form.prod ? pw.options[form.prod].hint : pw.waitWhy}</span>
-        </label>
-        <span className="cor-ajustes-switch">
-          <Switch on={form.merge} label={C.merge.label} onChange={(merge) => setForm({ ...form, merge })} data-campo="merge" />
-          <span className="cor-cap">{C.merge.hint}</span>
-        </span>
-        {!a.release && <p className="cor-cap">{w.noRelease}</p>}
-        <Falla error={save.error} />
-        <div className="cor-acts">
-          <Btn kind="secondary" type="submit" disabled={!body || save.isPending} data-control="guardar-lanzamiento">
-            {save.isPending ? w.saving : w.save}
-          </Btn>
-          {a.release && (
-            <Btn
-              kind="quiet"
-              disabled={save.isPending}
-              onClick={() => {
-                save.mutate(null);
-                setForm({ from: "", into: "", env: "", merge: true, prod: "" });
-              }}
-              data-control="quitar-lanzamiento"
-            >
-              {w.removeRelease}
-            </Btn>
-          )}
-        </div>
-      </form>
-    </Seccion>
-  );
-};
-
 const Pruebas = ({ a }: { a: AjustesRead }) => {
   const [text, setText] = useState(a.verify.map((v) => v.command).join("\n"));
   const save = useGuardar(a.slug, (commands: string[]) => api.ajustesPruebas(a.slug, { version: a.version, commands }));
@@ -222,34 +82,18 @@ const Pruebas = ({ a }: { a: AjustesRead }) => {
   );
 };
 
+// PLA-132: the preview address left with the release step for Despliegue (its production environment); the plan
+// switch stays.
 const Vista = ({ a }: { a: AjustesRead }) => {
-  const [url, setUrl] = useState(a.preview_url ?? "");
-  const save = useGuardar(a.slug, (input: { preview_url?: string | null; plan_approval?: boolean }) => api.setProjectOptions(a.slug, input));
-  const ok = vistaPreviaOk(url);
+  const save = useGuardar(a.slug, (input: { plan_approval?: boolean }) => api.setProjectOptions(a.slug, input));
   const w = words(AJUSTES_VIEW_WORDS);
   const S = ajustesWords().secciones;
   return (
     <Seccion id="vista" titulo={S.vista.titulo} texto={S.vista.texto}>
-      <form
-        className="cor-ajustes-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (ok) save.mutate({ preview_url: url.trim() || null });
-        }}
-      >
-        <label>
-          <span className="cor-text">{w.previewAddress}</span>
-          <span className="cor-ajustes-row">
-            <input className="cor-input cor-mono" type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" autoComplete="off" spellCheck={false} data-campo="vista" />
-            <Btn kind="secondary" type="submit" disabled={!ok || save.isPending} data-control="guardar-vista">
-              {w.save}
-            </Btn>
-          </span>
-        </label>
-        {!ok && <p className="cor-state amber">{w.previewBad}</p>}
+      <div className="cor-ajustes-form">
         <Switch on={a.plan_approval} label={w.planApproval} onChange={(plan_approval) => save.mutate({ plan_approval })} disabled={save.isPending} data-campo="aprobar-planes" />
         <Falla error={save.error} />
-      </form>
+      </div>
     </Seccion>
   );
 };
@@ -333,9 +177,7 @@ export const Ajustes = ({ p, borrarTo }: { p: { slug: string; title: string }; b
         <div className="cor-skel" style={{ height: 320 }} role="status" aria-busy="true" aria-label={w.loading} />
       ) : (
         <div className="cor-ajustes-cols">
-          <Codigo a={a} />
           <Pruebas a={a} />
-          <Lanzamiento a={a} />
           <Vista a={a} />
           <Arranque a={a} />
           <Seccion id="contexto" titulo={ajustesWords().secciones.contexto.titulo} texto={ajustesWords().secciones.contexto.texto}>

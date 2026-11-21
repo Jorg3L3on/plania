@@ -16,7 +16,8 @@ import { GITHUB_REPO } from "../runner/repo-check.js";
 import { originOf, repoOfRemote } from "./mac.js";
 import { addHistory, caminoDeps, caminoRow, githubFor, type CaminoDeps } from "./store.js";
 import type { GhApi } from "./github.js";
-import type { BranchRule, CaminoConfig } from "./types.js";
+import type { BranchRule, CaminoConfig, CaminoEnv } from "./types.js";
+import { prodEnvOf, prodMigrationsFromEnv } from "./prod.js";
 import { caminoSay } from "./words.js";
 
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
@@ -34,6 +35,11 @@ export const ChangeSchema = z.discriminatedUnion("kind", [
   // Plania: the repository (picked from the account's, or a pasted link checked against GitHub) and the folder.
   z.object({ kind: z.literal("repo"), label, repo: z.string().regex(GITHUB_REPO) }).strict(),
   z.object({ kind: z.literal("folder"), label, path: z.string().min(1).max(500) }).strict(),
+  // PLA-132: Plania: the project has no code yet, said on purpose (settings.local.no_code), moved here from Ajustes.
+  z.object({ kind: z.literal("no_code"), label, none: z.boolean() }).strict(),
+  // PLA-132: Plania: how the release step ships (settings.release.mode): the owner runs the command, or merges from
+  // Plania's screen. Moved here from Ajustes.
+  z.object({ kind: z.literal("release_mode"), label, mode: z.enum(["command", "merge"]) }).strict(),
   // GitHub: one Plania-owned ruleset per role branch (plania-<branch>), in plain words.
   z.object({ kind: z.literal("ruleset"), label, branch: z.string().regex(BRANCH), rule: Rule }).strict(),
   // GitHub: the repo's merge settings.
@@ -52,7 +58,7 @@ export type ChangeKind = Change["kind"];
 
 /** Where a change is applied. A ruleset on a repo whose plan has no rules is Plania's own (it enforces it). */
 export const destOf = (c: Change, rulesAvailable = true): CaminoDest =>
-  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : c.kind === "file_pr" ? "pr" : "github";
+  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" || c.kind === "no_code" || c.kind === "release_mode" ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : c.kind === "file_pr" ? "pr" : "github";
 
 const ORDER: Record<CaminoDest, number> = { plania: 0, llavero: 0, proveedor: 1, github: 2, pr: 3 };
 /** The order changes are reviewed and applied in: Plania, the services, GitHub's API, then PRs; stable within each. */
@@ -108,6 +114,23 @@ async function settingsPatch(db: Db, p: Project, settings: Record<string, unknow
   await setProject(db, { project: p.slug, version: cur!.version, settings }, { actor: WEB_ACTOR, human: true });
 }
 
+/** PLA-132: Camino's production environment is where its address and who migrates are edited; the older settings
+ * other readers use (preview_url for the review's link, release.prod_migrations) follow it on every save, so the two
+ * doors never disagree. An address that is not http(s) is left out rather than failing the save. */
+async function mirrorProduction(db: Db, p: Project, envs: CaminoEnv[]) {
+  const s = p.settings;
+  const prod = prodEnvOf({ envs }, s.release ?? null);
+  if (!prod) return;
+  const patch: Record<string, unknown> = {};
+  const url = prod.url && prod.url.length <= 300 && /^https?:\/\/\S+$/.test(prod.url) ? prod.url : null;
+  if (url !== (s.preview_url ?? null)) patch.preview_url = url;
+  // An environment that does not say who migrates (no database service chosen yet, as one made from the older
+  // settings) never erases what the older setting says; one that says it replaces it.
+  const pm = prodMigrationsFromEnv(prod);
+  if (s.release && pm && pm !== s.release.prod_migrations) patch.release = { ...s.release, prod_migrations: pm };
+  if (Object.keys(patch).length) await settingsPatch(db, p, patch);
+}
+
 type Ctx = { db: Db; p: Project; deps: CaminoDeps; api: GhApi | null; rulesAvailable: boolean };
 
 const needGithub = (x: Ctx): { api: GhApi; repo: string } => {
@@ -126,6 +149,7 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
       const bad = Object.keys(c.patch).find((k) => !allowed.has(k));
       if (bad) throw new ToolError("CAMINO_CHANGE_INVALID", { field: bad });
       await patchConfig(db, p, (cfg) => ({ ...cfg, ...(c.patch as CaminoConfig) }));
+      if (Array.isArray(c.patch.envs)) await mirrorProduction(db, p, c.patch.envs as CaminoEnv[]);
       return { undo: w.undoConfig };
     }
     case "roles": {
@@ -149,7 +173,8 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
     }
     case "repo": {
       if (x.api) await ghCall(x.api, "GET", `/repos/${enc(c.repo)}`, "repo");
-      await settingsPatch(db, p, { github: { ...(p.settings.github ?? {}), repo: c.repo } });
+      // PLA-132: a project that said it had no code has code once it has a repository.
+      await settingsPatch(db, p, { github: { ...(p.settings.github ?? {}), repo: c.repo }, ...(p.settings.local?.no_code ? { local: null } : {}) });
       return { undo: w.undoRepo(p.settings.github?.repo ?? null) };
     }
     case "folder": {
@@ -159,6 +184,21 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
       if (repo && origin.toLowerCase() !== repo.toLowerCase()) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "path", reason: "other_repo", origin });
       await settingsPatch(db, p, { local: { repo_path: c.path } });
       return { undo: w.undoFolder(p.settings.local?.repo_path ?? null) };
+    }
+    case "no_code": {
+      // Like Ajustes did (src/api/project-settings.ts setCodeLocation): no code drops the folder and the repository,
+      // keeping only the GitHub key's variable name. Saying it has code again clears the flag; the repo and folder
+      // changes then say where.
+      const tokenEnv = p.settings.github?.token_env;
+      if (c.none) await settingsPatch(db, p, { local: { no_code: true }, github: tokenEnv ? { token_env: tokenEnv } : null });
+      else if (p.settings.local?.no_code) await settingsPatch(db, p, { local: null });
+      return { undo: c.none ? w.undoNoCode : w.undoHasCode };
+    }
+    case "release_mode": {
+      const release = p.settings.release;
+      if (!release) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "mode", reason: "no_release" });
+      await settingsPatch(db, p, { release: { ...release, mode: c.mode } });
+      return { undo: w.undoMode(release.mode ?? "command") };
     }
     case "ruleset": {
       await patchConfig(db, p, (cfg) => ({ ...cfg, rules: { ...(cfg.rules ?? {}), [c.branch]: c.rule } }));

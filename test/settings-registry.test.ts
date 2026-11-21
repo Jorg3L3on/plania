@@ -330,10 +330,10 @@ test("PLA-I2-6: the per-run limits have controls with the route's bounds and the
 // installer's and the machine check's (PLA-I2-1, PLA-I2-12).
 const NOT_IN_AJUSTES = (id: string) => id.startsWith("prompt.") || id === "runner_token" || id === "claude_bin";
 
-test("PLA-I2-6 check 1: every readiness item is set from Ajustes or needs no setting; none says to edit .env", () => {
+test("PLA-I2-6 check 1: every readiness item is set from Ajustes or Despliegue (PLA-132) or needs no setting; none says to edit .env", () => {
   for (const id of READINESS_IDS) {
     if (NOT_IN_AJUSTES(id)) continue;
-    assert.ok(listo.listoAjuste(id), `${id} links to its control in Ajustes`);
+    assert.ok(listo.listoIrA(id), `${id} links to its control in Ajustes or Despliegue`);
   }
   for (const id of READINESS_IDS) {
     const t = listo.listoLinea({ id, state: "missing", blocks: true }).texto;
