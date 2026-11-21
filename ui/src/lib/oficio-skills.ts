@@ -24,7 +24,7 @@ export type SkillCard = {
   archived_at: string | null;
   carried: number;
   // PLA-I67-6: an imported skill's link and the content hash it is pinned to.
-  link?: { url: string; hash: string; checked_at: string | null } | null;
+  link?: { url: string; hash: string; checked_at: string | null; kind?: "link" | "github" | "skills.sh" | null; commit?: string | null; publisher?: string | null; dropped?: string[]; review?: { words: number; dropped: string[]; marks: { file: string; line: number; kind: "secret" | "link"; text: string }[]; pinned: string } | null; upstream_hash?: string | null } | null;
 };
 export type Puesto = {
   project: string;

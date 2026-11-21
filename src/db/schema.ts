@@ -1773,6 +1773,14 @@ export const skills = pgTable(
     sourceUrl: text("source_url"),
     sourceHash: text("source_hash"),
     sourceCheckedAt: timestamp("source_checked_at", { withTimezone: true }),
+    // PLA-I71-5 (0076): where a brought skill came from, the commit it was read at, its publisher, the files left out,
+    // what the review showed, and the newer content upstream has (null: none, or declined).
+    sourceKind: text("source_kind").$type<"link" | "github" | "skills.sh">(),
+    sourceCommit: text("source_commit"),
+    publisher: text("publisher"),
+    droppedFiles: text("dropped_files").array().notNull().default(sql`'{}'::text[]`),
+    review: jsonb("review").$type<SkillReview>(),
+    upstreamHash: text("upstream_hash"),
     ...timestamps,
   },
   (t) => [
@@ -1786,6 +1794,9 @@ export const skills = pgTable(
   ],
 );
 export type OwnerSkillRow = typeof skills.$inferSelect;
+// PLA-I71-5: what the review showed before a brought skill was installed (src/runner/skill-import.ts).
+export type SkillMark = { file: string; line: number; kind: "secret" | "link"; text: string };
+export type SkillReview = { words: number; dropped: string[]; marks: SkillMark[]; pinned: string; dismissed?: string | null };
 
 export type SkillFile = { path: string; content: string };
 export const skillVersions = pgTable(

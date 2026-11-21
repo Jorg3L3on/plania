@@ -346,6 +346,11 @@ export const api = {
   setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
   // PLA-I67-6: «Traer de un enlace» and «Probar» (src/api/company-oficio-trials.ts).
   previewImport: (slug: string, agent: string, url: string) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { url }),
+  // PLA-I71-5: a pick from skills.sh, the catalog's search, and «No, quedarme con la mía».
+  previewCatalog: (slug: string, agent: string, pick: { source: string; skill: string }) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { catalog: pick }),
+  catalogSkills: (q: string) => request<{ skills: CatalogHit[] }>("GET", `/company/catalog/skills?q=${encodeURIComponent(q)}`),
+  declineSkillLink: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/decline`),
+  bringSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope: SkillScope; on: boolean; via: "skills.sh" | null }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
   importSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
   checkSkillLink: (slug: string, agent: string, skill: string) => request<UpdateCheck>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/check`),
   updateSkillLink: (slug: string, agent: string, skill: string, source_hash: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/update`, { source_hash }),
@@ -612,6 +617,7 @@ export type OrgMember = {
 };
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
 // PLA-I71-3: the role catalog (factory and the owner's own) and a PO's open seat proposals.
+export type CatalogHit = { id: string; name: string; source: string; skill: string; publisher: string; installs: number | null };
 export type PuestoView = { slug: string; title: string; line: string; origin: "factory" | "owner"; base: string; taken: boolean };
 export type SeatProposalView = { id: string; role: string; title: string; reason: string; proposed_by: string; state: string; at: string };
 export type EquipoRead = { puestos: PuestoView[]; proposals: SeatProposalView[] };

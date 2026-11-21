@@ -18,7 +18,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, projects, skillVersions, skills, type Agent, type OwnerSkillRow, type SkillFile, type SkillScope, type SkillVersionRow } from "../db/schema.js";
+import { agents, projects, skillVersions, skills, type Agent, type OwnerSkillRow, type SkillReview, type SkillFile, type SkillScope, type SkillVersionRow } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import type { Q } from "../mcp/tx.js";
 import { frontmatter } from "./kit.js";
@@ -220,7 +220,8 @@ export type SkillCard = {
   archived_at: string | null;
   carried: number;
   // PLA-I67-6: an imported skill's link, the hash of the content it is pinned to, and when the link was last read.
-  link: { url: string; hash: string; checked_at: string | null } | null;
+  // PLA-I71-5: where it came from, its commit and publisher, the files left out, the review, and a newer upstream.
+  link: { url: string; hash: string; checked_at: string | null; kind?: "link" | "github" | "skills.sh" | null; commit?: string | null; publisher?: string | null; dropped?: string[]; review?: SkillReview | null; upstream_hash?: string | null } | null;
 };
 
 const factoryBody = (p: Pack): string => (p.source === "kit" ? frontmatter(p.markdown).body : p.markdown).trim();
@@ -252,7 +253,10 @@ export async function skillCard(db: Db, project: string, agent: string, slug: st
       factory_changed: row.origin === "factory-copy" && !!factory && !!row.factorySha && factory.sha !== row.factorySha,
       archived_at: row.archivedAt ? row.archivedAt.toISOString() : null,
       carried: carried.length,
-      link: row.origin === "imported" && row.sourceUrl && row.sourceHash ? { url: row.sourceUrl, hash: row.sourceHash, checked_at: row.sourceCheckedAt ? row.sourceCheckedAt.toISOString() : null } : null,
+      link:
+        row.origin === "imported" && row.sourceUrl && row.sourceHash
+          ? { url: row.sourceUrl, hash: row.sourceHash, checked_at: row.sourceCheckedAt ? row.sourceCheckedAt.toISOString() : null, kind: row.sourceKind ?? null, commit: row.sourceCommit ?? null, publisher: row.publisher ?? null, dropped: row.droppedFiles ?? [], review: row.review ?? null, upstream_hash: row.upstreamHash ?? null }
+          : null,
     };
   }
   if (!factory) throw new ToolError("SKILL_NOT_FOUND", { skill: slug });

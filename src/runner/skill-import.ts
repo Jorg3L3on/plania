@@ -6,9 +6,11 @@
 //     (github.com/…/blob/<ref>/<path>/SKILL.md) or its raw address (raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>/SKILL.md):
 //     the folder is listed with GitHub's contents API and every file read from raw.githubusercontent.com, each through
 //     the safe fetch. Folders two levels deep at most, FILES_MAX supporting files.
-// The same rules as a skill written on screen (validateSkill), and before any file is read: a file that is not .md or
-// .txt (a script), a hooks folder or file, an allowed-tools or hooks key in SKILL.md, or a command run at load time is
-// SKILL_NOT_ALLOWED. Anything that is not a skill is SKILL_IMPORT_FORMAT.
+// The same rules as a skill written on screen (validateSkill). PLA-I71-5: a file that is not .md or .txt (a program),
+// a hooks folder or file, or a folder too deep is left out and listed (dropped), never read; an allowed-tools or hooks
+// key in SKILL.md, or a command run at load time, is still SKILL_NOT_ALLOWED. Anything that is not a skill is
+// SKILL_IMPORT_FORMAT. A GitHub folder is read at one commit (the ref resolved once), so what the owner reviewed is
+// what is saved; a plain link is pinned by its content hash.
 //
 // previewImport shows every file and the content hash (sha256 of SKILL.md and each file) without writing anything.
 // importSkill fetches again and saves only when the hash is the one the owner saw (else SKILL_IMPORT_CHANGED): an
@@ -18,7 +20,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { listPacks, packSlug } from "./packs.js";
-import { skills, type SkillFile, type SkillScope } from "../db/schema.js";
+import { skills, type SkillFile, type SkillMark, type SkillReview, type SkillScope } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { SafeFetchError, safeFetch, type SafeFetchOptions } from "../lib/safe-fetch.js";
 import { frontmatter } from "./kit.js";
@@ -101,28 +103,32 @@ async function listGithub(l: Extract<SkillLink, { kind: "github" }>, dir: string
   return parsed.map((x: { path?: unknown; type?: unknown; size?: unknown }) => ({ path: String(x.path ?? ""), type: String(x.type ?? ""), size: typeof x.size === "number" ? x.size : undefined }));
 }
 
-export type FetchedSkill = { url: string; skillMd: string; files: SkillFile[] };
+export type FetchedSkill = { url: string; skillMd: string; files: SkillFile[]; dropped: string[]; kind: "link" | "github"; commit: string | null; publisher: string };
 
-// The folder's files, refused by name before any of them is read when one is not text.
-async function fetchFolder(l: Extract<SkillLink, { kind: "github" }>, deps: ImportDeps): Promise<{ skillMd: string; files: SkillFile[] }> {
+// The folder's files. A program, a hooks file or folder, a folder too deep and anything past FILES_MAX are left out by
+// name, before any of them is read, and listed in dropped (PLA-I71-5).
+async function fetchFolder(l: Extract<SkillLink, { kind: "github" }>, deps: ImportDeps): Promise<{ skillMd: string; files: SkillFile[]; dropped: string[] }> {
   const root = l.dir;
   const rel = (p: string) => (root ? p.slice(root.length + 1) : p);
   const wanted: string[] = [];
+  const dropped: string[] = [];
   let skillMd: string | null = null;
   const walk = async (dir: string, depth: number) => {
     for (const e of await listGithub(l, dir, deps)) {
       const r = rel(e.path);
       if (!r || (root && !e.path.startsWith(`${root}/`))) throw format("listing");
-      if (/(^|\/)hooks(\/|\.json$|$)/i.test(r)) throw notAllowed("files", `${r}: no hooks in a skill`);
+      if (/(^|\/)hooks(\/|\.json$|$)/i.test(r)) {
+        dropped.push(e.type === "dir" ? `${r}/` : r);
+        continue;
+      }
       if (e.type === "dir") {
-        if (depth >= MAX_DEPTH) throw format("too_deep", { path: r });
-        await walk(e.path, depth + 1);
+        if (depth >= MAX_DEPTH) dropped.push(`${r}/`);
+        else await walk(e.path, depth + 1);
       } else if (e.type === "file") {
         if (r.toUpperCase() === "SKILL.MD") skillMd = e.path;
-        else if (!TEXT.test(r)) throw notAllowed("files", `only .md and .txt files: ${r.slice(0, 80)}`);
+        else if (!TEXT.test(r) || wanted.length >= FILES_MAX) dropped.push(r);
         else wanted.push(e.path);
-        if (wanted.length > FILES_MAX) throw format("too_many_files", { max: FILES_MAX });
-      } else throw notAllowed("files", `${r}: not a plain file`);
+      } else dropped.push(r);
     }
   };
   await walk(root, 0);
@@ -131,18 +137,49 @@ async function fetchFolder(l: Extract<SkillLink, { kind: "github" }>, deps: Impo
   const md = textOf(await get(raw(skillMd), deps, ["text/"], FILE_BYTES));
   const files: SkillFile[] = [];
   for (const p of wanted.sort()) files.push({ path: rel(p), content: textOf(await get(raw(p), deps, ["text/"], FILE_BYTES)) });
-  return { skillMd: md, files };
+  return { skillMd: md, files, dropped: dropped.sort() };
+}
+
+// The commit a ref names now (GitHub's commits API). Best effort: when it cannot be read, the ref is used as given and
+// the content hash alone pins what was saved.
+async function commitOf(l: Extract<SkillLink, { kind: "github" }>, deps: ImportDeps): Promise<string | null> {
+  if (/^[0-9a-f]{40}$/.test(l.ref)) return l.ref;
+  try {
+    const body = await get(`https://api.github.com/repos/${enc(l.owner)}/${enc(l.repo)}/commits/${encodeURIComponent(l.ref)}`, deps, ["application/json"], LIST_BYTES, { Accept: "application/vnd.github+json" });
+    const sha = (JSON.parse(textOf(body)) as { sha?: unknown }).sha;
+    return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchSkill(rawUrl: string, deps: ImportDeps = {}): Promise<FetchedSkill> {
   const l = parseSkillLink(rawUrl);
   if (l.kind === "file") {
     const md = textOf(await get(l.url, deps, ["text/", "application/octet-stream"], FILE_BYTES));
-    return { url: l.url, skillMd: md, files: [] };
+    return { url: l.url, skillMd: md, files: [], dropped: [], kind: "link", commit: null, publisher: new URL(l.url).hostname };
   }
-  const got = await fetchFolder(l, deps);
-  return { url: rawUrl.trim(), ...got };
+  const commit = await commitOf(l, deps);
+  const got = await fetchFolder(commit ? { ...l, ref: commit } : l, deps);
+  return { url: rawUrl.trim(), ...got, kind: "github", commit, publisher: l.owner };
 }
+
+// ---- PLA-I71-5: the review shown before install. A clean review is not a guarantee: the owner reads the text.
+const SECRET = /\b(api[_-]?key|secret|token|password|passwd|private[_-]?key|bearer)\b|\b(sk|pk|ghp|gho|xox[abp])[-_][A-Za-z0-9]{8,}|AKIA[0-9A-Z]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+const LINK = /\bhttps?:\/\/[^\s)>\]]+/i;
+export function marksOf(f: { skillMd: string; files: SkillFile[] }): SkillMark[] {
+  const out: SkillMark[] = [];
+  for (const [file, text] of [["SKILL.md", f.skillMd] as const, ...f.files.map((x) => [x.path, x.content] as const)]) {
+    text.split("\n").forEach((line, i) => {
+      if (SECRET.test(line)) out.push({ file, line: i + 1, kind: "secret", text: line.trim().slice(0, 160) });
+      const m = LINK.exec(line);
+      if (m) out.push({ file, line: i + 1, kind: "link", text: m[0].slice(0, 160) });
+    });
+  }
+  return out.slice(0, 100);
+}
+export const wordsOf = (f: { skillMd: string; files: SkillFile[] }): number => [f.skillMd, ...f.files.map((x) => x.content)].join(" ").split(/\s+/).filter(Boolean).length;
+export const reviewOf = (f: FetchedSkill, hash: string): SkillReview => ({ words: wordsOf(f), dropped: f.dropped, marks: marksOf(f), pinned: f.commit ?? hash });
 
 // ---- Reading what came back
 
@@ -184,6 +221,11 @@ export type ImportPreview = {
   // Every file as fetched: SKILL.md first (with its frontmatter), then the supporting files.
   files: SkillFile[];
   taken: boolean;
+  // PLA-I71-5: where it comes from and what was checked.
+  source_kind: "link" | "github" | "skills.sh";
+  publisher: string;
+  commit: string | null;
+  review: SkillReview;
 };
 
 async function slugTaken(db: Db, slug: string): Promise<boolean> {
@@ -196,12 +238,17 @@ const slugOf = (name: string) => {
   return s;
 };
 
-export async function previewImport(db: Db, project: string, agent: string, url: string, deps: ImportDeps = {}): Promise<ImportPreview> {
+export async function previewImport(db: Db, project: string, agent: string, url: string, deps: ImportDeps = {}, via: "skills.sh" | null = null): Promise<ImportPreview> {
   await seatOf(db, project, agent);
   const f = await fetchSkill(url, deps);
   const c = readSkillMd(f);
   const slug = slugOf(c.name);
+  const hash = sourceHash(f);
   return {
+    source_kind: via ?? f.kind,
+    publisher: f.publisher,
+    commit: f.commit,
+    review: reviewOf(f, hash),
     url: f.url,
     source_hash: sourceHash(f),
     slug,
@@ -214,7 +261,7 @@ export async function previewImport(db: Db, project: string, agent: string, url:
 }
 
 // Saved off, pinned to the hash the owner confirmed. Returns the slug.
-export async function importSkill(db: Db, project: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }, deps: ImportDeps = {}, now: Date = new Date()): Promise<string> {
+export async function importSkill(db: Db, project: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope; on?: boolean; via?: "skills.sh" | null }, deps: ImportDeps = {}, now: Date = new Date()): Promise<string> {
   const a = await seatOf(db, project, agent);
   const f = await fetchSkill(input.url, deps);
   const c = readSkillMd(f);
@@ -225,7 +272,22 @@ export async function importSkill(db: Db, project: string, agent: string, input:
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(skills)
-      .values({ slug, origin: "imported", ...scopeTarget(input.scope ?? "agent", a), state: "off", createdBy: "owner", sourceUrl: f.url, sourceHash: hash, sourceCheckedAt: now })
+      .values({
+        slug,
+        origin: "imported",
+        ...scopeTarget(input.scope ?? "agent", a),
+        // PLA-I71-5: «Nadie todavía» saves it off; any other «para quién» gives it at once.
+        state: input.on ? "on" : "off",
+        createdBy: "owner",
+        sourceUrl: f.url,
+        sourceHash: hash,
+        sourceCheckedAt: now,
+        sourceKind: input.via ?? f.kind,
+        sourceCommit: f.commit,
+        publisher: f.publisher,
+        droppedFiles: f.dropped,
+        review: reviewOf(f, hash),
+      })
       .returning();
     await addVersion(tx, row!, c, "link", `link:${hash.slice(0, 12)}`);
     return slug;
@@ -278,6 +340,33 @@ export async function applyUpdate(db: Db, project: string, agent: string, slug: 
   await db.transaction(async (tx) => {
     const latest = (await versionsOf(tx, row.id))[0]!;
     if (!sameContent(latest, c)) await addVersion(tx, row, c, "link", `link:${hash.slice(0, 12)}`);
-    await tx.update(skills).set({ sourceHash: hash, sourceCheckedAt: now, updatedAt: now }).where(eq(skills.id, row.id));
+    await tx.update(skills).set({ sourceHash: hash, sourceCheckedAt: now, updatedAt: now, sourceCommit: f.commit, droppedFiles: f.dropped, review: reviewOf(f, hash), upstreamHash: null }).where(eq(skills.id, row.id));
   });
+}
+
+// PLA-I71-5: «No, quedarme con la mía». The pin stays; that upstream content is not offered again.
+export async function declineUpdate(db: Db, project: string, agent: string, slug: string): Promise<void> {
+  await seatOf(db, project, agent);
+  const row = await importedRow(db, slug);
+  const review = { ...(row.review ?? { words: 0, dropped: [], marks: [], pinned: row.sourceHash! }), dismissed: row.upstreamHash };
+  await db.update(skills).set({ upstreamHash: null, review }).where(eq(skills.id, row.id));
+}
+
+// PLA-I71-5: the periodic look upstream. For every brought skill: fetch its link again; a content hash that differs
+// from the pin (and from one the owner declined) marks «versión nueva». Nothing else changes; a failed fetch is skipped.
+export async function upstreamTick(db: Db, deps: ImportDeps = {}, now: Date = new Date()): Promise<{ checked: number; marked: string[] }> {
+  const rows = (await db.select().from(skills).where(eq(skills.origin, "imported"))).filter((r) => r.state !== "archived" && r.sourceUrl && r.sourceHash);
+  const marked: string[] = [];
+  for (const r of rows) {
+    try {
+      const f = await fetchSkill(r.sourceUrl!, deps);
+      const hash = sourceHash(f);
+      const fresh = hash !== r.sourceHash && hash !== r.review?.dismissed ? hash : null;
+      if (fresh) marked.push(r.slug);
+      await db.update(skills).set({ upstreamHash: fresh, sourceCheckedAt: now }).where(eq(skills.id, r.id));
+    } catch {
+      // The link is down or refused: the pin stays, the mark stays as it was.
+    }
+  }
+  return { checked: rows.length, marked };
 }

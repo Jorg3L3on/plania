@@ -162,6 +162,30 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .tda-seats li { border-bottom: 1px solid var(--cor-line); }
 .org-tag.ok { background: rgba(110, 231, 160, 0.12); color: var(--cor-green); }
 
+/* PLA-I71-5: «Traer una habilidad de fuera» (board Traer): the text, what was checked, for whom. */
+.trr { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.trr-link { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trr-link .cor-input { width: 340px; min-height: 44px; }
+.trr-modes button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 9px; background: transparent; color: var(--cor-body); font: inherit; font-size: 13px; cursor: pointer; }
+.trr-modes button[aria-pressed="true"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
+.trr-empty { display: flex; flex-direction: column; gap: 12px; overflow: auto; max-height: calc(100svh - 240px); }
+.trr-body { display: grid; grid-template-columns: 1.15fr 1fr 0.9fr; gap: 16px; min-height: 0; height: calc(100svh - 240px); }
+.trr-col { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; min-height: 0; overflow: auto; }
+.trr-pre { flex: 1; max-height: none; min-height: 200px; }
+.trr-file { color: var(--cor-muted); }
+.trr-mark { display: inline; background: rgba(255, 180, 84, 0.12); }
+.trr-mark.secret { background: rgba(255, 122, 122, 0.16); }
+.trr-flag { margin-left: 8px; padding: 0 5px; border-radius: 4px; background: rgba(255, 180, 84, 0.22); color: var(--cor-amber); font-size: 10.5px; }
+.trr-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--cor-body); }
+.trr-checks li { position: relative; padding-left: 18px; }
+.trr-checks li::before { content: ""; position: absolute; left: 0; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--cor-green); }
+.trr-checks li.warn::before { border-radius: 2px; background: var(--cor-amber); transform: rotate(45deg); }
+.trr-note { margin-top: auto; padding: 12px 14px; font-size: 13px; line-height: 1.5; color: var(--cor-body); }
+.trr-whom { display: flex; flex-direction: column; }
+.trr-radio { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 14px; cursor: pointer; }
+.trr-radio input { width: 16px; height: 16px; accent-color: var(--cor-violet); }
+.tda-upstream { display: block; min-height: 24px; text-decoration: underline; }
+
 @media (max-width: 1100px) {
   .eq { flex-direction: column; }
   .eq-side, .eq-side.agt, .eq-side.agt.wide { flex: none; width: 100%; max-height: none; box-sizing: border-box; }
@@ -172,6 +196,8 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
   .tda-body { flex-direction: column; height: auto; }
   .tda-filters { flex: none; }
   .tda-filters ul { flex-direction: row; flex-wrap: wrap; }
+  .trr-body { grid-template-columns: 1fr; height: auto; }
+  .trr-link, .trr-link .cor-input { width: 100%; margin-left: 0; }
 }
 /* In the narrow panel the teach bar is one row: «Una habilidad» lives in the Habilidades tab. */
 .agt:not(.wide) .ofi-teach-modes { display: none; }

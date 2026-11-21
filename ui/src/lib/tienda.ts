@@ -14,6 +14,7 @@ export type TiendaSkill = {
   carriers: { agent: string; on: boolean }[];
   runs_carried: number;
   runs_used: number;
+  upstream?: boolean;
 };
 export type Tienda = { seats: { agent: string; role: string }[]; skills: TiendaSkill[] };
 export const FILTERS = ["todas", "fabrica", "tuyas", "traidas", "nadie"] as const;

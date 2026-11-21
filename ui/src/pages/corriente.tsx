@@ -22,6 +22,7 @@ import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equipo";
 import { fichaTabOf } from "@/components/corriente/agente";
 import { TiendaPage } from "@/components/corriente/tienda";
+import { TraerPage } from "@/components/corriente/traer";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -425,9 +426,13 @@ export const CorrientePage = () => {
           links={{
             pick: (skill) => linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }),
             tryIn: (agent, skill) => hrefOf({ slug: p.slug, ver: { kind: "miembro", agent }, extra: { ficha: "habilidades", skill } }),
+            traer: linkTo({ slug: p.slug, ver: { kind: "traer" } }),
           }}
         />
       );
+    // PLA-I71-5: bring a skill from outside, reviewed before install.
+    if (at.ver?.kind === "traer")
+      return <TraerPage p={p} back={linkTo({ slug: p.slug, ver: { kind: "tienda", skill: null } })} onBrought={(skill) => navigate(linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }))} />;
     if (at.tab === "equipo")
       return (
         <Equipo

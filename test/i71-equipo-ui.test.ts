@@ -280,3 +280,27 @@ test("I71-3 #2 #3 #4: Perfil offers Mover, Pausar or Reanudar, and Retirar (not 
   const po = panel("perfil", { m: seat("po-t", "product-owner", "ceo") });
   assert.match(po, /<button[^>]*disabled=""[^>]*data-control="retirar"/);
 });
+
+// ---- PLA-I71-5: Traer and the «versión nueva» mark.
+const traer = await load("components/corriente/traer.tsx");
+const tiendaUi = await load("components/corriente/tienda.tsx");
+
+test("I71-5: Traer starts with nothing installed; a reviewed text shows each secret and outside link marked", () => {
+  const out = withEquipo(h(traer.TraerPage, { p: project(core()), back: "/tienda", onBrought: () => undefined }));
+  assert.match(out, /Traer una habilidad de fuera/);
+  assert.match(out, /Nada se instala hasta que lo leas/);
+  assert.match(out, /data-control="traer-catalogo"/);
+  const marked = renderToStaticMarkup(h(traer.Marked, { text: "uno\nver https://x.test\nel api_key", file: "SKILL.md", marks: [{ file: "SKILL.md", line: 2, kind: "link", text: "https://x.test" }, { file: "SKILL.md", line: 3, kind: "secret", text: "el api_key" }] }));
+  assert.match(marked, /class="trr-mark link" data-mark="link">ver https:\/\/x\.test<span class="trr-flag">enlace<\/span>/);
+  assert.match(marked, /class="trr-mark secret" data-mark="secret">el api_key<span class="trr-flag">llave<\/span>/);
+});
+
+test("I71-5 #4: the store marks a brought skill with a newer upstream «versión nueva» and links to its diff", () => {
+  const client = new QueryClient();
+  const store = { seats: [{ agent: "artist-t", role: "artist" }], skills: [{ slug: "a11y", name: "Accesibilidad", when: "Al revisar", source: "owner", origin: "brought", version: "a11y@abcdef12", scope: "agent", carriers: [{ agent: "artist-t", on: true }], runs_carried: 0, runs_used: 0, upstream: true }] };
+  client.setQueryData(["tienda", "tienda"], store);
+  const out = renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, h(tiendaUi.TiendaPage, { p: project(core()), selected: "a11y", nav: null, links: { pick: (s: string | null) => `/t/${s}`, tryIn: (a: string, s: string) => `/m/${a}?skill=${s}`, traer: "/traer" } }))));
+  assert.match(out, /<span class="org-tag am">versión nueva<\/span>/);
+  assert.match(out, /data-control="ver-version-nueva" href="\/m\/artist-t\?skill=a11y"/);
+  assert.match(out, /data-control="tienda-traer" href="\/traer"/);
+});

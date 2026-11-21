@@ -280,8 +280,17 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
       void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
     },
   });
+  // PLA-I71-5: «No, quedarme con la mía» keeps the pin and stops offering that upstream content.
+  const decline = useMutation({
+    mutationFn: () => api.declineSkillLink(o.project, o.agent, card.slug),
+    onSuccess: () => {
+      setSeen(null);
+      void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
+      void client.invalidateQueries({ queryKey: ["tienda", o.project] });
+    },
+  });
   const lines = useMemo(() => (seen?.changed ? changedOnly(updateDiff(seen)) : []), [seen]);
-  const err = importError(codeOf(check.error ?? accept.error));
+  const err = importError(codeOf(check.error ?? accept.error ?? decline.error));
   if (!card.link) return null;
   return (
     <div className="ofi-link-update" data-link-update={card.slug}>
@@ -299,15 +308,18 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
             <Btn kind="primary" disabled={accept.isPending} onClick={() => accept.mutate()} data-control="aceptar-cambios-enlace">
               {w.accept}
             </Btn>
-            <Btn kind="quiet" onClick={() => setSeen(null)} data-control="dejar-como-esta">
+            <Btn kind="quiet" disabled={decline.isPending} onClick={() => (card.link?.upstream_hash ? decline.mutate() : setSeen(null))} data-control="dejar-como-esta">
               {w.keep}
             </Btn>
           </div>
         </div>
       ) : (
-        <Btn kind="link" disabled={check.isPending} onClick={() => check.mutate()} data-control="buscar-cambios-enlace">
-          {w.check}
-        </Btn>
+        <>
+          {card.link.upstream_hash && <p className="cor-state warn" data-upstream>{w.newVersion}</p>}
+          <Btn kind="link" disabled={check.isPending} onClick={() => check.mutate()} data-control="buscar-cambios-enlace">
+            {card.link.upstream_hash ? w.seeNew : w.check}
+          </Btn>
+        </>
       )}
     </div>
   );

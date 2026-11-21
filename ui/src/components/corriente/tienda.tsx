@@ -15,7 +15,7 @@ import { TIENDA_WORDS } from "@/lib/tienda-words";
 import { Btn, Label, ReadError, Switch } from "./parts";
 import { NewSkillPanel } from "./oficio-skill";
 
-export type TiendaLinks = { pick: (slug: string | null) => string; tryIn: (agent: string, slug: string) => string };
+export type TiendaLinks = { pick: (slug: string | null) => string; tryIn: (agent: string, slug: string) => string; traer: string };
 const tiendaKey = (slug: string) => ["tienda", slug];
 
 const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Tienda; links: TiendaLinks }) => {
@@ -46,6 +46,11 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
       <pre className="agt-pre tda-text" tabIndex={0}>
         {card.data?.body ?? "…"}
       </pre>
+      {s.upstream && seat && (
+        <Link className="cor-state warn tda-upstream" to={links.tryIn(seat, s.slug)} data-control="ver-version-nueva">
+          {w.newVersionSee}
+        </Link>
+      )}
       <Label as="p">{w.whoCarries(p.title)}</Label>
       {wide && <p className="cor-cap">{w.scopeNote(s.scope!)}</p>}
       <ul className="tda-seats">
@@ -96,6 +101,9 @@ export const TiendaPage = ({ p, selected, links, nav }: { p: OrgProject; selecte
         {nav}
         <span className="tda-tools">
           <input className="cor-input tda-search" type="search" placeholder={w.search} aria-label={w.searchLabel} value={text} onChange={(e) => setText(e.target.value)} data-control="buscar-habilidad" />
+          <Link className="cor-btn secondary" to={links.traer} data-control="tienda-traer">
+            {w.bring}
+          </Link>
           <Btn kind="primary" onClick={() => setCreating(true)} disabled={!po} data-control="tienda-nueva">
             {w.newSkill}
           </Btn>
@@ -117,6 +125,21 @@ export const TiendaPage = ({ p, selected, links, nav }: { p: OrgProject; selecte
                 </li>
               ))}
             </ul>
+            {/* PLA-I71-5: the open catalog: skills.sh and any repository or link, reviewed before install. */}
+            <Label as="p">{w.openCatalog}</Label>
+            <ul>
+              <li>
+                <Link className="tda-filter" to={links.traer} data-control="catalogo-skills-sh">
+                  skills.sh
+                </Link>
+              </li>
+              <li>
+                <Link className="tda-filter" to={links.traer} data-control="catalogo-enlace">
+                  {w.aRepo}
+                </Link>
+              </li>
+            </ul>
+            <p className="cor-cap">{w.outsideNote}</p>
           </nav>
           <div className="tda-grid-box">
             {!q.data ? (
@@ -148,7 +171,7 @@ export const TiendaPage = ({ p, selected, links, nav }: { p: OrgProject; selecte
                               </span>
                             ))}
                           </span>
-                          <span className="cor-cap">{usageLine(s)}</span>
+                          {s.upstream ? <span className="org-tag am">{w.newVersion}</span> : <span className="cor-cap">{usageLine(s)}</span>}
                         </span>
                       </Link>
                     </li>

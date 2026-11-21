@@ -9,8 +9,8 @@
 import type { Db } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { teamOf } from "../runner/team.js";
-import { projects } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { projects, skills as skillRows } from "../db/schema.js";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { oficioRead, type Oficio } from "./company-oficio.js";
 
 export type TiendaSkill = {
@@ -24,6 +24,8 @@ export type TiendaSkill = {
   carriers: { agent: string; on: boolean }[];
   runs_carried: number;
   runs_used: number;
+  // PLA-I71-5: a brought skill whose source changed since its pin («versión nueva»).
+  upstream: boolean;
 };
 export type Tienda = { seats: { agent: string; role: string }[]; skills: TiendaSkill[] };
 
@@ -40,7 +42,7 @@ export async function tiendaRead(db: Db, slug: string, env: NodeJS.ProcessEnv = 
   for (const o of reads) {
     for (const s of o.skills) {
       const origin = s.owner ? (s.owner.origin === "imported" ? "brought" : "yours") : "factory";
-      const row = by.get(s.slug) ?? { slug: s.slug, name: s.name, when: s.when, source: s.source, origin, version: s.version, scope: s.owner?.scope ?? null, carriers: [], runs_carried: 0, runs_used: 0 };
+      const row = by.get(s.slug) ?? { slug: s.slug, name: s.name, when: s.when, source: s.source, origin, version: s.version, scope: s.owner?.scope ?? null, carriers: [], runs_carried: 0, runs_used: 0, upstream: false };
       // An owner's copy seen by one seat names the skill (the factory original stays behind it for the others).
       if (row.origin === "factory" && origin !== "factory") Object.assign(row, { name: s.name, when: s.when, source: s.source, origin, version: s.version, scope: s.owner?.scope ?? null });
       row.carriers.push({ agent: o.agent, on: s.on });
@@ -51,6 +53,8 @@ export async function tiendaRead(db: Db, slug: string, env: NodeJS.ProcessEnv = 
   }
   // A seat that does not see a skill (another seat's own) is listed as not carrying it.
   for (const row of by.values()) for (const o of reads) if (!row.carriers.some((c) => c.agent === o.agent)) row.carriers.push({ agent: o.agent, on: false });
+  const fresh = new Set((await db.select({ slug: skillRows.slug }).from(skillRows).where(and(eq(skillRows.origin, "imported"), isNotNull(skillRows.upstreamHash)))).map((r) => r.slug));
+  for (const row of by.values()) row.upstream = fresh.has(row.slug);
   const order = new Map(reads.map((o, i) => [o.agent, i]));
   const skills = [...by.values()].map((r) => ({ ...r, carriers: r.carriers.sort((a, b) => order.get(a.agent)! - order.get(b.agent)!) }));
   skills.sort((a, b) => Number(b.carriers.some((c) => c.on)) - Number(a.carriers.some((c) => c.on)) || a.name.localeCompare(b.name));
