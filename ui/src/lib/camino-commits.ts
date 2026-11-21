@@ -219,7 +219,7 @@ export const formatOf = (c: ConventionId, language: Language = getLanguage()): s
 export function instructions(st: CommitSettings, folders: string[], language: Language = getLanguage()): string {
   const w = words(COMMITS_WORDS, language).instr;
   const c = st.convention ?? "conventional";
-  const lines = [w.format(formatOf(c, language))];
+  const lines = [c === "custom" ? w.formatCustom : w.format(formatOf(c, language))];
   if (c === "conventional") lines.push(w.types(st.types.join(", "), st.scope, folders.slice(0, 8).join(", ")));
   if (c === "custom" && st.custom_regex) lines.push(w.custom(st.custom_regex));
   lines.push(w.desc(st.lang, st.max));
@@ -241,14 +241,38 @@ export function instructions(st: CommitSettings, folders: string[], language: La
 // ---- the PR-title check, proposed by PR when the owner picks it. No action to pin, no permissions, two minutes.
 /** The first-line pattern as a POSIX ERE grep -E understands (no \p classes: letters are spelled out). */
 export function eres(pattern: string): string {
-  return pattern
-    .replace(/\\p\{Lu\}/g, "A-ZÁÉÍÓÚÑ")
-    .replace(/\\p\{L\}/g, "A-Za-zÁÉÍÓÚÑáéíóúñ")
-    .replace(/\\p\{Extended_Pictographic\}/g, "[^ -~]")
-    .replace(/\\d/g, "0-9")
-    .replace(/\\S/g, "[^ ]")
-    .replace(/\[\^\\n\]/g, ".")
-    .replace(/\(\?:/g, "(");
+  // PLA-I70-1: a class shorthand is a bare range inside [...] and a bracket expression outside it.
+  const classes: Record<string, string> = {
+    "\\p{Lu}": "A-ZÁÉÍÓÚÑ",
+    "\\p{L}": "A-Za-zÁÉÍÓÚÑáéíóúñ",
+    "\\d": "0-9",
+  };
+  const src = pattern.replace(/\[\^\\n\]/g, ".").replace(/\(\?:/g, "(");
+  let out = "";
+  let inClass = false;
+  for (let i = 0; i < src.length; ) {
+    const rest = src.slice(i);
+    const hit = Object.keys(classes).find((k) => rest.startsWith(k));
+    if (hit) {
+      out += inClass ? classes[hit] : `[${classes[hit]}]`;
+      i += hit.length;
+    } else if (rest.startsWith("\\p{Extended_Pictographic}")) {
+      out += inClass ? " -~" : "[^ -~]";
+      i += "\\p{Extended_Pictographic}".length;
+    } else if (rest.startsWith("\\S")) {
+      out += inClass ? "!-~" : "[^ ]";
+      i += 2;
+    } else if (src[i] === "\\") {
+      out += src.slice(i, i + 2);
+      i += 2;
+    } else {
+      if (src[i] === "[" && !inClass) inClass = true;
+      else if (src[i] === "]" && inClass) inClass = false;
+      out += src[i];
+      i++;
+    }
+  }
+  return out;
 }
 export function prTitleWorkflow(c: ConventionId, st: CommitSettings, language: Language = getLanguage()): string | null {
   const pat = subjectPattern(c, st);
@@ -313,6 +337,7 @@ export const COMMITS_WORDS = defineWords({
     },
     instr: {
       format: (f: string) => `Escribe cada commit con el formato ${f}.`,
+      formatCustom: "Escribe cada commit con el patrón propio de este proyecto.",
       types: (types: string, scope: string, folders: string) => `Tipos permitidos, en inglés: ${types}. Alcance ${scope}${scope !== "no" && folders ? `, de estas carpetas: ${folders}` : ""}.`,
       custom: (re: string) => `La primera línea debe cumplir esta expresión: ${re}`,
       desc: (lang: "es" | "en", max: number) => `La descripción en ${lang === "es" ? "español" : "inglés"}, en imperativo, sin punto final, de ${max} caracteres o menos en la primera línea.`,
@@ -358,6 +383,7 @@ export const COMMITS_WORDS = defineWords({
     },
     instr: {
       format: (f: string) => `Write every commit in the format ${f}.`,
+      formatCustom: "Write every commit with this project's own pattern.",
       types: (types: string, scope: string, folders: string) => `Allowed types, in English: ${types}. Scope ${scope}${scope !== "no" && folders ? `, from these folders: ${folders}` : ""}.`,
       custom: (re: string) => `The first line must match this expression: ${re}`,
       desc: (lang: "es" | "en", max: number) => `The description in ${lang === "es" ? "Spanish" : "English"}, imperative, no final period, ${max} characters or fewer on the first line.`,

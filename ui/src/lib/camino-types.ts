@@ -14,7 +14,7 @@ export type CaminoConfigRead = {
   deps: DepsSettings;
   envs: CaminoEnv[];
   connections: Partial<Record<ProviderId, ConnMeta>>;
-  source: Record<"model" | "branches" | "merge" | "envs", "camino" | "settings" | "github" | "default">;
+  source: Record<"model" | "branches" | "merge" | "envs" | "commits", "camino" | "settings" | "github" | "default">;
 };
 
 export type CaminoProposal = { number: number; title: string; url: string; state: string; base_branch: string | null; head_branch: string | null; ci_state: string | null; task_key: string | null; merged_at: string | null; updated_at: string };

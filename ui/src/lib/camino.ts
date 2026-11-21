@@ -19,7 +19,7 @@ export type ServiceInfo = { id: ProviderId; name: string; kind: "server" | "db";
 
 export const CAMINO_WORDS = defineWords({
   es: {
-    door: "Camino",
+    door: "Código",
     toFix: (n: number) => `${n} POR RESOLVER`,
     clear: "LISTO",
     title: (p: string) => `Camino de ${p}`,
@@ -28,13 +28,13 @@ export const CAMINO_WORDS = defineWords({
     neverChecked: "Todavía sin comprobar",
     checking: "Comprobando…",
     recheck: "Volver a comprobar",
-    ready: { bad: (n: number) => `${n} ${n === 1 ? "bloquea" : "bloquean"}`, warn: "Funciona, con avisos", ok: "Todo en orden", more: (n: number) => `· ${n} por mejorar` },
+    ready: { bad: (n: number) => `${n} ${n === 1 ? "bloquea" : "bloquean"}`, warn: "Funciona, con avisos", ok: "Todo en orden", unread: "No se pudo comprobar", more: (n: number) => `· ${n} por mejorar` },
     sections: {
       resumen: "Resumen",
       conn: "Conexiones y llaves",
       propuestas: "Propuestas",
-      codigo: "Código y ramas",
-      commits: "Commits y propuestas",
+      codigo: "Repositorio y ramas",
+      commits: "Commits",
       ci: "Pruebas (CI)",
       hist: "Historial",
       envs: "Entornos",
@@ -53,6 +53,7 @@ export const CAMINO_WORDS = defineWords({
       lead: "El camino de este proyecto y lo que Plania encontró, de lo que bloquea a lo que está bien.",
       leadSetup: "Este proyecto todavía no se publica. Lo que falta para un camino sano, en orden.",
       attention: (n: number) => `Necesita atención · ${n}`,
+      know: (n: number) => `Para saber · ${n}`,
       bySeverity: "Ordenado por gravedad",
       good: "Bien",
       seeAll: (n: number) => `Ver las ${n}`,
@@ -62,11 +63,24 @@ export const CAMINO_WORDS = defineWords({
       setup: "Para empezar",
       open: "Abrir",
     },
+    // PLA-I70-47: each section opens with the recommendation and one button; the detail waits behind «Modo experto».
+    expert: {
+      title: "Modo experto",
+      hint: "Tablas, interruptores y edición paso a paso",
+      recTitle: "Recomendado para este proyecto",
+      use: "Usar lo recomendado",
+      done: "Ya está así",
+      codigo: { rule: (b: string) => `Proteger ${b}: solo entra por propuesta y no se puede borrar`, merge: "Cada propuesta entra como un solo commit y su rama se borra al fusionar" },
+      commits: { conv: (n: string) => `Escribir los commits con el formato ${n}`, ai: "Quitar la línea de coautor de IA antes de subir" },
+      ci: { none: "Crear un flujo de pruebas con los scripts del proyecto", have: (n: number) => `Ya corren ${n} ${n === 1 ? "flujo" : "flujos"} de pruebas: revisa en Modo experto cuáles se exigen`, require: (names: string, b: string) => `Exigir ${names} para entrar a ${b}` },
+      env: { sql: "Revisar el SQL antes de migrar", approve: "Pedir tu aprobación si una migración borra datos", backup: "Copia de la base antes de migrar", health: "Comprobar que abre después de publicar" },
+    },
     strip: {
       code: "Código",
       tests: "Pruebas",
       noRepo: "sin repositorio",
       none: "ninguna",
+      unread: "sin leer",
       required: "exigidas",
       notRequired: "no exigidas",
       public: "público",
@@ -89,38 +103,39 @@ export const CAMINO_WORDS = defineWords({
       noToken: ["Plania no tiene llave de GitHub", "Sin llave no lee ramas, reglas, pruebas ni corridas. Guarda una en Conexiones y llaves."] as Pair,
       unauthorized: ["GitHub rechazó la llave", "La llave venció o no tiene acceso a este repositorio."] as Pair,
       notFound: (r: string) => [`GitHub no encuentra ${r}`, "El nombre cambió, el repo se borró o la llave no lo ve."] as Pair,
-      network: ["No se pudo leer GitHub", "La red falló al comprobar. Lo que ves es lo último que se leyó."] as Pair,
+      network: ["No se pudo leer GitHub", "La red falló al comprobar y todavía no hay una lectura anterior. Vuelve a comprobar en un momento."] as Pair,
+      stale: (ago: string) => ["GitHub no respondió", `Lo que ves es la última lectura buena, de hace ${ago}. Mientras tanto no se ofrece crear nada.`] as Pair,
       unprotected: (b: string) => [`${b} no está protegida`, "Se puede empujar directo o borrarla, sin propuesta ni pruebas. En un repo público las reglas son gratis."] as Pair,
       noRulesPlan: ["GitHub no protege ramas en este repo", "Es privado en el plan gratis. Plania hará cumplir tus reglas en sus propias fusiones; GitHub no impide un empujón directo."] as Pair,
-      pubMissing: (b: string) => [`La rama publicada ${b} no existe en GitHub`, "Publicar y Taller la esperan. Elige la rama real en Código y ramas."] as Pair,
+      pubMissing: (b: string) => [`La rama publicada ${b} no existe en GitHub`, "Publicar y Taller la esperan. Elige la rama real en Repositorio y ramas."] as Pair,
       integMissing: (b: string) => [`La rama de integración ${b} no existe en GitHub`, "Las entregas se fusionan ahí. Elige una rama real o quita la integración."] as Pair,
-      folderMissing: (f: string) => [`La carpeta ${f} no existe`, "Taller parte de esa carpeta. Elige un clon de este repo en Código y ramas."] as Pair,
+      folderMissing: (f: string) => [`La carpeta ${f} no existe`, "Taller parte de esa carpeta. Elige un clon de este repo en Repositorio y ramas."] as Pair,
       folderNotClone: (f: string) => [`${f} no es un clon de este repo`, "Su origen es otro repositorio o no tiene. Taller trabajaría sobre el código equivocado."] as Pair,
       noWorkflows: ["No hay pruebas en GitHub", "Nada revisa una propuesta antes de fusionarla. Plania puede proponer un flujo con tus scripts."] as Pair,
       ghostCheck: (r: string, state: string) => [`La regla «${r}» exige una prueba que nadie produce`, `Está ${state}. Si se enciende, ninguna propuesta se podrá fusionar.`] as Pair,
       nothingRequired: (b: string) => [`Nada exige pruebas en verde para entrar a ${b}`, "Hoy una propuesta en rojo se puede fusionar."] as Pair,
       envBehind: (e: string, commit: string, head: string, b: string) => [`${e}: el registro no coincide con ${b}`, `El registro dice ${commit}; ${b} ya está en ${head}.`] as Pair,
       envCount: (e: string, applied: number, list: number) => [`${e}: las migraciones no cuadran`, `El registro dice ${applied} aplicadas, pero su lista tiene ${list}.`] as Pair,
-      envMissing: (e: string, n: number) => [`${e}: faltan ${n} ${n === 1 ? "migración" : "migraciones"}`, `El código tiene más migraciones de las que el registro dice aplicadas.`] as Pair,
+      envMissing: (e: string, n: number) => [`${e}: ${n === 1 ? "falta 1 migración" : `faltan ${n} migraciones`}`, `El código tiene más migraciones de las que el registro dice aplicadas.`] as Pair,
       prodUnset: ["Nadie dijo quién migra la base de producción", "Una publicación con migraciones espera hasta que lo digas."] as Pair,
       noteStale: ["La nota del proyecto está vieja", "Algo cambió después de escribirla. Los agentes la leen al empezar."] as Pair,
-      aiTrailers: (n: number, of: number) => [`${n} de ${of} commits llevan coautor de IA`, "Tu regla no lo permite. Plania quitará esa línea antes de subir."] as Pair,
+      aiTrailers: (n: number, of: number, chosen: boolean) => [`${n} de ${of} commits llevan coautor de IA`, chosen ? "Tu regla no lo permite. Plania quitará esa línea antes de subir." : "Todavía no elegiste una regla de commits, y por defecto no se permite. Plania quitará esa línea antes de subir."] as Pair,
       noConvention: ["Elige una convención de commits", "Los agentes escriben como quieren hasta que elijas una."] as Pair,
       ghSession: ["Plania usa tu sesión de gh, con control total de tus repos", "Más seguro: una llave solo para este repo, o la app de Plania en GitHub con los repos que elijas."] as Pair,
       keyFailed: (s: string) => [`La llave de ${s} no pasó la última prueba`, "El servicio la rechazó. Cámbiala en Conexiones y llaves."] as Pair,
       keyExpired: (s: string) => [`La llave de ${s} venció`, "Plania ya no puede usarla."] as Pair,
       keyExpiring: (s: string, d: number) => [`La llave de ${s} vence en ${d} ${d === 1 ? "día" : "días"}`, "Cámbiala antes de que venza."] as Pair,
-      byHand: (e: string) => [`${e} se migra a mano`, "Recomendado: un paso propio después del build y antes del tráfico, con copia y candado."] as Pair,
-      buildNoLock: (e: string) => [`${e} migra dentro del build sin candado`, "Dos builds a la vez migrarían a la vez, y si el build falla después de migrar queda esquema nuevo con código viejo."] as Pair,
+      byHand: (e: string) => [`${e} se migra a mano`, "Recomendado: un paso propio después de construir la versión y antes de que reciba visitas, con copia y candado."] as Pair,
+      buildNoLock: (e: string) => [`${e} migra al construir la versión, sin candado`, "Dos construcciones a la vez migrarían a la vez, y si la construcción falla después de migrar queda la base nueva con código viejo."] as Pair,
       noSqlReview: (e: string) => [`${e}: nadie revisa el SQL antes de migrar`, "squawk avisa si una migración borra datos o bloquea tablas. Es gratis."] as Pair,
       noHealth: (e: string) => [`${e} no tiene cómo comprobar que abre`, "Sin una dirección de salud ni páginas que abrir, nada avisa si una publicación rompe la app."] as Pair,
-      missingVars: (e: string, n: number, list: string) => [`${e}: faltan ${n} ${n === 1 ? "variable" : "variables"}`, list] as Pair,
+      missingVars: (e: string, n: number, list: string) => [`${e}: ${n === 1 ? "falta 1 variable" : `faltan ${n} variables`}`, list] as Pair,
       publicRepo: "Repo público: reglas de GitHub y minutos de Actions gratis",
       fakeData: (e: string) => `${e} usa datos falsos`,
       allGood: "GitHub, la carpeta y las llaves responden",
     },
     fix: {
-      code: "Abrir Código y ramas",
+      code: "Abrir Repositorio y ramas",
       conn: "Conectar",
       connChange: "Cambiar la llave",
       recheck: "Volver a leer",
@@ -158,7 +173,9 @@ export const CAMINO_WORDS = defineWords({
       saving: "Probando…",
       keyNote: "Se guarda solo si el servicio la acepta. Solo Plania la usa; los agentes nunca la ven. Después solo se muestran los últimos 4 caracteres.",
       works: "Responde",
-      rejected: (status: number | null, msg: string) => `El servicio rechazó la llave${status ? ` (${status})` : ""}${msg ? `: ${msg}` : "."} No se guardó.`,
+      // PLA-I70-22: one Spanish sentence; the service's own words (often English) are behind «Detalle».
+      rejected: (status: number | null) => `El servicio rechazó la llave${status ? ` (${status})` : ""}. No se guardó.`,
+      detail: "Detalle",
       invalid: "Esa llave tiene espacios, comillas o una etiqueta. Pega solo la llave.",
       storeFailed: "El llavero no la guardó. Nada cambió.",
       unreachable: "No se pudo llegar al servicio. Intenta de nuevo.",
@@ -166,7 +183,7 @@ export const CAMINO_WORDS = defineWords({
       addHint: "Nativo: por su API · Detectado: solo lectura · Manual: tu comando con una lista",
       servers: "Servicios",
       dbs: "Bases de datos",
-      manualNote: "¿No está el tuyo? «Manual» funciona con cualquier servicio: das el comando que despliega, el que vuelve atrás y la dirección que comprueba.",
+      manualNote: "¿No está el tuyo? Los de línea punteada no llevan llave: se eligen dentro de un entorno. Con «Manual», Plania no despliega ni vuelve atrás por ti; lo haces tú y el entorno lo anota.",
       paid: "de pago",
       badge: { native: "Nativo", detected: "Detectado", manual: "Manual" } as Record<Badge, string>,
       detectedHow: "Leído de esta Mac, sin llave",
@@ -177,6 +194,17 @@ export const CAMINO_WORDS = defineWords({
       ghAdmin: "Tienes permiso de administración en este repo",
       providerWorks: "Leer y probar con su API",
       providerMore: "Sin llave, Plania solo ve lo que GitHub reporta",
+      account: "Cuenta",
+      rejectedChip: "rechazada",
+      expiredChip: "vencida",
+      expiresIn: (n: number) => `vence en ${n} ${n === 1 ? "día" : "días"}`,
+      ghRefused: (src: string) => `${src}: GitHub no la aceptó. Cámbiala o quítala.`,
+      releasesHow: "Usa tu conexión de GitHub, sin llave aparte",
+      removeAsk: (used: string) => `Si quitas esta llave, Plania pierde el acceso a: ${used}. Se puede volver a poner.`,
+      removeNone: "Nada de este proyecto usa esta llave ahora.",
+      removeYes: "Sí, quitar la llave",
+      cancel: "Cancelar",
+      usedGithub: "las ramas, pruebas y propuestas de GitHub",
     },
     prop: {
       lead: "Las propuestas (PR) de este proyecto, agrupadas por la rama a la que entran.",
@@ -203,14 +231,14 @@ export const CAMINO_WORDS = defineWords({
       dest: { plania: "Plania", proveedor: "Servicio", github: "GitHub", pr: "Propuesta", llavero: "Llavero" } as Record<string, string>,
     },
     runs: { branch: (b: string) => `Rama ${b}`, pr: "Cada propuesta", promote: (e: string) => `El build de ${e}`, tags: (p: string) => `Etiquetas ${p}`, none: "Todavía nada" },
-    soon: "Esta sección llega en el siguiente paso de Camino.",
+    soon: "Esta sección llega en el siguiente paso.",
     readError: "el camino de este proyecto",
     reading: "Leyendo el camino…",
     ago: { now: "hace un momento", min: (n: number) => `hace ${n} min`, h: (n: number) => `hace ${n} h`, d: (n: number) => `hace ${n} ${n === 1 ? "día" : "días"}` },
-    sources: { github: "de GitHub", plania: "de Plania", mac: "de esta Mac", camino: "de Camino", settings: "de Ajustes", default: "por defecto" } as Record<string, string>,
+    sources: { github: "de GitHub", plania: "de Plania", mac: "de esta Mac", camino: "de tu configuración", settings: "de Ajustes", default: "por defecto" } as Record<string, string>,
   },
   en: {
-    door: "Path",
+    door: "Code",
     toFix: (n: number) => `${n} TO FIX`,
     clear: "READY",
     title: (p: string) => `${p}'s path`,
@@ -219,13 +247,13 @@ export const CAMINO_WORDS = defineWords({
     neverChecked: "Not checked yet",
     checking: "Checking…",
     recheck: "Check again",
-    ready: { bad: (n: number) => `${n} ${n === 1 ? "blocks" : "block"}`, warn: "Works, with warnings", ok: "All in order", more: (n: number) => `· ${n} to improve` },
+    ready: { bad: (n: number) => `${n} ${n === 1 ? "blocks" : "block"}`, warn: "Works, with warnings", ok: "All in order", unread: "Could not check", more: (n: number) => `· ${n} to improve` },
     sections: {
       resumen: "Summary",
       conn: "Connections and keys",
       propuestas: "Pull requests",
-      codigo: "Code and branches",
-      commits: "Commits and PRs",
+      codigo: "Repository and branches",
+      commits: "Commits",
       ci: "Tests (CI)",
       hist: "History",
       envs: "Environments",
@@ -244,6 +272,7 @@ export const CAMINO_WORDS = defineWords({
       lead: "This project's path and what Plania found, from what blocks to what is fine.",
       leadSetup: "This project is not released yet. What is missing for a healthy path, in order.",
       attention: (n: number) => `Needs attention · ${n}`,
+      know: (n: number) => `Good to know · ${n}`,
       bySeverity: "By severity",
       good: "Fine",
       seeAll: (n: number) => `See all ${n}`,
@@ -253,11 +282,23 @@ export const CAMINO_WORDS = defineWords({
       setup: "To get started",
       open: "Open",
     },
+    expert: {
+      title: "Expert mode",
+      hint: "Tables, switches and step-by-step editing",
+      recTitle: "Recommended for this project",
+      use: "Use the recommended",
+      done: "Already like this",
+      codigo: { rule: (b: string) => `Protect ${b}: only through a PR and it cannot be deleted`, merge: "Each PR enters as a single commit and its branch is deleted on merge" },
+      commits: { conv: (n: string) => `Write commits in the ${n} format`, ai: "Strip the AI co-author line before pushing" },
+      ci: { none: "Create a test workflow from the project's scripts", have: (n: number) => `${n} test ${n === 1 ? "workflow" : "workflows"} already run: see Expert mode for which ones are required`, require: (names: string, b: string) => `Require ${names} to enter ${b}` },
+      env: { sql: "Review the SQL before migrating", approve: "Ask for your approval when a migration deletes data", backup: "Back up the database before migrating", health: "Check that it opens after releasing" },
+    },
     strip: {
       code: "Code",
       tests: "Tests",
       noRepo: "no repository",
       none: "none",
+      unread: "not read",
       required: "required",
       notRequired: "not required",
       public: "public",
@@ -280,12 +321,13 @@ export const CAMINO_WORDS = defineWords({
       noToken: ["Plania has no GitHub key", "Without a key it reads no branches, rules, tests or runs. Save one in Connections and keys."] as Pair,
       unauthorized: ["GitHub refused the key", "The key expired or has no access to this repository."] as Pair,
       notFound: (r: string) => [`GitHub cannot find ${r}`, "The name changed, the repo was deleted, or the key cannot see it."] as Pair,
-      network: ["GitHub could not be read", "The network failed while checking. What you see is the last read."] as Pair,
+      network: ["GitHub could not be read", "The network failed while checking and there is no earlier read yet. Check again in a moment."] as Pair,
+      stale: (ago: string) => ["GitHub did not answer", `What you see is the last good read, from ${ago} ago. Nothing is offered to create in the meantime.`] as Pair,
       unprotected: (b: string) => [`${b} is not protected`, "Anyone can push to it or delete it, with no PR and no tests. On a public repo rules are free."] as Pair,
       noRulesPlan: ["GitHub does not protect branches on this repo", "It is private on the free plan. Plania will enforce your rules on its own merges; GitHub does not stop a direct push."] as Pair,
-      pubMissing: (b: string) => [`The published branch ${b} does not exist on GitHub`, "Release and Taller expect it. Pick the real branch in Code and branches."] as Pair,
+      pubMissing: (b: string) => [`The published branch ${b} does not exist on GitHub`, "Release and Taller expect it. Pick the real branch in Repository and branches."] as Pair,
       integMissing: (b: string) => [`The integration branch ${b} does not exist on GitHub`, "Deliveries merge there. Pick a real branch or drop integration."] as Pair,
-      folderMissing: (f: string) => [`The folder ${f} does not exist`, "Taller starts from that folder. Pick a clone of this repo in Code and branches."] as Pair,
+      folderMissing: (f: string) => [`The folder ${f} does not exist`, "Taller starts from that folder. Pick a clone of this repo in Repository and branches."] as Pair,
       folderNotClone: (f: string) => [`${f} is not a clone of this repo`, "Its origin is another repository, or none. Taller would work on the wrong code."] as Pair,
       noWorkflows: ["No tests on GitHub", "Nothing checks a PR before it merges. Plania can propose a workflow with your scripts."] as Pair,
       ghostCheck: (r: string, state: string) => [`The rule «${r}» requires a check nobody produces`, `It is ${state}. If it is turned on, no PR can merge.`] as Pair,
@@ -295,7 +337,7 @@ export const CAMINO_WORDS = defineWords({
       envMissing: (e: string, n: number) => [`${e}: ${n} ${n === 1 ? "migration" : "migrations"} missing`, "The code has more migrations than the record says were applied."] as Pair,
       prodUnset: ["Nobody said who migrates the production database", "A release with migrations waits until you say."] as Pair,
       noteStale: ["The project's note is stale", "Something changed after it was written. Agents read it when they start."] as Pair,
-      aiTrailers: (n: number, of: number) => [`${n} of ${of} commits carry an AI co-author`, "Your rule does not allow it. Plania will strip that line before pushing."] as Pair,
+      aiTrailers: (n: number, of: number, chosen: boolean) => [`${n} of ${of} commits carry an AI co-author`, chosen ? "Your rule does not allow it. Plania will strip that line before pushing." : "You have not picked a commit rule yet, and by default it is not allowed. Plania will strip that line before pushing."] as Pair,
       noConvention: ["Pick a commit convention", "Agents write as they like until you pick one."] as Pair,
       ghSession: ["Plania uses your gh session, with full control of your repos", "Safer: a key for this repo only, or Plania's GitHub app with the repos you pick."] as Pair,
       keyFailed: (s: string) => [`The ${s} key failed its last test`, "The service refused it. Change it in Connections and keys."] as Pair,
@@ -311,7 +353,7 @@ export const CAMINO_WORDS = defineWords({
       allGood: "GitHub, the folder and the keys answer",
     },
     fix: {
-      code: "Open Code and branches",
+      code: "Open Repository and branches",
       conn: "Connect",
       connChange: "Change the key",
       recheck: "Read again",
@@ -349,7 +391,8 @@ export const CAMINO_WORDS = defineWords({
       saving: "Testing…",
       keyNote: "It is saved only if the service accepts it. Only Plania uses it; agents never see it. Afterwards only its last 4 characters show.",
       works: "Answers",
-      rejected: (status: number | null, msg: string) => `The service refused the key${status ? ` (${status})` : ""}${msg ? `: ${msg}` : "."} Not saved.`,
+      rejected: (status: number | null) => `The service refused the key${status ? ` (${status})` : ""}. Not saved.`,
+      detail: "Detail",
       invalid: "That key has spaces, quotes or a label. Paste just the key.",
       storeFailed: "The keychain did not save it. Nothing changed.",
       unreachable: "The service could not be reached. Try again.",
@@ -357,7 +400,7 @@ export const CAMINO_WORDS = defineWords({
       addHint: "Native: through its API · Detected: read-only · Manual: your command with a checklist",
       servers: "Services",
       dbs: "Databases",
-      manualNote: "Yours is not here? «Manual» works with any service: you give the command that deploys, the one that rolls back and the address to check.",
+      manualNote: "Yours is not here? The dashed ones take no key: you pick them inside an environment. With «Manual», Plania does not deploy or roll back for you; you do, and the environment records it.",
       paid: "paid",
       badge: { native: "Native", detected: "Detected", manual: "Manual" } as Record<Badge, string>,
       detectedHow: "Read from this Mac, no key",
@@ -368,6 +411,17 @@ export const CAMINO_WORDS = defineWords({
       ghAdmin: "You have admin permission on this repo",
       providerWorks: "Read and test through its API",
       providerMore: "Without a key, Plania only sees what GitHub reports",
+      account: "Account",
+      rejectedChip: "refused",
+      expiredChip: "expired",
+      expiresIn: (n: number) => `expires in ${n} ${n === 1 ? "day" : "days"}`,
+      ghRefused: (src: string) => `${src}: GitHub did not accept it. Change it or remove it.`,
+      releasesHow: "Uses your GitHub connection, no separate key",
+      removeAsk: (used: string) => `If you remove this key, Plania loses access to: ${used}. You can put it back.`,
+      removeNone: "Nothing in this project uses this key right now.",
+      removeYes: "Yes, remove the key",
+      cancel: "Cancel",
+      usedGithub: "GitHub branches, tests and proposals",
     },
     prop: {
       lead: "This project's pull requests, grouped by the branch they go into.",
@@ -394,11 +448,11 @@ export const CAMINO_WORDS = defineWords({
       dest: { plania: "Plania", proveedor: "Service", github: "GitHub", pr: "PR", llavero: "Keychain" } as Record<string, string>,
     },
     runs: { branch: (b: string) => `Branch ${b}`, pr: "Each PR", promote: (e: string) => `${e}'s build`, tags: (p: string) => `Tags ${p}`, none: "Nothing yet" },
-    soon: "This section arrives in Camino's next step.",
+    soon: "This section arrives in the next step.",
     readError: "this project's path",
     reading: "Reading the path…",
     ago: { now: "just now", min: (n: number) => `${n} min ago`, h: (n: number) => `${n} h ago`, d: (n: number) => `${n} ${n === 1 ? "day" : "days"} ago` },
-    sources: { github: "from GitHub", plania: "from Plania", mac: "from this Mac", camino: "from Camino", settings: "from Settings", default: "default" } as Record<string, string>,
+    sources: { github: "from GitHub", plania: "from Plania", mac: "from this Mac", camino: "from your setup", settings: "from Settings", default: "default" } as Record<string, string>,
   },
 });
 
@@ -481,18 +535,48 @@ export const serviceName = (id: ProviderId, language: Language = getLanguage()):
 
 // ---- reading the payload
 const gh = (r: CaminoRead) => (r.discovery?.github.ok ? r.discovery.github : null);
+/** PLA-I70-32: a folder as the owner knows it: «~/…» for the home folder, never «/Users/name/…». The full path goes in a tooltip. */
+export const tidyPath = (p: string | null | undefined): string => (p ?? "").replace(/^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)(?=[/\\]|$)/, "~");
+
+/** PLA-I70-3: the GitHub read on screen is an old one because the last try failed; nothing may be created from it. */
+export const githubStale = (r: CaminoRead): boolean => !!gh(r)?.stale;
+/** PLA-I70-3: the last try at reading GitHub failed (no read at all, or an old one kept). */
+export const githubUnread = (F: Finding[]): boolean => F.some((f) => f.id === "network" || f.id === "stale");
 const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "—");
+
+/** PLA-I70-4: where a proposal Camino opens goes: the integration branch only under the integration model, else the published one. */
+export const baseBranch = (r: CaminoRead): string => (r.config.model === "integ" ? (r.config.branches.integration ?? r.config.branches.published) : r.config.branches.published);
+/** The branches a proposal can land on, in order, without duplicates. */
+export const baseBranches = (r: CaminoRead): string[] => [...new Set([r.config.model === "integ" ? r.config.branches.integration : null, r.config.branches.published].filter((b): b is string => !!b))];
 
 /** The project does not publish yet: no release step and no production environment. */
 export const isSetup = (r: CaminoRead): boolean => !r.settings.release && !r.config.envs.some((e) => e.kind === "produccion" || e.kind === "versiones");
+
+/** PLA-I70-10: a GitHub token exists and GitHub took it (or the repo is not chosen yet), as opposed to none or a refused one. */
+export function githubConnected(r: CaminoRead): boolean {
+  const d = r.discovery?.github;
+  if (!d) return !!r.config.connections.github;
+  return d.ok || (!!d.source && d.error !== "unauthorized");
+}
+/** The token was tried and GitHub refused it. */
+export const githubRefused = (r: CaminoRead): boolean => {
+  const d = r.discovery?.github;
+  return !!d && !d.ok && d.error === "unauthorized";
+};
+
+/** PLA-I70-40: whether a ruleset's branch list covers a branch (by name, ~DEFAULT_BRANCH or ~ALL), the one match findings and the strip share. */
+export const ruleCovers = (branches: string[], branch: string, defaultBranch: string): boolean => branches.some((b) => b === branch || (b === "~DEFAULT_BRANCH" && defaultBranch === branch) || b === "~ALL");
 
 /** Whether the published branch is protected on GitHub: by Plania's or anyone's ruleset, or classic protection. */
 export function protectedOn(r: CaminoRead, branch: string): boolean {
   const g = gh(r);
   if (!g) return false;
   if (g.branches.find((b) => b.name === branch)?.protected) return true;
-  return g.rules.list.some((x) => x.enforcement === "active" && x.target === "branch" && x.branches.some((b) => b === branch || b === "~DEFAULT_BRANCH" && g.repo.default_branch === branch || b === "~ALL"));
+  return g.rules.list.some((x) => x.enforcement === "active" && x.target === "branch" && ruleCovers(x.branches, branch, g.repo.default_branch));
 }
+
+/** PLA-I70-34: how many cards are actually connected (GitHub taken, a saved key, or read from this Mac), not how many are listed. */
+export const connectedCount = (r: CaminoRead): number => cards(r).filter((c) => c.saved || (c.id === "github" && githubConnected(r)) || c.via === "detected").length;
 
 /** The connection cards, in order: GitHub, every saved key, the services the environments name, then detected ones. */
 export type Card = { id: ProviderId; badge: Badge; saved: boolean; via: "key" | "session" | "env" | "file" | "detected" | "mac" | null };
@@ -536,8 +620,10 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
     if (e === "no_token") add("no-token", "bad", "conn", w.f.noToken, { label: w.fix.conn, go: "conn" });
     else if (e === "unauthorized") add("unauthorized", "bad", "conn", w.f.unauthorized, { label: w.fix.connChange, go: "conn" });
     else if (e === "not_found") add("not-found", "bad", "codigo", w.f.notFound(r.settings.repo ?? ""), { label: w.fix.code, go: "codigo" });
-    else if (e === "network") add("network", "info", "resumen", w.f.network, { label: w.fix.recheck, act: "recheck" });
+    else if (e === "network") add("network", "warn", "resumen", w.f.network, { label: w.fix.recheck, act: "recheck" });
   }
+  // PLA-I70-3: the last good read is kept when GitHub does not answer; say so, with its age.
+  if (g?.stale) add("stale", "warn", "resumen", w.f.stale(agoText(g.stale.since, now, w) ?? ""), { label: w.fix.recheck, act: "recheck" });
 
   if (g) {
     const names = g.branches.map((b) => b.name);
@@ -552,12 +638,12 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
       const ghost = rs.required_checks.filter((n) => !seen.has(n));
       if (ghost.length) add(`ghost:${rs.name}`, "warn", "ci", w.f.ghostCheck(rs.name, rs.enforcement === "active" ? (language === "en" ? "on" : "encendida") : language === "en" ? "off" : "apagada"), { label: w.fix.ci, go: "ci" });
     }
-    const requiredByRule = g.rules.list.some((rs) => rs.enforcement === "active" && rs.required_checks.length && rs.branches.some((b) => b === pub || (b === "~DEFAULT_BRANCH" && g.repo.default_branch === pub)));
+    const requiredByRule = g.rules.list.some((rs) => rs.enforcement === "active" && rs.required_checks.length && ruleCovers(rs.branches, pub, g.repo.default_branch));
     if (g.workflows.length && !requiredByRule && !(c.required_checks[pub]?.length)) add(`nothing-required:${pub}`, "warn", "ci", w.f.nothingRequired(pub), { label: w.fix.ci, go: "ci" });
 
     // commits
     const ai = g.commits.filter((x) => /^co-authored-by:.*\b(claude|anthropic|copilot|chatgpt|openai|gpt|cursor|codex|gemini|devin)\b/im.test(x.message)).length;
-    if (ai && !c.commits.ai) add("ai-trailers", "warn", "commits", w.f.aiTrailers(ai, g.commits.length), { label: w.fix.see, go: "commits" });
+    if (ai && !c.commits.ai) add("ai-trailers", "warn", "commits", w.f.aiTrailers(ai, g.commits.length, c.source.commits === "camino"), { label: w.fix.see, go: "commits" });
     if (!c.commits.convention && g.commits.length) add("no-convention", "info", "commits", w.f.noConvention, { label: w.fix.commits, go: "commits" });
 
     if (!c.connections.github && g.token.source === "gh auth token" && (g.token.scopes ?? []).includes("repo")) add("gh-session", "info", "conn", w.f.ghSession, { label: w.fix.see, go: "conn" });
@@ -567,8 +653,8 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
   // the folder on this Mac
   const folder = d?.mac.folder;
   if (folder && r.settings.repo) {
-    if (!folder.exists) add("folder-missing", "warn", "codigo", w.f.folderMissing(folder.path), { label: w.fix.code, go: "codigo" });
-    else if (folder.matches === false || !folder.clone) add("folder-not-clone", "warn", "codigo", w.f.folderNotClone(folder.path), { label: w.fix.code, go: "codigo" });
+    if (!folder.exists) add("folder-missing", "warn", "codigo", w.f.folderMissing(tidyPath(folder.path)), { label: w.fix.code, go: "codigo" });
+    else if (folder.matches === false || !folder.clone) add("folder-not-clone", "warn", "codigo", w.f.folderNotClone(tidyPath(folder.path)), { label: w.fix.code, go: "codigo" });
   }
 
   // environments: Plania's record against GitHub and the code
@@ -633,6 +719,8 @@ export function readyLine(F: Finding[], language: Language = getLanguage()): { d
   const w = caminoWords(language);
   const bad = F.filter((f) => f.sev === "bad").length;
   const warn = F.filter((f) => f.sev === "warn").length;
+  // PLA-I70-3: never green when GitHub could not be read.
+  if (!bad && githubUnread(F)) return { dot: "warn", text: w.ready.unread, more: warn > 1 ? w.ready.more(warn - 1) : null };
   return { dot: bad ? "bad" : warn ? "warn" : "ok", text: bad ? w.ready.bad(bad) : warn ? w.ready.warn : w.ready.ok, more: warn ? w.ready.more(warn) : null };
 }
 
@@ -648,7 +736,7 @@ export function sections(r: CaminoRead, F: Finding[], language: Language = getLa
   const conv = r.config.commits.convention;
   const main: Section[] = [
     { id: "resumen", name: w.sections.resumen, sub: isSetup(r) ? w.sub.resumenSetup : w.sub.resumen, dot: resumenDot },
-    { id: "conn", name: w.sections.conn, sub: w.sub.conn(cards(r).length), dot: dot("conn") },
+    { id: "conn", name: w.sections.conn, sub: w.sub.conn(connectedCount(r)), dot: dot("conn") },
     { id: "codigo", name: w.sections.codigo, sub: w.models[r.config.model], dot: dot("codigo") },
     { id: "commits", name: w.sections.commits, sub: conv ? words(COMMITS_PAGE_WORDS, language).conventions[conv].name : w.setup.noConvention, dot: dot("commits") },
     { id: "ci", name: w.sections.ci, sub: nWorkflows ? `${nWorkflows} ${language === "en" ? (nWorkflows === 1 ? "workflow" : "workflows") : nWorkflows === 1 ? "flujo" : "flujos"}` : w.setup.noneYet, dot: dot("ci") },
@@ -685,10 +773,13 @@ export function strip(r: CaminoRead, F: Finding[], language: Language = getLangu
   const g = gh(r);
   const pub = r.config.branches.published;
   const repo = r.settings.repo?.split("/")[1];
-  const required = !!r.config.required_checks[pub]?.length || !!g?.rules.list.some((x) => x.enforcement === "active" && x.required_checks.length && x.branches.includes(pub));
+  const required = !!r.config.required_checks[pub]?.length || !!g?.rules.list.some((x) => x.enforcement === "active" && x.required_checks.length && ruleCovers(x.branches, pub, g.repo.default_branch));
   const nodes: StripNode[] = [
-    { go: "codigo", title: w.strip.code, sub: repo ? `${repo} · ${w.models[r.config.model].toLowerCase()}` : w.strip.noRepo, meta: g ? (g.repo.private ? w.strip.private : w.strip.public) : "", dot: worst(F, "codigo"), off: false },
-    { go: "ci", title: w.strip.tests, sub: g?.workflows.length ? g.workflows.map((x) => x.name).join(" · ") : w.strip.none, meta: required ? w.strip.required : w.strip.notRequired, dot: worst(F, "ci"), off: false },
+    { go: "codigo", title: w.strip.code, sub: repo ? `${repo} · ${w.models[r.config.model].toLowerCase()}` : w.strip.noRepo, meta: g ? (g.repo.private ? w.strip.private : w.strip.public) : "", dot: g || !r.settings.repo ? worst(F, "codigo") : "off", off: false },
+    // PLA-I70-38: with no GitHub read the strip says «sin leer» in grey, not «ninguna · no exigidas» with a green dot.
+    g
+      ? { go: "ci", title: w.strip.tests, sub: g.workflows.length ? g.workflows.map((x) => x.name).join(" · ") : w.strip.none, meta: required ? w.strip.required : w.strip.notRequired, dot: worst(F, "ci"), off: false }
+      : { go: "ci", title: w.strip.tests, sub: w.strip.unread, meta: "", dot: "off", off: true },
   ];
   for (const e of r.config.envs) {
     const off = e.runs.kind === "none";
@@ -705,19 +796,25 @@ export function strip(r: CaminoRead, F: Finding[], language: Language = getLangu
 }
 
 /** The setup list of a project that does not publish yet: each line done (✓), missing (○) or later (—). */
-export type SetupItem = { mark: "✓" | "○" | "—"; title: string; sub: string; go: SectionId };
+export type SetupItem = { mark: "✓" | "○" | "—"; title: string; sub: string; go: SectionId; /** PLA-I70-37: with no environment yet, «Abrir» opens the «+ Agregar entorno» form instead. */ addEnv?: boolean };
 export function setupList(r: CaminoRead, language: Language = getLanguage()): SetupItem[] {
   const w = caminoWords(language);
   const g = gh(r);
   const c = r.config;
   return [
     { mark: r.settings.repo && g ? "✓" : "○", title: w.setup.repo, sub: r.settings.repo ?? w.setup.noneYet, go: "codigo" },
-    { mark: c.source.branches === "default" ? "○" : "✓", title: w.setup.roles, sub: [c.branches.work_pattern, c.model === "integ" ? c.branches.integration : null, c.branches.published].filter(Boolean).join(" → "), go: "codigo" },
+    { mark: c.source.branches === "camino" || c.source.branches === "settings" ? "✓" : "○", title: w.setup.roles, sub: [c.branches.work_pattern, c.model === "integ" ? c.branches.integration : null, c.branches.published].filter(Boolean).join(" → "), go: "codigo" },
     { mark: g?.workflows.length ? "✓" : "○", title: w.setup.tests, sub: g?.workflows.length ? w.setup.onEach : w.setup.noneYet, go: "ci" },
     { mark: c.commits.convention ? "✓" : "○", title: w.setup.commits, sub: c.commits.convention ? words(COMMITS_PAGE_WORDS, language).conventions[c.commits.convention].name : w.setup.noConvention, go: "commits" },
-    { mark: "—", title: w.setup.where, sub: w.setup.later, go: c.envs[0] ? `env:${c.envs[0].id}` : "resumen" },
+    { mark: "—", title: w.setup.where, sub: w.setup.later, go: c.envs[0] ? `env:${c.envs[0].id}` : "resumen", addEnv: !c.envs[0] },
   ];
 }
+
+/** The branch prefix Camino opens a file's proposal on (src/camino/changes.ts file_pr): camino/<file>-<time>. */
+export const proposalBranchPrefix = (path: string): string => `camino/${path.replace(/^\.github\//, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 40)}-`;
+/** PLA-I70-26: the open proposal Camino made for a file, if one is still open. */
+export const openProposalFor = (r: CaminoRead, path: string): CaminoRead["proposals"][number] | null =>
+  r.proposals.find((p) => p.state === "open" && !!p.head_branch && p.head_branch.startsWith(proposalBranchPrefix(path))) ?? null;
 
 /** Proposals grouped by the branch they go into: the published branch first, then integration, then the rest. */
 export function proposalGroups(r: CaminoRead): { base: string | null; items: CaminoRead["proposals"] }[] {

@@ -6,7 +6,7 @@ import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 export type Dest = "plania" | "proveedor" | "github" | "pr";
 export type Change = { kind: string; label: string; [k: string]: unknown };
 /** A staged edit: the change sent to the server, where it applies, and the before and after said for the owner. */
-export type Staged = { key: string; change: Change; dest: Dest; from: string; to: string; diff?: { path: string; before: string; after: string } | null; /** Why it cannot be applied (actionlint's errors). */ blocked?: string | null };
+export type Staged = { key: string; change: Change; dest: Dest; from: string; to: string; diff?: { path: string; before: string; after: string } | null; /** One plain line per changed field, shown in the review instead of the before → after text. */ lines?: string[]; /** Why it cannot be applied (actionlint's errors). */ blocked?: string | null };
 
 export const DEST_ORDER: Dest[] = ["plania", "proveedor", "github", "pr"];
 /** The server's destOf (src/camino/changes.ts), for the kinds the screen stages. */
@@ -55,11 +55,32 @@ export const CAMBIOS_WORDS = defineWords({
     failed: "Falló",
     stale: "Alguien cambió el camino mientras editabas. Vuelve a leerlo y revisa tus cambios.",
     why: {
-      CAMINO_GITHUB_REFUSED: (status: number | null, msg: string) => `GitHub lo rechazó${status ? ` (${status})` : ""}${msg ? `: ${msg}` : ""}.`,
+      github: (status: number | null): string =>
+        status === 404 ? "GitHub no encontró lo que se le pidió (puede haber cambiado o tu llave no lo ve)."
+        : status === 401 ? "GitHub rechazó la llave."
+        : status === 403 ? "GitHub no deja a esta llave hacer ese cambio (falta permiso)."
+        : status === 409 || status === 422 ? "GitHub no aceptó el cambio tal como está."
+        : status && status >= 500 ? "GitHub falló al responder. Prueba de nuevo en un momento."
+        : status === null ? "No se pudo hablar con GitHub (sin red)."
+        : "GitHub rechazó el cambio.",
       CAMINO_NO_GITHUB: "Falta el repositorio o la llave de GitHub.",
-      CAMINO_CHANGE_INVALID: (field: string) => `El cambio no cuadra (${field}).`,
-      other: (code: string, field: string) => `No se pudo (${code}${field ? `: ${field}` : ""}).`,
+      invalid: {
+        not_a_clone: "La carpeta elegida no es una copia de este repositorio.",
+        other_repo: "La carpeta elegida pertenece a otro repositorio.",
+        role_branch: "Esa rama es la publicada o la de integración: no se borra desde aquí.",
+        missing_file: "Ese archivo ya no está en el repositorio.",
+        missing_base: (b: string) => `La rama ${b || "de destino"} no existe en GitHub. Elige otra en «Repositorio y ramas».`,
+      } as Record<string, string | ((b: string) => string)>,
+      invalidOther: "El cambio no cuadra con lo que hay ahora. Vuelve a comprobar y revísalo.",
+      actionlint: "El flujo tiene errores que GitHub no aceptaría. Corrígelos antes de proponerlo.",
+      other: "No se pudo aplicar este cambio.",
+      detail: "Detalle",
     },
+    keepMine: "Volver a leer y conservar mis cambios",
+    kept: "Listo: se volvió a leer el camino y tus cambios siguen en la lista. Revisa y aplica de nuevo.",
+    leave: "Tienes cambios sin aplicar. Si sales, se pierden.",
+    prOpen: (n: number) => `Propuesta #${n} abierta`,
+    prOpened: (n: number) => `Propuesta #${n}`,
     beforeAfter: (from: string, to: string) => `${from} → ${to}`,
     guard: {
       lost: (path: string, names: string) => `Este cambio a ${path} quita o renombra ${names}, que una regla exige: ninguna propuesta se podría fusionar. Cambia primero la prueba exigida.`,
@@ -86,11 +107,32 @@ export const CAMBIOS_WORDS = defineWords({
     failed: "Failed",
     stale: "Someone changed the path while you edited. Read it again and check your changes.",
     why: {
-      CAMINO_GITHUB_REFUSED: (status: number | null, msg: string) => `GitHub refused it${status ? ` (${status})` : ""}${msg ? `: ${msg}` : ""}.`,
+      github: (status: number | null): string =>
+        status === 404 ? "GitHub could not find what was asked (it may have changed, or your key cannot see it)."
+        : status === 401 ? "GitHub refused the key."
+        : status === 403 ? "GitHub does not let this key make that change (permission missing)."
+        : status === 409 || status === 422 ? "GitHub did not accept the change as it is."
+        : status && status >= 500 ? "GitHub failed to answer. Try again in a moment."
+        : status === null ? "Could not reach GitHub (no network)."
+        : "GitHub refused the change.",
       CAMINO_NO_GITHUB: "The repository or the GitHub key is missing.",
-      CAMINO_CHANGE_INVALID: (field: string) => `The change does not fit (${field}).`,
-      other: (code: string, field: string) => `It could not be done (${code}${field ? `: ${field}` : ""}).`,
+      invalid: {
+        not_a_clone: "The chosen folder is not a copy of this repository.",
+        other_repo: "The chosen folder belongs to another repository.",
+        role_branch: "That branch is the published or integration one: it is not deleted from here.",
+        missing_file: "That file is no longer in the repository.",
+        missing_base: (b: string) => `The branch ${b || "to land on"} does not exist on GitHub. Pick another in «Repository and branches».`,
+      } as Record<string, string | ((b: string) => string)>,
+      invalidOther: "The change does not fit what is there now. Check again and review it.",
+      actionlint: "The workflow has errors GitHub would not accept. Fix them before proposing it.",
+      other: "This change could not be applied.",
+      detail: "Detail",
     },
+    keepMine: "Read again and keep my changes",
+    kept: "Done: the path was read again and your changes are still in the list. Review and apply again.",
+    leave: "You have changes that are not applied. If you leave, they are lost.",
+    prOpen: (n: number) => `PR #${n} open`,
+    prOpened: (n: number) => `PR #${n}`,
     beforeAfter: (from: string, to: string) => `${from} → ${to}`,
     guard: {
       lost: (path: string, names: string) => `This change to ${path} removes or renames ${names}, which a rule requires: no PR could merge. Change the required check first.`,
@@ -100,11 +142,21 @@ export const CAMBIOS_WORDS = defineWords({
 });
 export const cambiosWords = (language: Language = getLanguage()) => words(CAMBIOS_WORDS, language);
 
-/** Why one change stopped the set, in the owner's words. */
+/** Why one change stopped the set, in the owner's words: one sentence, never a code or the service's English. */
 export function whyStopped(error: string, detail: Record<string, unknown> = {}, language: Language = getLanguage()): string {
   const w = cambiosWords(language).why;
-  if (error === "CAMINO_GITHUB_REFUSED") return w.CAMINO_GITHUB_REFUSED((detail.status as number | null) ?? null, String(detail.message ?? ""));
+  if (error === "CAMINO_GITHUB_REFUSED") return w.github(typeof detail.status === "number" ? detail.status : null);
   if (error === "CAMINO_NO_GITHUB") return w.CAMINO_NO_GITHUB;
-  if (error === "CAMINO_CHANGE_INVALID") return w.CAMINO_CHANGE_INVALID(String(detail.reason ?? detail.field ?? ""));
-  return w.other(error, String(detail.field ?? ""));
+  if (error === "CAMINO_ACTIONLINT") return w.actionlint;
+  if (error === "CAMINO_CHANGE_INVALID") {
+    const h = w.invalid[String(detail.reason ?? "")];
+    return typeof h === "function" ? h(String(detail.branch ?? "")) : (h ?? w.invalidOther);
+  }
+  return w.other;
+}
+/** The service's own words, for the «Detalle» under a refusal (empty when there are none). */
+export function whyDetail(error: string, detail: Record<string, unknown> = {}): string {
+  if (error === "CAMINO_GITHUB_REFUSED") return String(detail.message ?? "");
+  if (error === "CAMINO_ACTIONLINT") return ((detail.errors as { line: number; message: string }[] | undefined) ?? []).map((e) => `${e.line}: ${e.message}`).join(" · ");
+  return "";
 }

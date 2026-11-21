@@ -84,6 +84,8 @@ test("I62-1: the tokens are scoped under .cor, buttons are 44px with radius 10, 
   assert.match(css, /\.cor-btn \{[^}]*min-height: 44px;[^}]*border-radius: 10px/);
   assert.match(css, /\.cor-opt \{[^}]*min-height: 44px;[^}]*border-radius: 10px/);
   assert.ok(!/border-radius: 999px/.test(css), "no pills");
+  // PLA-I70-30: Camino's own sheet is held to the same house look.
+  assert.ok(!/border-radius: 999px/.test(readFileSync(new URL("../ui/src/camino.css", import.meta.url), "utf8")), "no pills in camino.css");
   assert.ok(!/Bricolage|Instrument Serif/.test(css));
   const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
   for (const c of ["cor-track::after", "cor-agent", "cor-you", "cor-live", "cor-aura"]) assert.ok(reduced.includes(c), c);

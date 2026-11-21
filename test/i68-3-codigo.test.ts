@@ -110,7 +110,12 @@ describe("the change set on the screen", () => {
   });
 
   test("a stop says why in the owner's words", () => {
-    assert.equal(cambios.whyStopped("CAMINO_GITHUB_REFUSED", { status: 422, message: "Validation Failed" }, "es"), "GitHub lo rechazó (422): Validation Failed.");
+    // PLA-I70-22: one Spanish sentence per reason; the service's own text is behind «Detalle», never in the sentence.
+    assert.equal(cambios.whyStopped("CAMINO_GITHUB_REFUSED", { status: 422, message: "Validation Failed" }, "es"), "GitHub no aceptó el cambio tal como está.");
+    assert.equal(cambios.whyDetail("CAMINO_GITHUB_REFUSED", { status: 404, message: "Not Found" }), "Not Found");
+    assert.doesNotMatch(cambios.whyStopped("CAMINO_CHANGE_INVALID", { reason: "not_a_clone" }, "es"), /not_a_clone/);
+    assert.match(cambios.whyStopped("CAMINO_CHANGE_INVALID", { reason: "missing_base", branch: "sandbox" }, "es"), /sandbox/);
+    assert.doesNotMatch(cambios.whyStopped("CAMINO_ACTIONLINT", {}, "es"), /CAMINO_/);
     assert.equal(cambios.whyStopped("CAMINO_NO_GITHUB", {}, "es"), "Falta el repositorio o la llave de GitHub.");
   });
 });
