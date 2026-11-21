@@ -78,7 +78,17 @@ export const HISTORIAL_WORDS = defineWords({
     current: "Actual",
     kept: "Guardada",
     keptWhy: "Se mandó a Taller o volviste a ella: no se borra.",
-    run: (n: number, lane: string, from: string, to: string) => `${n} versiones de ${lane} · ${from} – ${to}`,
+    // PLA-130: the lane chip already names the part; a row says only its version, and today's times only the hour.
+    run: (n: number) => `${n} versiones`,
+    vShort: (v: number) => `Versión ${v}`,
+    whenShort: (iso: string) => (new Date(iso).toDateString() === new Date().toDateString() ? new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" }) : new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
+    // PLA-130: a run's time range, short: the day once when both ends share it.
+    span: (from: string, to: string) => {
+      const a = new Date(from), b = new Date(to);
+      const day = (d: Date) => d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
+      const hour = (d: Date) => d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+      return day(a) === day(b) ? `${day(a)}, ${hour(a)} – ${hour(b)}` : `${day(a)} ${hour(a)} – ${day(b)} ${hour(b)}`;
+    },
     runOpen: "Ver todas",
     runClose: "Ocultar",
     version: (lane: string, v: number) => `${lane} · versión ${v}`,
@@ -110,7 +120,15 @@ export const HISTORIAL_WORDS = defineWords({
     current: "Current",
     kept: "Kept",
     keptWhy: "Sent to Taller or gone back to: it is never dropped.",
-    run: (n: number, lane: string, from: string, to: string) => `${n} ${lane} versions · ${from} – ${to}`,
+    run: (n: number) => `${n} versions`,
+    vShort: (v: number) => `Version ${v}`,
+    whenShort: (iso: string) => (new Date(iso).toDateString() === new Date().toDateString() ? new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" }) : new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
+    span: (from: string, to: string) => {
+      const a = new Date(from), b = new Date(to);
+      const day = (d: Date) => d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
+      const hour = (d: Date) => d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+      return day(a) === day(b) ? `${day(a)}, ${hour(a)} – ${hour(b)}` : `${day(a)} ${hour(a)} – ${day(b)} ${hour(b)}`;
+    },
     runOpen: "Show all",
     runClose: "Hide",
     version: (lane: string, v: number) => `${lane} · version ${v}`,

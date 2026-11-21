@@ -53,7 +53,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                     {e.lane === "logo" && (
                       <>
                         <img src={versionUrl(slug, e.v.v)} alt="" />
-                        <b>{w.version(laneName("logo"), e.v.v)}</b>
+                        <b>{w.vShort(e.v.v)}</b>
                         <small>{w.source[e.v.source] ?? e.v.source}</small>
                       </>
                     )}
@@ -61,13 +61,13 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                       <>
                         <i className="sw" style={{ background: e.style.brand }} />
                         <i className="sw" style={{ background: e.style.accent }} />
-                        <b>{w.version(laneName("estilo"), e.v)}</b>
+                        <b>{w.vShort(e.v)}</b>
                         <small>{e.style.head === e.style.body ? e.style.head : `${e.style.head} + ${e.style.body}`} · {e.style.radius} px</small>
                       </>
                     )}
                     {e.lane === "voz" && (
                       <>
-                        <b>{w.version(laneName("voz"), e.v)}</b>
+                        <b>{w.vShort(e.v)}</b>
                         <small>{e.voice.short || e.voice.name} · {vw.tratos[e.voice.trato]}</small>
                       </>
                     )}
@@ -78,7 +78,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                       </>
                     )}
                   </span>
-                  <span className="hi-when">{e.current ? <em>{w.current}</em> : w.when(e.at)}{"keep" in e && e.keep && <em className="hi-kept" title={w.keptWhy}>{w.kept}</em>}</span>
+                  <span className="hi-when">{e.current ? <em>{w.current}</em> : w.whenShort(e.at)}{"keep" in e && e.keep && <em className="hi-kept" title={w.keptWhy}>{w.kept}</em>}</span>
                 </button>
   );
   const curVoice = h.voice.find((s) => s.current)?.voice ?? null;
@@ -105,7 +105,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                 <li key={x.id}>
                   <button type="button" className="hi-row hi-run" aria-expanded={openRuns.has(x.id)} onClick={() => setOpenRuns((o) => { const n = new Set(o); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} data-run={x.id}>
                     <span className={`hi-lane ${x.lane}`}>{w.lanes[x.lane]}</span>
-                    <span className="hi-what"><b>{w.run(x.items.length, laneName(x.lane), w.when(x.from), w.when(x.to))}</b></span>
+                    <span className="hi-what"><b>{w.run(x.items.length)}</b><small>{w.span(x.from, x.to)}</small></span>
                     <span className="hi-when">{openRuns.has(x.id) ? w.runClose : w.runOpen}</span>
                   </button>
                   {openRuns.has(x.id) && <ul className="hi-sub">{x.items.map((e) => <li key={e.id}>{row(e)}</li>)}</ul>}
