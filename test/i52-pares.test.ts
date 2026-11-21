@@ -381,7 +381,8 @@ describe("PLA-52: the sweep takes the pictures again", () => {
       assert.equal(t1.status, "In review", "not Taller's to fix: it stays In review");
       assert.ok(lines.some((l) => l.includes(`[probador] zigzag/${key} failed`)), "the error is in the log");
       up();
-      assert.equal((await probador.sweepProbador(db, new Date(), sweepDeps({ capture: broken, settleMs: 0 }))).restarted, 1);
+      // A second later: on a fast machine the failure and this sweep can share a millisecond, and age > 0 is false.
+      assert.equal((await probador.sweepProbador(db, new Date(Date.now() + 1000), sweepDeps({ capture: broken, settleMs: 0 }))).restarted, 1);
       await probador.waitForProbador();
     } finally {
       console.log = log;
