@@ -88,3 +88,17 @@ test("PLA-136: two duplicates at once both land under their own name; two create
   const lost = both.find((r) => r.status >= 400);
   if (lost) assert.equal(lost.json.error, "SKILL_EXISTS");
 });
+
+test("PLA-137: the store's search finds what the card shows", async () => {
+  const lib = await import("../ui/src/lib/tienda.js");
+  const sk = (slug: string, when: string) => ({ slug, name: slug, when, source: "kit", origin: "factory", version: "1", scope: null, carriers: [], runs_carried: 0, runs_used: 0 });
+  const list = [sk("tdd", "Drives a code change through tests written first."), sk("pruebas-primero", "antes de cambiar código"), sk("verify-before-done", "Requires fresh proof before a delivery is declared done."), sk("pr", "Writes the pull request.")] as never;
+  const find = (q: string) => lib.searchOf(list, q, "es").map((s: { slug: string }) => s.slug);
+  assert.deepEqual(find("Pruebas primero"), ["pruebas-primero"]);
+  assert.deepEqual(find("construir"), ["tdd"]);
+  assert.deepEqual(find("pruebas").sort(), ["pruebas-primero", "tdd", "verify-before-done"]);
+  assert.deepEqual(find("primero PRUEBAS"), ["pruebas-primero"]);
+  assert.deepEqual(find("codigo"), ["tdd", "pruebas-primero", "pr"]);
+  assert.deepEqual(find("pull request"), ["pr"]);
+  assert.equal(find("   ").length, 4);
+});
