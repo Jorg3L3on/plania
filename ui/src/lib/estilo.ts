@@ -228,7 +228,7 @@ export function changesOf(s: Style, repo: RepoStyle, start?: Style): StyleChange
 
 export const ESTILO_WORDS = defineWords({
   es: {
-    doors: { caras: "Caras", estilo: "Estilo", historial: "Historial" },
+    doors: { caras: "Logo", estilo: "Estilo", historial: "Historial" }, // PLA-130: the first tab is «Logo» (it was «Caras»)
     doorsLabel: "Partes de la marca",
     doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), way: "en camino", ok: "al día" },
     loading: "Leyendo el estilo del repo…",
@@ -427,7 +427,7 @@ export const ESTILO_WORDS = defineWords({
     },
   },
   en: {
-    doors: { caras: "Surfaces", estilo: "Style", historial: "History" },
+    doors: { caras: "Logo", estilo: "Style", historial: "History" },
     doorsLabel: "Parts of the brand",
     doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), way: "on its way", ok: "up to date" },
     loading: "Reading the repo's style…",

@@ -238,7 +238,7 @@ export const MARCA_WORDS = defineWords({
     optional: "opcional",
     reread: "Revisar el repo ahora",
     // PLA-130: Caras' own bar under the tabs.
-    toolbar: "Caras: archivos en el repo y pedido",
+    toolbar: "Logo: archivos en el repo y pedido",
     repoFiles: "Archivos de íconos:",
     // PLA-130: the button says it is reading, then that it finished.
     rereadBusy: "Revisando el repo…",
@@ -656,7 +656,7 @@ export const MARCA_WORDS = defineWords({
     lane: (has: boolean) => (has ? "in lanes, strip and brief" : "today: a letter"),
     optional: "optional",
     reread: "Check the repo now",
-    toolbar: "Surfaces: files in the repo and request",
+    toolbar: "Logo: files in the repo and request",
     repoFiles: "Icon files:",
     rereadBusy: "Checking the repo…",
     rereadDone: "Repo checked",
