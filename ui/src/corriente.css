@@ -2245,10 +2245,17 @@ li[data-st="viejo"] .mk-row-tx b { color: var(--cor-body); }
 
 /* ---- PLA-I69-4 «Marca · Estilo» (design: PLA-IDEA33 pass 3). Marca's doors, the style editor on the left, the
    sample app light and dark on the right over the reflection of the repo, and the expert's code. */
-.mk-doors { display: flex; gap: 2px; margin-top: 8px; padding: 3px; width: max-content; border-radius: 10px; border: 1px solid var(--cor-line); background: rgba(255,255,255,.02); }
-.mk-doors button { all: unset; cursor: pointer; padding: 5px 12px; border-radius: 8px; font-size: 12.5px; color: var(--cor-body); }
-.mk-doors button:hover { color: var(--cor-text); }
-.mk-doors button[aria-selected="true"] { background: var(--cor-raised); color: var(--cor-text); box-shadow: inset 0 0 0 1px var(--cor-line-strong); }
+/* PLA-130: Marca's tabs are its first level: a bar across the page, each tab with its part's state; the page's own
+   actions live in a quieter bar under it. */
+.mk-doors { flex: none; display: flex; gap: 6px; width: 100%; border-bottom: 1px solid var(--cor-line); }
+.mk-doors button { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: baseline; gap: 8px; padding: 10px 14px 11px; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: 14.5px; font-weight: 500; color: var(--cor-body); }
+.mk-doors button[aria-selected="true"] { color: var(--cor-text); font-weight: 600; border-bottom-color: var(--cor-violet-2); }
+.mk-door-st { font-family: var(--cor-mono); font-size: 11px; font-weight: 400; letter-spacing: 0.04em; color: var(--cor-muted); }
+.mk-door-st.todo { color: var(--cor-amber); }
+.mk-door-st.way { color: var(--cor-violet-3); }
+.mk-door-st.ok { color: var(--cor-green); }
+.mk-toolbar { align-items: center; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }
+.mk-sum-l { color: var(--cor-muted); }
 .mk-doors button:focus-visible, .es-wrap button:focus-visible, .es-wrap [tabindex]:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 2px; }
 .es-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(380px, 450px) minmax(0, 1fr); gap: 16px; }
 .es-wrap.expert { grid-template-columns: minmax(360px, 430px) minmax(0, 1fr) minmax(300px, 380px); }
@@ -2725,3 +2732,7 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
 .mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
 .mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span, .mk .vx-k { font-size: 11px; }
+.mk-doors button:hover { color: var(--cor-text); }
+/* PLA-130: a part name and its «cambia» tag wrap instead of clipping; Estilo's bar is a toolbar like Caras'. */
+.es-ri .es-tag { flex: none; margin-right: 2px; }
+.es-bar { padding: 6px 8px 6px 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }

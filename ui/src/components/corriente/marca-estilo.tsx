@@ -694,7 +694,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   };
   const bar = (
     <div className="es-bar">
-      <div className="say">
+      {/* PLA-130: the full sentence on hover when a narrow window cuts it. */}
+      <div className="say" title={ch.length ? `${w.bar.pending(ch.map((c) => (w.secs[c.part] ?? c.part).toLowerCase()))} · ${w.bar.files(nFiles)}` : undefined}>
         {r.pedido ? <b>{w.bar.way(r.pedido.key)}</b> : ch.length ? <><b>{w.bar.pending(ch.map((c) => (w.secs[c.part] ?? c.part).toLowerCase()))}</b> · {w.bar.files(nFiles)}</> : <b>{w.bar.same}</b>}
         {saving !== "idle" && <span className="es-saving" role="status"> · {saving === "saving" ? w.bar.saving : w.bar.saved}</span>}
       </div>
@@ -795,11 +796,9 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
           <nav className="es-rail" aria-label={w.rail} role="tablist">
             {SECS.map((k) => (
               <button key={k} type="button" role="tab" className="es-ri" aria-selected={sec === k} onClick={() => setSec(k)} data-control={`estilo-parte-${k}`}>
-                <b>
-                  {w.secs[k]}
-                  {k !== "logo" && k !== "img" && changed(k) && <span className="es-tag" title={w.differs}>{w.tag}</span>}
-                </b>
-                <span>{summary(k)}</span>
+                <b>{w.secs[k]}</b>
+                {/* PLA-130: the tag leads the summary line, so every part stays two lines tall and the tags line up. */}
+                <span>{k !== "logo" && k !== "img" && changed(k) && <span className="es-tag" title={w.differs}>{w.tag}</span>}{summary(k)}</span>
               </button>
             ))}
           </nav>

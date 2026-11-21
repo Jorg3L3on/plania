@@ -17,7 +17,7 @@ import { useSearchParams } from "react-router";
 import { Estilo } from "./marca-estilo";
 import { Voz } from "./marca-voz";
 import { Historial } from "./marca-historial";
-import { estiloWords } from "@/lib/estilo";
+import { changesOf, estiloWords } from "@/lib/estilo";
 
 type Shape = "circle" | "squircle" | "drop";
 
@@ -103,14 +103,12 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         }}
       />
     );
-  const doors = <MarcaDoors door={door} onGo={goDoor} />;
+  const doors = <MarcaDoors door={door} onGo={goDoor} r={r} slug={p.slug} />;
   if (door !== "caras")
     return (
       <div className="mk" data-marca={p.slug} data-door={door}>
-        {/* PLA-130: no title or lead on the head; the doors are the head. */}
-        <header className="mk-head">
-          <div className="mk-head-l">{doors}</div>
-        </header>
+        {/* PLA-130: the tabs are Marca's first level; each page brings its own bar under them. */}
+        {doors}
         {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
         {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
         {door === "historial" && <Historial slug={p.slug} title={p.title} />}
@@ -130,9 +128,35 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   };
   return (
     <div className={`mk${lit ? " hl" : ""}`} data-marca={p.slug}>
-      <header className="mk-head">
+      {doors}
+      {/* PLA-130: Caras' own bar, under the tabs: what the repo holds on the left, Caras' actions on the right. */}
+      <header className="mk-head mk-toolbar" aria-label={w.toolbar}>
         <div className="mk-head-l">
-          {doors}
+          {r.repo === "ok" && (
+            <p className="mk-sum" data-sum>
+              <span className="mk-sum-l">{w.repoFiles}</span>
+              {c.ok > 0 && (
+                <span>
+                  <b>{c.ok}</b> {w.count.ok}
+                </span>
+              )}
+              {c.missing > 0 && (
+                <span>
+                  <b>{c.missing}</b> {w.count.missing(c.missing)}
+                </span>
+              )}
+              {c.wrong > 0 && (
+                <span>
+                  <b className="r">{c.wrong}</b> {w.count.wrong}
+                </span>
+              )}
+              {c.old > 0 && (
+                <span>
+                  <b className="a">{c.old}</b> {w.count.old}
+                </span>
+              )}
+            </p>
+          )}
           {/* PLA-130: the lead sentence is gone; only a repo Plania cannot read still says so here. */}
           {r.repo !== "ok" && (
             <p className="cor-text">
@@ -151,28 +175,6 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
           )}
         </div>
         <div className="mk-head-r">
-          <p className="mk-sum" data-sum>
-            {c.ok > 0 && (
-              <span>
-                <b>{c.ok}</b> {w.count.ok}
-              </span>
-            )}
-            {c.missing > 0 && (
-              <span>
-                <b>{c.missing}</b> {w.count.missing(c.missing)}
-              </span>
-            )}
-            {c.wrong > 0 && (
-              <span>
-                <b className="r">{c.wrong}</b> {w.count.wrong}
-              </span>
-            )}
-            {c.old > 0 && (
-              <span>
-                <b className="a">{c.old}</b> {w.count.old}
-              </span>
-            )}
-          </p>
           {r.repo === "ok" && (
             <button
               type="button"
@@ -248,15 +250,30 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
 const DOORS = ["caras", "estilo", "voz", "historial"] as const;
 type Door = (typeof DOORS)[number];
 /** PLA-I69-4: Marca's doors, as tabs under the title. */
-function MarcaDoors({ door, onGo }: { door: Door; onGo: (d: Door) => void }) {
+/** PLA-130: Marca's first level, a tab bar across the page; each tab says in a word where its part stands (what
+ * waits for the repo, a request on its way, or up to date), from the reads its page makes anyway (cached). */
+function MarcaDoors({ door, onGo, r, slug }: { door: Door; onGo: (d: Door) => void; r: MarcaRead; slug: string }) {
   const w = estiloWords();
+  const est = useQuery({ queryKey: ["estilo", slug], queryFn: () => api.marcaEstilo(slug), staleTime: 30_000 });
+  const voz = useQuery({ queryKey: ["voz", slug], queryFn: () => api.marcaVoz(slug), staleTime: 30_000 });
+  const state = (d: Door): { k: "todo" | "way" | "ok"; n?: number } | null => {
+    if (d === "caras") return r.pedido ? { k: "way" } : r.repo !== "ok" ? null : pending(r).files ? { k: "todo", n: pending(r).files } : { k: "ok" };
+    if (d === "estilo") { const e = est.data; if (!e) return null; const n = changesOf(e.base, e.repo, e.start).length; return e.pedido ? { k: "way" } : n ? { k: "todo", n } : { k: "ok" }; }
+    if (d === "voz") { const v = voz.data; if (!v) return null; return v.pedido ? { k: "way" } : v.names.length ? { k: "todo", n: v.names.length } : { k: "ok" }; }
+    return null;
+  };
   return (
     <nav className="mk-doors" role="tablist" aria-label={w.doorsLabel}>
-      {DOORS.map((d) => (
-        <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
-          {w.doors[d]}
-        </button>
-      ))}
+      {DOORS.map((d) => {
+        const st = state(d);
+        const say = st ? (st.k === "todo" ? w.doorState[d === "voz" ? "texts" : d === "estilo" ? "changes" : "files"](st.n!) : w.doorState[st.k]) : null;
+        return (
+          <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
+            <span>{w.doors[d]}</span>
+            {say && <small className={`mk-door-st ${st!.k}`}>{say}</small>}
+          </button>
+        );
+      })}
     </nav>
   );
 }

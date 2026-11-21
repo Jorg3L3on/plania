@@ -225,6 +225,7 @@ export const ESTILO_WORDS = defineWords({
   es: {
     doors: { caras: "Caras", estilo: "Estilo", voz: "Voz y nombre", historial: "Historial" },
     doorsLabel: "Partes de la marca",
+    doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), texts: (n: number) => (n === 1 ? "1 texto" : `${n} textos`), way: "en camino", ok: "al día" },
     loading: "Leyendo el estilo del repo…",
     readError: "el estilo",
     secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
@@ -433,6 +434,7 @@ export const ESTILO_WORDS = defineWords({
   en: {
     doors: { caras: "Surfaces", estilo: "Style", voz: "Voice and name", historial: "History" },
     doorsLabel: "Parts of the brand",
+    doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), texts: (n: number) => (n === 1 ? "1 text" : `${n} texts`), way: "on its way", ok: "up to date" },
     loading: "Reading the repo's style…",
     readError: "the style",
     secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
