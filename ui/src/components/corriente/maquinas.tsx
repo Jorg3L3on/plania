@@ -866,7 +866,10 @@ const BaseBody = ({ slug, c, n, busy, act }: DrawerProps & { c: Copia }) => {
   const w = W();
   const [askWipe, setAskWipe] = useState(false);
   const [openTb, setOpenTb] = useState<string | null>(null);
-  const tablas = useQuery<TablesRead>({ queryKey: ["maq-tablas", slug, c.id], queryFn: () => api.tablas(slug, c.id), enabled: !!c.database, retry: 0, staleTime: 5000 });
+  // While the copy starts its base may be being made (Rehacer, a first start): read it once it is up.
+  // Nor while Rehacer or Vaciar y sembrar is remaking it.
+  const starting = rowState(c) === "starting" || busy === `wipe:${c.id}`;
+  const tablas = useQuery<TablesRead>({ queryKey: ["maq-tablas", slug, c.id, starting], queryFn: () => api.tablas(slug, c.id), enabled: !!c.database && !starting, retry: 0, staleTime: 5000 });
   const filas = useQuery<RowsRead>({ queryKey: ["maq-filas", slug, c.id, openTb], queryFn: () => api.filas(slug, openTb!, 0, c.id), enabled: !!openTb, retry: 0 });
   const bn = n?.bases[c.id];
   const t = tablas.data;
@@ -1071,7 +1074,10 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
   };
   const run = useMutation({
     mutationFn: async (x: { key: string; call: () => Promise<unknown>; ok?: () => void }) => {
-      await x.call();
+      const out = (await x.call()) as Partial<CopiasRead> | undefined;
+      // A copy action answers with the copies: the screen knows at once which one is starting (its base may be being
+      // made, so its tables are not read until it is up).
+      if (out && Array.isArray(out.copias)) client.setQueryData(["maq-copias", s], out);
       x.ok?.();
     },
     onMutate: (x) => setBusy(x.key),
