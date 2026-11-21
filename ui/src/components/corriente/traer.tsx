@@ -12,7 +12,7 @@ import { words } from "@/lib/i18n";
 import type { SkillScope } from "@/lib/oficio-skills";
 import type { ImportPreview, SkillMark } from "@/lib/oficio-trials";
 import { TRAER_WORDS } from "@/lib/traer-words";
-import { Btn, Label } from "./parts";
+import { Btn, Label, useOnce } from "./parts";
 
 type Whom = SkillScope | "nobody";
 const codeOf = (e: unknown) => (e instanceof ApiError ? e.code : e ? "NETWORK" : null);
@@ -56,6 +56,7 @@ export const TraerPage = ({ p, back, onBrought }: { p: OrgProject; back: string;
     mutationFn: (x: { url: string } | { pick: CatalogHit }) => ("url" in x ? api.previewImport(p.slug, agent, x.url) : api.previewCatalog(p.slug, agent, { source: x.pick.source, skill: x.pick.skill })),
     onSuccess: (_d, x) => setVia("url" in x ? null : "skills.sh"),
   });
+  const onceBring = useOnce({ sticky: true, key: preview.data?.source_hash });
   const bring = useMutation({
     mutationFn: (pv: ImportPreview) => api.bringSkill(p.slug, agent, { url: pv.url, source_hash: pv.source_hash, scope: whom === "nobody" ? "agent" : whom, on: whom !== "nobody", via }),
     onSuccess: (card) => {
@@ -192,7 +193,7 @@ export const TraerPage = ({ p, back, onBrought }: { p: OrgProject; back: string;
               ))}
             </div>
             <p className="cor-cap">{w.savedNote}</p>
-            <Btn kind="primary" disabled={bring.isPending || pv.taken} onClick={() => bring.mutate(pv)} data-control="traerla">
+            <Btn kind="primary" disabled={bring.isPending || pv.taken} onClick={() => onceBring(() => bring.mutateAsync(pv))} data-control="traerla">
               {bring.isPending ? w.bringing : whom === "nobody" ? w.bringKeep : whom === "agent" ? w.bring(seat) : w.bringAll}
             </Btn>
             <Btn kind="quiet" onClick={() => preview.reset()} data-control="no-traerla">

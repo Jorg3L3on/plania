@@ -11,7 +11,7 @@ import { MODELS, type ModelId } from "@/lib/motores";
 import { suggestedPacks } from "@/lib/sumar";
 import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
 import { ROLE_LINE } from "./equipo-roles";
-import { Btn, Label, ReadError } from "./parts";
+import { Btn, Label, ReadError, useOnce } from "./parts";
 
 const NEW = "__nuevo";
 const BASES = ["research", "artist", "taller", "qa", "copy", "seguridad", "marketing", "data"];
@@ -42,6 +42,7 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
     void client.invalidateQueries({ queryKey: ["company"] });
   };
   const pk = chosen ? suggestedPacks(chosen.origin === "owner" ? chosen.base : chosen.slug, packs.data?.packs ?? []) : [];
+  const onceAdd = useOnce({ sticky: true, key: role });
   const add = useMutation({
     mutationFn: async () => {
       const r = await api.addToTeam(p.slug, role, pk, model ? { model } : undefined);
@@ -54,7 +55,9 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
       refresh();
     },
   });
+  const onceDecide = useOnce({ sticky: true, key: proposals.map((x) => x.id).join() });
   const decide = useMutation({ mutationFn: (v: { id: string; accept: boolean }) => api.decideProposal(p.slug, v.id, v.accept), onSuccess: refresh });
+  const onceCreate = useOnce();
   const create = useMutation({
     mutationFn: () => api.createPuesto(own),
     onSuccess: (x) => {
@@ -100,10 +103,10 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
               {w.quoted(pr.reason)} {w.proposalNote}
             </span>
           </span>
-          <Btn kind="secondary" className="sum-prop-yes" disabled={decide.isPending || full} onClick={() => decide.mutate({ id: pr.id, accept: true })} data-control="propuesta-si">
+          <Btn kind="secondary" className="sum-prop-yes" disabled={decide.isPending || full} onClick={() => onceDecide(() => decide.mutateAsync({ id: pr.id, accept: true }))} data-control="propuesta-si">
             {w.yes(title)}
           </Btn>
-          <Btn kind="quiet" disabled={decide.isPending} onClick={() => decide.mutate({ id: pr.id, accept: false })} data-control="propuesta-no">
+          <Btn kind="quiet" disabled={decide.isPending} onClick={() => onceDecide(() => decide.mutateAsync({ id: pr.id, accept: false }))} data-control="propuesta-no">
             {w.notNow}
           </Btn>
         </section>
@@ -136,7 +139,7 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
                 className="sum-own"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (own.title.trim()) create.mutate();
+                  if (own.title.trim()) onceCreate(() => create.mutateAsync());
                 }}
               >
                 <label className="cor-label" htmlFor="sum-own-title">
@@ -207,7 +210,7 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
                 <p className="cor-cap" role="status">
                   {add.isError ? <span className="cor-state bad">{errText(add.error)}</span> : done ? w.added(done) : full ? w.full : ""}
                 </p>
-                <Btn kind="primary" disabled={full || chosen.taken || add.isPending} onClick={() => add.mutate()} data-control="sumar-rol">
+                <Btn kind="primary" disabled={full || chosen.taken || add.isPending} onClick={() => onceAdd(() => add.mutateAsync())} data-control="sumar-rol">
                   {add.isPending ? w.adding : w.add(roleTitle(chosen))}
                 </Btn>
               </>

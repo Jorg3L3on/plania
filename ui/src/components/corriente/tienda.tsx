@@ -12,7 +12,7 @@ import { words } from "@/lib/i18n";
 import { skillWords } from "@/lib/oficio";
 import { FILTERS, filterCounts, matches, searchOf, seatListAfter, usageLine, type Filter, type Tienda, type TiendaSkill } from "@/lib/tienda";
 import { TIENDA_WORDS } from "@/lib/tienda-words";
-import { Btn, Label, ReadError, Switch } from "./parts";
+import { Btn, Label, ReadError, Switch, useOnce } from "./parts";
 import { NewSkillPanel } from "./oficio-skill";
 
 export type TiendaLinks = { pick: (slug: string | null) => string; tryIn: (agent: string, slug: string) => string; traer: string };
@@ -28,10 +28,12 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
     void client.invalidateQueries({ queryKey: ["oficio", p.slug] });
     void client.invalidateQueries({ queryKey: ["company"] });
   };
+  const onceFlip = useOnce();
   const flip = useMutation({
     mutationFn: async ({ agent, on }: { agent: string; on: boolean }): Promise<unknown> => (s.origin === "factory" ? api.setSeatPacks(p.slug, agent, seatListAfter(store.skills, agent, s.slug, on)) : api.setSkillOn(p.slug, agent, s.slug, on)),
     onSuccess: refresh,
   });
+  const onceCopy = useOnce();
   const copy = useMutation({ mutationFn: () => api.duplicateSkill(p.slug, seat!, s.slug), onSuccess: refresh });
   const sw = skillWords(s);
   const wide = s.scope && s.scope !== "agent";
@@ -59,7 +61,7 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
           const m = p.team.find((x) => x.agent === c.agent);
           return (
             <li key={c.agent}>
-              <Switch on={c.on} label={m?.puesto ?? seatName(role)} disabled={flip.isPending} onChange={(on) => flip.mutate({ agent: c.agent, on })} data-control={`lleva-${c.agent}`} />
+              <Switch on={c.on} label={m?.puesto ?? seatName(role)} disabled={flip.isPending} onChange={(on) => onceFlip(() => flip.mutateAsync({ agent: c.agent, on }))} data-control={`lleva-${c.agent}`} />
             </li>
           );
         })}
@@ -69,7 +71,7 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
       </p>
       <div className="eq-side-foot">
         {s.origin === "factory" && seat && (
-          <Btn kind="secondary" disabled={copy.isPending} onClick={() => copy.mutate()} data-control="hacer-copia">
+          <Btn kind="secondary" disabled={copy.isPending} onClick={() => onceCopy(() => copy.mutateAsync())} data-control="hacer-copia">
             {w.copy}
           </Btn>
         )}
@@ -97,6 +99,7 @@ export const TiendaPage = ({ p, selected, links, nav }: { p: OrgProject; selecte
   const oficio = useQuery({ queryKey: ["oficio", p.slug, po], queryFn: () => api.oficio(p.slug, po!), enabled: creating && !!po });
   return (
     <div className="tda" data-tienda={all.length}>
+      <h2 className="sr-only">{w.inCompany}</h2>
       <div className="eq-head">
         {nav}
         <span className="tda-tools">

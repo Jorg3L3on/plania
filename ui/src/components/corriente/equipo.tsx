@@ -12,7 +12,7 @@ import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
 import { words } from "@/lib/i18n";
 import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { ORGANIGRAMA_WORDS } from "@/lib/organigrama-words";
-import { Btn, Label } from "./parts";
+import { Btn, Label, useOnce } from "./parts";
 import { ROLE_LINE } from "./equipo-roles";
 import { Legend, Organigrama } from "./organigrama";
 import { SumarPage } from "./sumar";
@@ -35,6 +35,7 @@ const ProposalSide = ({ p, pr, back }: { p: OrgProject; pr: SeatProposalView; ba
   const w = words(SUMAR_PAGE_WORDS);
   const client = useQueryClient();
   const navigate = useNavigate();
+  const onceDecide = useOnce({ sticky: true, key: pr.id });
   const decide = useMutation({
     mutationFn: (accept: boolean) => api.decideProposal(p.slug, pr.id, accept),
     onSuccess: () => {
@@ -55,10 +56,10 @@ const ProposalSide = ({ p, pr, back }: { p: OrgProject; pr: SeatProposalView; ba
         {w.proposalNote} {w.arrivesPaused}
       </p>
       <div className="eq-side-foot">
-        <Btn kind="primary" disabled={decide.isPending || p.team.length >= 8} onClick={() => decide.mutate(true)} data-control="propuesta-si">
+        <Btn kind="primary" disabled={decide.isPending || p.team.length >= 8} onClick={() => onceDecide(() => decide.mutateAsync(true))} data-control="propuesta-si">
           {w.yes(title)}
         </Btn>
-        <Btn kind="secondary" disabled={decide.isPending} onClick={() => decide.mutate(false)} data-control="propuesta-no">
+        <Btn kind="secondary" disabled={decide.isPending} onClick={() => onceDecide(() => decide.mutateAsync(false))} data-control="propuesta-no">
           {w.notNow}
         </Btn>
       </div>

@@ -342,3 +342,56 @@ test("I71-6 #4: the company page says what never goes in the file, and saves a t
   assert.match(out, /href="\/api\/company\/export\.tar\?lessons=0&amp;references=0"/);
   assert.match(out, /2 archivos de texto/);
 });
+
+// ---- PLA-I71 hardening (owner's review, 2026-11-21): what the sweep and the break pass found.
+const partsMod = await load("components/corriente/parts.tsx");
+const cssEq = (await import("node:fs")).readFileSync(new URL("../ui/src/equipo.css", import.meta.url), "utf8");
+
+test("I71 hardening: one write per click; a one-time action stays locked after it succeeds, until its key changes", async () => {
+  const grab: { once?: (run: () => Promise<unknown>) => void; sticky?: (run: () => Promise<unknown>) => void } = {};
+  const Probe = ({ k }: { k: string }) => {
+    grab.once = partsMod.useOnce();
+    grab.sticky = partsMod.useOnce({ sticky: true, key: k });
+    return null;
+  };
+  renderToStaticMarkup(h(Probe, { k: "a" }));
+  let n = 0;
+  const write = () => new Promise<void>((r) => setTimeout(() => (n++, r()), 5));
+  grab.once!(write);
+  grab.once!(write);
+  grab.once!(write);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(n, 1, "three clicks while the first is on its way: one write");
+  grab.once!(write);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(n, 2, "a repeatable save unlocks once it is done");
+  grab.sticky!(write);
+  await new Promise((r) => setTimeout(r, 20));
+  grab.sticky!(write);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(n, 3, "a one-time action stays locked after success");
+  const fail = () => Promise.reject(new Error("x"));
+  renderToStaticMarkup(h(Probe, { k: "b" }));
+  grab.sticky!(fail);
+  await new Promise((r) => setTimeout(r, 5));
+  grab.sticky!(write);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(n, 4, "an error unlocks it");
+});
+
+test("I71 hardening: card tags keep the counts whole and put the motor's model last; a tag that does not fit drops out whole", () => {
+  const out = html(h(equipo.Equipo, { p: project(core()), companyPaused: false, focus: null, links }));
+  assert.match(out, /<span class="org-tags"><span class="org-tag vi"[^>]*>3 hab\.<\/span><span class="org-tag "[^>]*>2 lecc\.<\/span><span class="org-tag motor" title="Opus · medio">Opus<\/span><\/span>/);
+  assert.match(cssEq, /\.org-tags \{ flex: none; display: flex; flex-wrap: wrap;[^}]*height: 20px; overflow: hidden; \}/);
+  assert.match(cssEq, /\.org-tag \{ flex: none; box-sizing: border-box; height: 20px;/);
+  // The store's card foot wraps instead of running out of the card (owner's screenshot).
+  assert.match(cssEq, /\.tda-foot \{[^}]*flex-wrap: wrap;/);
+  assert.ok(!/\.tda-foot \.cor-cap \{ white-space: nowrap/.test(cssEq));
+});
+
+test("I71 hardening: the chart's and the tabs' arrow keys are theirs; the page's project keys skip a key a widget used", () => {
+  const src = (f: string) => (globalThis as any).process.getBuiltinModule("node:fs").readFileSync(new URL(`../ui/src/${f}`, import.meta.url), "utf8") as string;
+  assert.match(src("components/corriente/organigrama.tsx"), /e\.preventDefault\(\);\s*\/\/[^\n]*\n\s*e\.stopPropagation\(\);/);
+  assert.match(src("components/corriente/agente.tsx"), /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onTab\(to\);/);
+  assert.match(src("pages/corriente.tsx"), /if \(e\.defaultPrevented \|\| e\.metaKey/);
+});

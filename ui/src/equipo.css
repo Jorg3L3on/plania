@@ -40,8 +40,11 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .org-dot.vivo { border-color: #fff; background: #fff; box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.8); }
 .org-dot.espera { border: 0; border-radius: 2px; background: var(--cor-amber); transform: rotate(45deg) scale(0.85); }
 .org-dot.pausa { border: 0; border-radius: 2px; width: 10px; height: 4px; background: var(--cor-muted); }
-.org-tags { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
-.org-tag { flex: none; padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-body); white-space: nowrap; }
+/* One row of tags: one that does not fit wraps to a second row, which is cut away whole. */
+.org-tags { flex: none; display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; height: 20px; overflow: hidden; }
+.org-card-top { flex: none; }
+.org-tag { flex: none; box-sizing: border-box; height: 20px; line-height: 16px; padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-body); white-space: nowrap; }
+
 .org-tag.vi { background: rgba(139, 92, 246, 0.14); color: var(--cor-violet-3); }
 .org-tag.am { background: rgba(255, 180, 84, 0.14); color: var(--cor-amber); }
 .org.compact .org-tags { display: none; }
@@ -78,6 +81,10 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .agt-tab[aria-selected="true"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
 .agt-tab:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 1px; }
 .agt-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+/* Cards inside the body keep their height; the body scrolls instead of squeezing them (a proposal's links hung out). */
+.agt-body > * { flex-shrink: 0; }
+.agt-body > .ofi-proposal { flex: none; }
+.agt-body > .ofi-proposal > .ofi-shelf-scroll { flex: none; }
 .agt-body:focus-visible { outline: 1px solid var(--cor-line-strong); }
 .agt-body .eq-kv > div { min-height: 44px; }
 .agt-body .eq-kv dd .cor-btn.link { min-height: 44px; }
@@ -88,6 +95,9 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .agt-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; color: var(--cor-muted); }
 .agt-kv .cor-mono { color: var(--cor-text); font-size: 12.5px; }
 .agt-motor { display: flex; flex-direction: column; gap: 12px; }
+/* The lesson proposal's two quiet links wrap in a narrow panel instead of running past its edge. */
+.agt .ofi-links { display: flex; flex-wrap: wrap; column-gap: 16px; }
+.agt .ofi-links .cor-btn { white-space: normal; text-align: left; }
 .agt-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .agt .ofi-teach { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cor-line); }
 .agt .ofi-teach .ofi-teach-input { flex: 1 1 160px; min-width: 0; }
@@ -105,7 +115,8 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .org-card.proposal .org-line { color: var(--cor-amber); }
 .org-card.proposal.sel { border-color: var(--cor-amber); }
 .eq-side-prop { border-color: rgba(255, 180, 84, 0.45); }
-.agt-move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--cor-line); }
+.eq-kv > div:has(> .agt-move) { flex-wrap: wrap; }
+.agt-move { flex-basis: 100%; margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 0 8px; }
 .agt-move .cor-select { flex: 1 1 140px; min-height: 44px; }
 .agt-move .cor-cap { flex-basis: 100%; }
 .agt-seat { display: flex; flex-direction: column; gap: 8px; }
@@ -141,7 +152,7 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .tda-body { display: flex; gap: 20px; min-height: 0; height: calc(100svh - 230px); }
 .tda-filters { flex: 0 0 190px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
 .tda-filters ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.tda-filter { width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-body); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.tda-filter { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-body); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .tda-filter:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.03); }
 .tda-filter[aria-pressed="true"] { color: var(--cor-text); background: rgba(255, 255, 255, 0.06); }
 .tda-grid-box { flex: 1 1 auto; min-width: 0; overflow: auto; padding-right: 4px; }
@@ -151,13 +162,13 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .tda-card.sel { border-color: rgba(167, 139, 250, 0.7); background: rgba(139, 92, 246, 0.08); }
 .tda-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tda-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.tda-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tda-who { display: flex; gap: 3px; }
+.tda-foot { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; min-width: 0; }
+.tda-foot > .cor-cap { min-width: 0; overflow-wrap: anywhere; }
+.tda-who { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
 .tda-seat { display: inline-grid; place-items: center; width: 24px; height: 22px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); text-transform: uppercase; }
 .tda-seat.on { background: rgba(139, 92, 246, 0.25); color: var(--cor-violet-4); }
 .tda-side { overflow: auto; max-height: 100%; }
 .tda-text { min-height: 100px; max-height: 160px; }
-.tda-foot .cor-cap { white-space: nowrap; }
 .tda-seats { list-style: none; margin: 0; padding: 0; }
 .tda-seats li { border-bottom: 1px solid var(--cor-line); }
 .org-tag.ok { background: rgba(110, 231, 160, 0.12); color: var(--cor-green); }
@@ -217,6 +228,7 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
   .sum-body { flex-direction: column; }
   .sum-side { flex: none; }
   .sum-prop { flex-wrap: wrap; }
+  .agt .ofi-teach .ofi-teach-input { flex-basis: 100%; }
   .tda-body { flex-direction: column; height: auto; }
   .tda-filters { flex: none; }
   .tda-filters ul { flex-direction: row; flex-wrap: wrap; }
@@ -225,5 +237,5 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 }
 /* In the narrow panel the teach bar is one row: «Una habilidad» lives in the Habilidades tab. */
 .agt:not(.wide) .ofi-teach-modes { display: none; }
-.agt .ofi-teach { flex-wrap: nowrap; padding: 8px 0 0; border-radius: 0; border-width: 1px 0 0; background: transparent; }
+.agt .ofi-teach { flex-wrap: wrap; padding: 8px 0 0; border-radius: 0; border-width: 1px 0 0; background: transparent; }
 .agt .ofi-budget > .cor-cap:not(.cor-state) { display: none; }

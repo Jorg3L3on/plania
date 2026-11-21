@@ -16,7 +16,7 @@ import { agentReferences, agents, lessons, projects, puestos, skillVersions, ski
 import { ToolError } from "../mcp/errors.js";
 import { kitRoot } from "./kit.js";
 import { listPacks, NO_SKILLS } from "./packs.js";
-import { addSeat, TEAM_MAX } from "./puestos.js";
+import { addSeat, moveSeat, TEAM_MAX } from "./puestos.js";
 import { isTeamTemplate, teamOf } from "./team.js";
 import { defaultSkills } from "./kit.js";
 import { roleOf } from "./limits.js";
@@ -213,7 +213,13 @@ export async function adopt(db: Db, project: string, template: string, mode: Ado
     const a = byRole.get(s.role);
     if (!a) continue;
     const boss = s.reports_to ? byRole.get(s.reports_to) : null;
-    if (boss && boss.id !== a.id) await db.update(agents).set({ reportsTo: boss.id }).where(eq(agents.id, a.id));
+    // Through the screen's move: a team whose seats name each other in a circle keeps the loop out of the chart.
+    if (boss && boss.id !== a.id)
+      try {
+        await moveSeat(db, project, a.slug, boss.slug);
+      } catch (e) {
+        if (!(e instanceof ToolError)) throw e;
+      }
   }
   if (mode === "also")
     for (const s of plan.stays.filter((x) => x.adds.length)) {

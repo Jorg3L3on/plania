@@ -19,7 +19,7 @@ import { EFFORTS, MODELS, effortWord, type EffortId, type ModelId } from "@/lib/
 import { MAX } from "@/lib/a-la-vez";
 import { numWord, shelfNext, skillWords, type Oficio } from "@/lib/oficio";
 import { dotOf } from "@/lib/organigrama";
-import { Btn, Label, Opt, ReadError, Switch } from "./parts";
+import { Btn, Label, Opt, ReadError, Switch, useOnce } from "./parts";
 import { NewSkillPanel, PuestoPanel, SkillPanel } from "./oficio-skill";
 import { ImportPanel, TrialCompare, TrialPanel } from "./oficio-trial";
 import { IMPORT_WORDS } from "@/lib/oficio-trial-words";
@@ -121,6 +121,7 @@ const MotorTab = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
   const [d, setD] = useState(saved);
   useEffect(() => setD(saved), [m.agent, m.motor?.model, m.motor?.effort, seatRunner?.max_parallel]); // eslint-disable-line react-hooks/exhaustive-deps
   const changed = d.model !== saved.model || d.effort !== saved.effort || d.at !== saved.at;
+  const onceSave = useOnce();
   const save = useMutation({
     mutationFn: () => api.saveMotores({ project: p.slug, seats: [{ agent: m.agent, motor: { model: d.model, effort: d.effort }, ...(d.at !== saved.at ? { max_parallel: d.at } : {}) }] }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }),
@@ -175,7 +176,7 @@ const MotorTab = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
       <p className="cor-cap" role="status">
         {save.isPending ? w.savingMotor : save.isError ? <span className="cor-state bad">{w.motorFailed(save.error instanceof ApiError ? save.error.code : "NETWORK")}</span> : save.isSuccess && !changed ? w.savedMotor : ""}
       </p>
-      <Btn kind="primary" disabled={!changed || save.isPending} onClick={() => save.mutate()} data-control="guardar-motor">
+      <Btn kind="primary" disabled={!changed || save.isPending} onClick={() => onceSave(() => save.mutateAsync())} data-control="guardar-motor">
         {w.saveMotor}
       </Btn>
     </div>
@@ -189,6 +190,7 @@ const MoveRow = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState<string>("");
   const below = useQuery({ queryKey: ["below", p.slug, m.agent], queryFn: () => api.seatBelow(p.slug, m.agent), enabled: open });
+  const onceMove = useOnce();
   const move = useMutation({
     mutationFn: () => api.moveSeat(p.slug, m.agent, to === "__owner" ? null : to),
     onSuccess: () => {
@@ -209,9 +211,8 @@ const MoveRow = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
             {w.move}
           </Btn>
         </dd>
-      </div>
       {open && (
-        <div className="agt-move" data-move>
+        <dd className="agt-move" data-move>
           <label className="sr-only" htmlFor="agt-move-to">
             {w.moveTo}
           </label>
@@ -223,7 +224,7 @@ const MoveRow = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
               </option>
             ))}
           </select>
-          <Btn kind="secondary" disabled={move.isPending || to === current} onClick={() => move.mutate()} data-control="mover-guardar">
+          <Btn kind="secondary" disabled={move.isPending || to === current} onClick={() => onceMove(() => move.mutateAsync())} data-control="mover-guardar">
             {w.moveSave}
           </Btn>
           <Btn kind="quiet" onClick={() => setOpen(false)}>
@@ -232,8 +233,9 @@ const MoveRow = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
           <span className="cor-cap" role="status">
             {move.error instanceof ApiError ? (move.error.code === "MANAGER_LOOP" ? w.moveLoop : w.failed(move.error.code)) : w.moveNotOwn}
           </span>
-        </div>
+        </dd>
       )}
+      </div>
     </>
   );
 };
@@ -244,7 +246,9 @@ const SeatActions = ({ p, m, onGone }: { p: OrgProject; m: OrgMember; onGone: ()
   const [asking, setAsking] = useState(false);
   const paused = !!m.paused_at;
   const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
+  const oncePause = useOnce();
   const pause = useMutation({ mutationFn: () => api.pauseSeat(p.slug, m.agent, !paused), onSuccess: refresh });
+  const onceRetire = useOnce({ sticky: true, key: m.agent });
   const retire = useMutation({
     mutationFn: () => api.retireSeat(p.slug, m.agent),
     onSuccess: () => {
@@ -259,7 +263,7 @@ const SeatActions = ({ p, m, onGone }: { p: OrgProject; m: OrgMember; onGone: ()
       {asking ? (
         <div className="agt-retire" role="group" aria-label={w.retire}>
           <p className="cor-text">{w.retireAsk(m.puesto ?? seatName(m.role))}</p>
-          <Btn kind="secondary" disabled={retire.isPending} onClick={() => retire.mutate()} data-control="retirar-si">
+          <Btn kind="secondary" disabled={retire.isPending} onClick={() => onceRetire(() => retire.mutateAsync())} data-control="retirar-si">
             {w.retireYes}
           </Btn>
           <Btn kind="quiet" onClick={() => setAsking(false)} data-control="retirar-no">
@@ -268,7 +272,7 @@ const SeatActions = ({ p, m, onGone }: { p: OrgProject; m: OrgMember; onGone: ()
         </div>
       ) : (
         <div className="agt-seat-row">
-          <Btn kind="secondary" disabled={pause.isPending} onClick={() => pause.mutate()} data-control={paused ? "reanudar-puesto" : "pausar-puesto"}>
+          <Btn kind="secondary" disabled={pause.isPending} onClick={() => oncePause(() => pause.mutateAsync())} data-control={paused ? "reanudar-puesto" : "pausar-puesto"}>
             {paused ? w.resume : w.pause}
           </Btn>
           <Btn kind="quiet" disabled={po} title={po ? w.retirePo : undefined} onClick={() => setAsking(true)} data-control="retirar">
@@ -339,6 +343,7 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
     const to = e.key === "ArrowRight" ? FICHA_TABS[(i + 1) % 4] : e.key === "ArrowLeft" ? FICHA_TABS[(i + 3) % 4] : e.key === "Home" ? FICHA_TABS[0] : e.key === "End" ? FICHA_TABS[3] : null;
     if (!to) return;
     e.preventDefault();
+    e.stopPropagation();
     onTab(to);
     requestAnimationFrame(() => document.getElementById(`agt-tab-${to}`)?.focus());
   };

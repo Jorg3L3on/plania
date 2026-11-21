@@ -16,12 +16,17 @@ const DotMark = ({ d }: { d: Dot }) => <i className={`org-dot ${d}`} aria-hidden
 
 function tagsOf(m: OrgMember) {
   const w = words(ORGANIGRAMA_WORDS);
-  const tags: { t: string; tone?: "vi" | "am" }[] = [];
-  if (m.motor && (m.motor.model || m.motor.effort)) tags.push({ t: motorLine(m.motor.model, m.motor.effort) });
+  const tags: { t: string; tone?: "vi" | "am" | "motor"; title?: string }[] = [];
+  // Skills and lessons first and whole; the motor's model last: a tag that does not fit drops out whole (the panel has
+  // everything), never cut in half.
   tags.push({ t: w.skills(m.skills_on ?? 0), tone: "vi" });
   const waiting = m.lessons?.proposed ?? 0;
   if (waiting) tags.push({ t: waiting === 1 ? w.lessonWaits : w.lessonsWait(waiting), tone: "am" });
   else tags.push({ t: w.lessons(m.lessons?.active ?? 0) });
+  if (m.motor && (m.motor.model || m.motor.effort)) {
+    const full = motorLine(m.motor.model, m.motor.effort);
+    tags.push({ t: full.split(" · ")[0]!, tone: "motor", title: full });
+  }
   return tags;
 }
 
@@ -62,7 +67,7 @@ const Card = ({ m, paused, selected, focusable, loose, onPick, style, look }: { 
       </span>
       <span className="org-tags">
         {(proposal || look ? [] : tagsOf(m)).map((t) => (
-          <span key={t.t} className={`org-tag ${t.tone ?? ""}`}>
+          <span key={t.t} className={`org-tag ${t.tone ?? ""}`} title={t.title}>
             {t.t}
           </span>
         ))}
@@ -111,6 +116,8 @@ export const Organigrama = ({ team, project, paused, selected, onPick, look }: {
     const to = moveFrom(tree, from, e.key);
     if (!to) return;
     e.preventDefault();
+    // The page's ↑/↓ change project: inside the chart they move between cards only.
+    e.stopPropagation();
     setFocus(to);
     box.current?.querySelector<HTMLElement>(`[data-org="${CSS.escape(to)}"]`)?.focus();
   };

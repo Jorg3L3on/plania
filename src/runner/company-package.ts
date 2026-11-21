@@ -18,7 +18,7 @@ import { agents, companyTransfers, lessons, projects, puestos, skillVersions, sk
 import { ToolError } from "../mcp/errors.js";
 import { frontmatter } from "./kit.js";
 import { listPacks } from "./packs.js";
-import { addSeat } from "./puestos.js";
+import { addSeat, moveSeat } from "./puestos.js";
 import { marksOf } from "./skill-import.js";
 import { addVersion } from "./skills.js";
 import { isTeamTemplate, teamOf, TEMPLATE_ROWS } from "./team.js";
@@ -241,9 +241,13 @@ async function freeSlug(db: Db, table: "projects" | "skills", base: string): Pro
 
 export async function previewCompany(db: Db, files: PackageFile[], env: NodeJS.ProcessEnv = process.env): Promise<ImportPreview> {
   const pk = parsePackage(files);
+  // A file with no agent and no skill is not a company (a wrong file, a broken tar): nothing to bring.
+  if (!pk.agents.length && !pk.skills.length) throw new ToolError("SKILL_IMPORT_FORMAT", { reason: "no_agents" });
   const items: ImportItem[] = [];
   const teamsSeen = pk.teams.length ? pk.teams : [{ slug: slugish(pk.company) || "equipo", name: pk.company, manager: null }];
   for (const t of teamsSeen) {
+    // A team with nobody in it is not created.
+    if (!pk.agents.some((a) => (a.team ?? teamsSeen[0]!.slug) === t.slug)) continue;
     const taken = !!(await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, t.slug)).limit(1)).length;
     const n = pk.agents.filter((a) => (a.team ?? teamsSeen[0]!.slug) === t.slug).length;
     items.push({ key: `team:${t.slug}`, kind: "team", name: t.name, action: taken ? "rename" : "create", to: taken ? await freeSlug(db, "projects", t.slug) : t.slug, taken, agents: n });
@@ -311,27 +315,35 @@ export async function applyCompany(db: Db, files: PackageFile[], choices: Record
     const members = pk.agents.filter((x) => (x.team ?? teamsSeen[0]!.slug) === t.slug);
     // The PO first, so the others can report to it.
     members.sort((x, y) => Number(y.role === "product-owner") - Number(x.role === "product-owner"));
-    const made = new Map<string, string>();
+    const made = new Map<string, { id: string; slug: string }>();
     for (const m of members.slice(0, 8)) {
       const role = isTeamTemplate(m.role) ? m.role : (await db.select().from(puestos).where(eq(puestos.slug, m.role)).limit(1))[0] ? m.role : await ownRole(db, m);
       let seat;
       try {
         seat = await addSeat(db, slug, role, { paused: true });
       } catch (e) {
-        if (e instanceof ToolError) continue;
-        throw e;
+        if (!(e instanceof ToolError)) throw e;
+        // A second agent with a role already on this team, or no room: listed, never silent.
+        out.skipped.push(`agent:${m.slug}(${m.role})`);
+        continue;
       }
-      made.set(m.slug, seat.id);
+      made.set(m.slug, { id: seat.id, slug: seat.slug });
       const motor = pk.sidecar.motors[m.slug];
       const packs = m.skills.map((x) => skillTo.get(x) ?? x).filter((x) => factory.has(x)).slice(0, 10);
       await db.update(agents).set({ skillPacks: packs, motorModel: motor?.model ?? null, motorEffort: motor?.effort ?? null, manner: m.manner ? scrub(m.manner, 2000) : seat.manner, updatedAt: new Date() }).where(eq(agents.id, seat.id));
       for (const text of pk.sidecar.lessons[m.slug] ?? []) await db.insert(lessons).values({ projectId: p.id, agentId: seat.id, scope: "agent", text: text.slice(0, 600), state: "active", proposedBy: "owner" });
       out.agents.push(seat.slug);
     }
+    // Managers through the same move the screen uses: one that would close a loop is left with the PO.
     for (const m of members) {
-      const id = made.get(m.slug);
+      const me = made.get(m.slug);
       const boss = m.reportsTo ? made.get(slugish(m.reportsTo)) : null;
-      if (id && boss && boss !== id) await db.update(agents).set({ reportsTo: boss }).where(eq(agents.id, id));
+      if (!me || !boss || boss.id === me.id) continue;
+      try {
+        await moveSeat(db, slug, me.slug, boss.slug);
+      } catch (e) {
+        if (!(e instanceof ToolError)) throw e;
+      }
     }
   }
   await db.insert(companyTransfers).values({ direction: "import", state: "done", manifest: { ...out, ignored: pk.ignored }, counts: { created: out.created.length, renamed: out.renamed.length, skipped: out.skipped.length, agents: out.agents.length } });

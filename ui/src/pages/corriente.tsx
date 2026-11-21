@@ -189,7 +189,8 @@ export const CorrientePage = () => {
   // Keys, as on /ceo, unless the owner is typing or a dialog is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      // PLA-I71: a key a widget already used (the org chart's arrows, a tab list) is not the page's.
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
       // The brief has its own keys (J K, arrows, Enter, L, X, Z, Esc).
       if (!at.slug && at.view === "brief") return;
       if (e.key === "Escape") {

@@ -1,6 +1,6 @@
 // PLA-I62-1: La corriente's pieces (board D4, Piezas). Buttons 44px tall; one white primary per view; Pedir always
 // secondary; amber only for what waits on the owner; the project's colour only in its logo. No pills, no clickable divs.
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
 import { PARTS } from "@/lib/corriente-parts-words";
@@ -86,3 +86,28 @@ export const Switch = ({ on, label, onChange, disabled, ...rest }: { on: boolean
     </span>
   </button>
 );
+
+/** PLA-I71: one write per click. A second click while the first is on its way does nothing (a triple click on a save
+ *  sent three writes before the button could disable). sticky: a one-time action (accept, add, retire, adopt, import)
+ *  stays locked after it succeeded, until key changes (another role picked, another proposal); an error unlocks it.
+ *  run returns the write's promise; its error stays the mutation's. */
+export function useOnce(opts: { sticky?: boolean; key?: unknown } = {}): (run: () => Promise<unknown>) => void {
+  const busy = useRef(false);
+  const key = useRef(opts.key);
+  if (key.current !== opts.key) {
+    key.current = opts.key;
+    busy.current = false;
+  }
+  return (run) => {
+    if (busy.current) return;
+    busy.current = true;
+    void run().then(
+      () => {
+        if (!opts.sticky) busy.current = false;
+      },
+      () => {
+        busy.current = false;
+      },
+    );
+  };
+}

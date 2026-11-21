@@ -30,6 +30,10 @@ async function memberOf(db: Q, p: Project, agent: string): Promise<Agent> {
   if (!a) throw new ToolError("AGENT_NOT_FOUND", { agent });
   return a;
 }
+// One team change at a time per project (adds counting to eight, moves checking for a loop): a transaction-scoped
+// advisory lock, so two clicks at the same moment are serialized instead of both passing the check.
+const lockTeam = (tx: Q, project: string) => tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`equipo:${project}`}))`);
+
 const ceoId = async (db: Q): Promise<string | null> => (await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, COMPANY)).limit(1))[0]?.id ?? null;
 
 /** The catalog: factory roles (the table's rows, else the code's list before 0075 ran) and the owner's. taken: on this
@@ -72,6 +76,7 @@ export async function createPuesto(db: Q, input: { title: string; line: string; 
 /** One seat on the team, from the catalog, arriving paused. Its manager is the PO (the owner for a PO). */
 export async function addSeat(db: Db, project: string, role: string, opts: { fromTeam?: string | null; reportsTo?: string | null; paused?: boolean } = {}): Promise<Agent> {
   return db.transaction(async (tx) => {
+    await lockTeam(tx, project);
     const p = await projectOf(tx, project);
     const team = await teamOf(tx, p.id);
     if (team.length >= TEAM_MAX) throw new ToolError("TEAM_FULL", { max: TEAM_MAX });
@@ -159,6 +164,7 @@ export async function belowOf(db: Q, project: string, agent: string): Promise<st
 /** to: a teammate's slug, or null for the owner (the company's ceo seat). */
 export async function moveSeat(db: Db, project: string, agent: string, to: string | null): Promise<void> {
   await db.transaction(async (tx) => {
+    await lockTeam(tx, project);
     const p = await projectOf(tx, project);
     const a = await memberOf(tx, p, agent);
     let boss: string | null;
@@ -183,6 +189,7 @@ export async function pauseSeat(db: Db, project: string, agent: string, paused: 
 /** Retired: off the chart and the runner; its runs, lessons and skills stay. Its reports move up to its manager. */
 export async function retireSeat(db: Db, project: string, agent: string): Promise<{ moved: string[] }> {
   return db.transaction(async (tx) => {
+    await lockTeam(tx, project);
     const p = await projectOf(tx, project);
     const a = await memberOf(tx, p, agent);
     if (roleOf(a) === "product-owner") throw new ToolError("SEAT_REQUIRED", { agent });
@@ -226,14 +233,22 @@ export async function decideProposal(db: Db, project: string, id: string, accept
   const p = await projectOf(db, project);
   const [r] = await db.select().from(seatProposals).where(and(eq(seatProposals.id, id), eq(seatProposals.projectId, p.id))).limit(1);
   if (!r) throw new ToolError("PROPOSAL_NOT_FOUND", { id });
-  if (r.state !== "proposed") throw new ToolError("PROPOSAL_DECIDED", { state: r.state });
-  const made = accept ? await addSeat(db, project, r.role) : null;
-  const [done] = await db
+  // Claim it first: of two answers at the same moment only one moves it out of «proposed».
+  const [claimed] = await db
     .update(seatProposals)
-    .set({ state: accept ? "accepted" : "declined", decidedAt: new Date(), agentId: made?.id ?? null })
+    .set({ state: accept ? "accepted" : "declined", decidedAt: new Date() })
     .where(and(eq(seatProposals.id, id), eq(seatProposals.state, "proposed")))
     .returning();
-  if (!done) throw new ToolError("PROPOSAL_DECIDED", {});
-  return { state: done.state as "accepted" | "declined", agent: made?.slug ?? null };
+  if (!claimed) throw new ToolError("PROPOSAL_DECIDED", { state: r.state === "proposed" ? "accepted" : r.state });
+  if (!accept) return { state: "declined", agent: null };
+  try {
+    const made = await addSeat(db, project, r.role);
+    await db.update(seatProposals).set({ agentId: made.id }).where(eq(seatProposals.id, id));
+    return { state: "accepted", agent: made.slug };
+  } catch (e) {
+    // No room (or the role was taken meanwhile): the proposal waits again.
+    await db.update(seatProposals).set({ state: "proposed", decidedAt: null }).where(eq(seatProposals.id, id));
+    throw e;
+  }
 }
 

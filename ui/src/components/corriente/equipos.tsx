@@ -11,7 +11,7 @@ import { ApiError, api, type OrgMember, type OrgProject, type PackageSource, typ
 import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
 import { EQUIPOS_WORDS } from "@/lib/equipos-words";
-import { Btn, Label, ReadError } from "./parts";
+import { Btn, Label, ReadError, useOnce } from "./parts";
 import { Organigrama } from "./organigrama";
 
 const codeOf = (e: unknown) => (e instanceof ApiError ? e.code : e ? "NETWORK" : null);
@@ -47,7 +47,9 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
   const [withR, setWithR] = useState(false);
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const onceSave = useOnce({ sticky: true, key: name });
   const save = useMutation({ mutationFn: () => api.saveTeam(p.slug, { name, lessons: withL, references: withR }), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
+  const onceBring = useOnce({ sticky: true, key: url + (file?.name ?? "") });
   const bring = useMutation({ mutationFn: async () => api.bringTeam(await sourceOf(url, file)), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
   const card = (t: TeamView) => (
     <li key={t.slug}>
@@ -93,7 +95,7 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
           aria-label={w.saveTitle}
           onSubmit={(e) => {
             e.preventDefault();
-            if (name.trim()) save.mutate();
+            if (name.trim()) onceSave(() => save.mutateAsync());
           }}
         >
           <label className="cor-label" htmlFor="eqs-name">
@@ -123,7 +125,7 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
           aria-label={w.bringTitle}
           onSubmit={(e) => {
             e.preventDefault();
-            if (url.trim() || file) bring.mutate();
+            if (url.trim() || file) onceBring(() => bring.mutateAsync());
           }}
         >
           <span className="cor-cap">{w.bringHint}</span>
@@ -171,7 +173,9 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
   const w = words(EQUIPOS_WORDS);
   const client = useQueryClient();
   const [mode, setMode] = useState<"keep" | "also">("keep");
-  const q = useQuery({ queryKey: ["adopt", p.slug, team, mode], queryFn: () => api.adoptPreview(p.slug, team, mode) });
+  // A 4xx will not get better on a retry (a team that is gone): say so at once.
+  const q = useQuery({ queryKey: ["adopt", p.slug, team, mode], queryFn: () => api.adoptPreview(p.slug, team, mode), retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2 });
+  const onceGo = useOnce({ sticky: true });
   const go = useMutation({
     mutationFn: () => api.adopt(p.slug, team, mode),
     onSuccess: () => {
@@ -196,10 +200,17 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
         <Link to={links.equipos} className="cor-strip-back" data-control="volver-equipos">
           ‹ {w.backTeams}
         </Link>
-        <h2 className="eq-title">{w.adoptTitle(plan?.name ?? team, p.title)}</h2>
+        <h2 className="eq-title">{plan ? w.adoptTitle(plan.name, p.title) : w.adoptTitleBare(p.title)}</h2>
         <p className="cor-cap sum-hint">{w.nothingChanges}</p>
       </div>
-      {q.isError ? (
+      {q.isError && q.error instanceof ApiError && q.error.status < 500 ? (
+        <div className="cor-card cor-empty" data-team-gone>
+          <p className="cor-text">{w.teamGone}</p>
+          <Link className="cor-btn secondary" to={links.equipos}>
+            {w.backTeams}
+          </Link>
+        </div>
+      ) : q.isError ? (
         <ReadError what={w.readError} onRetry={() => void q.refetch()} />
       ) : !plan ? (
         <p className="cor-text cor-muted" role="status" aria-busy="true">
@@ -253,7 +264,7 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
             <p className="cor-cap" role="status">
               {go.isError ? <span className="cor-state bad">{w.failed(codeOf(go.error)!)}</span> : go.isSuccess ? w.adopted : ""}
             </p>
-            <Btn kind="primary" disabled={go.isPending || (plan.arrives.length === 0 && !plan.stays.some((s) => s.adds.length))} onClick={() => go.mutate()} data-control="adoptar-si">
+            <Btn kind="primary" disabled={go.isPending || (plan.arrives.length === 0 && !plan.stays.some((s) => s.adds.length))} onClick={() => onceGo(() => go.mutateAsync())} data-control="adoptar-si">
               {go.isPending ? w.adopting : w.adoptDo(p.title)}
             </Btn>
             <Link className="cor-btn quiet" to={links.equipos} data-control="adoptar-no">
@@ -278,6 +289,7 @@ export const CompaniaPage = ({ links }: { links: EquiposLinks }) => {
   const [file, setFile] = useState<File | null>(null);
   const [src, setSrc] = useState<PackageSource | null>(null);
   const [choices, setChoices] = useState<Record<string, "create" | "rename" | "skip">>({});
+  const oncePv = useOnce();
   const pv = useMutation({
     mutationFn: async () => {
       const s = await sourceOf(url, file);
@@ -285,6 +297,7 @@ export const CompaniaPage = ({ links }: { links: EquiposLinks }) => {
       return api.importPreview(s);
     },
   });
+  const onceGo = useOnce({ sticky: true });
   const go = useMutation({ mutationFn: () => api.importCompany(src!, choices) });
   const files = ex.data?.files ?? [];
   const href = `/api/company/export.tar?lessons=${withL ? 1 : 0}&references=${withR ? 1 : 0}`;
@@ -378,7 +391,7 @@ export const CompaniaPage = ({ links }: { links: EquiposLinks }) => {
               className="sum-own"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (url.trim() || file) pv.mutate();
+                if (url.trim() || file) oncePv(() => pv.mutateAsync());
               }}
             >
               <label className="cor-label" htmlFor="cmp-url">
@@ -392,7 +405,7 @@ export const CompaniaPage = ({ links }: { links: EquiposLinks }) => {
               <Btn kind="secondary" type="submit" disabled={pv.isPending || (!url.trim() && !file)} data-control="compania-revisar">
                 {pv.isPending ? w.reviewing : w.review}
               </Btn>
-              <Btn kind="primary" disabled={!pv.data || go.isPending} onClick={() => go.mutate()} data-control="compania-traer">
+              <Btn kind="primary" disabled={!pv.data || go.isPending} onClick={() => onceGo(() => go.mutateAsync())} data-control="compania-traer">
                 {go.isPending ? w.importing : w.importDo}
               </Btn>
               <span className="cor-cap" role="status">
