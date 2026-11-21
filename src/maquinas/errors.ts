@@ -25,6 +25,9 @@ export const MAQUINA_ERRORS = {
   BASE_PROTECTED: 403, // a name that is the app's base or the start copy's
   INITIATIVE_CLOSED: 409, // Encender on a Done or Won't do initiative
   NO_BRANCH: 409, // the initiative has neither an integration branch nor a base branch
+  // PLA-I72-3: Sobrantes.
+  LEFTOVER_NOT_FOUND: 404, // no longer on the list
+  LEFTOVERS_CHANGED: 409, // Borrar todo with a total that no longer matches the list
 } as const;
 export type MaquinaCode = keyof typeof MAQUINA_ERRORS;
 

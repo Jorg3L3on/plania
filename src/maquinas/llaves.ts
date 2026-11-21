@@ -10,8 +10,18 @@ import { EXAMPLE_FILES, exampleNames, parseEnv } from "./env.js";
 import { MaquinaError } from "./errors.js";
 import { appEnvOf, maquinasSettingsOf, mdeps, projectOf } from "./machines.js";
 
-export type Llave = { name: string; set: boolean; from: ("ejemplo" | "código")[]; public: boolean };
-export type LlavesRead = { env_file: string | null; where: "prueba" | "repo" | null; example_file: string | null; llaves: Llave[]; set: number; missing: number };
+// PLA-I72-4: iniciativas: the initiatives whose branch asks for a key the start copy's does not.
+export type Llave = { name: string; set: boolean; from: ("ejemplo" | "código")[]; public: boolean; iniciativas?: string[] };
+export type LlavesRead = {
+  env_file: string | null;
+  where: "prueba" | "repo" | null;
+  example_file: string | null;
+  llaves: Llave[];
+  set: number;
+  missing: number;
+  // PLA-I72-4: after a save, the running copies that read their keys at start (the screen offers to restart them).
+  reiniciar?: { id: string; title: string }[];
+};
 
 const CODE_DIRS = ["src", "app", "lib", "pages", "server", "scripts", "components", "utils"];
 const CODE_FILE = /\.(c|m)?(t|j)sx?$/;
@@ -71,8 +81,19 @@ export async function llaves(db: Db, slug: string): Promise<LlavesRead> {
   const names = new Map<string, Set<"ejemplo" | "código">>();
   for (const n of example.names) names.set(n, new Set(["ejemplo"]));
   for (const n of code) (names.get(n) ?? names.set(n, new Set()).get(n)!).add("código");
+  // PLA-I72-4: each initiative copy's own env example; a name only its branch asks for is marked with it.
+  const only = new Map<string, string[]>();
+  const { copiasRead } = await import("./copias.js");
+  for (const c of (await copiasRead(db, slug, false)).copias) {
+    if (c.kind !== "iniciativa" || !c.worktree || !c.made) continue;
+    for (const n of exampleNames(c.worktree).names) {
+      if (names.has(n)) continue;
+      (only.get(n) ?? only.set(n, []).get(n)!).push(c.key!);
+    }
+  }
+  for (const n of only.keys()) names.set(n, new Set(["ejemplo"]));
   const list: Llave[] = [...names.entries()]
-    .map(([name, from]) => ({ name, set: (env.values.get(name) ?? "").trim() !== "", from: [...from].sort(), public: /^(NEXT_PUBLIC_|VITE_|PUBLIC_)/.test(name) }))
+    .map(([name, from]) => ({ name, set: (env.values.get(name) ?? "").trim() !== "", from: [...from].sort(), public: /^(NEXT_PUBLIC_|VITE_|PUBLIC_)/.test(name), ...(only.has(name) ? { iniciativas: only.get(name)! } : {}) }))
     .sort((a, b) => Number(a.set) - Number(b.set) || a.name.localeCompare(b.name));
   return { env_file: env.file, where: env.where, example_file: example.file, llaves: list, set: list.filter((l) => l.set).length, missing: list.filter((l) => !l.set).length };
 }
@@ -129,24 +150,36 @@ export async function ponerLlave(db: Db, slug: string, name: unknown, value: unk
   const dir = env.file && env.dir ? env.dir : (dirs.prueba ?? dirs.repo);
   if (!dir) throw new MaquinaError("NO_APP_DIR", W.noDir);
   const file = env.file ?? maquinasSettingsOf(p)?.env_file ?? ".env.local";
-  const full = path.resolve(dir, file);
-  if (!SAFE_FILE.test(file) || !full.startsWith(dir + path.sep) || EXAMPLE_FILES.includes(path.basename(file))) throw new MaquinaError("ENV_FILE_TRACKED", W.badFile);
-  // A tracked env file would put the value in the next commit. Outside a git checkout (no repo), nothing is tracked.
-  const git = await (mdeps().exec ?? shellExec)(`git ls-files -- '${file}'`, { cwd: dir, timeoutMs: 15_000, env: checkoutEnv() });
-  if (git.code === 0 && git.stdout.trim()) throw new MaquinaError("ENV_FILE_TRACKED", W.tracked(file));
-  const text = existsSync(full) ? readFileSync(full, "utf8") : "";
-  const next = withEnvValue(text, name, value);
-  if (parseEnv(next).get(name) !== value) throw new MaquinaError("VALUE_NOT_WRITABLE", W.unreadable);
-  const tmp = path.join(path.dirname(full), `.${path.basename(full)}.plania-${process.pid}-${Date.now()}`);
-  try {
-    writeFileSync(tmp, next, { mode: 0o600 });
-    chmodSync(tmp, 0o600);
-    renameSync(tmp, full);
-  } catch {
-    rmSync(tmp, { force: true });
-    throw new MaquinaError("COMMAND_FAILED", W.writeFailed(file));
+  // PLA-I72-4: every copy copies its env file from the repo's at start, so a value saved in the start copy's file
+  // also goes into the repo's own (when it is a different folder), or the other copies would never see it.
+  const targets = [...new Set([dir, dirs.prueba, dirs.repo].filter((d): d is string => !!d))];
+  const plans: { full: string; next: string }[] = [];
+  for (const d of targets) {
+    const full = path.resolve(d, file);
+    if (!SAFE_FILE.test(file) || !full.startsWith(d + path.sep) || EXAMPLE_FILES.includes(path.basename(file))) throw new MaquinaError("ENV_FILE_TRACKED", W.badFile);
+    // A tracked env file would put the value in the next commit. Outside a git checkout (no repo), nothing is tracked.
+    const git = await (mdeps().exec ?? shellExec)(`git ls-files -- '${file}'`, { cwd: d, timeoutMs: 15_000, env: checkoutEnv() });
+    if (git.code === 0 && git.stdout.trim()) throw new MaquinaError("ENV_FILE_TRACKED", W.tracked(file));
+    const text = existsSync(full) ? readFileSync(full, "utf8") : "";
+    const next = withEnvValue(text, name, value);
+    if (parseEnv(next).get(name) !== value) throw new MaquinaError("VALUE_NOT_WRITABLE", W.unreadable);
+    plans.push({ full, next });
   }
-  return llaves(db, slug);
+  for (const { full, next } of plans) {
+    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.plania-${process.pid}-${Date.now()}`);
+    try {
+      writeFileSync(tmp, next, { mode: 0o600 });
+      chmodSync(tmp, 0o600);
+      renameSync(tmp, full);
+    } catch {
+      rmSync(tmp, { force: true });
+      throw new MaquinaError("COMMAND_FAILED", W.writeFailed(file));
+    }
+  }
+  // PLA-I72-4: a copy reads its env file at start (copied from the app's): the ones on now need a restart.
+  const { copiasRead } = await import("./copias.js");
+  const on = (await copiasRead(db, slug, false)).copias.filter((c) => c.managed && ["live", "capturing", "starting"].includes(c.phase)).map((c) => ({ id: c.id, title: c.title }));
+  return { ...(await llaves(db, slug)), reiniciar: on };
 }
 
 const LLAVE_WORDS = defineWords({

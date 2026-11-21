@@ -5,7 +5,7 @@
 // (default_transaction_read_only); secret-looking columns come back as (oculto); the address and its password
 // never leave this module (not in a response, a log line or an event).
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import type { Db } from "../db/client.js";
@@ -99,12 +99,33 @@ async function connect(a: BaseAddress, write = false): Promise<pg.Client> {
 // Tests: the reader's own session, to prove it cannot write.
 export const openReader = (a: BaseAddress) => connect(a);
 
-async function withReader<T>(db: Db, slug: string, fn: (c: pg.Client, a: BaseAddress, p: ProjectRow) => Promise<T>): Promise<T> {
+// PLA-I72-5: which base a call reads or writes. No copia: the app's own (as before). A copia id ("inicio" or an
+// initiative key): that copy's own base when it has one (the same host, port and user, its own name), its folder for
+// the commands, and the variable that points the app at it.
+export type Target = { address: BaseAddress | null; dir: string | null; env: Record<string, string>; tag: string; root: string | null };
+export async function targetOf(db: Db, p: ProjectRow, copia?: string | null): Promise<Target> {
+  const { dirs, env, address } = appEnvOf(p);
+  const base: Target = { address, dir: env.dir ?? dirs.prueba ?? dirs.repo, env: {}, tag: p.slug, root: null };
+  if (!copia) return base;
+  const { copiasRead } = await import("./copias.js");
+  const c = (await copiasRead(db, p.slug, false)).copias.find((x) => x.id === copia);
+  if (!c) throw new MaquinaError("COPY_NOT_FOUND", "No encuentro esa copia");
+  const dir = c.worktree && existsSync(c.worktree) ? c.worktree : base.dir;
+  if (!c.database || !address) return { ...base, dir, tag: `${p.slug}:${copia}`, root: c.worktree && existsSync(c.worktree) ? c.worktree : null };
+  const u = new URL(address.url);
+  u.pathname = `/${c.database}`;
+  const a: BaseAddress = { ...address, url: u.toString(), database: c.database, safe: { ...address.safe, database: c.database } };
+  const name = p.settings.capture?.database?.env_var ?? "DATABASE_URL";
+  return { address: a, dir, env: { [name]: a.url }, tag: `${p.slug}:${copia}`, root: c.worktree && existsSync(c.worktree) ? c.worktree : null };
+}
+
+async function withReader<T>(db: Db, slug: string, fn: (c: pg.Client, a: BaseAddress, p: ProjectRow, t: Target) => Promise<T>, copia?: string | null): Promise<T> {
   const p = await projectOf(db, slug);
-  const a = await guard(db, appEnvOf(p).address);
+  const t = await targetOf(db, p, copia);
+  const a = await guard(db, t.address);
   const c = await connect(a);
   try {
-    return await fn(c, a, p);
+    return await fn(c, a, p, t);
   } catch (e) {
     if (e instanceof MaquinaError) throw e;
     throw new MaquinaError("BASE_READ_FAILED", scrub(e instanceof Error ? e.message.split("\n")[0]!.slice(0, 200) : "error", secretValues(new Map([["DATABASE_URL", a.url]]))));
@@ -116,7 +137,7 @@ async function withReader<T>(db: Db, slug: string, fn: (c: pg.Client, a: BaseAdd
 // ---- tables
 
 export type Column = { name: string; type: string; not_null: boolean; key: boolean; unique: boolean; default: string | null; references: { table: string; column: string } | null; hidden: boolean };
-export type Table = { name: string; rows: number; columns: Column[]; indexes: { name: string; definition: string }[]; relations: { column: string; table: string; foreign: string }[] };
+export type Table = { name: string; rows: number; size_bytes?: number | null; columns: Column[]; indexes: { name: string; definition: string }[]; relations: { column: string; table: string; foreign: string }[] };
 export type TablesRead = { connection: { host: string; port: number; database: string }; tables: Table[]; total_rows: number; sample: boolean; migrations: MigrationsRead };
 
 const MIGRATION_TABLES = new Set(["__drizzle_migrations", "_prisma_migrations", "schema_migrations", "knex_migrations", "kysely_migration"]);
@@ -190,9 +211,12 @@ async function describe(c: pg.Client, names: string[]): Promise<Table[]> {
 
 export type MigrationsRead = { dir: string | null; files: { name: string; applied: boolean | null }[]; applied: number; pending: number; table: string | null };
 
-async function migrations(c: pg.Client, p: ProjectRow): Promise<MigrationsRead> {
+// PLA-I72-2: anything that answers query (a pg client, or a test's fake), and the folder whose migration files count
+// (a copy's own worktree: its branch may carry migrations the start copy lacks).
+export type Queryable = { query<R = any>(sql: string, params?: unknown[]): Promise<{ rows: R[] }> };
+async function migrations(c: Queryable | pg.Client, p: ProjectRow, rootDir?: string | null): Promise<MigrationsRead> {
   const { dirs } = appEnvOf(p);
-  const root = dirs.prueba ?? dirs.repo;
+  const root = rootDir ?? dirs.prueba ?? dirs.repo;
   const dir = migrationsDir(root, maquinasSettingsOf(p));
   const files = dir ? sqlFiles(dir) : [];
   const rel = dir && root ? path.relative(root, dir) : null;
@@ -200,9 +224,9 @@ async function migrations(c: pg.Client, p: ProjectRow): Promise<MigrationsRead> 
   let hashes: Set<string> | null = null;
   let table: string | null = null;
   for (const t of ["drizzle.__drizzle_migrations", "public.__drizzle_migrations"]) {
-    const exists = await c.query<{ ok: boolean }>("select to_regclass($1) is not null as ok", [t]);
+    const exists = await (c as Queryable).query<{ ok: boolean }>("select to_regclass($1) is not null as ok", [t]);
     if (!exists.rows[0]?.ok) continue;
-    const r = await c.query<{ hash: string }>(`select hash from ${t}`);
+    const r = await (c as Queryable).query<{ hash: string }>(`select hash from ${t}`);
     hashes = new Set(r.rows.map((x) => x.hash));
     table = t;
     break;
@@ -216,9 +240,11 @@ async function migrations(c: pg.Client, p: ProjectRow): Promise<MigrationsRead> 
   return { dir: rel, files: list, applied: list.filter((x) => x.applied).length, pending: list.filter((x) => x.applied === false).length, table };
 }
 
+export const migrationsOf = migrations;
+
 // ---- sample rows: Plania remembers the counts it seeded; the base holds only seed rows while they still match.
 
-const seedKey = (slug: string) => `maquinas:seed:${slug}`;
+const seedKey = (slug: string) => `maquinas:seed:${slug}`; // slug, or slug:copia (PLA-I72-5)
 async function seededCounts(db: Db, slug: string): Promise<Record<string, number> | null> {
   const { eq } = await import("drizzle-orm");
   const [r] = await db.select().from(machineState).where(eq(machineState.key, seedKey(slug)));
@@ -231,15 +257,31 @@ async function rememberSeed(db: Db, slug: string, counts: Record<string, number>
     .onConflictDoUpdate({ target: machineState.key, set: { value: { counts, at: new Date().toISOString() }, updatedAt: new Date() } });
 }
 
-export async function tablas(db: Db, slug: string): Promise<TablesRead> {
-  return withReader(db, slug, async (c, a, p) => {
-    const names = await tableNames(c);
-    const n = await counts(c, names);
-    const tables = (await describe(c, names)).map((t) => ({ ...t, rows: n.get(t.name) ?? 0 }));
-    const seeded = await seededCounts(db, slug);
-    const sample = !!seeded && tables.length > 0 && tables.every((t) => (seeded[t.name] ?? 0) === t.rows);
-    return { connection: a.safe, tables, total_rows: tables.reduce((s, t) => s + t.rows, 0), sample, migrations: await migrations(c, p) };
-  });
+export async function tablas(db: Db, slug: string, copia?: string | null): Promise<TablesRead> {
+  return withReader(
+    db,
+    slug,
+    async (c, a, p, tg) => {
+      const names = await tableNames(c);
+      const n = await counts(c, names);
+      const sizes = await tableSizes(c, names);
+      const tables = (await describe(c, names)).map((t) => ({ ...t, rows: n.get(t.name) ?? 0, size_bytes: sizes.get(t.name) ?? null }));
+      const seeded = await seededCounts(db, tg.tag);
+      const sample = !!seeded && tables.length > 0 && tables.every((t) => (seeded[t.name] ?? 0) === t.rows);
+      return { connection: a.safe, tables, total_rows: tables.reduce((s, t) => s + t.rows, 0), sample, migrations: await migrations(c, p, tg.root) };
+    },
+    copia,
+  );
+}
+
+// PLA-I72-5: each table's size on disk, for «Tablas que más pesan».
+async function tableSizes(c: pg.Client, names: string[]): Promise<Map<string, number>> {
+  if (!names.length) return new Map();
+  const r = await c.query<{ name: string; size: string }>(
+    "select c.relname as name, pg_total_relation_size(c.oid)::text as size from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = any($1)",
+    [names],
+  );
+  return new Map(r.rows.map((x) => [x.name, Number(x.size)]));
 }
 
 export type RowsRead = { table: string; columns: string[]; hidden: string[]; rows: Record<string, string | null>[]; offset: number; limit: number; total: number };
@@ -252,7 +294,7 @@ const cell = (v: unknown): string | null => {
   return s.length > 300 ? `${s.slice(0, 300)}…` : s;
 };
 
-export async function filas(db: Db, slug: string, table: string, offset = 0): Promise<RowsRead> {
+export async function filas(db: Db, slug: string, table: string, offset = 0, copia?: string | null): Promise<RowsRead> {
   return withReader(db, slug, async (c) => {
     const names = await tableNames(c);
     // Only a name the catalog listed is ever put in SQL.
@@ -267,21 +309,21 @@ export async function filas(db: Db, slug: string, table: string, offset = 0): Pr
     const hidden = columns.filter(isSecretColumn);
     const rows = r.rows.map((row: Record<string, unknown>) => Object.fromEntries(columns.map((col) => [col, hidden.includes(col) ? (row[col] === null ? null : HIDDEN) : cell(row[col])])));
     return { table, columns, hidden, rows, offset: off, limit: PAGE, total };
-  });
+  }, copia);
 }
 
 // ---- the only writing path
 
-function commandsOf(p: ProjectRow) {
+function commandsOf(p: ProjectRow, t?: Target) {
   const { dirs, env } = appEnvOf(p);
   const s = maquinasSettingsOf(p);
-  const dir = env.dir ?? dirs.prueba ?? dirs.repo;
+  const dir = t?.dir ?? env.dir ?? dirs.prueba ?? dirs.repo;
   const found = findScripts(dir);
   return { dir, migrate: s?.migrate ?? found.migrate, seed: s?.seed ?? found.seed };
 }
 
-const runIn = async (command: string, dir: string, secrets: string[]) => {
-  const r = await (mdeps().exec ?? shellExec)(command, { cwd: dir, timeoutMs: 300_000, env: checkoutEnv() });
+const runIn = async (command: string, dir: string, secrets: string[], extra: Record<string, string> = {}) => {
+  const r = await (mdeps().exec ?? shellExec)(command, { cwd: dir, timeoutMs: 300_000, env: checkoutEnv(extra) });
   const out = scrub(`${r.stdout}\n${r.stderr}`, secrets)
     .split("\n")
     .filter(Boolean)
@@ -291,51 +333,53 @@ const runIn = async (command: string, dir: string, secrets: string[]) => {
 
 export type SeedResult = { ok: boolean; steps: { command: string; ok: boolean; tail: string[] }[]; tables: TablesRead | null };
 
-async function afterSeed(db: Db, slug: string, steps: SeedResult["steps"]): Promise<SeedResult> {
+async function afterSeed(db: Db, slug: string, steps: SeedResult["steps"], tg?: Target, copia?: string | null): Promise<SeedResult> {
   const ok = steps.every((s) => s.ok);
-  const t = await tablas(db, slug).catch(() => null);
-  if (ok && t) await rememberSeed(db, slug, Object.fromEntries(t.tables.map((x) => [x.name, x.rows])));
+  const t = await tablas(db, slug, copia).catch(() => null);
+  if (ok && t) await rememberSeed(db, tg?.tag ?? slug, Object.fromEntries(t.tables.map((x) => [x.name, x.rows])));
   return { ok, steps, tables: t ? { ...t, sample: ok || t.sample } : null };
 }
 
 // Sembrar: the project's migrate and seed commands, in the app's directory, with the shell basics only.
-export async function sembrar(db: Db, slug: string): Promise<SeedResult> {
+export async function sembrar(db: Db, slug: string, copia?: string | null): Promise<SeedResult> {
   const p = await projectOf(db, slug);
-  const { address } = appEnvOf(p);
-  await guard(db, address);
-  const { dir, migrate, seed } = commandsOf(p);
+  const tg = await targetOf(db, p, copia);
+  await guard(db, tg.address);
+  const { dir, migrate, seed } = commandsOf(p, tg);
   if (!dir || (!migrate && !seed)) throw new MaquinaError("NOT_CONFIGURED", "no encuentro los comandos de migrar y sembrar");
   const secrets = secretValues(appEnvOf(p).env.values);
   const steps: SeedResult["steps"] = [];
   for (const cmd of [migrate, seed].filter((x): x is string => !!x)) {
-    const r = await runIn(cmd, dir, secrets);
+    const r = await runIn(cmd, dir, secrets, tg.env);
     steps.push({ command: cmd, ...r });
     if (!r.ok) break;
   }
-  return afterSeed(db, slug, steps);
+  return afterSeed(db, slug, steps, tg, copia);
 }
 
 // Aplicar (a pending migration): the project's migrate command only.
-export async function migrar(db: Db, slug: string): Promise<SeedResult> {
+export async function migrar(db: Db, slug: string, copia?: string | null): Promise<SeedResult> {
   const p = await projectOf(db, slug);
-  await guard(db, appEnvOf(p).address);
-  const { dir, migrate } = commandsOf(p);
+  const tg = await targetOf(db, p, copia);
+  await guard(db, tg.address);
+  const { dir, migrate } = commandsOf(p, tg);
   if (!dir || !migrate) throw new MaquinaError("NOT_CONFIGURED", "no encuentro el comando de migrar");
-  const r = await runIn(migrate, dir, secretValues(appEnvOf(p).env.values));
-  const t = await tablas(db, slug).catch(() => null);
+  const r = await runIn(migrate, dir, secretValues(appEnvOf(p).env.values), tg.env);
+  const t = await tablas(db, slug, copia).catch(() => null);
   return { ok: r.ok, steps: [{ command: migrate, ...r }], tables: t };
 }
 
 // Vaciar y sembrar de nuevo: needs the total row count the screen showed; a different count now is refused (someone
 // changed the base since). Truncates the base's public tables (not the migrations table) in a writing session, then
 // runs the seed command.
-export async function vaciarYSembrar(db: Db, slug: string, shown: number): Promise<SeedResult> {
+export async function vaciarYSembrar(db: Db, slug: string, shown: number, copia?: string | null): Promise<SeedResult> {
   if (!Number.isInteger(shown) || shown < 0) throw new MaquinaError("NOT_CONFIGURED", "el número de filas que viste");
   const p = await projectOf(db, slug);
-  const a = await guard(db, appEnvOf(p).address);
-  const { dir, seed } = commandsOf(p);
+  const tg = await targetOf(db, p, copia);
+  const a = await guard(db, tg.address);
+  const { dir, seed } = commandsOf(p, tg);
   if (!dir || !seed) throw new MaquinaError("NOT_CONFIGURED", "no encuentro el comando de sembrar");
-  const now = await tablas(db, slug);
+  const now = await tablas(db, slug, copia);
   if (now.total_rows !== shown) throw new MaquinaError("ROW_COUNT_CHANGED", "la base cambió desde que la viste; vuelve a mirarla", { shown, now: now.total_rows });
   const w = await connect(a, true);
   try {
@@ -346,6 +390,6 @@ export async function vaciarYSembrar(db: Db, slug: string, shown: number): Promi
   } finally {
     await w.end().catch(() => undefined);
   }
-  const r = await runIn(seed, dir, secretValues(appEnvOf(p).env.values));
-  return afterSeed(db, slug, [{ command: seed, ...r }]);
+  const r = await runIn(seed, dir, secretValues(appEnvOf(p).env.values), tg.env);
+  return afterSeed(db, slug, [{ command: seed, ...r }], tg, copia);
 }

@@ -629,14 +629,17 @@ export function pruebaLog(slug: string, secrets: string[] = []): string[] {
 }
 
 // Reiniciar: Apagar, then Encenderla, with the same port rule (the first free port from settings.capture.port up).
-export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
+export async function reiniciar(db: Db, slug: string, opts: { stills?: boolean } = {}): Promise<PruebaRead> {
   const { s } = await settingsOf(db, slug);
   if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const c = copies.get(slug);
   const outside = !c && (await pruebaRead(slug, s)).phase === "running";
   if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: say(PRUEBA_WORDS).notMine });
+  const keep = c?.keep ?? false;
   await apagar(db, slug);
-  return encender(db, slug);
+  const r = await encender(db, slug, opts);
+  setKeep(slug, "sandbox", null, keep);
+  return r;
 }
 
 // ---- Volver a tomar (Reintentar on a capture error)
@@ -1157,8 +1160,12 @@ export async function borrarIni(db: Db, slug: string, key: string, names: { data
     const r = await exec(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${names.database} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: pgPathOf(), PLANIA_BASE_URL: base }) });
     out.dropped = r.code === 0;
     if (out.dropped && deps.footprints !== false) {
-      const u = new URL(base);
-      await releaseFootprint(db, { project: slug, kind: "database", locator: `${names.database}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}` }, ctx()).catch(() => undefined);
+      // Found by name: the registered locator may spell the host another way (localhost, 127.0.0.1).
+      const held = await db
+        .select({ locator: footprints.locator })
+        .from(footprints)
+        .where(and(eq(footprints.projectId, p.id), eq(footprints.kind, "database"), isNull(footprints.releasedAt), sql`split_part(${footprints.locator}, '@', 1) = ${names.database}`));
+      for (const h of held) await releaseFootprint(db, { project: slug, kind: "database", locator: h.locator }, ctx()).catch(() => undefined);
     }
   }
   const wt = names.worktree;
@@ -1171,4 +1178,16 @@ export async function borrarIni(db: Db, slug: string, key: string, names: { data
     if (out.removed && deps.footprints !== false) await releaseFootprint(db, { project: slug, kind: "worktree", locator: wt }, ctx()).catch(() => undefined);
   }
   return out;
+}
+
+/** PLA-I72-2: what Máquinas' numbers need of a copy in memory (the process, when it started, where, its output). */
+export function copyRuntime(id: string): { pid: number | null; started_at: number; worktree: string | null; port: number | null; phase: Phase; tail: string[] } | null {
+  const c = copies.get(id);
+  return c ? { pid: c.pid, started_at: c.startedAt, worktree: c.worktree, port: c.port, phase: c.phase, tail: c.tail } : null;
+}
+
+/** PLA-I72-4: the env a command run in a copy needs to reach that copy's own base (null when it is not in memory). */
+export function copyEnvOf(slug: string, key: string | null): Record<string, string> | null {
+  const c = copies.get(key ? idOf(slug, "iniciativa", key) : idOf(slug, "sandbox"));
+  return c ? (c.dbEnv ?? {}) : null;
 }

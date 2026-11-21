@@ -31,7 +31,8 @@ import { liveDatabaseName } from "../self/plania-self.js";
 import { existsSync } from "node:fs";
 import { defineWords, say } from "../words.js";
 import { MaquinaError } from "./errors.js";
-import { ctx, projectOf, type ProjectRow } from "./machines.js";
+import { ctx, menv, projectOf, type ProjectRow } from "./machines.js";
+import { appDirs } from "./env.js";
 
 export const COPIAS_WORDS = defineWords({
   es: {
@@ -124,8 +125,8 @@ function startCopy(p: ProjectRow, r: Awaited<ReturnType<typeof pruebaRead>>): Co
     detail: r.detail,
     keep: keepOf(p.slug),
     database: p.settings.capture?.database && base ? (entregaUrl(base, "_prueba")?.name ?? null) : null,
-    worktree: info?.worktree ?? null,
-    made: !!info?.worktree,
+    worktree: info?.worktree ?? appDirs(p.slug, p.settings, menv()).prueba,
+    made: !!(info?.worktree ?? appDirs(p.slug, p.settings, menv()).prueba),
   };
 }
 
@@ -194,7 +195,7 @@ export async function copiaAction(db: Db, slug: string, id: string, action: Copi
     if (action === "borrar") throw new MaquinaError("COPY_NOT_DELETABLE", W.startCopy);
     if (action === "encender") await encender(db, slug, { stills: false });
     else if (action === "apagar") await apagar(db, slug);
-    else if (action === "reiniciar") await reiniciar(db, slug);
+    else if (action === "reiniciar") await reiniciar(db, slug, { stills: false });
     else if (action === "quedarse") {
       if (!setKeep(slug, "sandbox", null, body.keep === true)) throw new MaquinaError("COPY_NOT_FOUND", W.notFound);
     }
@@ -217,7 +218,7 @@ export async function copiaAction(db: Db, slug: string, id: string, action: Copi
         await emit("machine.copy_created", { id: ini.id, key: ini.key }, { branch, worktree, database });
       });
     }
-    await encenderIni(db, slug, { key: ini.key, branch, keep: row?.keep ?? false });
+    await encenderIni(db, slug, { key: ini.key, branch, keep: row?.keep ?? iniRead(slug, ini.key, false)?.keep ?? false });
   } else if (action === "apagar") {
     await apagarIni(db, slug, ini.key);
     if (row) await db.update(maquinaCopias).set({ state: "off", updatedAt: new Date() }).where(eq(maquinaCopias.id, row.id));
@@ -259,4 +260,12 @@ export async function reconcileCopias(db: Db): Promise<number> {
     n += 1;
   }
   return n;
+}
+
+/** PLA-I72-4: after a key changed, every running copy is restarted so it reads its env file again. */
+export async function reiniciarEncendidas(db: Db, slug: string): Promise<CopiasRead & { reiniciadas: string[] }> {
+  const before = await copiasRead(db, slug, false);
+  const on = before.copias.filter((c) => c.managed && ["live", "capturing", "starting"].includes(c.phase));
+  for (const c of on) await copiaAction(db, slug, c.id, "reiniciar");
+  return { ...(await copiasRead(db, slug)), reiniciadas: on.map((c) => c.id) };
 }

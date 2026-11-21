@@ -1,6 +1,6 @@
 // Shared setup: points the app at a throwaway plania_test_<hash> database and rebuilds it from the migrations.
 import { createHash } from "node:crypto";
-import { userInfo } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
@@ -39,6 +39,8 @@ export function useTestEnv(): void {
   // AUDIT-2: tests never read the repo's own kit (its skills and default kits would join every run). A test that
   // wants a kit points PLANIA_KIT_DIR at its own folder.
   process.env.PLANIA_KIT_DIR ??= path.join(REPO_ROOT, "test", "fixtures", "no-kit");
+  // PLA-I72-4: the kept test passwords go to a scratch file, never the user's ~/.config.
+  process.env.PLANIA_TEST_PASSWORDS_FILE ??= path.join(tmpdir(), `plania-test-passwords-${process.pid}.json`);
 }
 
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.

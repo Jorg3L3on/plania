@@ -13,6 +13,7 @@ import { vercelJob } from "./vercel.js";
 import { lessonsJob } from "./lessons.js";
 import { logosJob } from "./logos.js";
 import { skillUpstreamJob } from "./skill-upstream.js";
+import { copiasJob } from "./copias.js";
 
 // Background jobs for the local server (2.1). Each job runs on its own interval with the shared pool,
 // skips a tick while the previous one is still running, and writes through the normal tool
@@ -22,7 +23,7 @@ import { skillUpstreamJob } from "./skill-upstream.js";
 export type JobSummary = Record<string, number>;
 export type Job = { name: string; intervalMs: number; runOnce: (db: Db, now: Date) => Promise<JobSummary> };
 
-export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, machineJob, backupJob, pushJob, stuckJob, asistenteJob, logosJob, skillUpstreamJob];
+export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, machineJob, backupJob, pushJob, stuckJob, asistenteJob, logosJob, skillUpstreamJob, copiasJob];
 
 // Heartbeats join the other jobs only when wakes are on: PLANIA_JOBS=1, or (PLA-I2-2) PLANIA_JOBS unset on an
 // install made by the first-start screen.
