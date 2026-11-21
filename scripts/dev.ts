@@ -19,6 +19,7 @@ import { startupProblem } from "../src/db/migrate.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { healthUi, readUiBuild, rebuildReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
+import { reconcileCopias } from "../src/maquinas/copias.js";
 import { drainOnParentRequest, exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
 import { GOOD_AFTER_MS, lastGoodFile, recordsGoodStart, writeLastGood } from "../src/ops/last-good.js";
 import { isPackage, readRelease } from "../src/release.js";
@@ -134,4 +135,8 @@ if (process.env.PLANIA_JOBS !== "0") {
 // PLA-I46-8: a test copy an earlier server left on (Encenderla) is stopped and its footprint released.
 void withDb((db) => reapOrphans(db))
   .then((n) => n > 0 && console.log(`[prueba] stopped ${n} test cop${n === 1 ? "y" : "ies"} left by an earlier server`))
-  .catch((e) => console.log(`[prueba] orphan reap failed: ${e instanceof Error ? e.message : String(e)}`));
+  .catch((e) => console.log(`[prueba] orphan reap failed: ${e instanceof Error ? e.message : String(e)}`))
+  // PLA-I72-1: the initiative copies it had on are listed again, off, with their base and worktree kept.
+  .then(() => withDb((db) => reconcileCopias(db)))
+  .then((n) => n && n > 0 && console.log(`[prueba] ${n} initiative cop${n === 1 ? "y" : "ies"} listed again, off`))
+  .catch(() => undefined);

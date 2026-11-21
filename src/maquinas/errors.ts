@@ -19,6 +19,12 @@ export const MAQUINA_ERRORS = {
   VALUE_NOT_WRITABLE: 400, // empty, more than one line, too long, or quotes an env file cannot hold
   ENV_FILE_TRACKED: 409, // the env file is in git: a value there would be committed
   NO_APP_DIR: 409, // neither the test copy nor the repo checkout exists on this machine
+  // PLA-I72-1: the copies.
+  COPY_NOT_FOUND: 404, // no start copy or open initiative by that id
+  COPY_NOT_DELETABLE: 403, // Borrar on the start copy
+  BASE_PROTECTED: 403, // a name that is the app's base or the start copy's
+  INITIATIVE_CLOSED: 409, // Encender on a Done or Won't do initiative
+  NO_BRANCH: 409, // the initiative has neither an integration branch nor a base branch
 } as const;
 export type MaquinaCode = keyof typeof MAQUINA_ERRORS;
 

@@ -77,7 +77,7 @@ export const liveDatabaseName = (live: string | null | undefined): string | null
 
 // ---- a test copy of Plania
 
-export type CopySuffix = "_prueba" | "_entrega";
+export type CopySuffix = "_prueba" | "_entrega" | `_ini_${string}`;
 
 /** The copy's own database URL: the live server's, on <live name><suffix>. Null when the live URL is unusable. */
 export function copyDatabaseUrl(live: string | null | undefined, suffix: CopySuffix): { url: string; name: string } | null {

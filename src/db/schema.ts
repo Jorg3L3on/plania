@@ -2187,3 +2187,28 @@ export const companyTransfers = pgTable("company_transfers", {
   counts: jsonb("counts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// PLA-I72-1 (0078): one row per initiative copy made on this machine (src/maquinas/copias.ts). The processes are
+// in memory; the row keeps the names (worktree, database), «No apagarla sola» and what the owner last asked.
+export const maquinaCopias = pgTable(
+  "maquina_copias",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    initiativeId: uuid("initiative_id").references(() => tasks.id, { onDelete: "set null" }),
+    initiativeKey: text("initiative_key").notNull(),
+    branch: text("branch").notNull(),
+    worktree: text("worktree"),
+    database: text("database"),
+    keep: boolean("keep").notNull().default(false),
+    state: text("state").$type<"on" | "off">().notNull().default("off"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("maquina_copias_project_idx").on(t.projectId, t.deletedAt)],
+);
+export type MaquinaCopia = typeof maquinaCopias.$inferSelect;

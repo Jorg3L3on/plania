@@ -15,6 +15,8 @@
 //   GET  /:slug/maquinas/pruebas, POST …        the last test run; start one (F3)
 //   GET  /:slug/maquinas/recorrido              Cómo probarla's steps and the test user (F3)
 //   POST /:slug/maquinas/recorrido/contrasena   a fresh password for the test user, once (F3)
+//   GET  /:slug/maquinas/copias                 the start copy and one per open initiative (PLA-I72-1)
+//   POST /:slug/maquinas/copias/:id/:action     encender | apagar | reiniciar | borrar | quedarse {keep} (PLA-I72-1)
 // And, for the building: GET /api/maquinas/tablero, every floor's server (F7).
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -30,6 +32,7 @@ import { llaves, ponerLlave } from "../maquinas/llaves.js";
 import { correrPruebas, pruebasRead } from "../maquinas/pruebas.js";
 import { nuevaContrasena, recorrido } from "../maquinas/recorrido.js";
 import { secretValues } from "../maquinas/env.js";
+import { copiaAction, copiasRead, type CopiaAction } from "../maquinas/copias.js";
 
 export const maquinasRoutes = new Hono();
 export const tableroRoutes = new Hono();
@@ -74,6 +77,15 @@ maquinasRoutes.get("/:slug/maquinas/pruebas", (c) => answer(c, (db) => pruebasRe
 maquinasRoutes.post("/:slug/maquinas/pruebas", (c) => answer(c, (db) => correrPruebas(db, c.req.param("slug"))));
 maquinasRoutes.get("/:slug/maquinas/recorrido", (c) => answer(c, (db) => recorrido(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/recorrido/contrasena", (c) => answer(c, (db) => nuevaContrasena(db, c.req.param("slug"))));
+
+maquinasRoutes.get("/:slug/maquinas/copias", (c) => answer(c, (db) => copiasRead(db, c.req.param("slug"))));
+const ACTIONS = new Set<CopiaAction>(["encender", "apagar", "reiniciar", "borrar", "quedarse"]);
+maquinasRoutes.post("/:slug/maquinas/copias/:id/:action", async (c) => {
+  const action = c.req.param("action") as CopiaAction;
+  if (!ACTIONS.has(action)) return c.json({ error: "NOT_FOUND" }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as { keep?: unknown };
+  return answer(c, (db) => copiaAction(db, c.req.param("slug"), c.req.param("id"), action, body));
+});
 
 // The building's tablero: every running floor with its server. Only reads (no base, no rows).
 export type TableroRow = { project: string; title: string; configured: boolean; phase: string; managed: boolean; port: number | null; url: string | null; error: string | null };
