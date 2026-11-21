@@ -140,7 +140,9 @@ function placeOf(t: OrgTree, width: number, z: Sizes, ghost: boolean): Layout {
   const lw = Math.max(160, Math.min(w, Math.floor((room + gapX) / Math.max(1, want)) - gapX));
   const cols = Math.max(1, Math.min(level.length, fit(room, lw)));
   const firstW = Math.min(level.length, cols) * lw + (Math.min(level.length, cols) - 1) * gapX;
-  const spine = cx - firstW / 2 - gapX;
+  // PLA-139: halfway between the first card and the edge, so the line that joins the rows is drawn whole (at x 0 half
+  // its stroke fell outside the drawing and the rows looked unjoined).
+  const spine = cx - firstW / 2 - gapX / 2;
   const stackH = (n: OrgNode): number => n.children.reduce((s, c) => s + stackGap + h + stackH(c), 0);
   let rowTop = y;
   let lastBus = 0;

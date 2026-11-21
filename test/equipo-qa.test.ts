@@ -102,3 +102,29 @@ test("PLA-137: the store's search finds what the card shows", async () => {
   assert.deepEqual(find("pull request"), ["pr"]);
   assert.equal(find("   ").length, 4);
 });
+
+test("PLA-139: a wrapped level is joined by a spine inside the drawing, and every card hangs from its row's line", async () => {
+  const o = await import("../ui/src/lib/organigrama.js");
+  const m = (agent: string, role: string, reports_to: string) => ({ agent, role, template: role, reports_to, state: "idle" }) as never;
+  const team = [m("po", "product-owner", "ceo"), ...["research", "artist", "taller", "qa", "copy", "marketing", "seguridad"].map((r) => m(r, r, "po"))];
+  for (const width of [736, 836, 960]) {
+    const l = o.layoutOf(o.treeOf(team), width, {});
+    const h = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)H([\d.]+)$/.exec(x.d)).filter(Boolean).map((r: RegExpExecArray) => ({ x1: +r[1]!, y: +r[2]!, x2: +r[3]! }));
+    const v = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)V([\d.]+)$/.exec(x.d)).filter(Boolean).map((r: RegExpExecArray) => ({ x: +r[1]!, y1: +r[2]!, y2: +r[3]! }));
+    const rows = [...new Set(["research", "copy"].map((id) => l.boxes.get(id)!.y))];
+    if (rows.length < 2) continue; // it fit on one row at this width
+    const buses = h.filter((b: { y: number }) => b.y > 60).sort((a: { y: number }, b: { y: number }) => a.y - b.y);
+    const spine = Math.min(...buses.map((b: { x1: number }) => b.x1));
+    assert.ok(spine >= 4, `spine at ${spine} is on the edge (width ${width})`);
+    const first = Math.min(...[...l.boxes.values()].filter((b: { id: string }) => !b.id.startsWith("__")).map((b: { x: number }) => b.x));
+    assert.ok(spine < first, "the spine is left of the first card");
+    assert.ok(v.some((s: { x: number; y1: number; y2: number }) => s.x === spine && s.y1 <= buses[0]!.y && s.y2 >= buses[buses.length - 1]!.y), "one spine joins every row's line");
+    for (const id of ["research", "artist", "taller", "qa", "copy", "marketing", "seguridad"]) {
+      const b = l.boxes.get(id)!;
+      const cx = b.x + b.w / 2;
+      const drop = v.find((s: { x: number; y2: number }) => Math.abs(s.x - cx) < 0.6 && s.y2 === b.y);
+      assert.ok(drop, `${id} has a line into its top (width ${width})`);
+      assert.ok(buses.some((bus: { y: number; x1: number; x2: number }) => bus.y === drop!.y1 && bus.x1 <= cx && bus.x2 >= cx - 0.6), `${id}'s line meets its row's line`);
+    }
+  }
+});

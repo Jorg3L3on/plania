@@ -189,6 +189,10 @@ export const Legend = () => {
       <span>
         <DotMark d="libre" /> {w.legendFree}
       </span>
+      {/* PLA-139: new and adopted seats arrive paused; the legend says what their mark means. */}
+      <span>
+        <DotMark d="pausa" /> {w.legendPaused}
+      </span>
     </span>
   );
 };
