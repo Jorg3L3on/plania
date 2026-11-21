@@ -13,3 +13,10 @@ test("close versions fold; current, kept and far-apart ones stand alone; short r
   assert.equal(r.lane, "estilo");
   assert.ok(r.from < r.to, "from the oldest to the newest");
 });
+
+test("Trato changes list under the Estilo filter, since «Cómo trata a la gente» lives in Estilo", async () => {
+  const { entries } = await import("../ui/src/lib/historial.js");
+  const h = { logo: [], requests: [], style: [{ v: 1, at: "2026-11-20T10:00:00Z", current: true, style: {} as never }], voice: [{ v: 1, at: "2026-11-20T11:00:00Z", current: true, voice: { trato: "usted" } as never }] };
+  assert.deepEqual(entries(h as never, "estilo").map((e) => e.lane), ["voz", "estilo"]);
+  assert.deepEqual(entries(h as never, "logo"), []);
+});

@@ -28,7 +28,7 @@ export function entries(h: Historial, lane: Lane | "todo" = "todo"): Entry[] {
     ...h.voice.map((s) => ({ lane: "voz" as const, id: `voz-${s.v}`, at: s.at, current: s.current, keep: s.keep, v: s.v, voice: s.voice })),
     ...h.requests.map((r) => ({ lane: "pedido" as const, id: `pedido-${r.key}`, at: r.at, current: false as const, r })),
   ];
-  return all.filter((e) => lane === "todo" || e.lane === lane).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return all.filter((e) => lane === "todo" || e.lane === lane || (lane === "estilo" && e.lane === "voz")).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
 /** PLA-130: a run of Estilo or Voz versions close together, shown as one row that opens. */
@@ -81,6 +81,7 @@ export const HISTORIAL_WORDS = defineWords({
     // PLA-130: the lane chip already names the part; a row says only its version, and today's times only the hour.
     run: (n: number) => `${n} versiones`,
     vShort: (v: number) => `Versión ${v}`,
+    tratoRow: (t: string) => `Trato: ${t}`,
     whenShort: (iso: string) => (new Date(iso).toDateString() === new Date().toDateString() ? new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" }) : new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
     // PLA-130: a run's time range, short: the day once when both ends share it.
     span: (from: string, to: string) => {
@@ -122,6 +123,7 @@ export const HISTORIAL_WORDS = defineWords({
     keptWhy: "Sent to Taller or gone back to: it is never dropped.",
     run: (n: number) => `${n} versions`,
     vShort: (v: number) => `Version ${v}`,
+    tratoRow: (t: string) => `Address: ${t}`,
     whenShort: (iso: string) => (new Date(iso).toDateString() === new Date().toDateString() ? new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" }) : new Date(iso).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })),
     span: (from: string, to: string) => {
       const a = new Date(from), b = new Date(to);

@@ -48,7 +48,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
   const curStyle = h.style.find((s) => s.current)?.style ?? null;
   const row = (e: Entry) => (
                 <button type="button" className="hi-row" aria-pressed={sel === e.id} onClick={() => setSel(e.id)} data-entry={e.id}>
-                  <span className={`hi-lane ${e.lane}`}>{w.lanes[e.lane]}</span>
+                  <span className={`hi-lane ${e.lane === "voz" ? "estilo" : e.lane}`}>{w.lanes[e.lane === "voz" ? "estilo" : e.lane]}</span>
                   <span className="hi-what">
                     {e.lane === "logo" && (
                       <>
@@ -67,8 +67,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                     )}
                     {e.lane === "voz" && (
                       <>
-                        <b>{w.vShort(e.v)}</b>
-                        <small>{e.voice.short || e.voice.name} · {vw.tratos[e.voice.trato]}</small>
+                        <b>{w.tratoRow(vw.tratos[e.voice.trato] ?? e.voice.trato)}</b>
                       </>
                     )}
                     {e.lane === "pedido" && (
@@ -89,7 +88,8 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
     <div className="hi-wrap" data-historial={slug}>
       <div className="hi-left">
         <div className="es-seg" role="radiogroup" aria-label={w.lanesLabel}>
-          {(["todo", "logo", "estilo", "voz", "pedido"] as const).map((k) => (
+          {/* PLA-130: no Trato filter; «Cómo trata a la gente» lives in Estilo, so its changes list under Estilo. */}
+          {(["todo", "logo", "estilo", "pedido"] as const).map((k) => (
             <button key={k} type="button" role="radio" aria-checked={lane === k} onClick={() => { setLane(k); setSel(null); }} data-control={`historial-${k}`}>
               {w.lanes[k]}
             </button>
@@ -125,7 +125,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
             <header className="hi-head">
               {/* PLA-130: h2, right under the page's h1. */}
               <h2>
-                {picked.lane === "pedido" ? `${w.kinds[picked.r.kind]} · ${picked.r.key}` : w.version(laneName(picked.lane), picked.lane === "logo" ? picked.v.v : picked.v)}
+                {picked.lane === "pedido" ? `${w.kinds[picked.r.kind]} · ${picked.r.key}` : picked.lane === "voz" ? w.tratoRow(vw.tratos[picked.voice.trato] ?? picked.voice.trato) : w.version(laneName(picked.lane), picked.lane === "logo" ? picked.v.v : picked.v)}
               </h2>
               <span className="hi-when">{w.when(picked.at)}</span>
               {picked.lane !== "pedido" && !picked.current && !(picked.lane === "estilo" && curStyle && !styleDiff(picked.style, curStyle).length) && !(picked.lane === "voz" && curVoice && !voiceDiff(picked.voice, curVoice).length) && (
