@@ -1,11 +1,12 @@
 // PLA-I68: Camino's routes, under /api/company (the owner's cookie only; company.ts's guard refuses any Bearer).
-//   GET    /projects/:slug/camino                    the read (src/camino/store.ts caminoRead). The first open runs
-//                                                    discovery and waits for it; a read older than STALE_MS starts one
-//                                                    in the background (checking: true) and answers at once.
+//   GET    /projects/:slug/camino                    the read (src/camino/store.ts caminoRead). The first open and a
+//                                                    read older than STALE_MS start discovery in the background
+//                                                    (checking: true) and answer at once with Plania's own config.
 //   POST   /projects/:slug/camino/recheck            «Volver a comprobar»: discovery now, then the read
 //   PUT    /projects/:slug/camino/keys/:provider     {value}: tried, then saved in the keychain; only metadata returns
 //   POST   /projects/:slug/camino/keys/:provider/test  «Probar» with the saved key
 //   DELETE /projects/:slug/camino/keys/:provider     removes the key
+//   POST   /projects/:slug/camino/repo-check         {repo}: a pasted repository looked up on GitHub before it is staged
 //   POST   /projects/:slug/camino/lint               {path, content}: actionlint's verdict on a workflow before staging
 //   POST   /projects/:slug/camino/pins               {uses: ["owner/repo@tag"]}: the commit each tag points at, to pin
 //   POST   /projects/:slug/camino/runs/:id/rerun     re-runs a run's failed jobs on GitHub
@@ -48,8 +49,8 @@ caminoRoutes.get("/projects/:slug/camino", async (c) => {
         const p = await findProject(db, c.req.param("slug"));
         const row = await caminoRow(db, p.id);
         const age = row.checkedAt ? caminoDeps.now().getTime() - row.checkedAt.getTime() : Infinity;
-        if (!row.discovery) await discoverOnce(db, p);
-        else if (age > STALE_MS) void discoverOnce(db, p).catch(() => {});
+        // PLA-I70-41: Plania's own configuration answers at once; the GitHub read (40+ calls on a real repo) fills in behind it.
+        if (!row.discovery || age > STALE_MS) void discoverOnce(db, p).catch(() => {});
         return caminoRead(db, p.slug);
       }),
     );
@@ -105,7 +106,37 @@ caminoRoutes.post("/projects/:slug/camino/apply", async (c) => {
     return c.json(
       await withDb(async (db) => {
         const out = await applyChanges(db, c.req.param("slug"), input);
+        // PLA-I70-7: what was applied on GitHub (or the repo or folder it is read from) shows at once, not after a recheck.
+        if (out.results.some((x) => x.ok && (x.dest === "github" || x.dest === "pr" || x.kind === "repo" || x.kind === "folder"))) {
+          await discoverOnce(db, await findProject(db, c.req.param("slug"))).catch(() => {});
+        }
         return { ...out, read: await caminoRead(db, c.req.param("slug")) };
+      }),
+    );
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I70-11: a pasted repository is looked up on GitHub before it is staged.
+caminoRoutes.post("/projects/:slug/camino/repo-check", async (c) => {
+  const input = await json(c, z.object({ repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/) }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return c.json(
+      await withDb(async (db) => {
+        const api = await githubFor(await findProject(db, c.req.param("slug")));
+        if (!api) return { ok: false, reason: "no_token" };
+        try {
+          const r = await api.call("GET", `/repos/${input.repo}`);
+          if (r.status === 404) return { ok: false, reason: "not_found" };
+          if (r.status === 401 || r.status === 403) return { ok: false, reason: "refused" };
+          if (r.status < 200 || r.status >= 300) return { ok: false, reason: "network" };
+          const j = (await r.json()) as { full_name: string; private: boolean; default_branch: string };
+          return { ok: true, repo: j.full_name, private: j.private, default_branch: j.default_branch };
+        } catch {
+          return { ok: false, reason: "network" };
+        }
       }),
     );
   } catch (e) {

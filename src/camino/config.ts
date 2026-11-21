@@ -26,7 +26,7 @@ export const DEFAULT_COMMITS: CommitSettings = {
 export const DEFAULT_DEPS: DepsSettings = { on: false, interval: "weekly", target: null, group: true, auto_patch: false };
 
 /** The work-branch pattern Plania's own runner uses (src/runner/worktree.ts branchFor). */
-export const RUNNER_WORK_PATTERN = "jl/<clave>";
+export const RUNNER_WORK_PATTERN = "plania/<clave>";
 
 export type EffectiveConfig = {
   model: PublishModel;
@@ -39,7 +39,7 @@ export type EffectiveConfig = {
   envs: CaminoEnv[];
   connections: NonNullable<CaminoConfig["connections"]>;
   /** Where each top value came from: camino (the owner set it here), settings (an older setting), github, default. */
-  source: Record<"model" | "branches" | "merge" | "envs", "camino" | "settings" | "github" | "default">;
+  source: Record<"model" | "branches" | "merge" | "envs" | "commits", "camino" | "settings" | "github" | "default">;
 };
 
 const env = (over: Partial<CaminoEnv> & Pick<CaminoEnv, "id" | "name" | "kind">): CaminoEnv => ({
@@ -99,10 +99,12 @@ export function effectiveConfig(s: ProjectSettings, stored: CaminoConfig, github
   const start = startBranchOf(s);
   const derivedModel: PublishModel = release ? "integ" : "trunk";
   const published = stored.branches?.published ?? release?.into ?? github?.default_branch ?? "main";
-  const integration = stored.branches?.integration !== undefined ? stored.branches.integration : release ? release.from : start !== published ? start : null;
+  // PLA-I70-4: a project that publishes straight from one branch has no integration branch; only the integ model derives one.
+  const model: PublishModel = stored.model ?? derivedModel;
+  const integration = stored.branches?.integration !== undefined ? stored.branches.integration : release ? release.from : model === "integ" && start !== published ? start : null;
   const ghMerge = github?.merge ? { squash: github.merge.squash, delete_on_merge: github.merge.delete_on_merge, suggest_update: github.merge.suggest_update } : {};
   return {
-    model: stored.model ?? derivedModel,
+    model,
     branches: { published, integration: integration || null, work_pattern: stored.branches?.work_pattern ?? RUNNER_WORK_PATTERN },
     rules: stored.rules ?? {},
     merge: { ...DEFAULT_MERGE, ...Object.fromEntries(Object.entries(ghMerge).filter(([, v]) => v !== undefined)), ...(stored.merge ?? {}) },
@@ -116,6 +118,7 @@ export function effectiveConfig(s: ProjectSettings, stored: CaminoConfig, github
       branches: stored.branches ? "camino" : release ? "settings" : github ? "github" : "default",
       merge: stored.merge ? "camino" : github?.merge ? "github" : "default",
       envs: stored.envs ? "camino" : s.release || s.capture ? "settings" : "default",
+      commits: stored.commits ? "camino" : "default",
     },
   };
 }

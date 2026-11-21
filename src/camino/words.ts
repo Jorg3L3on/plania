@@ -2,20 +2,26 @@
 // and the history's lines. In the install's language (src/words.ts say).
 import { defineWords, say } from "../words.js";
 
+/** PLA-I70-32: the home folder as ~ (never /Users/name in what the owner reads). */
+const NAMES: Record<string, string> = { github: "GitHub", vercel: "Vercel", netlify: "Netlify", render: "Render", railway: "Railway", fly: "Fly.io", cloudflare: "Cloudflare", neon: "Neon", supabase: "Supabase", planetscale: "PlanetScale" };
+/** PLA-I70-34: a service by its name, never its lowercase id. */
+const nameOf = (id: string): string => NAMES[id] ?? id;
+const tidy = (p: string): string => p.replace(/^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/, "~");
+
 export const CAMINO_SERVER_WORDS = defineWords({
   es: {
     envCopy: "Copia de prueba",
     envProd: "Producción",
-    keySaved: (provider: string, l4: string) => `Llave de ${provider} guardada y probada (…${l4})`,
-    keyRemoved: (provider: string) => `Llave de ${provider} quitada`,
+    keySaved: (provider: string, l4: string) => `Llave de ${nameOf(provider)} guardada y probada (…${l4})`,
+    keyRemoved: (provider: string) => `Llave de ${nameOf(provider)} quitada`,
     undoKey: "Quitar la llave en Conexiones y llaves",
     undoConfig: "Volver a cambiarlo en Camino",
-    undoRoles: "Elegir los papeles anteriores en Código y ramas",
-    undoRepo: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Código y ramas` : "Quitar el repositorio en Ajustes"),
-    undoFolder: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Código y ramas` : "Elegir otra carpeta en Código y ramas"),
-    undoRule: (b: string) => `Apagar la regla de ${b} en Código y ramas (o borrar «plania-${b}» en GitHub)`,
-    undoRuleOff: (b: string) => `Volver a proteger ${b} en Código y ramas`,
-    undoMerge: "Cambiar cómo se fusionan las propuestas en Código y ramas",
+    undoRoles: "Elegir los papeles anteriores en Repositorio y ramas",
+    undoRepo: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Repositorio y ramas` : "Quitar el repositorio en Ajustes"),
+    undoFolder: (prev: string | null) => (prev ? `Volver a elegir ${tidy(prev)} en Repositorio y ramas` : "Elegir otra carpeta en Repositorio y ramas"),
+    undoRule: (b: string) => `Apagar la regla de ${b} en Repositorio y ramas (o borrar «plania-${b}» en GitHub)`,
+    undoRuleOff: (b: string) => `Volver a proteger ${b} en Repositorio y ramas`,
+    undoMerge: "Cambiar cómo se fusionan las propuestas en Repositorio y ramas",
     undoBranch: (b: string) => `Restaurar ${b} desde su propuesta fusionada en GitHub (botón Restore branch)`,
     undoRuleset: (n: string) => `Crear de nuevo la regla «${n}» en GitHub`,
     undoPr: (n: number) => `Cerrar la propuesta #${n} sin fusionarla`,
@@ -37,16 +43,16 @@ export const CAMINO_SERVER_WORDS = defineWords({
   en: {
     envCopy: "Test copy",
     envProd: "Production",
-    keySaved: (provider: string, l4: string) => `${provider} key saved and tested (…${l4})`,
-    keyRemoved: (provider: string) => `${provider} key removed`,
+    keySaved: (provider: string, l4: string) => `${nameOf(provider)} key saved and tested (…${l4})`,
+    keyRemoved: (provider: string) => `${nameOf(provider)} key removed`,
     undoKey: "Remove the key in Connections and keys",
     undoConfig: "Change it again in Camino",
-    undoRoles: "Pick the previous roles in Code and branches",
-    undoRepo: (prev: string | null) => (prev ? `Pick ${prev} again in Code and branches` : "Remove the repository in Settings"),
-    undoFolder: (prev: string | null) => (prev ? `Pick ${prev} again in Code and branches` : "Pick another folder in Code and branches"),
-    undoRule: (b: string) => `Turn off ${b}'s rule in Code and branches (or delete «plania-${b}» on GitHub)`,
-    undoRuleOff: (b: string) => `Protect ${b} again in Code and branches`,
-    undoMerge: "Change how PRs merge in Code and branches",
+    undoRoles: "Pick the previous roles in Repository and branches",
+    undoRepo: (prev: string | null) => (prev ? `Pick ${prev} again in Repository and branches` : "Remove the repository in Settings"),
+    undoFolder: (prev: string | null) => (prev ? `Pick ${tidy(prev)} again in Repository and branches` : "Pick another folder in Repository and branches"),
+    undoRule: (b: string) => `Turn off ${b}'s rule in Repository and branches (or delete «plania-${b}» on GitHub)`,
+    undoRuleOff: (b: string) => `Protect ${b} again in Repository and branches`,
+    undoMerge: "Change how PRs merge in Repository and branches",
     undoBranch: (b: string) => `Restore ${b} from its merged PR on GitHub (Restore branch button)`,
     undoRuleset: (n: string) => `Create the rule «${n}» again on GitHub`,
     undoPr: (n: number) => `Close PR #${n} without merging it`,

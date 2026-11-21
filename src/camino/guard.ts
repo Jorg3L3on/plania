@@ -22,6 +22,8 @@ export async function mergeRules(db: Db, p: Project) {
   const { config } = await caminoRow(db, p.id);
   return {
     squash: config.merge?.squash === true,
-    required: (base: string): string[] => (config.rules?.[base]?.on ? (config.required_checks?.[base] ?? []) : []),
+    // PLA-I70-5: a check the owner required holds on Plania's own merges whether or not the branch rule is on (a private repo
+    // on the free plan has no rule to turn on).
+    required: (base: string): string[] => config.required_checks?.[base] ?? [],
   };
 }

@@ -23,7 +23,7 @@ export type Tab = (typeof TABS)[number];
 export const DOORS = ["archivo", "equipo", "maquinas", "marca", "camino", "ajustes"] as const;
 export const CORRIENTE_LIB_WORDS = defineWords({
   es: {
-    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Camino", ajustes: "Ajustes" } as Record<Tab, string>,
+    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Despliegue", ajustes: "Ajustes" } as Record<Tab, string>,
     // The ask box's three modes (the same words as the building's).
     modes: {
       forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
@@ -52,7 +52,7 @@ export const CORRIENTE_LIB_WORDS = defineWords({
     oneFem: "Una",
   },
   en: {
-    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", camino: "Path", ajustes: "Settings" },
+    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", camino: "Deploy", ajustes: "Settings" },
     modes: {
       forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
       ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },

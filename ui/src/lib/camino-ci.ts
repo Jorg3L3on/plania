@@ -35,6 +35,7 @@ export const SHA_PIN = /@[0-9a-f]{40}$/;
 // A paused step's condition: an event that never happens. actionlint refuses a constant «false»; this it accepts, and
 // it reads as what it is.
 const PAUSED = "camino-paused";
+const PAUSE_NOTE_MARK = "Paused from Plania (Camino)";
 export const PAUSE_IF = "${{ github.event_name == '" + PAUSED + "' }}";
 
 /** The check name GitHub reports for one value of a job's matrix: the value replaces an expression in the name, or is added in parentheses. */
@@ -203,8 +204,14 @@ export const edits = {
       if (!isMap(s)) return;
       const m = s as YAMLMap;
       const cur = m.get("if");
-      if (cur !== undefined && (String(cur).includes(PAUSED) || cur === false || cur === "${{ false }}")) m.delete("if");
-      else if (cur === undefined) place(d, m, "if", PAUSE_IF, { before: ["uses", "run", "with", "env"] });
+      if (cur !== undefined && (String(cur).includes(PAUSED) || cur === false || cur === "${{ false }}")) {
+        m.delete("if");
+        if (String(m.commentBefore ?? "").includes(PAUSE_NOTE_MARK)) m.commentBefore = null;
+      } else if (cur === undefined) {
+        place(d, m, "if", PAUSE_IF, { before: ["uses", "run", "with", "env"] });
+        // PLA-I70-42: the file says why this step never runs.
+        m.commentBefore = ` ${PAUSE_NOTE_MARK}: the 'if' below never holds, so the step does not run. Delete that line to run it again.`;
+      }
     }),
   stepRemove: (t: string, job: string, i: number) => edit(t, (d) => void stepsOf(d, job)?.items.splice(i, 1)),
   stepMove: (t: string, job: string, i: number, dir: -1 | 1) =>
@@ -277,7 +284,7 @@ export function warnings(wf: Workflow, ctx: { required: string[]; publicRepo: bo
   if (wf.error) return out;
   const runsOnPr = wf.on.pr !== null;
   const requiredHere = wf.jobs.filter((j) => ctx.required.some((r) => r === j.name || r.startsWith(j.name + " (")));
-  if (wf.permissions === "unset" || wf.permissions === "write") out.push({ id: "permissions", ...w.permissions, fix: { label: w.fixes.permissions, kind: "edit" } });
+  if (wf.permissions === "unset" || wf.permissions === "write") out.push({ id: "permissions", text: w.permissions.text, detail: wf.permissions === "write" ? w.permissions.detailWrite : w.permissions.detail, fix: { label: w.fixes.permissions, kind: "edit" } });
   const loose = wf.actions.filter((a) => !a.pinned);
   if (loose.length) out.push({ id: "unpinned", text: w.unpinned.text, detail: w.unpinned.detail(loose.map((a) => a.uses).join(", ")), fix: { label: w.fixes.pin, kind: "pin" } });
   if (wf.jobs.some((j) => j.timeout === null) && (runsOnPr || wf.on.push)) out.push({ id: "timeout", ...w.timeout, fix: { label: w.fixes.timeout, kind: "edit" } });
@@ -373,11 +380,11 @@ export const AUTO_PATCH_YML = [
 export const CI_WORDS = defineWords({
   es: {
     warn: {
-      permissions: { text: "Puede escribir en el repo sin pedirlo", detail: "Sin «permissions» arriba, el token del flujo puede escribir. Lo seguro es solo leer." },
+      permissions: { text: "Puede escribir en el repo sin pedirlo", detail: "Sin «permissions» arriba, el token del flujo puede escribir. Lo seguro es solo leer.", detailWrite: "El flujo pide permiso de escritura en todo el repo («write-all»). Lo seguro es solo leer." },
       unpinned: { text: "Las acciones siguen etiquetas que su autor puede mover", detail: (list: string) => `En 2025 una acción popular movió sus etiquetas a código que robaba secretos. Sin fijar: ${list}.` },
       timeout: { text: "Sin límite de tiempo", detail: "GitHub espera hasta 6 horas a un trabajo trabado." },
       cancel: { text: "Las corridas viejas siguen corriendo", detail: "Cancelar la anterior cuando llega un commit nuevo ahorra minutos." },
-      continue: { text: "Un paso puede fallar sin que la prueba falle", detail: "continue-on-error hace que la prueba quede en verde aunque ese paso falle." },
+      continue: { text: "Un paso puede fallar sin que la prueba falle", detail: "El paso está marcado para seguir aunque falle, y por eso la prueba queda en verde aunque ese paso falle." },
       paths: { text: "Una prueba exigida no corre en todas las propuestas", detail: "Con filtros de archivos, una propuesta que no los toca nunca recibe la prueba y GitHub la espera para siempre." },
       matrix: { text: "Los nombres cambian con cada sistema", detail: "«Build (ubuntu)», «(macos)»… Una regla que exija «Build» nunca coincide. Un trabajo ci-ok que espera a todos da un nombre fijo." },
       secret: { text: "Usa la llave de la base de producción guardada en GitHub", detail: (list: string) => `Cualquier flujo del repo puede leer ${list}. Un entorno protegido de GitHub la limita a este trabajo.` },
@@ -397,7 +404,7 @@ export const CI_WORDS = defineWords({
   },
   en: {
     warn: {
-      permissions: { text: "It can write to the repo without asking", detail: "With no top-level «permissions», the workflow's token can write. Read-only is the safe default." },
+      permissions: { text: "It can write to the repo without asking", detail: "With no top-level «permissions», the workflow's token can write. Read-only is the safe default.", detailWrite: "The workflow asks for write access to the whole repo («write-all»). Read-only is the safe default." },
       unpinned: { text: "Actions follow tags their author can move", detail: (list: string) => `In 2025 a popular action moved its tags to code that stole secrets. Not pinned: ${list}.` },
       timeout: { text: "No time limit", detail: "GitHub waits up to 6 hours for a stuck job." },
       cancel: { text: "Old runs keep running", detail: "Cancelling the previous run when a new commit arrives saves minutes." },

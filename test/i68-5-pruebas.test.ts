@@ -135,7 +135,11 @@ describe("every warning shows where the problem is, and its fix removes it", () 
 describe("edits keep everything they do not mean to change", () => {
   test("pause, remove, move, add, pin: only the intended lines", () => {
     let d = changedLines(WF, CI.edits.stepPause(WF, "check", 2));
-    assert.deepEqual(d, { removed: ["      - run: npm ci"], added: ["      - if: ${{ github.event_name == 'camino-paused' }}", "        run: npm ci"] });
+    // PLA-I70-42: the pause also leaves a comment line saying why the step never runs.
+    assert.deepEqual(d.removed, ["      - run: npm ci"]);
+    assert.equal(d.added.length, 3);
+    assert.match(d.added[0]!, /^ {6}# Paused from Plania \(Camino\)/);
+    assert.deepEqual(d.added.slice(1), ["      - if: ${{ github.event_name == 'camino-paused' }}", "        run: npm ci"]);
     assert.equal(CI.readWorkflow("ci", CI.edits.stepPause(WF, "check", 2)).jobs[0]!.steps[2]!.off, true);
     d = changedLines(WF, CI.edits.stepRemove(WF, "check", 4));
     assert.deepEqual(d.removed, ["      - run: npm run build", "        env:", "          DATABASE_URL: ${{ secrets.DATABASE_URL }}"]);

@@ -8,7 +8,7 @@ import { camino, caminoHistory, envStates, projects, pullRequests, tasks, type C
 import { githubToken } from "../jobs/github.js";
 import { projectsRoot, repoPathOf } from "../runner/worktree.js";
 import { findProject } from "../mcp/queries.js";
-import { effectiveConfig, type EffectiveConfig } from "./config.js";
+import { effectiveConfig, RUNNER_WORK_PATTERN, type EffectiveConfig } from "./config.js";
 import { discoverGithub, ghApi, type GhApi } from "./github.js";
 import { caminoKeys } from "./keys.js";
 import { discoverMac } from "./mac.js";
@@ -67,6 +67,12 @@ export async function caminoRow(db: Db, projectId: string) {
   return row ?? { projectId, config: {} as CaminoConfig, version: 0, discovery: null, checkedAt: null, updatedAt: null };
 }
 
+/** PLA-I70-6: the work-branch pattern the runner names branches by: the owner's, else the neutral default. */
+export async function workPatternOf(db: Db, projectId: string): Promise<string> {
+  const row = await caminoRow(db, projectId);
+  return row.config.branches?.work_pattern?.trim() || RUNNER_WORK_PATTERN;
+}
+
 /** Runs discovery and stores it. Errors become the discovery's own ok:false, never a throw. */
 export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps): Promise<Discovery> {
   const t0 = Date.now();
@@ -83,7 +89,15 @@ export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps
       : await discoverGithub(api, repo, roles, now).catch((e) => ({ ok: false as const, error: "network" as const, detail: e instanceof Error ? e.message.slice(0, 200) : "" }));
   const folder = p.settings.local?.no_code ? null : repoPathOf(p.slug, p.settings, deps.env);
   const mac = await discoverMac(folder, repo, { listDatabases: deps.listDatabases, projectsRoot: projectsRoot(deps.env) });
-  const d: Discovery = { checked_at: now.toISOString(), took_ms: Date.now() - t0, github, mac };
+  // PLA-I70-3: a network failure never erases the last good read; it is kept, marked stale with its age.
+  const prevGh = row.discovery?.github;
+  const kept: Discovery["github"] =
+    !github.ok && github.error === "network" && prevGh?.ok && prevGh.repo.full_name === repo
+      ? { ...prevGh, stale: { since: prevGh.stale?.since ?? row.discovery!.checked_at, error: github.detail ?? "network" } }
+      : github.ok
+        ? github
+        : { ...github, source: api?.source ?? null };
+  const d: Discovery = { checked_at: now.toISOString(), took_ms: Date.now() - t0, github: kept, mac };
   // PLA-I68-3: what changed on GitHub since the last read and was not Plania's own doing goes to Historial.
   if (row.discovery) {
     // A merge-option change Plania itself applied since the last read is not someone else's.
@@ -233,7 +247,12 @@ export function outsideChanges(before: Discovery, after: Discovery): string[] {
     for (const [id, r] of was) if (!now.has(id)) out.push(w.outsideRuleset(r.name, w.removed));
     for (const [id, r] of now) if (was.has(id) && key(was.get(id)!) !== key(r)) out.push(w.outsideRuleset(r.name, w.changed));
   }
-  if (a.repo.default_branch !== b.repo.default_branch) out.push(w.outsideDefault(b.repo.default_branch));
-  if (a.repo.merge && b.repo.merge && JSON.stringify(a.repo.merge) !== JSON.stringify(b.repo.merge)) out.push(w.outsideMerge);
+  if (b.repo.default_branch && a.repo.default_branch !== b.repo.default_branch) out.push(w.outsideDefault(b.repo.default_branch));
+  // PLA-I70-2: field by field; a jsonb round trip reorders keys, so comparing the JSON text made every re-read «change».
+  if (a.repo.merge && b.repo.merge && !b.stale && !a.stale) {
+    const f = (m: NonNullable<typeof a.repo.merge>) => [m.squash, m.merge, m.rebase, m.delete_on_merge, m.suggest_update];
+    const after = f(b.repo.merge);
+    if (f(a.repo.merge).some((v, i) => v !== after[i])) out.push(w.outsideMerge);
+  }
   return out;
 }

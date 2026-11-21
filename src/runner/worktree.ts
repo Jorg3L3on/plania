@@ -39,7 +39,16 @@ export const repoPathOf = (slug: string, settings: { local?: { repo_path?: strin
 
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 
-export const branchFor = (key: string): string => `jl/${key.toLowerCase()}`;
+/** PLA-I70-6: the neutral default for work branches; a project's Camino pattern («Ramas de trabajo») replaces it. */
+export const DEFAULT_WORK_PATTERN = "plania/<clave>";
+/** The work branch for a ticket: the pattern with <clave> replaced by the lower-cased key. A pattern with no <clave>, or one that
+ * would not be a safe branch name, falls back to the default. */
+export function branchFor(key: string, pattern: string | null | undefined = DEFAULT_WORK_PATTERN): string {
+  const k = key.toLowerCase();
+  const p = pattern && pattern.includes("<clave>") ? pattern : DEFAULT_WORK_PATTERN;
+  const name = p.replace(/<clave>/g, k);
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(name) && !name.includes("..") && !name.endsWith("/") ? name : DEFAULT_WORK_PATTERN.replace("<clave>", k);
+}
 
 export function worktreePathFor(root: string, project: string, key: string): string {
   if (!SAFE_KEY.test(project) || !SAFE_KEY.test(key)) throw new Error("unsafe worktree name");

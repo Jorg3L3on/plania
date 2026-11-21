@@ -3,12 +3,13 @@
 // roles picked from the real branches, a work-branch pattern with its live matches, the branches with their role and
 // state, GitHub's rules per role branch in plain words, and how PRs merge. Every edit goes to the change set.
 import { useState } from "react";
+import { api } from "@/lib/api";
 import { codigoWords, kindOf, matchesOf, MODEL_SOURCES, repoFromLink, roleOptions } from "@/lib/camino-codigo";
 import { cambiosWords } from "@/lib/camino-cambios";
-import { caminoWords } from "@/lib/camino";
+import { caminoWords, tidyPath } from "@/lib/camino";
 import type { BranchRule, CaminoRead, PublishModel } from "@/lib/camino-types";
 import { Btn } from "./parts";
-import { Blk, Ed } from "./camino";
+import { Blk, Ed, Experto, Recom } from "./camino";
 import { Tg } from "./camino-cambios";
 import type { Cambios } from "./camino-store";
 
@@ -33,11 +34,14 @@ export const Why = ({ text, src, label, srcLabel }: { text: string; src?: string
 export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const w = codigoWords();
   const cw = cambiosWords();
+  const ex = caminoWords().expert.codigo;
   const g = r.discovery?.github.ok ? r.discovery.github : null;
   const mac = r.discovery?.mac;
   const c = r.config;
   const [paste, setPaste] = useState("");
-  const [pasteBad, setPasteBad] = useState(false);
+  const [pasteBad, setPasteBad] = useState<string | null>(null);
+  const [pasted, setPasted] = useState<Set<string>>(new Set());
+  const [looking, setLooking] = useState(false);
 
   const orig: Roles = { model: c.model, published: c.branches.published, integration: c.branches.integration, work_pattern: c.branches.work_pattern };
   const roles = (cambios.staged("roles") as Roles | undefined) ?? orig;
@@ -46,16 +50,19 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
 
   // repo and folder
   const repo = (cambios.staged("repo") as { repo: string } | undefined)?.repo ?? r.settings.repo ?? "";
-  const repos = [...new Set([...(r.settings.repo ? [r.settings.repo] : []), ...(g?.repos ?? (r.discovery?.github.ok === false ? (r.discovery.github.repos ?? []) : []))])];
+  // PLA-I70-11: a pasted repository is an option too, marked as pasted, so the select shows what is staged.
+  const repos = [...new Set([...(r.settings.repo ? [r.settings.repo] : []), ...(repo ? [repo] : []), ...(g?.repos ?? (r.discovery?.github.ok === false ? (r.discovery.github.repos ?? []) : []))])];
   const setRepo = (next: string) => cambios.stage({ key: "repo", change: { kind: "repo", label: w.label.repo(next), repo: next }, dest: "plania", from: r.settings.repo ?? "—", to: next });
   const folder = (cambios.staged("folder") as { path: string } | undefined)?.path ?? r.settings.folder ?? "";
   const clones = [...new Set([...(mac?.folder?.clones ?? []), ...(mac?.folder?.matches ? [mac.folder.path] : [])])];
-  const setFolder = (next: string) => cambios.stage({ key: "folder", change: { kind: "folder", label: w.label.folder(next), path: next }, dest: "plania", from: r.settings.folder ?? "—", to: next });
+  const setFolder = (next: string) => cambios.stage({ key: "folder", change: { kind: "folder", label: w.label.folder(tidyPath(next)), path: next }, dest: "plania", from: tidyPath(r.settings.folder) || "—", to: tidyPath(next) });
 
   const opts = g ? roleOptions(g.branches) : [roles.published, ...(roles.integration ? [roles.integration] : [])];
   const names = g?.branches.map((b) => b.name) ?? [];
   const matches = matchesOf(roles.work_pattern, names);
   const priv = !!g && !g.rules.available;
+  // PLA-I70-21: creating GitHub rules needs admin on the repo; without it the controls say so instead of failing on apply.
+  const noAdmin = !!g && !g.repo.admin && !priv;
 
   const ruleOf = (b: string): BranchRule => (cambios.staged(`rule:${b}`) as { rule: BranchRule } | undefined)?.rule ?? c.rules[b] ?? { ...DEFAULT_RULE, on: !!g?.branches.find((x) => x.name === b)?.protected || !!g?.rules.list.some((x) => x.plania && x.branches.includes(b) && x.enforcement === "active") };
   const origRule = (b: string): BranchRule => c.rules[b] ?? { ...DEFAULT_RULE, on: !!g?.branches.find((x) => x.name === b)?.protected || !!g?.rules.list.some((x) => x.plania && x.branches.includes(b) && x.enforcement === "active") };
@@ -65,13 +72,22 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const merge = (cambios.staged("merge") as typeof c.merge | undefined) ?? c.merge;
   const yn = (v: boolean) => (v ? w.yes : w.no);
   const mergeSay = (m: typeof c.merge) => `squash ${yn(m.squash)} · merge ${yn(m.promo_merge)} · ${w.delOnMerge.toLowerCase()} ${yn(m.delete_on_merge)}`;
-  const setMerge = (next: typeof c.merge) => cambios.stage({ key: "merge", change: { kind: "repo_merge", label: w.label.merge, ...next }, dest: "github", from: mergeSay(c.merge), to: mergeSay(next) });
+  const mergeLines = (next: typeof c.merge) => (Object.keys(w.mergeLabels) as (keyof typeof c.merge)[]).filter((k) => next[k] !== c.merge[k]).map((k) => `${w.mergeLabels[k]}: ${yn(c.merge[k])} → ${yn(next[k])}`);
+  const setMerge = (next: typeof c.merge) => cambios.stage({ key: "merge", change: { kind: "repo_merge", label: w.label.merge, ...next }, dest: "github", from: mergeSay(c.merge), to: mergeSay(next), lines: mergeLines(next) });
 
   const integBranch = g?.branches.find((b) => b.name === roles.integration);
   const roleBranches = [roles.published, ...(roles.model === "integ" && roles.integration ? [roles.integration] : [])];
 
   return (
     <Ed id="codigo" title={caminoWords().sections.codigo} lead={w.lead}>
+      <Recom
+        lines={[...(noAdmin ? [] : [ex.rule(roles.published)]), ex.merge]}
+        done={(noAdmin || (ruleOf(roles.published).on && ruleOf(roles.published).pr && ruleOf(roles.published).nodel)) && merge.squash && merge.delete_on_merge}
+        onUse={() => {
+          if (!noAdmin) setRule(roles.published, { on: true, pr: true, nodel: true, agents: ruleOf(roles.published).agents });
+          setMerge({ ...merge, squash: true, delete_on_merge: true });
+        }}
+      />
       <div className="cam-grid2">
         <div className="cam-field">
           <label className="cam-lab" htmlFor="cam-repo">
@@ -82,7 +98,7 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
               {!repo && <option value="">{w.noRepoYet}</option>}
               {repos.map((x) => (
                 <option key={x} value={x}>
-                  {x}
+                  {pasted.has(x) && !g?.repos.includes(x) ? `${x} (${w.repoPasted})` : x}
                 </option>
               ))}
             </select>
@@ -90,25 +106,36 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
             <p className="cam-hint">{w.noRepoYet}</p>
           )}
           <span className="cam-acts">
-            <input className="cor-input cor-mono" value={paste} onChange={(e) => (setPaste(e.target.value), setPasteBad(false))} placeholder={w.repoPaste} aria-label={w.repoPaste} autoComplete="off" spellCheck={false} data-campo="repo-enlace" />
+            <input className="cor-input cor-mono" value={paste} onChange={(e) => (setPaste(e.target.value), setPasteBad(null))} placeholder={w.repoPaste} aria-label={w.repoPaste} autoComplete="off" spellCheck={false} data-campo="repo-enlace" />
             <Btn
               kind="secondary"
               small
-              disabled={!paste.trim()}
+              disabled={!paste.trim() || looking}
               onClick={() => {
                 const x = repoFromLink(paste);
-                if (!x) return setPasteBad(true);
-                setRepo(x);
-                setPaste("");
+                if (!x) return setPasteBad(w.repoBad);
+                setLooking(true);
+                void api
+                  .caminoRepoCheck(r.slug, x)
+                  .then((out) => {
+                    if (!out.ok && out.reason !== "no_token") return setPasteBad(out.reason === "network" ? w.repoUnreachable : w.repoMissing);
+                    const name = out.repo ?? x;
+                    setPasted((s) => new Set(s).add(name));
+                    setRepo(name);
+                    setPaste("");
+                  })
+                  .catch(() => setPasteBad(w.repoUnreachable))
+                  .finally(() => setLooking(false));
               }}
               data-control="usar-enlace"
             >
               {w.repoCheck}
             </Btn>
           </span>
+          {looking && <span className="cam-hint" role="status">{w.repoChecking}</span>}
           {pasteBad && (
             <span className="cam-hint bad-t" role="alert">
-              {w.repoBad}
+              {pasteBad}
             </span>
           )}
           {g && <span className="cam-hint">{w.repoMeta(g.repo.private ? caminoWords().strip.private : caminoWords().strip.public, g.repo.default_branch, g.repo.admin)}</span>}
@@ -118,11 +145,11 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
             {w.folder} <i>{w.folderHint}</i>
           </label>
           {clones.length ? (
-            <select id="cam-folder" className="cor-input cor-mono" value={folder} onChange={(e) => setFolder(e.target.value)} data-campo="carpeta">
-              {!clones.includes(folder) && folder && <option value={folder}>{folder}</option>}
+            <select id="cam-folder" className="cor-input cor-mono" title={folder} value={folder} onChange={(e) => setFolder(e.target.value)} data-campo="carpeta">
+              {!clones.includes(folder) && folder && <option value={folder}>{tidyPath(folder)}</option>}
               {clones.map((x) => (
-                <option key={x} value={x}>
-                  {x}
+                <option key={x} value={x} title={x}>
+                  {tidyPath(x)}
                 </option>
               ))}
             </select>
@@ -133,6 +160,7 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
         </div>
       </div>
 
+      <Experto id="codigo">
       <Blk cap={w.howPublish} hint={<Why text={w.models[roles.model].why} src={MODEL_SOURCES[roles.model]} label={w.why} srcLabel={w.source} />}>
         <div className="cam-grid3" role="group" aria-label={w.howPublish}>
           {(["trunk", "integ", "tags"] as PublishModel[]).map((m) => (
@@ -183,7 +211,7 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
             <label className="cam-lab" htmlFor="cam-work">
               {w.work} <i>{w.workHint}</i>
             </label>
-            <input id="cam-work" className="cor-input cor-mono" defaultValue={roles.work_pattern} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== roles.work_pattern && setRoles({ ...roles, work_pattern: e.target.value.trim() })} autoComplete="off" spellCheck={false} data-campo="patron" />
+            <input id="cam-work" key={`work-${cambios.epoch}`} className="cor-input cor-mono" defaultValue={roles.work_pattern} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== roles.work_pattern && setRoles({ ...roles, work_pattern: e.target.value.trim() })} autoComplete="off" spellCheck={false} data-campo="patron" />
             <span className="cam-hint" data-coinciden={matches.length}>
               {w.matches(matches.length, matches.slice(0, 3).join(", "))}
             </span>
@@ -249,8 +277,11 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
                   </span>
                   <span className={cls("cam-chip", priv ? "warn" : rule.on ? "ok" : "warn")}>{priv ? w.chipPlan : rule.on ? w.chipProtected : w.chipOpen}</span>
                 </div>
-                <Tg on={rule.on} title={w.ruleOn(b)} sub={priv ? w.ruleOnPlan : w.ruleOnSub} onClick={() => setRule(b, { ...rule, on: !rule.on })} data-control={`proteger-${b}`} />
-                {rule.on && (
+                <Tg on={rule.on} title={w.ruleOn(b)} sub={priv ? w.ruleOnPlan : w.ruleOnSub} disabled={noAdmin} onClick={() => setRule(b, { ...rule, on: !rule.on })} data-control={`proteger-${b}`} />
+                {noAdmin && <p className="cam-hint" data-sin-admin>{w.needAdmin}</p>}
+                {/* PLA-I70-5: «solo por propuesta» and «no borrar» are GitHub's; where GitHub cannot hold them nobody can enforce them. */}
+                {rule.on && priv && <p className="cam-hint" data-sin-github>{w.ruleNoEnforce}</p>}
+                {rule.on && !priv && (
                   <>
                     <Tg on={rule.pr} title={w.rulePr} sub={w.rulePrSub} onClick={() => setRule(b, { ...rule, pr: !rule.pr })} />
                     <Tg on={rule.nodel} title={w.ruleNodel} sub={w.ruleNodelSub} onClick={() => setRule(b, { ...rule, nodel: !rule.nodel })} />
@@ -273,6 +304,7 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
         </div>
       </Blk>
       <p className="cam-hint">{w.agentsRead}</p>
+      </Experto>
     </Ed>
   );
 };
