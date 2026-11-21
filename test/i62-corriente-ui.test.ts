@@ -320,11 +320,13 @@ const equipo = await load("components/corriente/equipo.tsx");
 
 // PLA-I64-7: the board is retired; its levers (Detener, Hacer primero, Cerrar) are the list's (test/i64-todo-ui.test.ts).
 
-test("I62-6: the team's headline and the seats' lines", () => {
-  assert.deepEqual(equipo.teamHeadline([member("a", "taller", "running"), member("b", "product-owner"), member("c", "research"), member("d", "artist")], false), { now: "Uno trabajando.", rest: "Tres libres." });
-  assert.deepEqual(equipo.teamHeadline([member("b", "product-owner")], false), { now: "Nadie trabajando.", rest: "Uno libre." });
-  assert.equal(equipo.teamHeadline([], true).now, "El equipo está en pausa.");
+// PLA-I71-1: Equipo is the org chart; its headline counts agents (test/i71-equipo-ui.test.ts covers the chart).
+test("I62-6: the seats' lines and who a seat reports to", () => {
   assert.equal(equipo.ROLE_LINE.taller, "Construye lo que está en el plan");
+  const team = [{ ...member("po-x", "product-owner"), reports_to: "ceo" }, { ...member("taller-x", "taller"), reports_to: "po-x" }];
+  assert.equal(equipo.bossName(team[1], team), "PO");
+  assert.equal(equipo.bossName(team[0], team), "Tú");
+  assert.deepEqual(equipo.reportsOf(team[0], team).map((m: { agent: string }) => m.agent), ["taller-x"]);
 });
 
 // ---- PLA-I62-7: Ideas, Idea abierta, Diseño, PRs, Docs

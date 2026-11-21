@@ -1,0 +1,11 @@
+{
+  "slug": "minimo",
+  "name": "Mínimo",
+  "line": "PO y Taller. Para arreglos y proyectos chicos; sin investigación ni diseño.",
+  "spec": {
+    "seats": [
+      { "role": "product-owner", "reports_to": null, "skills": ["preguntas-antes-de-construir", "tickets"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "taller", "reports_to": "product-owner", "skills": ["tdd", "pr", "handoff"], "motor": { "model": "sonnet", "effort": "medium" } }
+    ]
+  }
+}

@@ -24,12 +24,14 @@ export type SkillCard = {
   archived_at: string | null;
   carried: number;
   // PLA-I67-6: an imported skill's link and the content hash it is pinned to.
-  link?: { url: string; hash: string; checked_at: string | null } | null;
+  link?: { url: string; hash: string; checked_at: string | null; kind?: "link" | "github" | "skills.sh" | null; commit?: string | null; publisher?: string | null; dropped?: string[]; review?: { words: number; dropped: string[]; marks: { file: string; line: number; kind: "secret" | "link"; text: string }[]; pinned: string } | null; upstream_hash?: string | null } | null;
 };
 export type Puesto = {
   project: string;
   agent: string;
   role: string;
+  // PLA-I71-2: the role prompt its runs carry, shown read-only in the wide panel.
+  role_text?: string | null;
   manner: string | null;
   manner_version: string | null;
   manner_at: string | null;

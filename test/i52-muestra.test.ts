@@ -180,7 +180,7 @@ describe("finish and the muestra", () => {
 
 describe("the protocol", () => {
   test("2.22 names the muestra in finish", () => {
-    assert.equal(PROTOCOL_VERSION, "2.24");
+    assert.equal(PROTOCOL_VERSION, "2.25");
     assert.match(instructions(false), /finish \{key, result, pr_url, branch, muestra\}/);
     assert.match(instructions(false), /MUESTRA_REQUIRED/);
   });

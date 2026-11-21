@@ -28,6 +28,7 @@ export const A_LA_VEZ = defineWords({
     heldPlan: (pct: number | string, guard: number | string) => `El plan va en ${pct} % (tope ${guard} %); sigue cuando baje`,
     heldRest: (who: string) => `${who} descansa entre corridas`,
     heldLock: "Espera a que termine el trabajo en la misma rama o ticket",
+    heldSeatPaused: (who: string) => `${who} está en pausa: lo reanudas desde su ficha en Equipo`,
     heldAreas: "Espera: otro trabajo toca los mismos archivos",
     heldAreasFiles: (other: string, files: string) => `Espera a ${other}: cambia ${files}`,
     heldAreasWith: (other: string) => `Espera a ${other}: toca los mismos archivos`,
@@ -56,6 +57,7 @@ export const A_LA_VEZ = defineWords({
     heldPlan: (pct: number | string, guard: number | string) => `The plan is at ${pct} % (limit ${guard} %); it goes on when it drops`,
     heldRest: (who: string) => `${who} rests between runs`,
     heldLock: "Waits for the work on the same branch or ticket to end",
+    heldSeatPaused: (who: string) => `${who} is paused: resume it from its panel in Equipo`,
     heldAreas: "Waits: other work touches the same files",
     heldAreasFiles: (other: string, files: string) => `Waits for ${other}: it changes ${files}`,
     heldAreasWith: (other: string) => `Waits for ${other}: it touches the same files`,
@@ -65,7 +67,7 @@ export const A_LA_VEZ = defineWords({
     forHours: (h: number, m: number) => `${h} h ${m} min in`,
   },
 });
-export type RunnerHeld = "project_cap" | "agent_cap" | "ceiling" | "machine" | "start_rate" | "plan" | "rest" | "lock" | "areas";
+export type RunnerHeld = "project_cap" | "agent_cap" | "ceiling" | "machine" | "start_rate" | "plan" | "rest" | "lock" | "areas" | "seat_paused";
 export type RunnerLive = { run_id: string; ticket: string | null; title: string | null; kind: "ticket" | "idea" | "pregunta" | "general"; since: string | null; model: string | null; effort: string | null };
 export type RunnerQueued = {
   run_id: string;
@@ -238,6 +240,8 @@ export function heldText(code: RunnerHeld | null, d: Record<string, unknown> | n
       return w.heldRest(who);
     case "lock":
       return w.heldLock;
+    case "seat_paused":
+      return w.heldSeatPaused(who);
     case "areas": {
       // PLA-58: which ticket, and which files («Espera a MIA-I7-2: cambia src/components/ui/native-select.tsx»).
       const other = typeof d?.with === "string" ? d.with : null;

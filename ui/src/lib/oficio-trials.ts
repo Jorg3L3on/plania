@@ -22,7 +22,10 @@ export type TrialDelivery = { run_id: string; task_key: string; title: string; e
 export type TrialsRead = { deliveries: TrialDelivery[]; trials: TrialView[] };
 export type TrialStarted = { trial: TrialView; outcome: { kind: string; summary: string } };
 
-export type ImportPreview = { url: string; source_hash: string; slug: string; name: string; description: string; body: string; files: SkillFile[]; taken: boolean };
+// PLA-I71-5: where it comes from and what Plania checked (optional for older servers).
+export type SkillMark = { file: string; line: number; kind: "secret" | "link"; text: string };
+export type ImportReview = { words: number; dropped: string[]; marks: SkillMark[]; pinned: string };
+export type ImportPreview = { url: string; source_hash: string; slug: string; name: string; description: string; body: string; files: SkillFile[]; taken: boolean; source_kind?: "link" | "github" | "skills.sh"; publisher?: string; commit?: string | null; review?: ImportReview };
 export type SkillText = { name: string; description: string; body: string; files: SkillFile[] };
 export type UpdateCheck = { url: string; saved_hash: string; source_hash: string; changed: boolean; current: SkillText; fetched: SkillText };
 

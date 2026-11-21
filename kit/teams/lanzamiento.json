@@ -1,0 +1,13 @@
+{
+  "slug": "lanzamiento",
+  "name": "Lanzamiento",
+  "line": "PO, Marketing, Escritura y Artist. Para lo que se publica fuera del producto.",
+  "spec": {
+    "seats": [
+      { "role": "product-owner", "reports_to": null, "skills": ["preguntas-antes-de-construir", "spec"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "marketing", "reports_to": "product-owner", "skills": ["cited-research"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "copy", "reports_to": "product-owner", "skills": ["espanol-claro"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "artist", "reports_to": "product-owner", "skills": ["design-it-twice"], "motor": { "model": "opus", "effort": "medium" } }
+    ]
+  }
+}

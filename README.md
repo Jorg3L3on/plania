@@ -537,6 +537,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them. |
 | `answer_consulta` | Answer a question the owner asked about a project with Pedir's Preguntar mode. |
+| `propose_seat` | Propose one more seat for a project's team, with the reason, for the owner to accept or decline on the screen. |
 | `deliver_marks` | Artist: answer a logo-marks request (a run whose reason says [marcas <id>]). |
 | `propose` | Post a proposal as data in your project's thread; the owner decides it in Te toca. |
 | `deliver_stage` | Deliver an idea's stage as data. |
@@ -689,11 +690,13 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research, decision-needed, bug or debt |
 | `LESSON_NOT_ALLOWED` | 400 | a lesson would hold a secret or personal data, or relax a test, review or check (detail: reason secret | relaxes_checks) |
+| `MANAGER_NOT_ON_TEAM` | 400 | a seat can report only to the owner or to a seat of the same project's team |
 | `MARKS_INVALID` | 400 | deliver_marks: no mark was usable after cleaning and checking (detail: reasons) |
 | `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
+| `PUESTO_INVALID` | 400 | a role of the owner's own needs a title (1-60 characters), a line (up to 200) and a base role from the catalog (detail: field) |
 | `REFERENCE_FILE_EMPTY` | 400 | a reference upload with no bytes |
 | `REFERENCE_FILE_TOO_LARGE` | 400 | a reference file over 5 MB (detail: max_bytes) |
 | `REFERENCE_FILE_TYPE` | 400 | a reference file that is not PNG, JPEG, WebP or PDF by its first bytes (the name and declared type do not count) |
@@ -731,6 +734,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LESSON_OWNER_ONLY` | 403 | only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson) |
 | `MARKS_FORBIDDEN` | 403 | deliver_marks by an agent that is not the Artist the request woke (detail: id, agent) |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
+| `SEAT_PROPOSAL_NOT_PO` | 403 | propose_seat: only the project's product owner proposes a seat; runs never create, change or retire seats |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CAMINO_KEY_MISSING` | 404 | camino: no key is saved for that service on this project |
@@ -744,6 +748,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LESSON_NOT_FOUND` | 404 | no lesson with that id (detail: lesson) |
 | `MARKS_NOT_FOUND` | 404 | deliver_marks on an id that is not an open marks request of this project (detail: id) |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
+| `PROPOSAL_NOT_FOUND` | 404 | no seat proposal with that id in this project |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
 | `REFERENCE_NOT_FOUND` | 404 | no reference with that id on this seat |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
@@ -783,21 +788,26 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
 | `LESSON_CONFLICT` | 409 | approving a lesson that clashes with an active one: say which stays with keep new | old (detail: lesson, text, other {id, text}) |
 | `LESSON_STATE` | 409 | the lesson is not in a state that action takes: approve, one-off and reject take a proposal, retire an active lesson (detail: state, action) |
+| `MANAGER_LOOP` | 409 | the new manager reports, directly or not, to the seat being moved (detail: chain) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
+| `PROPOSAL_DECIDED` | 409 | the seat proposal was already accepted or declined |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `REFERENCE_LIMIT` | 409 | the seat already has the most references it may keep (detail: max) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged | freeze: Camino's production environment is in its freeze window | prod_migration_unhandled: the release adds migrations and neither settings.release.prod_migrations nor Camino's production environment names who migrates) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
+| `SEAT_REQUIRED` | 409 | the product owner cannot be retired: every project keeps one |
+| `SEAT_TAKEN` | 409 | that role already has a seat on this team, or a role of the owner's own with that name exists |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
 | `SKILL_EXISTS` | 409 | a live skill already has that slug (detail: slug) |
 | `SKILL_IMPORT_CHANGED` | 409 | the content at the link is no longer the one the owner saw and confirmed: look at it again (detail: source_hash) |
 | `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |
+| `TEAM_FULL` | 409 | a project's team holds at most eight seats |
 | `VERIFY_FAILED` | 409 | finish: one of the project's checks (settings.qa.verify) fails in the ticket's workspace (detail: failed {name, command, exit_code, tail}, hint): fix it there and call finish again |
 <!-- errors:end -->
 
