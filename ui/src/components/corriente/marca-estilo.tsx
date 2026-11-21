@@ -150,11 +150,11 @@ export function Spec({ x, dark, logo, title, w, play }: { x: Style; dark: boolea
   );
 }
 
-function Seg<T extends string | number | boolean>({ value, opts, onPick, label }: { value: T; opts: [T, string][]; onPick: (v: T) => void; label: string }) {
+function Seg<T extends string | number | boolean>({ value, opts, onPick, label, disabled }: { value: T; opts: [T, string][]; onPick: (v: T) => void; label: string; disabled?: boolean }) {
   return (
-    <div className="es-seg" role="radiogroup" aria-label={label}>
+    <div className="es-seg" role="radiogroup" aria-label={label} aria-disabled={disabled || undefined}>
       {opts.map(([v, l]) => (
-        <button key={String(v)} type="button" role="radio" aria-checked={value === v} onClick={() => onPick(v)}>
+        <button key={String(v)} type="button" role="radio" aria-checked={value === v} disabled={disabled} onClick={() => onPick(v)}>
           {l}
         </button>
       ))}
@@ -203,7 +203,15 @@ function FontPick({ cur, which, w, fonts, onPick }: { cur: string; which: "head"
               <button key={k} type="button" aria-pressed={cat === k} onClick={() => setCat(k)}>{w.letra.cats[k]}</button>
             ))}
           </div>
-          <div className="es-flist" role="listbox" aria-label={name} tabIndex={0}>
+          {/* PLA-130: arrows move through the fonts, Home and End jump. */}
+          <div className="es-flist" role="listbox" aria-label={name} tabIndex={0} onKeyDown={(e) => {
+            const opts = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+            if (!opts.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+            e.preventDefault();
+            const i = opts.indexOf(document.activeElement as HTMLButtonElement);
+            const next = e.key === "Home" ? 0 : e.key === "End" ? opts.length - 1 : e.key === "ArrowDown" ? Math.min(opts.length - 1, i + 1) : Math.max(0, i - 1);
+            opts[next]!.focus();
+          }}>
             {list.map((f) => (
               <button key={f} type="button" role="option" aria-selected={f === cur} className="es-fo" onClick={() => { onPick(f); setOpen(false); }}>
                 <span className="nm" style={{ fontFamily: family(f) }}>
@@ -329,7 +337,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
           </H>
           <div className="es-color">
             <input type="color" value={x.brand} onChange={(e) => edit({ brand: e.target.value.toLowerCase(), brandTie: "fijo" })} aria-label={w.color.brandLabel} data-control="estilo-marca" />
-            <HexInput value={x.brand} label={w.color.hexLabel} onValid={(v) => edit({ brand: v, brandTie: "fijo" })} />
+            <HexInput value={x.brand} label={w.color.hexLabel} bad={w.color.hexBad} onValid={(v) => edit({ brand: v, brandTie: "fijo" })} />
             {fromLogo.length > 0 && (
               <div className="es-fromlogo">
                 <span>{w.color.fromLogo}</span>
@@ -502,6 +510,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       <div>
         <H>{w.forma.borders}</H>
         <Seg label={w.forma.borders} value={x.border} opts={([0, 1, 2] as const).map((k) => [k, w.forma.border[k]!])} onPick={(v) => edit({ border: v })} />
+        <p className="es-sub" style={{ marginTop: 6 }}>{w.previewOnly}</p>
       </div>
     </>
   );
@@ -532,16 +541,19 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       </div>
       <div>
         <H expert={expert} tok="--icon-stroke">{w.iconos.stroke}</H>
-        <Seg label={w.iconos.stroke} value={x.stroke} opts={[1.5, 2, 2.5].map((n, i) => [n, w.iconos.strokes[i]!])} onPick={(v) => edit({ stroke: v })} />
+        {/* PLA-130: Material Symbols come in one weight here; the stroke does nothing to them. */}
+        <Seg label={w.iconos.stroke} value={x.stroke} opts={[1.5, 2, 2.5].map((n, i) => [n, w.iconos.strokes[i]!])} onPick={(v) => edit({ stroke: v })} disabled={x.lib === "Material Symbols"} />
+        {x.lib === "Material Symbols" && <p className="es-sub" style={{ marginTop: 6 }}>{w.iconos.noStroke}</p>}
       </div>
       <div>
         <H>{w.iconos.style}</H>
         <Seg label={w.iconos.style} value={x.fill} opts={[[false, w.iconos.fill[0]!], [true, w.iconos.fill[1]!]]} onPick={(v) => edit({ fill: v })} />
+        <p className="es-sub" style={{ marginTop: 6 }}>{w.previewOnly}</p>
       </div>
       <div className="es-icons" style={{ color: x.brand }}>
         {["home", "search", "bell", "heart", "star", "cal", "user", "gear"].map((n) => <Icon key={n} n={n} s={x} size={22} />)}
       </div>
-      <p className="es-sub">{w.iconos.note}</p>
+      <p className="es-sub">{w.iconos.note(x.lib)}</p>
     </>
   );
   const paneMov = () => (
@@ -559,6 +571,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   );
   const paneImg = () => (
     <>
+      {/* PLA-130: images steer Artist and the sample; none of it is written into the repo's code. */}
+      <p className="es-note">{w.img.previewOnly}</p>
       <div>
         <H>{w.img.style}</H>
         <div className="es-tiles three">
@@ -871,16 +885,21 @@ const PairFonts = () => {
 };
 
 /** A colour code typed by hand: applied once it is a full #rrggbb. */
-function HexInput({ value, label, onValid }: { value: string; label: string; onValid: (v: string) => void }) {
+function HexInput({ value, label, onValid, bad }: { value: string; label: string; onValid: (v: string) => void; bad?: string }) {
   const [v, setV] = useState(value.toUpperCase());
   const [focus, setFocus] = useState(false);
   useEffect(() => { if (!focus) setV(value.toUpperCase()); }, [value, focus]);
+  // PLA-130: a code that is not #RRGGBB says so instead of silently doing nothing.
+  const wrong = v.trim() !== "" && !/^#[0-9a-f]{6}$/i.test(v.trim()) && (v.trim().length >= 7 || !focus);
   return (
+    <span className="es-hexw">
     <input
       className="es-hex"
       value={v}
       spellCheck={false}
       aria-label={label}
+      aria-invalid={wrong || undefined}
+      title={wrong ? bad : undefined}
       onFocus={() => setFocus(true)}
       onBlur={() => setFocus(false)}
       onChange={(e) => {
@@ -890,6 +909,8 @@ function HexInput({ value, label, onValid }: { value: string; label: string; onV
       }}
       data-control="estilo-hex"
     />
+    {wrong && bad && <span className="es-hex-err" role="alert">{bad}</span>}
+    </span>
   );
 }
 

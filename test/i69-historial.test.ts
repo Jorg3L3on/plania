@@ -45,6 +45,8 @@ beforeEach(async () => {
   project = (await raw.query("select * from projects where slug = 'tienda'")).rows[0];
 });
 
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
 test("#1 one history: logo, style and voice versions with their values, and the requests by kind", async () => {
   for (const c of ["#8c2f39", "#0f766e"]) {
     const s = await stageUpload("tienda", await tile(c), `${c.slice(1)}.png`);

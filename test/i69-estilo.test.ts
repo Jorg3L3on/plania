@@ -70,6 +70,8 @@ beforeEach(async () => {
   project.settings ??= {};
 });
 
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
 test("#1 the colour math: the server and the screen agree, contrast is WCAG's, scales keep their hue", () => {
   for (const c of ["#8c2f39", "#0f766e", "#4f46e5", "#ffffff", "#000000", "#e5b80b"]) {
     assert.deepEqual(uiColor.toLch(c), color.toLch(c), c);

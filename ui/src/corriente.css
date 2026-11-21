@@ -2690,3 +2690,14 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .mk-steps p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--cor-body); }
 /* PLA-130: the Upload and Artist screens' title, a small line like the rest of Marca. */
 .mk-screen-h { margin: 0; font-size: 15px; font-weight: 600; color: var(--cor-text); }
+/* PLA-130: Estilo targets of 28 px or more, the colour code's error, a switched-off choice. */
+.es-swb, .es-swb.sm { width: 28px; height: 28px; }
+.es-more { min-height: 28px; display: inline-flex; align-items: center; }
+.es-sw { width: 40px; height: 24px; border-radius: 12px; }
+.es-sw::after { top: 3px; left: 3px; width: 18px; height: 18px; }
+.es-sw[aria-checked="true"]::after { left: 19px; }
+.es-hexw { position: relative; display: inline-flex; }
+.es-hex[aria-invalid="true"] { border-color: var(--cor-red); }
+.es-hex-err { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; white-space: nowrap; font-size: 11px; color: var(--cor-red); }
+.es-seg[aria-disabled="true"] { opacity: 0.5; }
+.es-seg button:disabled { cursor: not-allowed; }

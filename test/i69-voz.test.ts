@@ -57,6 +57,8 @@ beforeEach(async () => {
   project.settings ??= {};
 });
 
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
 test("#1 the guide follows the sliders, how people are addressed and the words; an expert's own guide wins", () => {
   const base = voz.startVoice("Tienda", { files: [] });
   const warm = voz.soundVoice({ cerca: 90, humor: 80, breve: 90, sencillo: 90, trato: "vos", yes: ["pedido"], no: ["usuario"] }, base);

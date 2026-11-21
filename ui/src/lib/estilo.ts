@@ -66,7 +66,7 @@ export function tokens(s: Style): Tokens {
   // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
   const [bL, bC] = toLch(s.brand);
   const [dL, dC, dH] = toLch(darkBrand);
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#166534", warning: "#92400e", danger: "#b91c1c" }; // PLA-130: success and warning text reach 4.5 : 1 on their own tint
   const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
@@ -225,6 +225,7 @@ export const ESTILO_WORDS = defineWords({
     secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
+    previewOnly: "Solo para la vista previa: no se escribe en el repo.",
     // PLA-130: a «cambia» tag instead of a dot, what it changes from and to, and undoing one part.
     tag: "cambia",
     diff: (from: string, to: string) => `Hoy en el repo: ${from} → con este estilo: ${to}`,
@@ -260,6 +261,7 @@ export const ESTILO_WORDS = defineWords({
       followAgain: "Volver a seguir al logo",
       brandLabel: "Color principal",
       hexLabel: "Código del color",
+      hexBad: "Escribe el código así: #RRGGBB",
       fromLogo: "del logo",
       ideas: "Otras opciones",
       scale: "La escala del color principal",
@@ -328,9 +330,10 @@ export const ESTILO_WORDS = defineWords({
       libNote: "Cambiar de biblioteca toca muchos archivos: Taller solo cambia donde ya se importan íconos y deja una nota si es mucho.",
       stroke: "Trazo",
       strokes: ["Fino", "Normal", "Grueso"],
+      noStroke: "Material Symbols viene en un solo grosor: el trazo no le cambia nada.",
       style: "Estilo",
       fill: ["Contorno", "Relleno"],
-      note: "Muestra dibujada con las formas de Lucide; el trazo cambia en toda la app con una regla.",
+      note: (lib: string) => `Muestra dibujada con los íconos de ${lib}; el trazo cambia en toda la app con una regla.`,
     },
     mov: {
       how: "Cómo se mueve",
@@ -340,6 +343,7 @@ export const ESTILO_WORDS = defineWords({
       note: "Si el teléfono pide «reducir movimiento», la app no anima nada, elijas lo que elijas.",
     },
     img: {
+      previewOnly: "Las imágenes guían a Artist y a la vista previa; no se escribe nada de esto en el repo.",
       style: "Estilo de ilustración",
       styles: { linea: "Línea", plano: "Plano", degradado: "Degradado" } as Record<string, string>,
       people: "Con personas",
@@ -429,6 +433,7 @@ export const ESTILO_WORDS = defineWords({
     secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
+    previewOnly: "Preview only: it is not written into the repo.",
     tag: "changes",
     diff: (from: string, to: string) => `In the repo today: ${from} → with this style: ${to}`,
     unset: "not set",
@@ -462,6 +467,7 @@ export const ESTILO_WORDS = defineWords({
       followAgain: "Follow the logo again",
       brandLabel: "Primary colour",
       hexLabel: "Colour code",
+      hexBad: "Write the code like this: #RRGGBB",
       fromLogo: "from the logo",
       ideas: "Other options",
       scale: "The primary colour's scale",
@@ -530,9 +536,10 @@ export const ESTILO_WORDS = defineWords({
       libNote: "Changing library touches many files: Taller only switches where icons are already imported and leaves a note if it is a lot.",
       stroke: "Stroke",
       strokes: ["Thin", "Normal", "Thick"],
+      noStroke: "Material Symbols comes in one weight: the stroke changes nothing for it.",
       style: "Style",
       fill: ["Outline", "Filled"],
-      note: "Sample drawn with Lucide's shapes; the stroke changes across the app with one rule.",
+      note: (lib: string) => `Sample drawn with ${lib}'s shapes; the stroke changes across the app with one rule.`,
     },
     mov: {
       how: "How it moves",
@@ -542,6 +549,7 @@ export const ESTILO_WORDS = defineWords({
       note: "If the phone asks to reduce motion, the app animates nothing, whatever you pick.",
     },
     img: {
+      previewOnly: "Images guide Artist and the preview; none of this is written into the repo.",
       style: "Illustration style",
       styles: { linea: "Line", plano: "Flat", degradado: "Gradient" } as Record<string, string>,
       people: "With people",

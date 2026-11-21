@@ -20,6 +20,7 @@ import { repoPathOf } from "../runner/worktree.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { LogoError } from "./upload.js";
 import { TERMINAL } from "../mcp/lifecycle.js";
+import { keepCurrent, record } from "./versions.js";
 // A request that is over: accepted, released, done or dropped.
 const CLOSED = ["Merged", "Released", ...TERMINAL] as const;
 import { VOZ_WORDS } from "./words.js";
@@ -30,7 +31,7 @@ export type Voice = {
   yes: string[]; no: string[]; guide: string | null;
   name: string; short: string; desc: string; tag: string;
 };
-type VoiceFile = { current: number; versions: { v: number; at: string; voice: Voice }[] };
+type VoiceFile = { current: number; versions: { v: number; at: string; from?: string; keep?: boolean; voice: Voice }[] };
 /** The limits the screen counts against (stores and browsers cut past them). */
 export const LIMITS = { name: 45, short: 12, desc: 160, tag: 60 } as const;
 
@@ -198,17 +199,15 @@ export async function voiceRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   return { voice: current, base, guide: guideOf(base, p.title), repo: c.repo, names: [...names], versions: load(slug)?.versions.length ?? 0, pedido: open ?? null, limits: LIMITS };
 }
 
-export async function saveVoice(db: Db, slug: string, patch: Partial<Voice>): Promise<VoiceRead | null> {
+export async function saveVoice(db: Db, slug: string, patch: Partial<Voice>, opts: { keep?: boolean } = {}): Promise<VoiceRead | null> {
   const r = await voiceRead(db, slug);
   if (!r) return null;
   const next = soundVoice(patch, r.base);
   const f = load(slug) ?? { current: 0, versions: [] };
   const last = f.versions.find((v) => v.v === f.current)?.voice;
-  if (last && JSON.stringify(last) === JSON.stringify(next)) return r;
-  const v = Math.max(0, ...f.versions.map((x) => x.v)) + 1;
-  f.versions.push({ v, at: new Date().toISOString(), voice: next });
-  if (f.versions.length > 60) f.versions = f.versions.slice(-60);
-  f.current = v;
+  if (last && JSON.stringify(last) === JSON.stringify(next) && !opts.keep) return r;
+  // PLA-130: a change right after the last one joins its version (see versions.ts); going back is kept.
+  record(f, (base) => ({ ...base, voice: next }), { keep: opts.keep });
   save(slug, f);
   bus.publish({ type: "project", project: slug });
   return voiceRead(db, slug);
@@ -216,7 +215,7 @@ export async function saveVoice(db: Db, slug: string, patch: Partial<Voice>): Pr
 export async function goBackVoice(db: Db, slug: string, v: number): Promise<VoiceRead | null> {
   const old = load(slug)?.versions.find((x) => x.v === v)?.voice;
   if (!old) throw new LogoError("LOGO_NOT_FOUND", 404, "version not found");
-  return saveVoice(db, slug, old);
+  return saveVoice(db, slug, old, { keep: true });
 }
 
 /** The request: the name and texts into the manifest and the page's metadata, with the voice for any copy it touches. */
@@ -269,6 +268,8 @@ export async function requestNames(db: Db, project: Project, deps: LogoDeps = {}
     } as never,
     { ...webCtx, tool: "screen.marca.nombre" },
   )) as { key: string };
+  // PLA-130: what went to Taller stays in Historial.
+  { const f = load(project.slug); if (f) save(project.slug, keepCurrent(f)); }
   return { key: made.key };
 }
 
