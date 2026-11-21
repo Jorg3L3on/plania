@@ -319,6 +319,25 @@ export const api = {
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
   addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
+  // PLA-I71-3: Equipo's seat changes (only the owner's session reaches them).
+  equipo: (slug: string) => request<EquipoRead>("GET", `/company/projects/${encodeURIComponent(slug)}/equipo`),
+  // PLA-I71-6: the team catalog, adopting a team, and the whole company in a file.
+  teams: () => request<{ teams: TeamView[] }>("GET", "/company/teams"),
+  saveTeam: (slug: string, input: { name: string; line?: string; lessons?: boolean; references?: boolean }) => request<TeamView>("POST", `/company/projects/${encodeURIComponent(slug)}/teams/save`, input),
+  adoptPreview: (slug: string, team: string, mode: "keep" | "also") => request<AdoptPlan>("GET", `/company/projects/${encodeURIComponent(slug)}/teams/${encodeURIComponent(team)}/adopt?mode=${mode}`),
+  adopt: (slug: string, team: string, mode: "keep" | "also") => request<AdoptPlan>("POST", `/company/projects/${encodeURIComponent(slug)}/teams/${encodeURIComponent(team)}/adopt`, { mode }),
+  bringTeam: (source: PackageSource) => request<{ slug: string; ignored: string[] }>("POST", "/company/teams/import", { source }),
+  exportFiles: (opts: { lessons: boolean; references: boolean }) => request<{ files: { path: string; content: string }[] }>("GET", `/company/export?lessons=${opts.lessons ? 1 : 0}&references=${opts.references ? 1 : 0}`),
+  importPreview: (source: PackageSource) => request<CompanyImportPreview>("POST", "/company/import/preview", { source }),
+  importCompany: (source: PackageSource, choices: Record<string, "create" | "rename" | "skip">) => request<{ created: string[]; renamed: string[]; skipped: string[]; agents: string[] }>("POST", "/company/import", { source, choices }),
+  // PLA-I71-4: the skill store.
+  tienda: (slug: string) => request<import("./tienda").Tienda>("GET", `/company/projects/${encodeURIComponent(slug)}/tienda`),
+  seatBelow: (slug: string, agent: string) => request<{ below: string[] }>("GET", `${seatPath(slug, agent)}/below`),
+  moveSeat: (slug: string, agent: string, reportsTo: string | null) => request<{ ok: true }>("PUT", `${seatPath(slug, agent)}/manager`, { reports_to: reportsTo }),
+  pauseSeat: (slug: string, agent: string, paused: boolean) => request<{ paused: boolean }>("PUT", `${seatPath(slug, agent)}/pause`, { paused }),
+  retireSeat: (slug: string, agent: string) => request<{ moved: string[] }>("POST", `${seatPath(slug, agent)}/retire`, {}),
+  createPuesto: (input: { title: string; line: string; base: string }) => request<PuestoView>("POST", "/company/puestos", input),
+  decideProposal: (slug: string, id: string, accept: boolean) => request<{ state: string; agent: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(id)}/decide`, { accept }),
   // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
@@ -340,6 +359,11 @@ export const api = {
   setManner: (slug: string, agent: string, text: string) => request<Puesto>("PUT", `${seatPath(slug, agent)}/manner`, { text }),
   // PLA-I67-6: «Traer de un enlace» and «Probar» (src/api/company-oficio-trials.ts).
   previewImport: (slug: string, agent: string, url: string) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { url }),
+  // PLA-I71-5: a pick from skills.sh, the catalog's search, and «No, quedarme con la mía».
+  previewCatalog: (slug: string, agent: string, pick: { source: string; skill: string }) => request<ImportPreview>("POST", `${seatPath(slug, agent)}/import/preview`, { catalog: pick }),
+  catalogSkills: (q: string) => request<{ skills: CatalogHit[] }>("GET", `/company/catalog/skills?q=${encodeURIComponent(q)}`),
+  declineSkillLink: (slug: string, agent: string, skill: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/decline`),
+  bringSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope: SkillScope; on: boolean; via: "skills.sh" | null }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
   importSkill: (slug: string, agent: string, input: { url: string; source_hash: string; scope?: SkillScope }) => request<SkillCard>("POST", `${seatPath(slug, agent)}/import`, input),
   checkSkillLink: (slug: string, agent: string, skill: string) => request<UpdateCheck>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/check`),
   updateSkillLink: (slug: string, agent: string, skill: string, source_hash: string) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}/link/update`, { source_hash }),
@@ -596,8 +620,26 @@ export type OrgMember = {
   motor?: MotorView;
   consulta_motor?: MotorView | null;
   used_week?: { tokens: number; share: number } | null;
+  // PLA-I71-1: the org chart's facts (its name, who it reports to by slug, its own lessons). Optional for older servers.
+  name?: string;
+  reports_to?: string | null;
+  lessons?: { active: number; proposed: number };
+  // PLA-I71-3: when the owner paused this seat (null: it works), and a role of the owner's own's title.
+  paused_at?: string | null;
+  puesto?: string | null;
 };
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
+// PLA-I71-3: the role catalog (factory and the owner's own) and a PO's open seat proposals.
+export type TeamSeatSpec = { role: string; title?: string | null; line?: string | null; base?: string | null; reports_to: string | null; skills: string[]; motor?: { model: string | null; effort: string | null } | null; manner?: string | null };
+export type TeamView = { slug: string; name: string; line: string; origin: "factory" | "owner" | "imported"; seats: { role: string; title: string | null }[]; skills: number; hash: string; source: string | null; at: string | null; spec: { seats: TeamSeatSpec[]; lessons?: unknown[]; references?: unknown[] } };
+export type AdoptPlan = { template: string; name: string; hash: string; stays: { role: string; agent: string; adds: string[] }[]; arrives: { role: string; title: string | null; reports_to: string | null; skills: string[]; motor: { model: string | null; effort: string | null } | null }[]; no_room: string[]; plan_note: { more_agents: number } };
+export type PackageSource = { files: { path: string; content: string }[] } | { tar: string } | { url: string };
+export type CompanyImportItem = { key: string; kind: "team" | "skill"; name: string; action: "create" | "rename" | "skip"; to: string; taken: boolean; agents?: number; marks?: number };
+export type CompanyImportPreview = { company: string; items: CompanyImportItem[]; agents: number; ignored: string[]; secrets: string[] };
+export type CatalogHit = { id: string; name: string; source: string; skill: string; publisher: string; installs: number | null };
+export type PuestoView = { slug: string; title: string; line: string; origin: "factory" | "owner"; base: string; taken: boolean };
+export type SeatProposalView = { id: string; role: string; title: string; reason: string; proposed_by: string; state: string; at: string };
+export type EquipoRead = { puestos: PuestoView[]; proposals: SeatProposalView[] };
 // A part null clears it (the seat inherits again); the whole patch null clears both.
 export type MotorPatch = { model?: string | null; effort?: string | null };
 // PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the

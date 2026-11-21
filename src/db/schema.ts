@@ -887,6 +887,11 @@ export const agents = pgTable(
     // PLA-I67-2 (0068): «tu manera», the owner's instruction for this agent, appended after the role prompt.
     manner: text("manner"),
     mannerUpdatedAt: timestamp("manner_updated_at", { withTimezone: true }),
+    // PLA-I71-3 (0075): the owner paused this seat (it starts no run), its order on the chart, and the team template it
+    // was adopted from (PLA-I71-6).
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    position: integer("position"),
+    fromTeam: text("from_team"),
     ...timestamps,
   },
   (t) => [
@@ -1768,6 +1773,14 @@ export const skills = pgTable(
     sourceUrl: text("source_url"),
     sourceHash: text("source_hash"),
     sourceCheckedAt: timestamp("source_checked_at", { withTimezone: true }),
+    // PLA-I71-5 (0076): where a brought skill came from, the commit it was read at, its publisher, the files left out,
+    // what the review showed, and the newer content upstream has (null: none, or declined).
+    sourceKind: text("source_kind").$type<"link" | "github" | "skills.sh">(),
+    sourceCommit: text("source_commit"),
+    publisher: text("publisher"),
+    droppedFiles: text("dropped_files").array().notNull().default(sql`'{}'::text[]`),
+    review: jsonb("review").$type<SkillReview>(),
+    upstreamHash: text("upstream_hash"),
     ...timestamps,
   },
   (t) => [
@@ -1781,6 +1794,9 @@ export const skills = pgTable(
   ],
 );
 export type OwnerSkillRow = typeof skills.$inferSelect;
+// PLA-I71-5: what the review showed before a brought skill was installed (src/runner/skill-import.ts).
+export type SkillMark = { file: string; line: number; kind: "secret" | "link"; text: string };
+export type SkillReview = { words: number; dropped: string[]; marks: SkillMark[]; pinned: string; dismissed?: string | null };
 
 export type SkillFile = { path: string; content: string };
 export const skillVersions = pgTable(
@@ -2103,3 +2119,71 @@ export const caminoHistory = pgTable(
   },
   (t) => [index("camino_history_project_at").on(t.projectId, t.at), check("camino_history_dest_check", sql`${t.dest} in ('plania', 'proveedor', 'github', 'pr', 'llavero')`)],
 );
+
+// PLA-I71-3 (0075): the role catalog as data (factory roles seeded from src/runner/team.ts, and the owner's own), and a
+// PO's proposal of a seat, which only the owner's screen decides.
+export const puestos = pgTable("puestos", {
+  slug: text("slug").primaryKey(),
+  title: text("title").notNull(),
+  line: text("line").notNull().default(""),
+  origin: text("origin").$type<"factory" | "owner">().notNull().default("owner"),
+  defaultSkills: text("default_skills").array().notNull().default(sql`'{}'::text[]`),
+  defaultMotor: jsonb("default_motor").$type<{ model: string | null; effort: string | null }>(),
+  promptRef: text("prompt_ref").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PuestoRow = typeof puestos.$inferSelect;
+export const seatProposals = pgTable(
+  "seat_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    reason: text("reason").notNull(),
+    proposedBy: text("proposed_by").notNull(),
+    state: text("state").$type<"proposed" | "accepted" | "declined">().notNull().default("proposed"),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("seat_proposals_project_idx").on(t.projectId, t.state)],
+);
+export type SeatProposal = typeof seatProposals.$inferSelect;
+
+// PLA-I71-6 (0077): the team catalog (saved and brought teams; factory teams are kit/teams/*.json), adoptions, and
+// whole-company transfers (src/runner/teams.ts, src/runner/company-package.ts).
+export type TeamSeatSpec = { role: string; title?: string | null; line?: string | null; base?: string | null; reports_to: string | null; skills: string[]; motor?: { model: string | null; effort: string | null } | null; manner?: string | null };
+export type TeamSpec = { seats: TeamSeatSpec[]; skills?: { slug: string; name: string; description: string; body: string }[]; lessons?: { role: string; text: string }[]; references?: { role: string; title: string; url: string }[] };
+export const teamTemplates = pgTable("team_templates", {
+  slug: text("slug").primaryKey(),
+  name: text("name").notNull(),
+  line: text("line").notNull().default(""),
+  origin: text("origin").$type<"owner" | "imported">().notNull(),
+  spec: jsonb("spec").$type<TeamSpec>().notNull(),
+  source: text("source"),
+  sourceCommit: text("source_commit"),
+  hash: text("hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const teamAdoptions = pgTable("team_adoptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  template: text("template").notNull(),
+  hash: text("hash").notNull(),
+  plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const companyTransfers = pgTable("company_transfers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  direction: text("direction").$type<"export" | "import">().notNull(),
+  state: text("state").$type<"previewed" | "done" | "failed">().notNull().default("done"),
+  manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  counts: jsonb("counts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});

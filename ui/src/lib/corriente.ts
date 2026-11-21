@@ -102,8 +102,15 @@ export type Ver =
   | { kind: "lienzo"; key: string }
   | { kind: "entrega"; id: string }
   | { kind: "miembro"; agent: string }
-  | { kind: "oficio"; agent: string }
   | { kind: "sumar" }
+  // PLA-I71-4: Equipo's skill store, with the skill open (null: none).
+  | { kind: "tienda"; skill: string | null }
+  // PLA-I71-5: bring a skill from outside (a link or skills.sh).
+  | { kind: "traer" }
+  // PLA-I71-6: the team catalog, adopting one team, and the whole company in a file.
+  | { kind: "equipos" }
+  | { kind: "adoptar"; team: string }
+  | { kind: "compania" }
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string }
   // PLA-I68-2: the Camino section open (conn, codigo, commits, ci, propuestas, hist, env:<id>).
@@ -113,22 +120,25 @@ export type Ver =
  *  project's list (no ver, tab todo). */
 export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
-const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "maq", "tabla", "camino"] as const;
+const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "tienda", "traer", "equipos", "adoptar", "compania", "maq", "tabla", "camino"] as const;
 
 export function verOf(raw: string | null): Ver | null {
   if (!raw) return null;
   const i = raw.indexOf(":");
-  const kind = (i < 0 ? raw : raw.slice(0, i)) as Ver["kind"];
+  const kind = (i < 0 ? raw : raw.slice(0, i)) as Ver["kind"] | "oficio";
   const ref = i < 0 ? "" : raw.slice(i + 1);
   if (!(VER_KINDS as readonly string[]).includes(kind)) return null;
   // PLA-I64-7: a pedido and a lienzo are their idea; Sueltos and Guardadas are lines of the list.
   if (kind === "sueltos" || kind === "guardadas") return null;
-  if (kind === "sumar") return { kind };
+  if (kind === "sumar" || kind === "traer" || kind === "equipos" || kind === "compania") return { kind };
+  if (kind === "adoptar") return ref ? { kind, team: ref } : null;
+  if (kind === "tienda") return { kind, skill: ref || null };
   if (!ref) return null;
   if (kind === "pedido" || kind === "lienzo") return { kind: "idea", key: ref };
   if (kind === "pr") return Number.isFinite(Number(ref)) && Number(ref) > 0 ? { kind, n: Number(ref) } : null;
   if (kind === "doc" || kind === "entrega") return { kind, id: ref };
-  if (kind === "miembro" || kind === "oficio") return { kind, agent: ref };
+  // PLA-I71-2: the agent page is gone; its old address opens the chart with that agent selected.
+  if (kind === "miembro" || kind === "oficio") return { kind: "miembro", agent: ref };
   if (kind === "maq") return { kind, what: ref };
   if (kind === "tabla") return { kind, name: ref };
   if (kind === "camino") return { kind, sec: ref };
@@ -140,14 +150,20 @@ export function verParam(v: Ver): string {
     case "sueltos":
     case "guardadas":
     case "sumar":
+    case "traer":
+    case "equipos":
+    case "compania":
       return v.kind;
+    case "adoptar":
+      return `adoptar:${v.team}`;
+    case "tienda":
+      return v.skill ? `tienda:${v.skill}` : "tienda";
     case "pr":
       return `pr:${v.n}`;
     case "doc":
     case "entrega":
       return `${v.kind}:${v.id}`;
     case "miembro":
-    case "oficio":
       return `${v.kind}:${v.agent}`;
     case "maq":
       return `maq:${v.what}`;
@@ -169,8 +185,12 @@ export function tabOfVer(v: Ver): Tab {
     case "camino":
       return "camino";
     case "miembro":
-    case "oficio":
     case "sumar":
+    case "tienda":
+    case "traer":
+    case "equipos":
+    case "adoptar":
+    case "compania":
       return "equipo";
     case "maq":
     case "tabla":
@@ -257,7 +277,7 @@ export function legacyHref(at: Partial<At>): string {
                       ? `doc:${v.id}`
                       : v.kind === "lienzo"
                         ? "tab:diseno"
-                        : v.kind === "miembro" || v.kind === "oficio"
+                        : v.kind === "miembro"
                           ? `member:${v.agent}`
                           : v.kind === "sumar"
                             ? "sumar"
@@ -320,7 +340,7 @@ export function clockLine(now: number, timeZone?: string): string {
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
   tabs: [...TABS],
-  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "oficio", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
+  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "tienda", "traer", "equipos", "adoptar", "compania", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");

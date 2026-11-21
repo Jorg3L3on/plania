@@ -15,9 +15,7 @@ export const BARRA_WORDS = defineWords({
     switcherMenu: "Proyectos",
     teEspera: ", te espera",
     todoCount: (open: number) => `${open} ${open === 1 ? "ABIERTA" : "ABIERTAS"}`,
-    teamPaused: "EN PAUSA",
-    teamWorking: (n: number) => `${n} TRABAJANDO`,
-    teamFree: (n: number) => `${n} ${n === 1 ? "LIBRE" : "LIBRES"}`,
+    teamAgents: (n: number) => `${n} ${n === 1 ? "AGENTE" : "AGENTES"}`,
     noGoal: "Sin meta todavía",
     noDate: "sin fecha",
     setGoal: "Fijar meta",
@@ -34,9 +32,7 @@ export const BARRA_WORDS = defineWords({
     switcherMenu: "Projects",
     teEspera: ", waiting on you",
     todoCount: (open: number) => `${open} OPEN`,
-    teamPaused: "PAUSED",
-    teamWorking: (n: number) => `${n} WORKING`,
-    teamFree: (n: number) => `${n} FREE`,
+    teamAgents: (n: number) => `${n} ${n === 1 ? "AGENT" : "AGENTS"}`,
     noGoal: "No goal yet",
     noDate: "no date",
     setGoal: "Set a goal",
@@ -70,9 +66,8 @@ export const peerTitle = (title: string, waits: boolean, language: Language = ge
 /** Todo's count beside its door: the open things, nothing when there are none. */
 export const todoCount = (open: number, language: Language = getLanguage()): string | null => (open > 0 ? w(language).todoCount(open) : null);
 
-/** Equipo's word beside its door: «EN PAUSA», «2 TRABAJANDO», «4 LIBRES». */
-export const teamWord = (members: number, working: number, paused: boolean, language: Language = getLanguage()): string =>
-  paused ? w(language).teamPaused : working ? w(language).teamWorking(working) : w(language).teamFree(members);
+/** Equipo's word beside its door: «4 AGENTES» (PLA-I71-1: Equipo is about the agents; who works shows on the list). */
+export const teamWord = (members: number, language: Language = getLanguage()): string => w(language).teamAgents(members);
 
 /** The meta line above the sentence: «Meta · <goal · date>» and its link. */
 export type MetaLine = { text: string; missing: boolean; link: string };

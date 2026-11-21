@@ -19,8 +19,11 @@ import { Pedir } from "@/components/corriente/pedir";
 import { Asistente } from "@/components/corriente/asistente";
 import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
-import { Equipo } from "@/components/corriente/equipo";
-import { OficioPage } from "@/components/corriente/oficio";
+import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equipo";
+import { fichaTabOf } from "@/components/corriente/agente";
+import { TiendaPage } from "@/components/corriente/tienda";
+import { TraerPage } from "@/components/corriente/traer";
+import { AdoptarPage, CompaniaPage, EquiposPage } from "@/components/corriente/equipos";
 import { Idea } from "@/components/corriente/idea";
 import { Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -188,7 +191,8 @@ export const CorrientePage = () => {
   // Keys, as on /ceo, unless the owner is typing or a dialog is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      // PLA-I71: a key a widget already used (the org chart's arrows, a tab list) is not the page's.
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
       // The brief has its own keys (J K, arrows, Enter, L, X, Z, Esc).
       if (!at.slug && at.view === "brief") return;
       if (e.key === "Escape") {
@@ -244,6 +248,24 @@ export const CorrientePage = () => {
     pausar: hojaHref("pausar", slug),
     pagina: `/p/${encodeURIComponent(slug)}`,
     hash: (href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : href === "#publicar" ? hojaHref("publicar", slug) : linkTo({ slug })),
+  });
+
+  // PLA-I71-1: Equipo's places, a seat selected on the chart, and its work on the list.
+  const equipoLinks = (slug: string): EquipoLinks => ({
+    member: (agent) => linkTo({ slug, ver: { kind: "miembro", agent } }),
+    equipo: linkTo({ slug, tab: "equipo" }),
+    motor: linkTo({ slug, tab: "motores" }),
+    sumar: linkTo({ slug, ver: { kind: "sumar" } }),
+    // PLA-I71-2: the seat's panel keeps its tab in the address (&ficha=motor); Perfil has none.
+    tab: (agent, t) => hrefOf({ slug, ver: { kind: "miembro", agent }, extra: t === "perfil" ? {} : { ficha: t } }),
+    work: linkTo({ slug, tab: "todo" }),
+    store: linkTo({ slug, ver: { kind: "tienda", skill: null } }),
+    teams: linkTo({ slug, ver: { kind: "equipos" } }),
+  });
+  const equiposLinks = (slug: string) => ({
+    adopt: (team: string) => linkTo({ slug, ver: { kind: "adoptar", team } }),
+    company: linkTo({ slug, ver: { kind: "compania" } }),
+    equipos: linkTo({ slug, ver: { kind: "equipos" } }),
   });
 
   const pendLinks: PendLinks = {
@@ -404,36 +426,36 @@ export const CorrientePage = () => {
         />
       );
     }
-    // PLA-I67-1: one agent's page, inside the Equipo door.
-    if (at.ver?.kind === "oficio") {
-      const equipoHref = linkTo({ slug: p.slug, tab: "equipo" });
+    // PLA-I71-4: the skill store, inside Equipo.
+    if (at.ver?.kind === "tienda")
       return (
-        <OficioPage
+        <TiendaPage
           p={p}
-          agent={at.ver.agent}
-          now={now}
-          timeZone={timeZone}
+          selected={at.ver.skill}
+          nav={<EquipoNav links={equipoLinks(p.slug)} at="store" />}
           links={{
-            back: equipoHref,
-            seat: (agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } }),
-            motor: linkTo({ slug: p.slug, tab: "motores" }),
-            ver: (d) => linkTo({ slug: p.slug, ver: d.kind === "idea" ? { kind: "idea", key: d.key } : { kind: "paso", key: d.key } }),
+            pick: (skill) => linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }),
+            tryIn: (agent, skill) => hrefOf({ slug: p.slug, ver: { kind: "miembro", agent }, extra: { ficha: "habilidades", skill } }),
+            traer: linkTo({ slug: p.slug, ver: { kind: "traer" } }),
           }}
         />
       );
-    }
+    // PLA-I71-6: the team catalog, adopting one, and the whole company in a file.
+    if (at.ver?.kind === "equipos") return <EquiposPage p={p} nav={<EquipoNav links={equipoLinks(p.slug)} at="teams" />} links={equiposLinks(p.slug)} />;
+    if (at.ver?.kind === "adoptar") return <AdoptarPage p={p} team={at.ver.team} links={equiposLinks(p.slug)} onDone={() => navigate(linkTo({ slug: p.slug, tab: "equipo" }))} />;
+    if (at.ver?.kind === "compania") return <CompaniaPage links={equiposLinks(p.slug)} />;
+    // PLA-I71-5: bring a skill from outside, reviewed before install.
+    if (at.ver?.kind === "traer")
+      return <TraerPage p={p} back={linkTo({ slug: p.slug, ver: { kind: "tienda", skill: null } })} onBrought={(skill) => navigate(linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }))} />;
     if (at.tab === "equipo")
       return (
         <Equipo
           p={p}
-          now={now}
-          timeZone={timeZone}
           companyPaused={paused}
-          acts={acts}
           focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
-          motorTo={linkTo({ slug: p.slug, tab: "motores" })}
-          sumarTo={linkTo({ slug: p.slug, ver: { kind: "sumar" } })}
-          oficioTo={(agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } })}
+          tab={fichaTabOf(new URLSearchParams(location.search).get("ficha"))}
+          openSkill={new URLSearchParams(location.search).get("skill")}
+          links={equipoLinks(p.slug)}
           motorDefault={company?.motor_default}
         />
       );
@@ -487,17 +509,23 @@ export const CorrientePage = () => {
       );
     if (at.tab === "motores")
       return (
+        <>
+        <EquipoNav links={equipoLinks(p.slug)} at="motores" />
         <Motores
           p={p}
           def={company?.motor_default}
           signIn={company?.claude_sign_in}
           planTo="/machine"
+          acts={acts}
+          now={now}
+          timeZone={timeZone}
           onSave={async (save) => {
             const out = await api.saveMotores(save);
             void client.invalidateQueries({ queryKey: ["company"] });
             return out;
           }}
         />
+        </>
       );
     if (at.tab === "maquinas")
       return (
@@ -601,7 +629,6 @@ export const CorrientePage = () => {
   };
 
   // PLA-I3-2: the project view's one bar (the strip and the project's bar, merged).
-  const working = project ? project.team.filter((m) => m.state === "running").length : 0;
   const bar = project ? (
     <ProjectBar
       slug={project.slug}
@@ -611,7 +638,7 @@ export const CorrientePage = () => {
       href={(t) => linkTo({ slug: project.slug, tab: t })}
       projectHref={(slug) => linkTo({ slug, tab: at.tab })}
       back={hrefOf({ view: "corriente" })}
-      team={teamWord(project.team.length, working, paused || project.paused)}
+      team={teamWord(project.team.length)}
       open={project.work.open}
       paused={project.paused}
       pauseHref={hojaHref("pausar", project.slug)}

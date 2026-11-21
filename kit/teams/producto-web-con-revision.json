@@ -1,0 +1,15 @@
+{
+  "slug": "producto-web-con-revision",
+  "name": "Producto web con revisión",
+  "line": "Lo mismo, más QA y Seguridad: nada llega a ti sin probarse.",
+  "spec": {
+    "seats": [
+      { "role": "product-owner", "reports_to": null, "skills": ["preguntas-antes-de-construir", "spec", "tickets"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "research", "reports_to": "product-owner", "skills": ["cited-research", "codebase-facts"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "artist", "reports_to": "product-owner", "skills": ["design-it-twice"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "taller", "reports_to": "product-owner", "skills": ["tdd", "diagnosing-bugs", "pr", "handoff"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "qa", "reports_to": "product-owner", "skills": ["app-walkthrough", "qa-visual-con-capturas"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "seguridad", "reports_to": "product-owner", "skills": ["security-review", "codebase-facts"], "motor": { "model": "sonnet", "effort": "medium" } }
+    ]
+  }
+}

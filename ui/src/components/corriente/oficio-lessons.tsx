@@ -285,7 +285,8 @@ export const HistoryPanel = ({ l, onClose, now, timeZone }: { l: LessonsRead | u
           ×
         </Btn>
       </div>
-      <div className="ofi-shelf-scroll" tabIndex={0} role="region" aria-label={w.historyTitle}>
+      {/* PLA-I71: the section already names it; a second region of the same name is a duplicate landmark. */}
+      <div className="ofi-shelf-scroll" tabIndex={0}>
         {list.length === 0 ? (
           <p className="cor-text cor-muted">{w.historyNone}</p>
         ) : (

@@ -27,6 +27,8 @@ kit/
     <slug>/
       SKILL.md               the skill: frontmatter, then the body
       <other>.md             detail the body points to, read only when needed
+  teams/
+    <slug>.json              a factory team (PLA-I71-6, ADR 0007): seats by role, who reports to whom, skills, motor
   reflector/
     role.md                  the reflector's prompt: reads one owner correction, proposes at most one lesson
     skills/reflect-on-correction/SKILL.md   its one skill (not on any seat's shelf)

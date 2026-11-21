@@ -8,7 +8,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { claudeSignInLine } from "../runner/run-env.js";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
+import { agentRuns, agents, docs, events, lessons, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { resolveMotor } from "../runner/motor.js";
 import { NO_SKILLS } from "../runner/packs.js";
@@ -33,6 +33,8 @@ import type { InboxItem } from "../mcp/inbox.js";
 import { projectEtapas, tableroOf, type AhoraItem, type Tablero } from "./etapa.js";
 import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 import { defineWords, say } from "../words.js";
+import { ToolError } from "../mcp/errors.js";
+import { addSeat, catalog } from "../runner/puestos.js";
 import { quietHomeSlug } from "./onboarding.js";
 
 // PLA-I2-10: the light's reasons, the holds and the team errors in the install's language; the Spanish is unchanged.
@@ -157,6 +159,15 @@ export type TeamMember = {
   // This ISO week's input + output tokens of the seat's runs in this project, and its share of the project's
   // total (null when nothing was reported this week).
   used_week: { tokens: number; share: number } | null;
+  // PLA-I71-1 (the org chart): the seat's name, the slug of the agent it reports to (a teammate, the company's ceo
+  // seat, or null), and its own lessons in force and waiting for the owner.
+  name: string;
+  reports_to: string | null;
+  lessons: { active: number; proposed: number };
+  // PLA-I71-3: when the owner paused this seat (it starts no run), and a role of the owner's own's title (null: a
+  // factory role, named by its role).
+  paused_at: string | null;
+  puesto: string | null;
 };
 
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
@@ -330,7 +341,7 @@ function skillsOnCount(a: Agent): number {
 async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string>; settings: RunnerSettings }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
-  const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_owner" : "idle";
+  const state: MemberState = running ? "running" : ctx.paused || a.pausedAt ? "paused" : waiting ? "waiting_owner" : "idle";
   return {
     agent: a.slug,
     role: roleOf(a) ?? a.role,
@@ -347,6 +358,11 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     motor: motorView(a, ctx.settings, false),
     consulta_motor: a.roleTemplate === "product-owner" ? motorView(a, ctx.settings, true) : null,
     used_week: null,
+    name: a.name,
+    reports_to: null,
+    lessons: { active: 0, proposed: 0 },
+    paused_at: a.pausedAt ? a.pausedAt.toISOString() : null,
+    puesto: a.role && a.roleTemplate && a.role !== a.roleTemplate && !isRunnerRole(a.role) ? a.title || a.role : null,
   };
 }
 
@@ -494,6 +510,21 @@ async function teamView(db: Db, p: Project, ctx: { paused: boolean; threadId: st
   seats.forEach((a, i) => {
     const n = used.get(a.id) ?? 0;
     out[i]!.used_week = total > 0 ? { tokens: n, share: n / total } : null;
+  });
+  // PLA-I71-1: who each seat reports to (by slug), and its own lessons by state.
+  const bosses = [...new Set(seats.map((a) => a.reportsTo).filter((x): x is string => !!x))];
+  const slugOf = new Map(bosses.length ? (await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, bosses))).map((r) => [r.id, r.slug]) : []);
+  const ids = seats.map((a) => a.id);
+  const counts = ids.length
+    ? await db
+        .select({ agent: lessons.agentId, state: lessons.state, n: sql<number>`count(*)::int` })
+        .from(lessons)
+        .where(and(inArray(lessons.agentId, ids), inArray(lessons.state, ["active", "proposed"])))
+        .groupBy(lessons.agentId, lessons.state)
+    : [];
+  seats.forEach((a, i) => {
+    out[i]!.reports_to = a.reportsTo ? (slugOf.get(a.reportsTo) ?? null) : null;
+    for (const c of counts) if (c.agent === a.id) out[i]!.lessons[c.state as "active" | "proposed"] = c.n;
   });
   return out;
 }
@@ -802,16 +833,25 @@ export type AddMemberError = { error: "PROJECT_NOT_FOUND" | "INVALID_TEMPLATE" |
 export async function addTeamMember(db: Db, slug: string, template: string): Promise<{ agent: TeamMember; team: TeamMember[] } | AddMemberError> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  if (!isTeamTemplate(template)) return { error: "INVALID_TEMPLATE", status: 400, hint: `one of ${TEAM_TEMPLATES.join(", ")}` };
-  const title = PROMPT_DOCS[template];
+  // PLA-I71-3: a role of the owner's own (puestos, origin owner) runs on its base role's prompt.
+  const own = !isTeamTemplate(template) ? (await catalog(db, slug)).find((c) => c.slug === template && c.origin === "owner") : null;
+  if (!isTeamTemplate(template) && !own) return { error: "INVALID_TEMPLATE", status: 400, hint: `one of ${TEAM_TEMPLATES.join(", ")} or a role of your own` };
+  const base = (own ? own.base : template) as TeamTemplate;
+  const title = PROMPT_DOCS[base];
   // NEWPROJ-2: the doc or the kit/roles file, as the runner and project creation look it up.
-  const prompt = await rolePrompt(db, template);
+  const prompt = await rolePrompt(db, base);
   if (!prompt) return { error: "PROMPT_DOC_MISSING", status: 409, hint: ow().promptMissing(title) };
-  const agentSlug = teamSlug(template, p.slug);
-  const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, agentSlug)).limit(1);
-  if (taken) return { error: "AGENT_EXISTS", status: 409, hint: ow().agentExists(agentSlug), agent: agentSlug };
-  const po = await db.select().from(agents).where(and(eq(agents.projectId, p.id), eq(agents.roleTemplate, "product-owner"))).limit(1);
-  await ensureMember(db, p, template, { reportsTo: po[0]?.slug ?? "ceo", note: promptNote(template, prompt) });
+  const agentSlug = own ? `${own.slug}-${p.slug}`.slice(0, 60) : teamSlug(base, p.slug);
+  const [taken] = await db.select({ id: agents.id, status: agents.status }).from(agents).where(eq(agents.slug, agentSlug)).limit(1);
+  if (taken && taken.status !== "retired") return { error: "AGENT_EXISTS", status: 409, hint: ow().agentExists(agentSlug), agent: agentSlug };
+  // PLA-I71-3: at most eight seats; a new seat arrives paused (the owner resumes it from its panel).
+  try {
+    const made = await addSeat(db, slug, template);
+    if (!own && !made.note) await db.update(agents).set({ note: promptNote(base, prompt) }).where(eq(agents.id, made.id));
+  } catch (e) {
+    if (e instanceof ToolError) return { error: e.code, status: e.status, hint: String(e.detail.hint ?? e.code) } as AddMemberError;
+    throw e;
+  }
   const read = await projectRead(db, slug);
   return { agent: read.team.find((m) => m.agent === agentSlug)!, team: read.team };
 }

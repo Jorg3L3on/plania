@@ -9,6 +9,7 @@
 /* PLA-I62: La corriente, scoped under .cor. */
 @import "./corriente.css";
 @import "./camino.css";
+@import "./equipo.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

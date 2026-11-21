@@ -535,6 +535,7 @@ const HOLD_SUMMARY: Record<HeldCode, string> = {
   rest: "queued: cooldown",
   lock: "queued: same branch or ticket is busy",
   areas: "queued: same files are busy",
+  seat_paused: "queued: the owner paused this seat",
 };
 
 async function machineFacts(deps: RunnerDeps, env: NodeJS.ProcessEnv): Promise<MachineFacts> {
@@ -634,6 +635,11 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
       // The caps first: they need no query, and most of a long queue waits on them (load test, PLA-I60-6).
       const agent = agentById.get(run.agentId);
       if (!agent) continue;
+      // PLA-I71-3: a seat the owner paused starts nothing; its runs wait in the queue until it is resumed.
+      if (agent.pausedAt) {
+        await hold(run, "seat_paused", {});
+        continue;
+      }
       {
         const lim = projectLimits(projectById.get(run.projectId)?.settings?.runner);
         if (run.lane === "consulta" || agent.projectId) {
