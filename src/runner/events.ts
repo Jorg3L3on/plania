@@ -181,6 +181,20 @@ export async function enqueueWake(
   return { kind: "queued", runId: out.run.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
 }
 
+// PLA-151: the first Ready, unblocked step of an initiative that Taller may take (its own, or unowned Taller work;
+// never [PRUEBA]), by phase then key.
+async function firstStepFor(tx: Q, project: ProjectRef, initiativeId: string, taller: Agent | null): Promise<string | null> {
+  if (!taller) return null;
+  const rows = await tx
+    .select({ key: tasks.key, title: tasks.title, phase: tasks.phase, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.parentId, initiativeId), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`));
+  const mine = rows
+    .filter((t) => !t.title.includes("[PRUEBA]") && (t.ownerAgent ? t.ownerAgent === taller.id : !!t.workType && TALLER_WORK.has(t.workType)))
+    .sort((a, b) => (a.phase ?? Number.MAX_SAFE_INTEGER) - (b.phase ?? Number.MAX_SAFE_INTEGER) || a.key.localeCompare(b.key, "en", { numeric: true }));
+  return mine[0]?.key ?? null;
+}
+
 // What an emitted event should wake, if anything. Read-only; enqueueWake decides the rest.
 async function targetOf(
   tx: Q,
@@ -195,6 +209,15 @@ async function targetOf(
     return { agent: await asistenteAgent(tx), taskKey: null, reason: "message from the owner" };
   }
   if (!task) return null;
+
+  // PLA-151 (guided test 3): after «Constrúyelo» the PO files the plan (step 1 born Ready, the rest chained) and then
+  // moves the initiative to Active. Nothing moved step 1, so nobody woke Taller and the board said «Nadie trabaja».
+  // The initiative turning Active wakes Taller on its first Ready, unblocked step Taller may take.
+  if (type === "task.status" && payload.to === "Active" && payload.from !== "Active") {
+    const taller = await serviceAgent(tx, "taller", project);
+    const first = await firstStepFor(tx, project, task.id, taller);
+    return first ? { agent: taller, taskKey: first, reason: `initiative ${task.key} started` } : null;
+  }
 
   // PLA-I30-6: a ticket a product owner owns wakes that PO when it is Ready, created that way included
   // (Pedirle al PO creates it Ready). Taller wakes on a move, and on a standalone ticket created Ready and given to it (PLA-103).
@@ -222,7 +245,12 @@ async function targetOf(
     // Only that case wakes on creation: plan steps (a parent), tickets behind a blocker and unassigned tickets still
     // wait for their move.
     const taller = await serviceAgent(tx, "taller", project);
-    if (type === "task.created" && !(t.ownerAgent && t.ownerAgent === taller?.id && !t.parentId && !t.blocked)) return null;
+    // PLA-151: a step created Ready, unblocked, under an initiative that is already Active wakes Taller too.
+    const parentActive =
+      type === "task.created" && t.parentId && !t.blocked
+        ? (await tx.select({ status: tasks.status }).from(tasks).where(eq(tasks.id, t.parentId)).limit(1))[0]?.status === "Active"
+        : false;
+    if (type === "task.created" && !parentActive && !(t.ownerAgent && t.ownerAgent === taller?.id && !t.parentId && !t.blocked)) return null;
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
     // PLA-54: a chain step the server moved to Ready says which landing freed it.

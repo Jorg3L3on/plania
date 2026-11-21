@@ -165,6 +165,25 @@ test("I31-1 #1a: a ticket moving to Ready queues exactly one wake, for Taller, o
   assert.deepEqual(await wakes(), []);
 });
 
+test("PLA-151: an initiative turning Active wakes Taller on its first Ready step; a step born Ready under an Active one does too", async () => {
+  await raw.query(`delete from agent_runs`);
+  await writes.createTask(db, { project: "micasa", kind: "initiative", key: "EV-INI", title: "Catálogo", scope: "Plan" } as never, ctx);
+  await backlog("EV-S1", { parent_key: "EV-INI", phase: 1, status: "Ready" });
+  await backlog("EV-S2", { parent_key: "EV-INI", phase: 2, blocked_by: ["EV-S1"] });
+  assert.deepEqual(await wakes(), [], "steps filed under a Planning initiative wake nobody");
+  const { version } = (await raw.query(`select version from tasks where key = 'EV-INI'`)).rows[0];
+  await writes.setTask(db, { project: "micasa", key: "EV-INI", status: "Active", version } as never, ctx);
+  const w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key]), [["taller", "EV-S1"]]);
+  assert.match(w[0]!.summary, /initiative EV-INI started/);
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-S3", { parent_key: "EV-INI", phase: 3, status: "Ready" });
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "EV-S3"]], "born Ready under an Active initiative");
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-S4", { parent_key: "EV-INI", phase: 4, status: "Ready", blocked_by: ["EV-S2"] });
+  assert.deepEqual(await wakes(), [], "a blocked step still waits for its landing");
+});
+
 test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, or a roster slug)", async () => {
   await backlog("EV-ASK");
   // housi (PO) asked from a runner session run-<8 hex of its run id>.
