@@ -10,6 +10,12 @@
 .eq-places a:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
 .eq-places a[aria-current="page"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
 .eq-places a .cor-cap { color: var(--cor-muted); }
+/* PLA-138: on a phone the four places scroll sideways instead of cutting «Motores» at the edge; Motores keeps a gap
+   under them like the other places. */
+.eq-places { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.eq-places::-webkit-scrollbar { display: none; }
+.eq-places a { flex: 0 0 auto; }
+.eq-places + .cor-motores { margin-top: 18px; }
 .eq-title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .org-legend { display: inline-flex; gap: 14px; font-weight: 400; }
 .org-legend > span { display: inline-flex; align-items: center; gap: 6px; }
