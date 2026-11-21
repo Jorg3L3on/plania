@@ -2538,6 +2538,78 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .hi-req p { margin: 0; }
 @media (max-width: 900px) { .hi-wrap { grid-template-columns: 1fr; overflow: auto; } .hi-list { max-height: 50vh; } .hi-two { grid-template-columns: 1fr; } }
 
+/* PLA-130: a theme the app does not have, locked in place of its preview. */
+.es-locked { display: grid; place-items: center; align-content: center; gap: 6px; aspect-ratio: 600 / 360; padding: 16px; border-radius: 16px; border: 1px dashed var(--cor-line-strong); background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px); color: var(--cor-muted); text-align: center; }
+.es-locked svg { color: var(--cor-body); }
+.es-locked b { font-size: 13.5px; font-weight: 600; color: var(--cor-text); }
+.es-locked span { max-width: 32ch; font-size: 11.5px; line-height: 1.45; }
+/* PLA-130: «cambia» in the parts list, and the pane's line with what changes and the way back. */
+.es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
+.es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }
+.es-diff small { font-size: 10.5px; color: var(--cor-muted); }
+/* PLA-130: a card's name never truncates; on a narrow card its mode pill becomes a dot (the words on hover). */
+.mk-c { container-type: inline-size; }
+.mk-lab > span:first-child { flex: none; }
+@container (max-width: 175px) {
+  .mk-lab .mk-tie:not(.more) { width: 10px; height: 10px; padding: 0; border-radius: 50%; font-size: 0; letter-spacing: 0; }
+  .mk-lab .mk-tie.sigue { background: var(--cor-violet-2); }
+  .mk-lab .mk-tie.variante { background: #5eead4; }
+  .mk-lab .mk-tie.propia { background: #f9a8d4; }
+}
+/* PLA-130: the open request's steps, from «En camino». */
+.mk-steps-box { position: relative; }
+.mk-onway { cursor: pointer; }
+.mk-steps { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 300px; max-width: calc(100vw - 32px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 8px; }
+.mk-steps b { font-size: 13px; color: var(--cor-text); }
+.mk-steps ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.mk-steps li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--cor-muted); }
+.mk-steps li i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.3); flex: none; }
+.mk-steps li.done { color: var(--cor-body); } .mk-steps li.done i { background: var(--cor-green); border-color: var(--cor-green); }
+.mk-steps li.now { color: var(--cor-violet-3); } .mk-steps li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); }
+.mk-steps li.you { color: var(--cor-amber); } .mk-steps li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
+.mk-steps p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--cor-body); }
+/* PLA-130: the Upload and Artist screens' title, a small line like the rest of Marca. */
+.mk-screen-h { margin: 0; font-size: 15px; font-weight: 600; color: var(--cor-text); }
+/* PLA-130: Estilo targets of 28 px or more, the colour code's error, a switched-off choice. */
+.es-swb, .es-swb.sm { width: 28px; height: 28px; }
+.es-more { min-height: 28px; display: inline-flex; align-items: center; }
+.es-sw { width: 40px; height: 24px; border-radius: 12px; }
+.es-sw::after { top: 3px; left: 3px; width: 18px; height: 18px; }
+.es-sw[aria-checked="true"]::after { left: 19px; }
+.es-hexw { position: relative; display: inline-flex; }
+.es-hex[aria-invalid="true"] { border-color: var(--cor-red); }
+.es-hex-err { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; white-space: nowrap; font-size: 11px; color: var(--cor-red); }
+.es-seg[aria-disabled="true"] { opacity: 0.5; }
+.es-seg button:disabled { cursor: not-allowed; }
+/* PLA-130: Voz y nombre: the slider's stop in words, the request asks first, a too-long field is marked. */
+.vz-sl-v { font-size: 11px; color: var(--cor-violet-3); text-align: center; }
+.vz-only { margin: 0; font-size: 11px; line-height: 1.4; color: var(--cor-muted); }
+.vz-confirm { display: grid; gap: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); }
+.vz-confirm b { font-size: 13px; color: var(--cor-text); }
+.vz-confirm ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.vz-confirm li { display: grid; gap: 1px; font-size: 12px; color: var(--cor-body); }
+.vz-confirm li span:first-child { font-family: var(--cor-mono); font-size: 11px; color: var(--cor-text); }
+.vz-confirm p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--cor-muted); }
+.vz-in[aria-invalid="true"] { border-color: var(--cor-amber); }
+.vz-f small, .vz-f .w { font-size: 11px; }
+/* PLA-130: Historial folds runs of quick versions, marks kept ones, and keeps its text at 11px or more. */
+.hi-lane, .hi-two figcaption { font-size: 11px; }
+.hi-when { font-size: 12px; }
+.hi-when em, .hi-cur { font-size: 11px; }
+.hi-run b { font-weight: 500; color: var(--cor-body); }
+.hi-sub { margin: 2px 0 6px 18px; padding: 0 0 0 10px; list-style: none; border-left: 1px solid var(--cor-line); display: grid; gap: 2px; }
+.hi-when .hi-kept { margin-left: 6px; color: var(--cor-violet-3); background: rgba(139, 92, 246, 0.12); }
+/* PLA-130: Voz word buttons reach the 24 px minimum with room. */
+.vz-word.add { min-height: 28px; }
+/* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
+.mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
+.mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
+.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span, .mk .vx-k { font-size: 11px; }
+.mk-doors button:hover { color: var(--cor-text); }
+/* PLA-130: a part name and its «cambia» tag wrap instead of clipping; Estilo's bar is a toolbar like Caras'. */
+.es-ri .es-tag { flex: none; margin-right: 2px; }
+.es-bar { padding: 6px 8px 6px 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */
@@ -2665,74 +2737,3 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
-/* PLA-130: a theme the app does not have, locked in place of its preview. */
-.es-locked { display: grid; place-items: center; align-content: center; gap: 6px; aspect-ratio: 600 / 360; padding: 16px; border-radius: 16px; border: 1px dashed var(--cor-line-strong); background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px); color: var(--cor-muted); text-align: center; }
-.es-locked svg { color: var(--cor-body); }
-.es-locked b { font-size: 13.5px; font-weight: 600; color: var(--cor-text); }
-.es-locked span { max-width: 32ch; font-size: 11.5px; line-height: 1.45; }
-/* PLA-130: «cambia» in the parts list, and the pane's line with what changes and the way back. */
-.es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
-.es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }
-.es-diff small { font-size: 10.5px; color: var(--cor-muted); }
-/* PLA-130: a card's name never truncates; on a narrow card its mode pill becomes a dot (the words on hover). */
-.mk-c { container-type: inline-size; }
-.mk-lab > span:first-child { flex: none; }
-@container (max-width: 175px) {
-  .mk-lab .mk-tie:not(.more) { width: 10px; height: 10px; padding: 0; border-radius: 50%; font-size: 0; letter-spacing: 0; }
-  .mk-lab .mk-tie.sigue { background: var(--cor-violet-2); }
-  .mk-lab .mk-tie.variante { background: #5eead4; }
-  .mk-lab .mk-tie.propia { background: #f9a8d4; }
-}
-/* PLA-130: the open request's steps, from «En camino». */
-.mk-steps-box { position: relative; }
-.mk-onway { cursor: pointer; }
-.mk-steps { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 300px; max-width: calc(100vw - 32px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6); display: grid; gap: 8px; }
-.mk-steps b { font-size: 13px; color: var(--cor-text); }
-.mk-steps ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-.mk-steps li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--cor-muted); }
-.mk-steps li i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.3); flex: none; }
-.mk-steps li.done { color: var(--cor-body); } .mk-steps li.done i { background: var(--cor-green); border-color: var(--cor-green); }
-.mk-steps li.now { color: var(--cor-violet-3); } .mk-steps li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); }
-.mk-steps li.you { color: var(--cor-amber); } .mk-steps li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
-.mk-steps p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--cor-body); }
-/* PLA-130: the Upload and Artist screens' title, a small line like the rest of Marca. */
-.mk-screen-h { margin: 0; font-size: 15px; font-weight: 600; color: var(--cor-text); }
-/* PLA-130: Estilo targets of 28 px or more, the colour code's error, a switched-off choice. */
-.es-swb, .es-swb.sm { width: 28px; height: 28px; }
-.es-more { min-height: 28px; display: inline-flex; align-items: center; }
-.es-sw { width: 40px; height: 24px; border-radius: 12px; }
-.es-sw::after { top: 3px; left: 3px; width: 18px; height: 18px; }
-.es-sw[aria-checked="true"]::after { left: 19px; }
-.es-hexw { position: relative; display: inline-flex; }
-.es-hex[aria-invalid="true"] { border-color: var(--cor-red); }
-.es-hex-err { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; white-space: nowrap; font-size: 11px; color: var(--cor-red); }
-.es-seg[aria-disabled="true"] { opacity: 0.5; }
-.es-seg button:disabled { cursor: not-allowed; }
-/* PLA-130: Voz y nombre: the slider's stop in words, the request asks first, a too-long field is marked. */
-.vz-sl-v { font-size: 11px; color: var(--cor-violet-3); text-align: center; }
-.vz-only { margin: 0; font-size: 11px; line-height: 1.4; color: var(--cor-muted); }
-.vz-confirm { display: grid; gap: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); }
-.vz-confirm b { font-size: 13px; color: var(--cor-text); }
-.vz-confirm ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-.vz-confirm li { display: grid; gap: 1px; font-size: 12px; color: var(--cor-body); }
-.vz-confirm li span:first-child { font-family: var(--cor-mono); font-size: 11px; color: var(--cor-text); }
-.vz-confirm p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--cor-muted); }
-.vz-in[aria-invalid="true"] { border-color: var(--cor-amber); }
-.vz-f small, .vz-f .w { font-size: 11px; }
-/* PLA-130: Historial folds runs of quick versions, marks kept ones, and keeps its text at 11px or more. */
-.hi-lane, .hi-two figcaption { font-size: 11px; }
-.hi-when { font-size: 12px; }
-.hi-when em, .hi-cur { font-size: 11px; }
-.hi-run b { font-weight: 500; color: var(--cor-body); }
-.hi-sub { margin: 2px 0 6px 18px; padding: 0 0 0 10px; list-style: none; border-left: 1px solid var(--cor-line); display: grid; gap: 2px; }
-.hi-when .hi-kept { margin-left: 6px; color: var(--cor-violet-3); background: rgba(139, 92, 246, 0.12); }
-/* PLA-130: Voz word buttons reach the 24 px minimum with room. */
-.vz-word.add { min-height: 28px; }
-/* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
-.mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
-.mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
-.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span, .mk .vx-k { font-size: 11px; }
-.mk-doors button:hover { color: var(--cor-text); }
-/* PLA-130: a part name and its «cambia» tag wrap instead of clipping; Estilo's bar is a toolbar like Caras'. */
-.es-ri .es-tag { flex: none; margin-right: 2px; }
-.es-bar { padding: 6px 8px 6px 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }
