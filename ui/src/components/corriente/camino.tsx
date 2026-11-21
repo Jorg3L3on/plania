@@ -51,7 +51,7 @@ export const Ed = ({ title, lead, right, children, id }: { title: string; lead: 
   <section className="cam-ed" aria-labelledby={`cam-h-${id}`} data-camino-sec={id}>
     <header className="cam-ed-h">
       <div>
-        <h3 id={`cam-h-${id}`}>{title}</h3>
+        <h2 id={`cam-h-${id}`}>{title}</h2>
         <p className="cor-text">{lead}</p>
       </div>
       {right}
@@ -63,7 +63,7 @@ export const Ed = ({ title, lead, right, children, id }: { title: string; lead: 
 export const Blk = ({ cap, hint, children, ...rest }: { cap: string; hint?: ReactNode; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) => (
   <div className="cam-blk" {...rest}>
     <div className="cam-blk-h">
-      <h4 className="cam-cap">{cap}</h4>
+      <h3 className="cam-cap">{cap}</h3>
       {hint && <span className="cam-hint">{hint}</span>}
     </div>
     {children}

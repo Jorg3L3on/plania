@@ -41,7 +41,10 @@
 .cam-main { min-width: 0; }
 .cam-ed { border: 1px solid var(--cor-line-strong); border-radius: 14px; background: var(--cor-surface); padding: 18px 20px 22px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .cam-ed-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-.cam-ed-h h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+/* PLA-I70-36: the page title is gone, so a section title is the h2 and its blocks are h3 (axe heading-order). */
+.cam-ed-h h2 { margin: 0; }
+.cam-blk-h h3 { margin: 0; }
+.cam-ed-h h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
 .cam-ed-h p { margin-top: 4px; font-size: 14px; max-width: 72ch; }
 .cam-blk { border-top: 1px solid var(--cor-line); padding-top: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cam-blk-h { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
