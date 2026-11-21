@@ -10,7 +10,7 @@ import { REFERENCE_UI_WORDS } from "@/lib/references-words";
 import { REFERENCE_ACCEPT, droppedFiles, pastedUrl, precheck, refusal, refRows, type Reference, type ReferenceFields } from "@/lib/references";
 import { refsApi } from "@/lib/references-api";
 import { dayLabel, threadWidth } from "@/lib/oficio";
-import { Btn, Label, Opt, Switch } from "./parts";
+import { Btn, Label, Opt, Switch, useSingleFlight } from "./parts";
 
 export const REF_ROW = 44;
 const LABEL_W = 268;
@@ -180,7 +180,7 @@ export const RefPanel = ({
   const [link, setLink] = useState("");
   const file = useRef<HTMLInputElement>(null);
   const addLink = useMutation({
-    mutationFn: (u: string) => refsApi.addLink(slug, agent, u),
+    mutationFn: useSingleFlight((u: string) => refsApi.addLink(slug, agent, u)),
     onSuccess: (r) => {
       setLink("");
       void client.invalidateQueries({ queryKey: refsKey(slug, agent) });
@@ -278,10 +278,10 @@ export const RefCard = ({ slug, agent, seat, r, now, timeZone, onClose }: { slug
   const [sure, setSure] = useState(false);
   const changed = draft.note !== r.note || draft.stance !== r.stance || draft.applies !== r.applies || draft.scope !== r.scope;
   const refresh = () => void client.invalidateQueries({ queryKey: refsKey(slug, agent) });
-  const save = useMutation({ mutationFn: (f: ReferenceFields) => refsApi.update(slug, agent, r.id, f), onSuccess: refresh });
-  const retry = useMutation({ mutationFn: () => refsApi.retry(slug, agent, r.id), onSuccess: refresh });
+  const save = useMutation({ mutationFn: useSingleFlight((f: ReferenceFields) => refsApi.update(slug, agent, r.id, f)), onSuccess: refresh });
+  const retry = useMutation({ mutationFn: useSingleFlight(() => refsApi.retry(slug, agent, r.id)), onSuccess: refresh });
   const remove = useMutation({
-    mutationFn: () => refsApi.remove(slug, agent, r.id),
+    mutationFn: useSingleFlight(() => refsApi.remove(slug, agent, r.id)),
     onSuccess: () => {
       refresh();
       onClose();

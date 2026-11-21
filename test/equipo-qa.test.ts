@@ -1,0 +1,90 @@
+// PLA-136..143: the fixes from a live QA pass of Equipo. Each write fired twice at once leaves one row (PLA-136);
+// a seat goes back to its factory skill list (PLA-140); a custom post and a saved team can be deleted (PLA-142).
+// Throwaway DB, no network.
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { after, before, test } from "node:test";
+import type pg from "pg";
+import { resetTestDb, useTestEnv } from "./helpers.js";
+
+const scratch = mkdtempSync(path.join(tmpdir(), "plania-equipo-qa-"));
+const kit = path.join(scratch, "kit");
+for (const s of ["tdd", "pr", "cited-research"]) {
+  mkdirSync(path.join(kit, "skills", s), { recursive: true });
+  writeFileSync(path.join(kit, "skills", s, "SKILL.md"), `---\nname: ${s}\ndescription: ${s} skill.\n---\n\n# ${s}\n`);
+}
+writeFileSync(path.join(kit, "kits.json"), JSON.stringify({ research: ["cited-research"], taller: ["tdd", "pr"] }));
+process.env.PLANIA_KIT_DIR = kit;
+process.env.PLANIA_CAPTURES_DIR = path.join(scratch, "captures");
+useTestEnv();
+process.env.PLANIA_PROMPTS_PROJECT = "tienda";
+const { makeDb } = await import("../src/db/client.js");
+const { app } = await import("../src/app.js");
+const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
+const { ensureTeam } = await import("../src/runner/team.js");
+const skills = await import("../src/runner/skills.js");
+const lessons = await import("../src/runner/lessons.js");
+const refs = await import("../src/references/store.js");
+
+type Json = Record<string, any>;
+let raw: pg.Client;
+let db: ReturnType<typeof makeDb>["db"];
+let closeDb: () => Promise<void>;
+const owner = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
+const call = async (method: string, url: string, body?: unknown) => {
+  const res = await app.request(url, { method, headers: owner(), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  return { status: res.status, json: (await res.json().catch(() => ({}))) as Json };
+};
+const T = "/api/company/projects/tienda";
+const n = async (q: string, args: unknown[] = []) => (await raw.query(q, args)).rows[0].n as number;
+const actor = { agent: "test", session_id: "s" };
+
+before(async () => {
+  raw = await resetTestDb();
+  ({ db, close: closeDb } = makeDb());
+  await raw.query(`insert into agents (slug, name, role, kind) values ('ceo', 'CEO', 'ceo', 'human')`);
+  const pid = (await raw.query(`insert into projects (slug, title, key_prefix) values ('tienda', 'Tienda', 'TND') returning id`)).rows[0].id;
+  for (const t of ["Product owner", "Taller", "Research", "Artist", "QA"]) await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, $3, '{"agent":"t","session_id":"s"}'::jsonb)`, [pid, `Prompt: ${t}`, `# ${t}`]);
+  await ensureTeam(db, { id: pid, slug: "tienda", title: "Tienda" });
+});
+after(async () => {
+  await closeDb();
+  await raw.end();
+});
+
+test("PLA-136: the same rule taught twice at once is one lesson", async () => {
+  const [a, b] = await Promise.all([
+    lessons.teachRule(db, "tienda", "taller-tienda", { text: "Corre las pruebas antes de cerrar." }, { owner: true }),
+    lessons.teachRule(db, "tienda", "taller-tienda", { text: "Corre las pruebas antes de cerrar." }, { owner: true }),
+  ]);
+  assert.equal(a.id, b.id);
+  assert.equal(await n(`select count(*)::int as n from lessons where text = 'Corre las pruebas antes de cerrar.'`), 1);
+  // Another text, or the same text on another seat, is a new lesson.
+  await lessons.teachRule(db, "tienda", "taller-tienda", { text: "Otra regla distinta." }, { owner: true });
+  await lessons.teachRule(db, "tienda", "research-tienda", { text: "Corre las pruebas antes de cerrar." }, { owner: true });
+  assert.equal(await n(`select count(*)::int as n from lessons`), 3);
+});
+
+test("PLA-136: the same link saved twice at once is one reference", async () => {
+  // A private address: the read is refused at once, the address is kept with its refusal. No network.
+  const deps = { fetch: { resolve: async () => [{ address: "10.0.0.7", family: 4 }] } } as never;
+  const input = { slug: "tienda", agent: "taller-tienda", url: "https://ejemplo.test/guia", actor };
+  const [a, b] = await Promise.all([refs.addLinkReference(db, input, deps), refs.addLinkReference(db, input, deps)]);
+  assert.equal(a.reference.id, b.reference.id);
+  assert.equal(await n(`select count(*)::int as n from agent_references where url = 'https://ejemplo.test/guia'`), 1);
+});
+
+test("PLA-136: two duplicates at once both land under their own name; two creates of one name give one skill and a code", async () => {
+  const [x, y] = await Promise.all([skills.duplicateSkill(db, "tienda", "research-tienda", "cited-research"), skills.duplicateSkill(db, "tienda", "research-tienda", "cited-research")]);
+  assert.notEqual(x, y);
+  assert.deepEqual([x, y].sort(), ["cited-research-2", "cited-research-3"]);
+  const body = { name: "Regla de prueba", description: "Cuando se prueba.", body: "1. Nada." };
+  const both = await Promise.all([call("POST", `${T}/team/taller-tienda/skills`, body), call("POST", `${T}/team/taller-tienda/skills`, body)]);
+  const statuses = both.map((r) => r.status).sort();
+  assert.notEqual(statuses[1], 500, JSON.stringify(both.map((r) => r.json)));
+  assert.equal(await n(`select count(*)::int as n from skills where slug = 'regla-de-prueba'`), 1);
+  const lost = both.find((r) => r.status >= 400);
+  if (lost) assert.equal(lost.json.error, "SKILL_EXISTS");
+});

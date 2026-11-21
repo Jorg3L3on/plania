@@ -10,7 +10,7 @@ import { words } from "@/lib/i18n";
 import { skillWords, shelfNext, type Oficio } from "@/lib/oficio";
 import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 import { cardHead, changedOnly, draftChanged, saveError, scopeOptions, versionDiff, versionNote, type SkillCard, type SkillDraft, type SkillScope } from "@/lib/oficio-skills";
-import { Btn, Label, ReadError, Switch } from "./parts";
+import { Btn, Label, ReadError, Switch, useSingleFlight } from "./parts";
 import { LinkUpdate } from "./oficio-trial";
 import { TRIAL_WORDS } from "@/lib/oficio-trial-words";
 
@@ -140,7 +140,7 @@ export const SkillPanel = ({ o, seat, slug, onClose, onOpen, onTry }: { o: Ofici
     refresh();
     if (next && next.slug !== slug) onOpen(next.slug);
   };
-  const save = useMutation({ mutationFn: () => api.editSkill(o.project, o.agent, slug, d), onSuccess: (c) => done(c) });
+  const save = useMutation({ mutationFn: useSingleFlight(() => api.editSkill(o.project, o.agent, slug, d)), onSuccess: (c) => done(c) });
   const toggle = useMutation({
     mutationFn: async (on: boolean) => {
       if (card?.source === "owner") return api.setSkillOn(o.project, o.agent, slug, on);
@@ -149,9 +149,9 @@ export const SkillPanel = ({ o, seat, slug, onClose, onOpen, onTry }: { o: Ofici
     },
     onSuccess: () => done(),
   });
-  const rollback = useMutation({ mutationFn: (n: number) => api.rollbackSkill(o.project, o.agent, slug, n), onSuccess: () => (setMode("card"), done()) });
-  const dup = useMutation({ mutationFn: () => api.duplicateSkill(o.project, o.agent, slug), onSuccess: (c) => done(c) });
-  const remove = useMutation({ mutationFn: () => api.deleteSkill(o.project, o.agent, slug), onSuccess: () => (refresh(), onClose()) });
+  const rollback = useMutation({ mutationFn: useSingleFlight((n: number) => api.rollbackSkill(o.project, o.agent, slug, n)), onSuccess: () => (setMode("card"), done()) });
+  const dup = useMutation({ mutationFn: useSingleFlight(() => api.duplicateSkill(o.project, o.agent, slug)), onSuccess: (c) => done(c) });
+  const remove = useMutation({ mutationFn: useSingleFlight(() => api.deleteSkill(o.project, o.agent, slug)), onSuccess: () => (refresh(), onClose()) });
   const busy = save.isPending || toggle.isPending || rollback.isPending || dup.isPending || remove.isPending;
   const err = errOf(save.error ?? toggle.error ?? rollback.error ?? dup.error ?? remove.error);
   const use = o.skills.find((s) => s.slug === slug);
@@ -246,7 +246,7 @@ export const NewSkillPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: s
   const refresh = useRefresh(o);
   const [d, setD] = useState<SkillDraft>({ name: "", description: "", body: "", scope: "agent" });
   const make = useMutation({
-    mutationFn: () => api.createSkill(o.project, o.agent, d),
+    mutationFn: useSingleFlight(() => api.createSkill(o.project, o.agent, d)),
     onSuccess: (c) => {
       refresh();
       onOpen(c.slug);
@@ -276,7 +276,7 @@ export const PuestoPanel = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: 
   const q = useQuery({ queryKey: ["puesto", o.project, o.agent], queryFn: () => api.puesto(o.project, o.agent) });
   const [text, setText] = useState("");
   useEffect(() => setText(q.data?.manner ?? ""), [q.data?.manner_version, o.agent]); // eslint-disable-line react-hooks/exhaustive-deps
-  const save = useMutation({ mutationFn: () => api.setManner(o.project, o.agent, text), onSuccess: () => refresh() });
+  const save = useMutation({ mutationFn: useSingleFlight(() => api.setManner(o.project, o.agent, text)), onSuccess: () => refresh() });
   const err = save.error instanceof ApiError ? (save.error.code === "TOO_LARGE" ? w.tooLong : w.notAllowed) : null;
   const motor = q.data?.motor;
   return (

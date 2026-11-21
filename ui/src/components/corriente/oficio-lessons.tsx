@@ -9,7 +9,7 @@ import { words } from "@/lib/i18n";
 import { dayLabel, skillWords, type Oficio } from "@/lib/oficio";
 import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
 import { budgetShare, historyLine, lessonError, type Budget, type LessonAction, type LessonView, type LessonsRead } from "@/lib/oficio-lessons";
-import { Btn, Label, Opt } from "./parts";
+import { Btn, Label, Opt, useSingleFlight } from "./parts";
 
 function useDecide(o: Oficio) {
   const client = useQueryClient();
@@ -148,10 +148,10 @@ const LessonItem = ({ o, x, skills }: { o: Oficio; x: LessonView; skills: { slug
   };
   const decide = useDecide(o);
   const [target, setTarget] = useState(skills[0]?.slug ?? "");
-  const repeat = useMutation({ mutationFn: () => api.markRepeat(o.project, o.agent, x.id), onSuccess: refresh });
-  const confirm = useMutation({ mutationFn: ({ rid, yes }: { rid: string; yes: boolean }) => api.confirmRepeat(o.project, o.agent, rid, yes), onSuccess: refresh });
-  const merge = useMutation({ mutationFn: (skill: string | null) => api.mergeLesson(o.project, o.agent, x.id, skill), onSuccess: refresh });
-  const keep = useMutation({ mutationFn: () => api.keepLesson(o.project, o.agent, x.id), onSuccess: refresh });
+  const repeat = useMutation({ mutationFn: useSingleFlight(() => api.markRepeat(o.project, o.agent, x.id)), onSuccess: refresh });
+  const confirm = useMutation({ mutationFn: useSingleFlight(({ rid, yes }: { rid: string; yes: boolean }) => api.confirmRepeat(o.project, o.agent, rid, yes)), onSuccess: refresh });
+  const merge = useMutation({ mutationFn: useSingleFlight((skill: string | null) => api.mergeLesson(o.project, o.agent, x.id, skill)), onSuccess: refresh });
+  const keep = useMutation({ mutationFn: useSingleFlight(() => api.keepLesson(o.project, o.agent, x.id)), onSuccess: refresh });
   const busy = decide.isPending || repeat.isPending || confirm.isPending || merge.isPending || keep.isPending;
   const err = errOf(decide.error ?? repeat.error ?? confirm.error ?? merge.error ?? keep.error);
   const r = x.repeats;
@@ -309,7 +309,7 @@ export const TeachBar = ({ o, seat, onSkill }: { o: Oficio; seat: string; onSkil
   const client = useQueryClient();
   const [text, setText] = useState("");
   const teach = useMutation({
-    mutationFn: () => api.teachRule(o.project, o.agent, text),
+    mutationFn: useSingleFlight(() => api.teachRule(o.project, o.agent, text)),
     onSuccess: () => {
       setText("");
       void client.invalidateQueries({ queryKey: ["lessons", o.project, o.agent] });

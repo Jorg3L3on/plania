@@ -15,7 +15,7 @@ import { changedOnly, scopeOptions, type SkillCard, type SkillScope } from "@/li
 import { IMPORT_WORDS, TRIAL_WORDS } from "@/lib/oficio-trial-words";
 import { SKILL_CARD_WORDS } from "@/lib/oficio-skill-words";
 import { hostOf, importError, othersCount, stampWords, trialError, trialLine, trialLive, updateDiff, type ImportPreview, type TrialView, type UpdateCheck } from "@/lib/oficio-trials";
-import { Btn, Label, ReadError } from "./parts";
+import { Btn, Label, ReadError, useSingleFlight } from "./parts";
 
 const codeOf = (e: unknown): string | null => (e instanceof ApiError ? e.code : e ? "NETWORK" : null);
 
@@ -192,7 +192,7 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
   const [shown, setShown] = useState<ImportPreview | null>(null);
   const look = useMutation({ mutationFn: () => api.previewImport(o.project, o.agent, url.trim()), onSuccess: (p) => setShown(p) });
   const save = useMutation({
-    mutationFn: () => api.importSkill(o.project, o.agent, { url: shown!.url, source_hash: shown!.source_hash, scope }),
+    mutationFn: useSingleFlight(() => api.importSkill(o.project, o.agent, { url: shown!.url, source_hash: shown!.source_hash, scope })),
     onSuccess: (c) => {
       void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
@@ -273,7 +273,7 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
   const [seen, setSeen] = useState<UpdateCheck | null>(null);
   const check = useMutation({ mutationFn: () => api.checkSkillLink(o.project, o.agent, card.slug), onSuccess: (u) => setSeen(u) });
   const accept = useMutation({
-    mutationFn: () => api.updateSkillLink(o.project, o.agent, card.slug, seen!.source_hash),
+    mutationFn: useSingleFlight(() => api.updateSkillLink(o.project, o.agent, card.slug, seen!.source_hash)),
     onSuccess: () => {
       setSeen(null);
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
@@ -282,7 +282,7 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
   });
   // PLA-I71-5: «No, quedarme con la mía» keeps the pin and stops offering that upstream content.
   const decline = useMutation({
-    mutationFn: () => api.declineSkillLink(o.project, o.agent, card.slug),
+    mutationFn: useSingleFlight(() => api.declineSkillLink(o.project, o.agent, card.slug)),
     onSuccess: () => {
       setSeen(null);
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
