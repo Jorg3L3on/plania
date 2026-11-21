@@ -206,8 +206,13 @@ export function isPrimary(item: Observed, dir: Directory): boolean {
       // the project's main one only on the main server. On a scratch server (Postgres 17 on :5433) it
       // is a copy someone made, an ordinary row with its dropdb.
       if (PRIMARY_DATABASES.has(name)) return true;
-      if ((item.database?.port ?? primaryPgPort()) !== primaryPgPort()) return false;
       const own = new Set([...dir.projects.map((p) => p.slug), ...dir.repos.map((r) => r.name)].flatMap((n) => [n.toLowerCase(), norm(n)]));
+      // PLA-146: `<project>_dev`, `_development`, `_local` and `_test` (nothing after the suffix) are the app's own
+      // databases wherever its Postgres runs (an app may keep them on :5433). Cleanup offered `dropdb <app>_dev` once
+      // the setup ticket that declared it was Done. Plania's copies always carry more (`_entrega`, `_prueba`, a hash).
+      const base = /^(.+)_(dev|development|local|test)$/.exec(norm(name))?.[1];
+      if (base && own.has(base)) return true;
+      if ((item.database?.port ?? primaryPgPort()) !== primaryPgPort()) return false;
       return own.has(name) || own.has(norm(name));
     }
     default:

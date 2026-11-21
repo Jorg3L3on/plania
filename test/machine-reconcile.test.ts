@@ -56,6 +56,9 @@ describe("primary", () => {
     assert.equal(infer.isPrimary(on("plania", 5433), dir), false);
     assert.equal(infer.isPrimary(on("postgres", 5433), dir), true);
     assert.equal(infer.isPrimary(on("template1", 5433), dir), true);
+    // PLA-146: the app's own dev and test databases are primary on any port; Plania's copies are not.
+    for (const n of ["zigzag_dev", "zigzag_test", "zigzag_local", "zigzag_development"]) assert.equal(infer.isPrimary(on(n, 5433), dir), true, n);
+    for (const n of ["zigzag_entrega", "zigzag_prueba", "zigzag_test_3f9a", "zigzag_zig_i1_2_copy", "otra_dev"]) assert.equal(infer.isPrimary(on(n, 5433), dir), false, n);
     process.env.PLANIA_PRIMARY_PG_PORT = "5433";
     try {
       assert.equal(infer.isPrimary(on("zigzag", 5433), dir), true, "the main port comes from PLANIA_PRIMARY_PG_PORT");
