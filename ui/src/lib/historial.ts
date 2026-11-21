@@ -9,26 +9,53 @@ import type { VersionRef } from "./marca.js";
 export type RequestKind = "caras" | "estilo" | "nombre";
 export type Historial = {
   logo: VersionRef[];
-  style: { v: number; at: string; current: boolean; style: Style }[];
-  voice: { v: number; at: string; current: boolean; voice: Voice }[];
+  style: { v: number; at: string; from?: string; keep?: boolean; current: boolean; style: Style }[];
+  voice: { v: number; at: string; from?: string; keep?: boolean; current: boolean; voice: Voice }[];
   requests: { key: string; title: string; kind: RequestKind; status: string; at: string; pr: string | null }[];
 };
 export type Lane = "logo" | "estilo" | "voz" | "pedido";
 export type Entry =
   | { lane: "logo"; id: string; at: string; current: boolean; v: VersionRef }
-  | { lane: "estilo"; id: string; at: string; current: boolean; v: number; style: Style }
-  | { lane: "voz"; id: string; at: string; current: boolean; v: number; voice: Voice }
+  | { lane: "estilo"; id: string; at: string; current: boolean; keep?: boolean; v: number; style: Style }
+  | { lane: "voz"; id: string; at: string; current: boolean; keep?: boolean; v: number; voice: Voice }
   | { lane: "pedido"; id: string; at: string; current: false; r: Historial["requests"][number] };
 
 /** One list, newest first. */
 export function entries(h: Historial, lane: Lane | "todo" = "todo"): Entry[] {
   const all: Entry[] = [
     ...h.logo.map((v) => ({ lane: "logo" as const, id: `logo-${v.v}`, at: v.at, current: v.active, v })),
-    ...h.style.map((s) => ({ lane: "estilo" as const, id: `estilo-${s.v}`, at: s.at, current: s.current, v: s.v, style: s.style })),
-    ...h.voice.map((s) => ({ lane: "voz" as const, id: `voz-${s.v}`, at: s.at, current: s.current, v: s.v, voice: s.voice })),
+    ...h.style.map((s) => ({ lane: "estilo" as const, id: `estilo-${s.v}`, at: s.at, current: s.current, keep: s.keep, v: s.v, style: s.style })),
+    ...h.voice.map((s) => ({ lane: "voz" as const, id: `voz-${s.v}`, at: s.at, current: s.current, keep: s.keep, v: s.v, voice: s.voice })),
     ...h.requests.map((r) => ({ lane: "pedido" as const, id: `pedido-${r.key}`, at: r.at, current: false as const, r })),
   ];
   return all.filter((e) => lane === "todo" || e.lane === lane).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+}
+
+/** PLA-130: a run of Estilo or Voz versions close together, shown as one row that opens. */
+export type Run = { run: true; id: string; lane: "estilo" | "voz"; items: Entry[]; from: string; to: string };
+export const RUN_GAP_MS = 30 * 60_000;
+/** Groups consecutive Estilo or Voz versions made within 30 minutes of each other (three or more). The current
+ * version and kept ones (restored, sent to Taller) always stand on their own. The list is newest first. */
+export function runs(list: Entry[]): (Entry | Run)[] {
+  const out: (Entry | Run)[] = [];
+  let cur: Entry[] = [];
+  const flush = () => {
+    if (cur.length >= 3) out.push({ run: true, id: `run-${cur[0]!.id}`, lane: cur[0]!.lane as "estilo" | "voz", items: cur, from: cur[cur.length - 1]!.at, to: cur[0]!.at });
+    else out.push(...cur);
+    cur = [];
+  };
+  for (const e of list) {
+    const groupable = (e.lane === "estilo" || e.lane === "voz") && !e.current && !e.keep;
+    const last = cur[cur.length - 1];
+    if (groupable && last && last.lane === e.lane && Date.parse(last.at) - Date.parse(e.at) <= RUN_GAP_MS) cur.push(e);
+    else {
+      flush();
+      if (groupable) cur.push(e);
+      else out.push(e);
+    }
+  }
+  flush();
+  return out;
 }
 
 const STYLE_KEYS = ["brand", "accent", "neutral", "head", "body", "mono", "base", "ratio", "radius", "pill", "shadow", "border", "density", "lib", "stroke", "fill", "motion", "img"] as const;
@@ -49,6 +76,11 @@ export const HISTORIAL_WORDS = defineWords({
     lanesLabel: "Qué mostrar",
     empty: "Todavía no hay nada aquí: cada cambio en Marca queda en esta lista.",
     current: "Actual",
+    kept: "Guardada",
+    keptWhy: "Se mandó a Taller o volviste a ella: no se borra.",
+    run: (n: number, lane: string, from: string, to: string) => `${n} versiones de ${lane} · ${from} – ${to}`,
+    runOpen: "Ver todas",
+    runClose: "Ocultar",
     version: (lane: string, v: number) => `${lane} · versión ${v}`,
     goBack: "Volver a esta",
     goneBack: (lane: string, v: number) => `${lane}: volvió a la versión ${v}. Quedó como una versión nueva.`,
@@ -76,6 +108,11 @@ export const HISTORIAL_WORDS = defineWords({
     lanesLabel: "What to show",
     empty: "Nothing here yet: every change in Marca stays in this list.",
     current: "Current",
+    kept: "Kept",
+    keptWhy: "Sent to Taller or gone back to: it is never dropped.",
+    run: (n: number, lane: string, from: string, to: string) => `${n} ${lane} versions · ${from} – ${to}`,
+    runOpen: "Show all",
+    runClose: "Hide",
     version: (lane: string, v: number) => `${lane} · version ${v}`,
     goBack: "Go back to this one",
     goneBack: (lane: string, v: number) => `${lane}: back to version ${v}. It was kept as a new version.`,

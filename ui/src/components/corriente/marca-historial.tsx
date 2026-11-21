@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { estiloWords } from "@/lib/estilo";
-import { entries, historialWords, styleDiff, voiceDiff, type Entry, type Lane } from "@/lib/historial";
+import { entries, historialWords, runs, styleDiff, voiceDiff, type Entry, type Lane, type Run } from "@/lib/historial";
 import { versionUrl } from "@/lib/marca";
 import { guideOf, vozWords } from "@/lib/voz";
 import { Fit, Spec, useFonts } from "./marca-estilo";
@@ -19,6 +19,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
   const q = useQuery({ queryKey: ["marca-historial", slug], queryFn: () => api.marcaHistorial(slug), staleTime: 10_000 });
   const [lane, setLane] = useState<Lane | "todo">("todo");
   const [sel, setSel] = useState<string | null>(null);
+  const [openRuns, setOpenRuns] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const h = q.data;
   const fontsOf = h ? [...new Set(h.style.flatMap((s) => [s.style.head, s.style.body]))] : [];
@@ -45,26 +46,7 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
     }
   };
   const curStyle = h.style.find((s) => s.current)?.style ?? null;
-  const curVoice = h.voice.find((s) => s.current)?.voice ?? null;
-  const curLogo = h.logo.find((v) => v.active) ?? null;
-  const ew = estiloWords();
-  const vw = vozWords();
-  return (
-    <div className="hi-wrap" data-historial={slug}>
-      <div className="hi-left">
-        <div className="es-seg" role="radiogroup" aria-label={w.lanesLabel}>
-          {(["todo", "logo", "estilo", "voz", "pedido"] as const).map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={lane === k} onClick={() => { setLane(k); setSel(null); }} data-control={`historial-${k}`}>
-              {w.lanes[k]}
-            </button>
-          ))}
-        </div>
-        {list.length === 0 ? (
-          <p className="es-note">{w.empty}</p>
-        ) : (
-          <ul className="hi-list" aria-label={w.lanes[lane]}>
-            {list.map((e) => (
-              <li key={e.id}>
+  const row = (e: Entry) => (
                 <button type="button" className="hi-row" aria-pressed={sel === e.id} onClick={() => setSel(e.id)} data-entry={e.id}>
                   <span className={`hi-lane ${e.lane}`}>{w.lanes[e.lane]}</span>
                   <span className="hi-what">
@@ -96,10 +78,42 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
                       </>
                     )}
                   </span>
-                  <span className="hi-when">{e.current ? <em>{w.current}</em> : w.when(e.at)}</span>
+                  <span className="hi-when">{e.current ? <em>{w.current}</em> : w.when(e.at)}{"keep" in e && e.keep && <em className="hi-kept" title={w.keptWhy}>{w.kept}</em>}</span>
                 </button>
-              </li>
-            ))}
+  );
+  const curVoice = h.voice.find((s) => s.current)?.voice ?? null;
+  const curLogo = h.logo.find((v) => v.active) ?? null;
+  const ew = estiloWords();
+  const vw = vozWords();
+  return (
+    <div className="hi-wrap" data-historial={slug}>
+      <div className="hi-left">
+        <div className="es-seg" role="radiogroup" aria-label={w.lanesLabel}>
+          {(["todo", "logo", "estilo", "voz", "pedido"] as const).map((k) => (
+            <button key={k} type="button" role="radio" aria-checked={lane === k} onClick={() => { setLane(k); setSel(null); }} data-control={`historial-${k}`}>
+              {w.lanes[k]}
+            </button>
+          ))}
+        </div>
+        {list.length === 0 ? (
+          <p className="es-note">{w.empty}</p>
+        ) : (
+          <ul className="hi-list" aria-label={w.lanes[lane]}>
+            {/* PLA-130: runs of quick versions fold into one row; the current and kept ones stand alone. */}
+            {runs(list).map((x) =>
+              "run" in x ? (
+                <li key={x.id}>
+                  <button type="button" className="hi-row hi-run" aria-expanded={openRuns.has(x.id)} onClick={() => setOpenRuns((o) => { const n = new Set(o); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} data-run={x.id}>
+                    <span className={`hi-lane ${x.lane}`}>{w.lanes[x.lane]}</span>
+                    <span className="hi-what"><b>{w.run(x.items.length, laneName(x.lane), w.when(x.from), w.when(x.to))}</b></span>
+                    <span className="hi-when">{openRuns.has(x.id) ? w.runClose : w.runOpen}</span>
+                  </button>
+                  {openRuns.has(x.id) && <ul className="hi-sub">{x.items.map((e) => <li key={e.id}>{row(e)}</li>)}</ul>}
+                </li>
+              ) : (
+                <li key={x.id}>{row(x)}</li>
+              ),
+            )}
           </ul>
         )}
       </div>
@@ -109,9 +123,10 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
         ) : (
           <>
             <header className="hi-head">
-              <h3>
+              {/* PLA-130: h2, right under the page's h1. */}
+              <h2>
                 {picked.lane === "pedido" ? `${w.kinds[picked.r.kind]} · ${picked.r.key}` : w.version(laneName(picked.lane), picked.lane === "logo" ? picked.v.v : picked.v)}
-              </h3>
+              </h2>
               <span className="hi-when">{w.when(picked.at)}</span>
               {picked.lane !== "pedido" && !picked.current && !(picked.lane === "estilo" && curStyle && !styleDiff(picked.style, curStyle).length) && !(picked.lane === "voz" && curVoice && !voiceDiff(picked.voice, curVoice).length) && (
                 <button type="button" className="cor-btn primary small" disabled={busy} onClick={() => void back(picked)} data-control="historial-volver">
