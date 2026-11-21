@@ -9,7 +9,8 @@ import { COMMITS_PAGE_WORDS } from "./camino-commits-words.js";
 export type Sev = "bad" | "warn" | "info" | "ok";
 type Pair = readonly [string, string];
 export type SectionId = "resumen" | "conn" | "propuestas" | "codigo" | "commits" | "ci" | "hist" | `env:${string}`;
-/** A fix: open a section (go), read GitHub again (recheck), or open the project's Ajustes at a section (ajustes). */
+/** A fix: open a section (go), read GitHub again (recheck), or open the project's Ajustes at a section (ajustes).
+ * PLA-132: no finding sends the owner to Ajustes any more; the release step and the code live here. */
 export type Fix = { label: string; go?: SectionId; act?: "recheck"; ajustes?: string };
 export type Finding = { id: string; sev: Sev; sec: SectionId; title: string; detail: string; fix: Fix | null };
 
@@ -235,7 +236,7 @@ export const CAMINO_WORDS = defineWords({
     readError: "el camino de este proyecto",
     reading: "Leyendo el camino…",
     ago: { now: "hace un momento", min: (n: number) => `hace ${n} min`, h: (n: number) => `hace ${n} h`, d: (n: number) => `hace ${n} ${n === 1 ? "día" : "días"}` },
-    sources: { github: "de GitHub", plania: "de Plania", mac: "de esta Mac", camino: "de tu configuración", settings: "de Ajustes", default: "por defecto" } as Record<string, string>,
+    sources: { github: "de GitHub", plania: "de Plania", mac: "de esta Mac", camino: "de tu configuración", settings: "de la configuración anterior", default: "por defecto" } as Record<string, string>,
   },
   en: {
     door: "Deploy",
@@ -452,7 +453,7 @@ export const CAMINO_WORDS = defineWords({
     readError: "this project's path",
     reading: "Reading the path…",
     ago: { now: "just now", min: (n: number) => `${n} min ago`, h: (n: number) => `${n} h ago`, d: (n: number) => `${n} ${n === 1 ? "day" : "days"} ago` },
-    sources: { github: "from GitHub", plania: "from Plania", mac: "from this Mac", camino: "from your setup", settings: "from Settings", default: "default" } as Record<string, string>,
+    sources: { github: "from GitHub", plania: "from Plania", mac: "from this Mac", camino: "from your setup", settings: "from earlier settings", default: "default" } as Record<string, string>,
   },
 });
 
@@ -682,7 +683,14 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
       if (miss.length) add(`vars:${e.id}`, "info", sec, w.f.missingVars(e.name, miss.length, miss.join(", ")), fix);
     }
   }
-  if (r.settings.release && !r.settings.release.prod_migrations) add("prod-unset", "info", "resumen", w.f.prodUnset, { label: w.fix.who, ajustes: "lanzamiento" });
+  // PLA-132: who migrates production, read as Publicar reads it (src/mcp/release-plan.ts): the saved production
+  // environment first, then the older setting. The fix opens that environment.
+  if (r.settings.release) {
+    const rel = r.settings.release;
+    const prodEnv = c.envs.find((e) => e.record === rel.env) ?? c.envs.find((e) => e.kind === "produccion") ?? null;
+    const fromEnv = prodEnv && c.source.envs === "camino" ? (!prodEnv.database ? "none" : prodEnv.database.provider ? prodEnv.database.migrate_when : null) : null;
+    if (!fromEnv && !rel.prod_migrations) add("prod-unset", "info", "resumen", w.f.prodUnset, prodEnv ? { label: w.fix.who, go: `env:${prodEnv.id}` } : undefined);
+  }
 
   // Plania's own note
   if (r.plania.note_stale) add("note-stale", "info", "resumen", w.f.noteStale);

@@ -3,10 +3,7 @@
 // The server checks everything again; these only keep a button off while a field cannot be right.
 // PLA-I2-10: the words are in AJUSTES_WORDS, in Spanish and English; SECCIONES, LANZAMIENTO_CAMPOS, CONTEXTO and
 // GUARDADO stay the Spanish ones (tests read them), and the view reads ajustesWords() for the screen's language.
-import { githubWords, type CodigoOpcion } from "./nuevo-proyecto.js";
-// PLA-I2-10: re-exported for the Ajustes view, whose import of the module by name read as a Spanish sentence to
-// scripts/inline-words.ts.
-export { CODIGO_OPCIONES, codigoBody, codigoOpciones, type CodigoOpcion } from "./nuevo-proyecto.js";
+import { githubWords } from "./nuevo-proyecto.js";
 import { avanzadoError, type ArranqueRead, type AvanzadoRead } from "./ajustes-avanzado.js";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
@@ -28,36 +25,18 @@ export type Ajustes = {
   avanzado: AvanzadoRead[];
 };
 
-/** Which of the three code choices the saved settings are; null when none was said yet. */
-export function codigoDe(c: AjustesCodigo): CodigoOpcion | null {
-  if (c.no_code) return "ninguno";
-  if (c.repo_path) return "carpeta";
-  if (c.github_repo) return "github";
-  return null;
-}
-
 export const AJUSTES_WORDS = defineWords({
   es: {
     secciones: {
-      codigo: { titulo: "Dónde está el código", texto: "De esta carpeta parte cada paso de Taller. Al cambiarla, la reviso antes de guardar." },
-      lanzamiento: {
-        titulo: "El paso a producción",
-        texto: "La fusión que solo tú haces: de la rama de prueba a la rama publicada. Plania te muestra qué lleva y el comando, o la fusiona contigo desde Bandeja.",
-      },
       pruebas: { titulo: "Lo que QA comprueba", texto: "Un comando por línea. QA los corre en orden en cada entrega; si uno falla, la entrega vuelve a Taller." },
-      vista: { titulo: "Vista previa y planes", texto: "Dónde ves la app corriendo, y si un plan del PO espera tu «Sí, empiecen»." },
+      // PLA-132: the address and the release step are in Despliegue now.
+      vista: { titulo: "Planes", texto: "Si un plan del PO espera tu «Sí, empiecen» antes de crear sus tickets. Dónde está el código, cómo se publica y la dirección de la app están en Despliegue." },
       contexto: { titulo: "Contexto del equipo", texto: "Tres notas que cada corrida lee al empezar. Se crean de una plantilla y se editan aquí." },
       // PLA-I3-2: Borrar left the project's bar; it opens from here (the same sheet, which asks for the name and the code).
       borrar: { titulo: "Borrar el proyecto", texto: "Se borra su plan en Plania; su código y su repositorio se quedan. Antes de borrar te pido su nombre y tu código." },
     },
     /** The button of Ajustes' last section, which opens Borrar proyecto's sheet. */
     borrarBoton: (title: string) => `Borrar ${title}`,
-    lanzamientoCampos: {
-      from: { label: "Rama de prueba", hint: "La que recibe lo que aceptas." },
-      into: { label: "Rama publicada", hint: "La que se publica." },
-      env: { label: "Nombre del entorno", hint: "En minúsculas, por ejemplo prod." },
-      merge: { label: "Fusionar desde Plania", hint: "Apagado: Plania te da el comando para correrlo tú." },
-    },
     contexto: {
       glossary: { titulo: "Glosario", para: "Las palabras del proyecto y lo que significan aquí." },
       commands: { titulo: "Comandos", para: "Cómo instalar, correr y probar el proyecto, y qué se ve cuando funcionó." },
@@ -91,23 +70,12 @@ export const AJUSTES_WORDS = defineWords({
   },
   en: {
     secciones: {
-      codigo: { titulo: "Where the code is", texto: "Every Taller step starts from this folder. When you change it, I check it before saving." },
-      lanzamiento: {
-        titulo: "The step to production",
-        texto: "The merge only you make: from the test branch to the published branch. Plania shows you what it carries and the command, or merges it with you from Inbox.",
-      },
       pruebas: { titulo: "What QA checks", texto: "One command per line. QA runs them in order on every delivery; if one fails, the delivery goes back to Taller." },
-      vista: { titulo: "Preview and plans", texto: "Where you see the app running, and whether a plan from the PO waits for your «Yes, go ahead»." },
+      vista: { titulo: "Plans", texto: "Whether a plan from the PO waits for your «Yes, go ahead» before it makes its tickets. Where the code is, how it is released and the app's address are in Deploy." },
       contexto: { titulo: "Team context", texto: "Three notes every run reads when it starts. They are made from a template and edited here." },
       borrar: { titulo: "Delete the project", texto: "Its plan in Plania is deleted; its code and its repository stay. Before deleting I ask for its name and your code." },
     },
     borrarBoton: (title: string) => `Delete ${title}`,
-    lanzamientoCampos: {
-      from: { label: "Test branch", hint: "The one that gets what you accept." },
-      into: { label: "Published branch", hint: "The one that gets published." },
-      env: { label: "Environment name", hint: "Lowercase, for example prod." },
-      merge: { label: "Merge from Plania", hint: "Off: Plania gives you the command to run it yourself." },
-    },
     contexto: {
       glossary: { titulo: "Glossary", para: "The project's words and what they mean here." },
       commands: { titulo: "Commands", para: "How to install, run and test the project, and what you see when it worked." },
@@ -145,23 +113,8 @@ export const AJUSTES_WORDS = defineWords({
 export const ajustesWords = (language: Language = getLanguage()) => words(AJUSTES_WORDS, language);
 
 export const SECCIONES = AJUSTES_WORDS.es.secciones;
-export const LANZAMIENTO_CAMPOS = AJUSTES_WORDS.es.lanzamientoCampos;
 /** PLA-I3-2: the button of Ajustes' last section, which opens Borrar proyecto's sheet. */
 export const borrarBoton = (title: string, language: Language = getLanguage()): string => words(AJUSTES_WORDS, language).borrarBoton(title);
-
-// The shapes checkReleaseSettings takes (src/mcp/release-plan.ts).
-const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
-const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
-// PLA-I68-1: prod is who migrates production ("" while nobody said).
-export type LanzamientoForm = { from: string; into: string; env: string; merge: boolean; prod?: "" | "deploy" | "owner" | "none" };
-/** The release step to send, or null while a field is not right yet. */
-export function lanzamientoBody(f: LanzamientoForm): { from: string; into: string; env: string; mode?: "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null {
-  const from = f.from.trim();
-  const into = f.into.trim();
-  const env = f.env.trim();
-  if (!BRANCH.test(from) || !BRANCH.test(into) || from === into || !ENV.test(env)) return null;
-  return { from, into, env, ...(f.merge ? { mode: "merge" as const } : {}), ...(f.prod ? { prod_migrations: f.prod } : {}) };
-}
 
 /** The verify list's lines: one command each, blank lines dropped. */
 export const comandos = (text: string): string[] =>
@@ -177,19 +130,6 @@ export function comandosAviso(cmds: string[], language: Language = getLanguage()
   if (cmds.some((c) => c.length > 300)) return w.muyLargo;
   return null;
 }
-
-/** An empty address clears it; otherwise http or https. */
-export const vistaPreviaOk = (v: string): boolean => {
-  const t = v.trim();
-  if (!t) return true;
-  if (!/^https?:\/\//.test(t) || t.length > 300) return false;
-  try {
-    new URL(t);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 export const CONTEXTO: Record<AjustesContextoId, { titulo: string; para: string }> = AJUSTES_WORDS.es.contexto;
 

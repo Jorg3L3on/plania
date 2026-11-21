@@ -282,7 +282,8 @@ export type Palanca =
   | { kind: "reenviar"; key: string }
   | { kind: "publicar" }
   // PLA-I68-1: Publicar waits on a setting (who migrates production): the row links to it instead.
-  | { kind: "ajustes"; seccion: string; label: string }
+  // PLA-132: that setting is Despliegue's production environment; its Resumen names it with a fix that opens it.
+  | { kind: "camino"; sec: string; label: string }
   | { kind: "detener"; run: string }
   | { kind: "primero"; key: string }
   | { kind: "lista"; key: string };
@@ -642,7 +643,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "publicado" },
       espera: waits ? pw.waitWhy : (release.detail ?? w.acceptedWaits),
       cap: w.tipos.publicar,
-      palanca: waits ? { kind: "ajustes", seccion: "lanzamiento", label: pw.setIt } : { kind: "publicar" },
+      palanca: waits ? { kind: "camino", sec: "resumen", label: pw.setIt } : { kind: "publicar" },
       decisions: [release.id],
       since: release.at,
     });

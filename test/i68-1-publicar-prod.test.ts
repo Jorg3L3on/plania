@@ -19,7 +19,6 @@ const { checkReleaseSettings, prodMigrationUnhandled, releasePlan } = await impo
 const { releaseGh, shipRelease } = await import("../src/mcp/release-ship.js");
 const { settingsRead } = await import("../src/api/project-settings.js");
 const publicar = (await import(new URL("../ui/src/lib/publicar.ts", import.meta.url).href)) as typeof import("../ui/src/lib/publicar.js");
-const ajustes = (await import(new URL("../ui/src/lib/ajustes.ts", import.meta.url).href)) as typeof import("../ui/src/lib/ajustes.js");
 
 let raw: pg.Client;
 let db: ReturnType<typeof makeDb>["db"];
@@ -128,11 +127,9 @@ describe("the release waits while nobody migrates production", () => {
     assert.ok(gh.some((a) => a[1] === "merge"));
   });
 
-  test("Ajustes reads and writes the setting", async () => {
+  test("the settings read still carries the setting", async () => {
     const read = await settingsRead(db, "zigzag");
     assert.equal(read.release?.prod_migrations, "deploy");
-    assert.deepEqual(ajustes.lanzamientoBody({ from: "sandbox", into: "main", env: "prod", merge: true, prod: "owner" }), { from: "sandbox", into: "main", env: "prod", mode: "merge", prod_migrations: "owner" });
-    assert.deepEqual(ajustes.lanzamientoBody({ from: "sandbox", into: "main", env: "prod", merge: false, prod: "" }), { from: "sandbox", into: "main", env: "prod" });
   });
 });
 

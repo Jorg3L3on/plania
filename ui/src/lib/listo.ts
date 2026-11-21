@@ -53,11 +53,11 @@ export const LISTO_WORDS = defineWords({
       folderNone: "La carpeta del código",
       listo: (c: string) => `${c} está lista: existe, tiene git y está conectada a GitHub.`,
       // PLA-I2-5: each fix is a button in Ajustes («Dónde está el código»), never a terminal.
-      missing: (c: string) => `${c} no existe en esta máquina, así que Taller no puede trabajar. En Ajustes, «Preparar el código» la crea con su repositorio, o corrige la ruta.`,
-      notGit: (c: string) => `${c} tiene archivos pero no es un repositorio, así que Taller no puede trabajar. Plania no toca una carpeta con archivos: en Ajustes elige la carpeta del código o una vacía.`,
-      noOrigin: (c: string) => `${c} no está conectada a GitHub, así que Taller no puede trabajar. En Ajustes, «Preparar el código» crea su repositorio en GitHub con tu cuenta.`,
+      missing: (c: string) => `${c} no existe en esta máquina, así que Taller no puede trabajar. En Despliegue, «Preparar el código» la crea con su repositorio, o corrige la ruta.`,
+      notGit: (c: string) => `${c} tiene archivos pero no es un repositorio, así que Taller no puede trabajar. Plania no toca una carpeta con archivos: en Despliegue elige la carpeta del código o una vacía.`,
+      noOrigin: (c: string) => `${c} no está conectada a GitHub, así que Taller no puede trabajar. En Despliegue, «Preparar el código» crea su repositorio en GitHub con tu cuenta.`,
       unreachable: (c: string) => `No pude leer el repositorio en GitHub de ${c.toLowerCase()}. Revisa en «Qué le falta» (en Máquina) que GitHub tenga la sesión iniciada y pulsa «Revisar de nuevo».`,
-      noBranch: (c: string) => `El repositorio en GitHub de ${c.toLowerCase()} no tiene la rama de trabajo, así que Taller no puede empezar. En Ajustes, «Crear la rama de trabajo» la crea desde la rama principal.`,
+      noBranch: (c: string) => `El repositorio en GitHub de ${c.toLowerCase()} no tiene la rama de trabajo, así que Taller no puede empezar. En Despliegue, «Crear la rama de trabajo» la crea desde la rama principal.`,
       notReady: (c: string) => `${c} no está lista, así que Taller no puede trabajar.`,
       noHaceFalta: "Todavía no hay código: el equipo trabaja sin carpeta hasta que la tenga.",
     },
@@ -106,6 +106,7 @@ export const LISTO_WORDS = defineWords({
     notNeeded: "No hace falta.",
     groups: { falta: "Falta", listo: "Listo", no_hace_falta: "No hace falta" },
     goFix: "Arreglarlo en Ajustes",
+    goFixCamino: "Arreglarlo en Despliegue",
     and: (head: string, last: string) => `${head} y ${last}`,
     aviso: (n: number) => (n === 1 ? "Falta 1 cosa para que el equipo pueda trabajar." : `Faltan ${n} cosas para que el equipo pueda trabajar.`),
     created: (name: string) => `${name} está creado`,
@@ -148,11 +149,11 @@ export const LISTO_WORDS = defineWords({
       folder: (path: string) => `The folder ${path}`,
       folderNone: "The code folder",
       listo: (c: string) => `${c} is ready: it exists, it has git and it is connected to GitHub.`,
-      missing: (c: string) => `${c} does not exist on this machine, so Taller cannot work. In Settings, «Prepare the code» creates it with its repository, or fix the path.`,
-      notGit: (c: string) => `${c} has files but is not a repository, so Taller cannot work. Plania does not touch a folder with files: in Settings choose the code folder or an empty one.`,
-      noOrigin: (c: string) => `${c} is not connected to GitHub, so Taller cannot work. In Settings, «Prepare the code» creates its repository on GitHub with your account.`,
+      missing: (c: string) => `${c} does not exist on this machine, so Taller cannot work. In Deploy, «Prepare the code» creates it with its repository, or fix the path.`,
+      notGit: (c: string) => `${c} has files but is not a repository, so Taller cannot work. Plania does not touch a folder with files: in Deploy choose the code folder or an empty one.`,
+      noOrigin: (c: string) => `${c} is not connected to GitHub, so Taller cannot work. In Deploy, «Prepare the code» creates its repository on GitHub with your account.`,
       unreachable: (c: string) => `I could not read the GitHub repository of ${c.toLowerCase()}. Check in «What it is missing» (in Machine) that GitHub is signed in and press «Check again».`,
-      noBranch: (c: string) => `The GitHub repository of ${c.toLowerCase()} does not have the working branch, so Taller cannot start. In Settings, «Create the working branch» creates it from the main branch.`,
+      noBranch: (c: string) => `The GitHub repository of ${c.toLowerCase()} does not have the working branch, so Taller cannot start. In Deploy, «Create the working branch» creates it from the main branch.`,
       notReady: (c: string) => `${c} is not ready, so Taller cannot work.`,
       noHaceFalta: "There is no code yet: the team works without a folder until it has one.",
     },
@@ -200,6 +201,7 @@ export const LISTO_WORDS = defineWords({
     notNeeded: "Not needed.",
     groups: { falta: "Missing", listo: "Ready", no_hace_falta: "Not needed" },
     goFix: "Fix it in Settings",
+    goFixCamino: "Fix it in Deploy",
     and: (head: string, last: string) => `${head} and ${last}`,
     aviso: (n: number) => (n === 1 ? "1 thing is missing before the team can work." : `${n} things are missing before the team can work.`),
     created: (name: string) => `${name} is created`,
@@ -274,9 +276,7 @@ export const tienePalabras = (id: string): boolean => id in PALABRAS;
 
 // PLA-I2-6: the Ajustes section where a missing item is set (#ajustes-<section>). Items with no control there (the
 // seats' prompts, the runner token, the claude program) have none.
-export const LISTO_AJUSTE: Record<string, "codigo" | "arranque" | "pruebas" | "contexto"> = {
-  code: "codigo",
-  github: "codigo",
+export const LISTO_AJUSTE: Record<string, "arranque" | "pruebas" | "contexto"> = {
   capture: "arranque",
   verify: "pruebas",
   "context.glossary": "contexto",
@@ -284,8 +284,13 @@ export const LISTO_AJUSTE: Record<string, "codigo" | "arranque" | "pruebas" | "c
   "context.map": "contexto",
 };
 export const listoAjuste = (id: string): string | null => LISTO_AJUSTE[id] ?? null;
+// PLA-132: the code's folder and repository are set in Despliegue › Repositorio y ramas, not in Ajustes.
+export const LISTO_CAMINO: Record<string, "codigo"> = { code: "codigo", github: "codigo" };
+/** Where a missing item is set: an Ajustes section or a Despliegue section, or null when the screen has no control. */
+export const listoIrA = (id: string): { tab: "ajustes" | "camino"; sec: string } | null =>
+  LISTO_CAMINO[id] ? { tab: "camino", sec: LISTO_CAMINO[id] } : LISTO_AJUSTE[id] ? { tab: "ajustes", sec: LISTO_AJUSTE[id] } : null;
 export const LISTO_IR = LISTO_WORDS.es.goFix;
-export const listoIr = (language: Language = getLanguage()): string => words(LISTO_WORDS, language).goFix;
+export const listoIr = (language: Language = getLanguage(), tab: "ajustes" | "camino" = "ajustes"): string => (tab === "camino" ? words(LISTO_WORDS, language).goFixCamino : words(LISTO_WORDS, language).goFix);
 
 export type ListoLinea = { id: string; key: string; estado: ListoEstado; para: boolean; titulo: string; nombre: string; texto: string };
 

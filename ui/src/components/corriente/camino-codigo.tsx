@@ -3,6 +3,7 @@
 // roles picked from the real branches, a work-branch pattern with its live matches, the branches with their role and
 // state, GitHub's rules per role branch in plain words, and how PRs merge. Every edit goes to the change set.
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { codigoWords, kindOf, matchesOf, MODEL_SOURCES, repoFromLink, roleOptions } from "@/lib/camino-codigo";
 import { cambiosWords } from "@/lib/camino-cambios";
@@ -12,6 +13,13 @@ import { Btn } from "./parts";
 import { Blk, Ed, Experto, Recom } from "./camino";
 import { Tg } from "./camino-cambios";
 import type { Cambios } from "./camino-store";
+import { PrepararCodigo } from "./preparar-codigo";
+
+/** PLA-132: «Preparar el código» reads the project's settings (as Ajustes did) and shows only what is left to do. */
+const PrepararDeCamino = ({ slug }: { slug: string }) => {
+  const q = useQuery({ queryKey: ["ajustes", slug], queryFn: () => api.ajustes(slug) });
+  return q.data ? <PrepararCodigo a={q.data} /> : null;
+};
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 type Roles = { model: PublishModel; published: string; integration: string | null; work_pattern: string };
@@ -75,6 +83,10 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const mergeLines = (next: typeof c.merge) => (Object.keys(w.mergeLabels) as (keyof typeof c.merge)[]).filter((k) => next[k] !== c.merge[k]).map((k) => `${w.mergeLabels[k]}: ${yn(c.merge[k])} → ${yn(next[k])}`);
   const setMerge = (next: typeof c.merge) => cambios.stage({ key: "merge", change: { kind: "repo_merge", label: w.label.merge, ...next }, dest: "github", from: mergeSay(c.merge), to: mergeSay(next), lines: mergeLines(next) });
 
+  // PLA-132: «Todavía no hay código», moved here from Ajustes.
+  const noCode = (cambios.staged("no_code") as { none: boolean } | undefined)?.none ?? r.settings.no_code;
+  const setNoCode = (none: boolean) => cambios.stage({ key: "no_code", change: { kind: "no_code", label: w.noCodeLabel, none }, dest: "plania", from: r.settings.no_code ? w.noCode : w.hasCode, to: none ? w.noCode : w.hasCode });
+
   const integBranch = g?.branches.find((b) => b.name === roles.integration);
   const roleBranches = [roles.published, ...(roles.model === "integ" && roles.integration ? [roles.integration] : [])];
 
@@ -88,6 +100,10 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
           setMerge({ ...merge, squash: true, delete_on_merge: true });
         }}
       />
+      <Tg on={noCode} title={w.noCode} sub={w.noCodeSub} onClick={() => setNoCode(!noCode)} data-control="sin-codigo" />
+      {/* PLA-132: «Preparar el código» (folder, repository, working branch), moved here from Ajustes. */}
+      {!noCode && <PrepararDeCamino slug={r.slug} />}
+      {!noCode && (
       <div className="cam-grid2">
         <div className="cam-field">
           <label className="cam-lab" htmlFor="cam-repo">
@@ -159,6 +175,7 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
           {mac?.folder && <span className={cls("cam-hint", mac.folder.matches ? "ok-t" : "warn-t")}>{mac.folder.matches ? w.folderOk : w.folderBad}</span>}
         </div>
       </div>
+      )}
 
       <Experto id="codigo">
       <Blk cap={w.howPublish} hint={<Why text={w.models[roles.model].why} src={MODEL_SOURCES[roles.model]} label={w.why} srcLabel={w.source} />}>

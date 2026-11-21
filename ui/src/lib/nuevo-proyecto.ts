@@ -18,9 +18,9 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     keyTaken: "No se creó nada: esa clave ya es de otro proyecto.",
     carpeta: (path: string) => `la carpeta ${path}`,
     esaCarpeta: "esa carpeta",
-    // PLA-I2-5: no terminal and no branch name: what has no button here is done after creating, from Ajustes
+    // PLA-I2-5: no terminal and no branch name: what has no button here is done after creating, from Despliegue (PLA-132)
     // («Preparar el código», «Crear la rama de trabajo»), choosing «Todavía no hay código» for now.
-    despues: "Elige «Todavía no hay código» y prepáralo después desde Ajustes.",
+    despues: "Elige «Todavía no hay código» y prepáralo después desde Despliegue.",
     folderMissing: (folder: string, despues: string) => `No se creó nada: ${folder} no existe en esta máquina. Revisa la ruta, o ${despues}`,
     notGit: (folder: string, despues: string) => `No se creó nada: ${folder} tiene archivos pero no es un repositorio. Elige la carpeta del código, o ${despues}`,
     noOrigin: (folder: string, despues: string) => `No se creó nada: ${folder} no está conectada a GitHub. ${despues}`,
@@ -54,7 +54,7 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     keyTaken: "Nothing was made: that key already belongs to another project.",
     carpeta: (path: string) => `the folder ${path}`,
     esaCarpeta: "that folder",
-    despues: "Choose «There is no code yet» and prepare it later from Settings.",
+    despues: "Choose «There is no code yet» and prepare it later from Deploy.",
     folderMissing: (folder: string, despues: string) => `Nothing was made: ${folder} doesn't exist on this machine. Check the path, or ${despues}`,
     notGit: (folder: string, despues: string) => `Nothing was made: ${folder} has files but is not a repository. Choose the code's folder, or ${despues}`,
     noOrigin: (folder: string, despues: string) => `Nothing was made: ${folder} is not connected to GitHub. ${despues}`,
