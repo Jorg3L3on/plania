@@ -10,7 +10,6 @@ export type Style = {
   head: string; body: string; mono: string; base: number; ratio: number; wHead: number; lh: number;
   radius: number; pill: boolean; shadow: "plana" | "suave" | "marcada"; border: 0 | 1 | 2; density: "compacto" | "comodo" | "amplio";
   lib: string; stroke: number; fill: boolean; motion: "ninguno" | "calmo" | "normal" | "vivo";
-  img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
 export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
 // PLA-130: fields, the settings of a part that reach the files and differ from where the style started.
@@ -267,7 +266,6 @@ export const ESTILO_WORDS = defineWords({
       pill: "píldora",
       shadow: (s: string) => `sombra ${s}`,
       stroke: (n: number) => `trazo ${n}`,
-      people: "con personas",
     },
     color: {
       // PLA-130: Material UI's words (primary, secondary); «ideas» are only suggestions for the main colour.
@@ -464,7 +462,6 @@ export const ESTILO_WORDS = defineWords({
       pill: "pill",
       shadow: (s: string) => `${s} shadow`,
       stroke: (n: number) => `stroke ${n}`,
-      people: "with people",
     },
     color: {
       brand: "Primary colour",

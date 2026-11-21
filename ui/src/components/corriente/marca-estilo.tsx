@@ -65,8 +65,6 @@ export const Icon = ({ n, s, size = 16 }: { n: string; s: Pick<Style, "stroke" |
   return <svg viewBox={lib.box} width={size} height={size} fill={line ? "none" : "currentColor"} stroke={line ? "currentColor" : "none"} strokeWidth={line ? s.stroke : undefined} strokeLinecap="round" strokeLinejoin="round" aria-hidden dangerouslySetInnerHTML={{ __html: shape ?? "" }} />;
 };
 
-/** A small drawing in the chosen illustration style, for the Imágenes part and the empty state. */
-
 /** The small app drawn with a style (600 × 360, scaled by its frame). */
 export function Spec({ x, dark, logo, title, w, play }: { x: Style; dark: boolean; logo: string | null; title: string; w: EstiloWords; play?: number }) {
   const t = tokens(x);

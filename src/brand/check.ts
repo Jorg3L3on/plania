@@ -14,7 +14,6 @@ export type RowState = "ok" | "falta" | "mal" | "viejo";
 export type RowId = "ico" | "svg" | "apple" | "splash" | "man" | "a192" | "a512" | "mask" | "mono" | "og" | "pl" | "ios_app" | "and_app" | "badge" | "short" | "shots" | "test";
 // PLA-I69-3: «Más caras», the surfaces an app may also use, each behind a switch (settings.marca.extras).
 export type Extra = "avisos" | "atajos" | "capturas" | "prueba";
-export const EXTRAS: Extra[] = ["avisos", "atajos", "capturas", "prueba"];
 // A check or a note is a code and its values; the screen words them in the install's language (ui/src/lib/marca.ts).
 export type Check = { k: string; ok: boolean; v?: Record<string, string | number> };
 export type Note = { k: string; v?: Record<string, string | number> };

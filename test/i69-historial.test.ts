@@ -36,7 +36,6 @@ after(async () => {
 });
 beforeEach(async () => {
   style.forgetStyle();
-  voz.forgetVoice();
   rmSync(path.join(STORE, "_marca", "tienda"), { recursive: true, force: true });
   await raw.query("delete from project_logos");
   await raw.query("delete from tasks where project_id in (select id from projects where slug = 'tienda')");

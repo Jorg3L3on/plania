@@ -262,7 +262,6 @@ export const api = {
   marcaVozBack: (slug: string, v: number) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/back`, { v }),
   // PLA-I69-6: Marca → Historial.
   marcaHistorial: (slug: string) => request<Historial>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/historial`),
-  marcaVozPedido: (slug: string) => request<VoiceRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

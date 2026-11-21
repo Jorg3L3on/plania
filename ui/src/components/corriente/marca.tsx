@@ -2,11 +2,11 @@
 // it with the repo's real files (browser, iPhone, Android, install, sharing, Compañía) joined to it by threads (lit:
 // the file is there and passes; dotted: missing; red: wrong), and the list of files on the right; a card or a row
 // opens its sheet with the path and every check. Words and logic: @/lib/marca. Styles: corriente.css («Marca»).
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, pending, pendingSay, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { RING, type Surface, counts, pending, pendingSay, doorCount, fileUrl, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
@@ -18,7 +18,6 @@ import { Estilo } from "./marca-estilo";
 import { Historial } from "./marca-historial";
 import { changesOf, estiloWords } from "@/lib/estilo";
 
-type Shape = "circle" | "squircle" | "drop";
 
 export const useMarca = (slug: string) => useQuery({ queryKey: ["marca", slug], queryFn: () => api.marca(slug), staleTime: 30_000, refetchInterval: 60_000 });
 
@@ -724,39 +723,6 @@ function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords
         <Switch on={r.native} label={w.native} disabled={busy} onChange={async (on) => { setBusy(true); try { await onNative(on); } finally { setBusy(false); } }} data-control="marca-nativo" />
       </footer>
     </>
-  );
-}
-
-function Ficha({ r, face, w, onBack }: { r: MarcaRead; face: Face; w: MarcaWords; onBack: () => void }) {
-  const rows = r.rows.filter((x) => x.face === face);
-  return (
-    <div className="mk-ficha" data-ficha={face}>
-      <button type="button" className="mk-back" onClick={onBack} data-control="marca-volver">
-        {w.back}
-      </button>
-      <h3>{w.face[face].name}</h3>
-      <p>{w.face[face].what}</p>
-      <ul>
-        {rows.map((x) => (
-          <li key={x.id} data-st={x.state}>
-            <div className="mk-fi-h">
-              <StIcon st={x.optional && x.state === "falta" ? "opt" : x.state} />
-              <b>{w.row[x.id].name}</b>
-              <span className={`mk-fi-st ${x.state}`}>{x.optional && x.state === "falta" ? w.optional : (x.id === "pl" ? w.plState : w.state)[x.state]}</span>
-            </div>
-            {x.path && <code>{x.path}</code>}
-            {x.note && <p>{sentence(w.note, x.note)}</p>}
-            <ul className="mk-fi-ck">
-              {x.checks.map((ck, i) => (
-                <li key={i} className={ck.ok ? "y" : "n"}>
-                  {sentence(w.check, ck)}
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

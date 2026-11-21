@@ -267,8 +267,8 @@ test("PLA-130: a setting the repo cannot say (spacing, motion, stroke, greys…)
   assert.deepEqual(roomy.map((c) => [c.part, c.fields]), [["espacio", ["density"]]]);
   const many = ui.changesOf({ ...start, motion: "vivo", stroke: 1.5, neutral: "calido", base: 18, shadow: "marcada" }, repo, start);
   assert.deepEqual(many.map((c) => c.part).sort(), ["color", "forma", "iconos", "letra", "mov"]);
-  const preview = ui.changesOf({ ...start, border: 2, fill: true, img: "linea", people: true }, repo, start);
-  assert.deepEqual(preview, [], "borders, icon fill and images never reach the files");
+  const preview = ui.changesOf({ ...start, border: 2, fill: true }, repo, start);
+  assert.deepEqual(preview, [], "borders and icon fill never reach the files");
   const both = ui.changesOf({ ...start, radius: 12, pill: true }, repo, start).find((c) => c.part === "forma")!;
   assert.equal(both.from, "8 px");
   assert.deepEqual(both.fields, ["pill"], "the repo's value and Plania's own settings in one part");

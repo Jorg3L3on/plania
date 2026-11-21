@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { estiloWords } from "@/lib/estilo";
-import { entries, historialWords, runs, styleDiff, voiceDiff, type Entry, type Lane, type Run } from "@/lib/historial";
+import { entries, historialWords, runs, styleDiff, voiceDiff, type Entry, type Lane } from "@/lib/historial";
 import { versionUrl } from "@/lib/marca";
 import { guideOf, vozWords } from "@/lib/voz";
 import { Fit, Spec, useFonts } from "./marca-estilo";
@@ -153,8 +153,8 @@ export function Historial({ slug, title }: { slug: string; title: string }) {
             {picked.lane === "voz" && (
               <>
                 <div className="hi-two">
-                  <figure><figcaption>{w.then}</figcaption><pre className="hi-guide">{guideOf(vw, picked.voice, title)}</pre></figure>
-                  <figure><figcaption>{w.now}</figcaption><pre className="hi-guide">{curVoice ? guideOf(vw, curVoice, title) : ""}</pre></figure>
+                  <figure><figcaption>{w.then}</figcaption><pre className="hi-guide">{guideOf(vw, picked.voice)}</pre></figure>
+                  <figure><figcaption>{w.now}</figcaption><pre className="hi-guide">{curVoice ? guideOf(vw, curVoice) : ""}</pre></figure>
                 </div>
                 <Diff rows={curVoice ? voiceDiff(picked.voice, curVoice) : []} w={w} />
               </>

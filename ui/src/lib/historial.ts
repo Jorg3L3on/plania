@@ -59,7 +59,7 @@ export function runs(list: Entry[]): (Entry | Run)[] {
 }
 
 const STYLE_KEYS = ["brand", "accent", "neutral", "head", "body", "mono", "base", "ratio", "radius", "pill", "shadow", "border", "density", "lib", "stroke", "fill", "motion"] as const;
-const VOICE_KEYS = ["trato", "cerca", "humor", "breve", "sencillo", "name", "short", "desc", "tag"] as const;
+const VOICE_KEYS = ["trato"] as const; // PLA-130: the form of address is all a voice holds now
 /** What a version has that today's does not, field by field. */
 export function styleDiff(a: Style, b: Style): { k: (typeof STYLE_KEYS)[number]; from: string; to: string }[] {
   return STYLE_KEYS.filter((k) => String(a[k]) !== String(b[k])).map((k) => ({ k, from: String(b[k]), to: String(a[k]) }));
@@ -100,8 +100,8 @@ export const HISTORIAL_WORDS = defineWords({
     now: "Hoy",
     same: "Igual que hoy.",
     fields: {
-      brand: "Color de marca", accent: "Acento", neutral: "Grises", head: "Títulos", body: "Texto", mono: "Código", base: "Tamaño", ratio: "Escala", radius: "Esquinas", pill: "Píldora", shadow: "Sombras", border: "Bordes", density: "Espacio", lib: "Íconos", stroke: "Trazo", fill: "Relleno", motion: "Movimiento", img: "Ilustración",
-      trato: "Trato", cerca: "Cercanía", humor: "Humor", breve: "Brevedad", sencillo: "Sencillez", name: "Nombre", short: "Nombre corto", desc: "Descripción", tag: "Frase",
+      brand: "Color principal", accent: "Color secundario", neutral: "Grises", head: "Títulos", body: "Texto", mono: "Código", base: "Tamaño", ratio: "Escala", radius: "Esquinas", pill: "Píldora", shadow: "Sombras", border: "Bordes", density: "Espacio", lib: "Íconos", stroke: "Trazo", fill: "Relleno", motion: "Movimiento",
+      trato: "Trato",
     } as Record<string, string>,
     source: { repo: "del repo", upload: "subido por ti", artist: "de Artist" } as Record<string, string>,
     kinds: { caras: "Íconos", estilo: "Estilo", nombre: "Nombre y textos" } as Record<string, string>,
@@ -141,8 +141,8 @@ export const HISTORIAL_WORDS = defineWords({
     now: "Today",
     same: "Same as today.",
     fields: {
-      brand: "Brand colour", accent: "Accent", neutral: "Greys", head: "Headings", body: "Text", mono: "Code", base: "Size", ratio: "Scale", radius: "Corners", pill: "Pill", shadow: "Shadows", border: "Borders", density: "Space", lib: "Icons", stroke: "Stroke", fill: "Fill", motion: "Motion", img: "Illustration",
-      trato: "Address", cerca: "Warmth", humor: "Humour", breve: "Brevity", sencillo: "Plainness", name: "Name", short: "Short name", desc: "Description", tag: "Tagline",
+      brand: "Primary colour", accent: "Secondary colour", neutral: "Greys", head: "Headings", body: "Text", mono: "Code", base: "Size", ratio: "Scale", radius: "Corners", pill: "Pill", shadow: "Shadows", border: "Borders", density: "Space", lib: "Icons", stroke: "Stroke", fill: "Fill", motion: "Motion",
+      trato: "Address",
     } as Record<string, string>,
     source: { repo: "from the repo", upload: "uploaded by you", artist: "by Artist" } as Record<string, string>,
     kinds: { caras: "Icons", estilo: "Style", nombre: "Name and texts" } as Record<string, string>,
@@ -155,4 +155,3 @@ export const HISTORIAL_WORDS = defineWords({
   },
 });
 export const historialWords = () => words(HISTORIAL_WORDS);
-export type HistorialWords = ReturnType<typeof historialWords>;

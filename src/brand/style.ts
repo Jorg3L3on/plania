@@ -33,7 +33,6 @@ export type Style = {
   head: string; body: string; mono: string; base: number; ratio: number; wHead: number; lh: number;
   radius: number; pill: boolean; shadow: "plana" | "suave" | "marcada"; border: 0 | 1 | 2; density: "compacto" | "comodo" | "amplio";
   lib: string; stroke: number; fill: boolean; motion: "ninguno" | "calmo" | "normal" | "vivo";
-  img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
 type StyleFile = { current: number; versions: { v: number; at: string; from?: string; keep?: boolean; style: Style }[] };
 
@@ -99,9 +98,6 @@ export function sound(input: Partial<Style>, base: Style): Style {
     stroke: clamp(input.stroke, 1, 3, base.stroke),
     fill: typeof input.fill === "boolean" ? input.fill : base.fill,
     motion: pick(input.motion, ["ninguno", "calmo", "normal", "vivo"] as const, base.motion),
-    img: pick(input.img, ["linea", "plano", "degradado"] as const, base.img),
-    people: typeof input.people === "boolean" ? input.people : base.people,
-    imgBrand: typeof input.imgBrand === "boolean" ? input.imgBrand : base.imgBrand,
   };
 }
 
@@ -310,7 +306,6 @@ export function changesOf(s: Style, repo: RepoStyle, logo: { theme: string | nul
   return out;
 }
 
-const REQ = /<!-- plania:marca-estilo set=([0-9a-f]{16}) -->/;
 export type StyleRead = {
   style: Style | null;
   base: Style;
@@ -338,7 +333,6 @@ export function startStyle(repo: RepoStyle, logo: { colors: string[]; theme: str
     brand, brandTie: repo.brand ? "fijo" : "sigue", accent, neutral: "neutro",
     head: repo.head ?? repo.body ?? SYSTEM, body: repo.body ?? SYSTEM, mono: "JetBrains Mono", base: 16, ratio: 1.2, wHead: 700, lh: 1.5,
     radius: repo.radius ?? 8, pill: false, shadow: "suave", border: 1, density: "comodo", lib: "Lucide", stroke: 2, fill: false, motion: "normal",
-    img: "plano", people: false, imgBrand: true,
   };
 }
 
@@ -521,7 +515,6 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
   forgetStyle(project.slug);
   return { key: made.key, dir };
 }
-export const STYLE_MARKER = REQ;
 
 /** PLA-I69-6: every version with its values, newest first, for Marca → Historial. */
 export const styleHistory = (slug: string): { v: number; at: string; current: boolean; style: Style }[] => {

@@ -2452,9 +2452,6 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
   .mk-doors { width: auto; overflow-x: auto; }
 }
 
-/* ---- PLA-I69-5 «Marca · Voz y nombre». */
-textarea.vz-in { resize: vertical; line-height: 1.4; }
-@media (max-width: 1100px) { .vz-wrap { grid-template-columns: 1fr; overflow: auto; } .vz-voices { min-height: 420px; } }
 
 /* ---- PLA-I69-6 «Marca · Historial». */
 .hi-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 16px; }
@@ -2544,7 +2541,7 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 /* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
 .mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
 .mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
-.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span, .mk .vx-k { font-size: 11px; }
+.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span { font-size: 11px; }
 .mk-doors button:hover { color: var(--cor-text); }
 /* PLA-130: a part name and its «cambia» tag wrap instead of clipping; Estilo's bar is a toolbar like Caras'. */
 .es-ri .es-tag { flex: none; margin-right: 2px; }
