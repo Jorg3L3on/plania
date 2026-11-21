@@ -20,7 +20,7 @@ import { Asistente } from "@/components/corriente/asistente";
 import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equipo";
-import { OficioPage } from "@/components/corriente/oficio";
+import { fichaTabOf } from "@/components/corriente/agente";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -250,7 +250,8 @@ export const CorrientePage = () => {
     equipo: linkTo({ slug, tab: "equipo" }),
     motor: linkTo({ slug, tab: "motores" }),
     sumar: linkTo({ slug, ver: { kind: "sumar" } }),
-    oficio: (agent) => linkTo({ slug, ver: { kind: "oficio", agent } }),
+    // PLA-I71-2: the seat's panel keeps its tab in the address (&ficha=motor); Perfil has none.
+    tab: (agent, t) => hrefOf({ slug, ver: { kind: "miembro", agent }, extra: t === "perfil" ? {} : { ficha: t } }),
     work: linkTo({ slug, tab: "todo" }),
   });
 
@@ -412,30 +413,13 @@ export const CorrientePage = () => {
         />
       );
     }
-    // PLA-I67-1: one agent's page, inside the Equipo door.
-    if (at.ver?.kind === "oficio") {
-      const equipoHref = linkTo({ slug: p.slug, tab: "equipo" });
-      return (
-        <OficioPage
-          p={p}
-          agent={at.ver.agent}
-          now={now}
-          timeZone={timeZone}
-          links={{
-            back: equipoHref,
-            seat: (agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } }),
-            motor: linkTo({ slug: p.slug, tab: "motores" }),
-            ver: (d) => linkTo({ slug: p.slug, ver: d.kind === "idea" ? { kind: "idea", key: d.key } : { kind: "paso", key: d.key } }),
-          }}
-        />
-      );
-    }
     if (at.tab === "equipo")
       return (
         <Equipo
           p={p}
           companyPaused={paused}
           focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
+          tab={fichaTabOf(new URLSearchParams(location.search).get("ficha"))}
           links={equipoLinks(p.slug)}
           motorDefault={company?.motor_default}
         />

@@ -66,7 +66,46 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .eq-side-foot > .cor-btn { flex: 1; }
 .cor-trabajo { padding-top: 6px; }
 
+/* PLA-I71-2: the seat's panel. Head, tabs, a body that scrolls inside itself, the teach bar at the foot. It fits one
+   screen: its height is what is left under the bar. Wide (long text) it takes most of the row and the chart dims. */
+.eq-side.agt { flex: 0 0 380px; gap: 12px; max-height: calc(100svh - 190px); box-sizing: border-box; overflow: hidden; transition: flex-basis 0.2s ease; }
+.eq-side.agt.wide { flex-basis: min(760px, 62%); }
+.eq.has-panel:has(.agt.wide) .eq-main { opacity: 0.35; }
+.agt-x { margin-left: auto; width: 44px; padding: 0; font-size: 18px; }
+.agt-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }
+.agt-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 44px; padding: 0 6px; border-radius: 9px; font-size: 13px; color: var(--cor-body); white-space: nowrap; }
+.agt-tab:hover { color: var(--cor-text); }
+.agt-tab[aria-selected="true"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
+.agt-tab:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 1px; }
+.agt-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+.agt-body:focus-visible { outline: 1px solid var(--cor-line-strong); }
+.agt-body .eq-kv > div { min-height: 44px; }
+.agt-body .eq-kv dd .cor-btn.link { min-height: 44px; }
+.agt-manner { max-width: 60%; overflow: hidden; }
+.agt-manner .cor-btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.agt-field { display: flex; flex-direction: column; gap: 6px; }
+.agt-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.agt-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; color: var(--cor-muted); }
+.agt-kv .cor-mono { color: var(--cor-text); font-size: 12.5px; }
+.agt-motor { display: flex; flex-direction: column; gap: 12px; }
+.agt-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.agt .ofi-teach { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cor-line); }
+.agt .ofi-teach .ofi-teach-input { flex: 1 1 160px; min-width: 0; }
+.agt .ofi-teach .ofi-teach-status:empty { display: none; }
+.agt-wide-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.agt-wide-body > .ofi-side-card { border: 0; background: transparent; padding: 0; }
+.agt-post { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 0; }
+.agt-post > .ofi-side-card { border: 0; background: transparent; padding: 0; }
+.agt-post-text { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.agt-post-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agt-pre { margin: 0; flex: 1; min-height: 240px; max-height: calc(100svh - 360px); overflow: auto; padding: 14px; border-radius: 10px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); font-family: var(--cor-mono); font-size: 12.5px; line-height: 1.6; color: var(--cor-body); white-space: pre-wrap; }
+
 @media (max-width: 1100px) {
   .eq { flex-direction: column; }
-  .eq-side { flex: none; width: 100%; box-sizing: border-box; }
+  .eq-side, .eq-side.agt, .eq-side.agt.wide { flex: none; width: 100%; max-height: none; box-sizing: border-box; }
+  .agt-post { grid-template-columns: 1fr; }
 }
+/* In the narrow panel the teach bar is one row: «Una habilidad» lives in the Habilidades tab. */
+.agt:not(.wide) .ofi-teach-modes { display: none; }
+.agt .ofi-teach { flex-wrap: nowrap; padding: 8px 0 0; border-radius: 0; border-width: 1px 0 0; background: transparent; }
+.agt .ofi-budget > .cor-cap:not(.cor-state) { display: none; }

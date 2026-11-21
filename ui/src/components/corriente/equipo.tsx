@@ -14,10 +14,10 @@ import { firstFree, hireLabel, roleChoices, suggestedPacks } from "@/lib/sumar";
 import { words } from "@/lib/i18n";
 import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { ORGANIGRAMA_WORDS } from "@/lib/organigrama-words";
-import { COMPANY_SEATS, dotOf } from "@/lib/organigrama";
 import { Btn, Label } from "./parts";
 import { ROLE_LINE } from "./equipo-roles";
-import { Legend, Organigrama, cardLine } from "./organigrama";
+import { Legend, Organigrama } from "./organigrama";
+import { AgentePanel, bossOf, type FichaTab } from "./agente";
 
 export { ROLE_LINE };
 
@@ -112,66 +112,11 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
   );
 };
 
-/** «Reporta a»: the teammate's seat, or the owner when it reports to the company's seat or nobody. */
-export function bossName(m: OrgMember, team: OrgMember[]): string {
-  const boss = m.reports_to ? team.find((x) => x.agent === m.reports_to) : null;
-  if (boss) return seatName(boss.role);
-  return !m.reports_to || COMPANY_SEATS.has(m.reports_to) ? words(ORGANIGRAMA_WORDS).you : words(ORGANIGRAMA_WORDS).noBoss;
-}
+/** «Reporta a» (PLA-I71-1); the panel owns it now. */
+export const bossName = bossOf;
 export const reportsOf = (m: OrgMember, team: OrgMember[]) => team.filter((x) => x.reports_to === m.agent);
 
-export type EquipoLinks = { member: (agent: string) => string; equipo: string; motor: string; sumar: string; oficio: (agent: string) => string; work: string };
-
-// PLA-I71-1: the selected seat's card (step 2 makes it the tabbed panel).
-const SideCard = ({ p, m, paused, links }: { p: OrgProject; m: OrgMember; paused: boolean; links: EquipoLinks }) => {
-  const w = words(ORGANIGRAMA_WORDS);
-  const reports = reportsOf(m, p.team);
-  return (
-    <aside className="cor-card eq-side" aria-label={seatName(m.role)} data-ficha={m.agent}>
-      <div className="eq-side-head">
-        <span className="org-glyph" aria-hidden>
-          {seatName(m.role).slice(0, 2)}
-        </span>
-        <span className="org-who">
-          <b className="eq-side-name">{seatName(m.role)}</b>
-          <span className="org-line">{cardLine(m)}</span>
-        </span>
-        <span className="cor-label">{w.dot[dotOf(m, paused)]}</span>
-      </div>
-      <dl className="eq-kv">
-        <div>
-          <dt>{w.reportsTo}</dt>
-          <dd>{bossName(m, p.team)}</dd>
-        </div>
-        <div>
-          <dt>{w.inCharge}</dt>
-          <dd>{reports.length ? reports.map((r) => seatName(r.role)).join(", ") : w.nobody}</dd>
-        </div>
-        <div>
-          <dt>{w.motor}</dt>
-          <dd>{motorLine(m.motor?.model ?? null, m.motor?.effort ?? null)}</dd>
-        </div>
-        <div>
-          <dt>{w.carries}</dt>
-          <dd>{w.skills(m.skills_on ?? 0)}</dd>
-        </div>
-        <div>
-          <dt>{w.learned}</dt>
-          <dd>{w.lessonsLine(m.lessons?.active ?? 0, m.lessons?.proposed ?? 0)}</dd>
-        </div>
-      </dl>
-      <p className="cor-cap">{w.workMoved}</p>
-      <div className="eq-side-foot">
-        <Link className="cor-btn primary" to={links.oficio(m.agent)} data-control="abrir-ficha">
-          {w.openFicha}
-        </Link>
-        <Link className="cor-btn secondary" to={links.work} data-control="ver-trabajo">
-          {w.seeWork}
-        </Link>
-      </div>
-    </aside>
-  );
-};
+export type EquipoLinks = { member: (agent: string) => string; equipo: string; motor: string; sumar: string; tab: (agent: string, t: FichaTab) => string; work: string; store?: string };
 
 export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: string }; at: "chart" | "motores" }) => {
   const w = words(ORGANIGRAMA_WORDS);
@@ -187,14 +132,14 @@ export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: strin
   );
 };
 
-export const Equipo = ({ p, companyPaused, focus, links, motorDefault }: { p: OrgProject; companyPaused: boolean; focus: string | null; links: EquipoLinks; motorDefault?: { model: string | null; effort: string | null } }) => {
+export const Equipo = ({ p, companyPaused, focus, tab = "perfil", links, motorDefault }: { p: OrgProject; companyPaused: boolean; focus: string | null; tab?: FichaTab; links: EquipoLinks; motorDefault?: { model: string | null; effort: string | null } }) => {
   const paused = companyPaused || p.paused;
   const navigate = useNavigate();
   const w = words(ORGANIGRAMA_WORDS);
   const we = words(EQUIPO_WORDS);
   const selected = focus && focus !== "sumar" ? (p.team.find((m) => m.agent === focus) ?? null) : null;
   return (
-    <div className="eq" data-equipo={p.team.length}>
+    <div className={`eq ${selected ? "has-panel" : ""}`} data-equipo={p.team.length}>
       <div className="eq-main">
         <div className="eq-head">
           <EquipoNav links={links} at="chart" />
@@ -220,7 +165,16 @@ export const Equipo = ({ p, companyPaused, focus, links, motorDefault }: { p: Or
       {focus === "sumar" ? (
         <Sumar p={p} motorDefault={motorDefault} focus />
       ) : selected ? (
-        <SideCard key={selected.agent} p={p} m={selected} paused={paused} links={links} />
+        <AgentePanel
+          key={selected.agent}
+          p={p}
+          m={selected}
+          paused={paused}
+          tab={tab}
+          motorLink={links.motor}
+          links={{ equipo: links.equipo, tab: (t) => links.tab(selected.agent, t), work: links.work, store: links.store }}
+          onTab={(t) => navigate(links.tab(selected.agent, t), { replace: true })}
+        />
       ) : (
         <aside className="cor-card eq-side eq-side-empty" aria-label={w.pickOne}>
           <Label as="h3">{w.pickOne}</Label>

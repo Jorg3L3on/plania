@@ -99,7 +99,6 @@ export type Ver =
   | { kind: "lienzo"; key: string }
   | { kind: "entrega"; id: string }
   | { kind: "miembro"; agent: string }
-  | { kind: "oficio"; agent: string }
   | { kind: "sumar" }
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string }
@@ -115,7 +114,7 @@ const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas
 export function verOf(raw: string | null): Ver | null {
   if (!raw) return null;
   const i = raw.indexOf(":");
-  const kind = (i < 0 ? raw : raw.slice(0, i)) as Ver["kind"];
+  const kind = (i < 0 ? raw : raw.slice(0, i)) as Ver["kind"] | "oficio";
   const ref = i < 0 ? "" : raw.slice(i + 1);
   if (!(VER_KINDS as readonly string[]).includes(kind)) return null;
   // PLA-I64-7: a pedido and a lienzo are their idea; Sueltos and Guardadas are lines of the list.
@@ -125,7 +124,8 @@ export function verOf(raw: string | null): Ver | null {
   if (kind === "pedido" || kind === "lienzo") return { kind: "idea", key: ref };
   if (kind === "pr") return Number.isFinite(Number(ref)) && Number(ref) > 0 ? { kind, n: Number(ref) } : null;
   if (kind === "doc" || kind === "entrega") return { kind, id: ref };
-  if (kind === "miembro" || kind === "oficio") return { kind, agent: ref };
+  // PLA-I71-2: the agent page is gone; its old address opens the chart with that agent selected.
+  if (kind === "miembro" || kind === "oficio") return { kind: "miembro", agent: ref };
   if (kind === "maq") return { kind, what: ref };
   if (kind === "tabla") return { kind, name: ref };
   if (kind === "camino") return { kind, sec: ref };
@@ -144,7 +144,6 @@ export function verParam(v: Ver): string {
     case "entrega":
       return `${v.kind}:${v.id}`;
     case "miembro":
-    case "oficio":
       return `${v.kind}:${v.agent}`;
     case "maq":
       return `maq:${v.what}`;
@@ -167,7 +166,6 @@ export function tabOfVer(v: Ver): Tab {
     case "doc":
       return "archivo";
     case "miembro":
-    case "oficio":
     case "sumar":
       return "equipo";
     case "maq":
@@ -255,7 +253,7 @@ export function legacyHref(at: Partial<At>): string {
                       ? `doc:${v.id}`
                       : v.kind === "lienzo"
                         ? "tab:diseno"
-                        : v.kind === "miembro" || v.kind === "oficio"
+                        : v.kind === "miembro"
                           ? `member:${v.agent}`
                           : v.kind === "sumar"
                             ? "sumar"
@@ -319,7 +317,7 @@ export function clockLine(now: number, timeZone?: string): string {
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
   tabs: [...TABS],
-  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "oficio", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
+  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");

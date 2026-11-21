@@ -30,6 +30,8 @@ export type Puesto = {
   project: string;
   agent: string;
   role: string;
+  // PLA-I71-2: the role prompt its runs carry, shown read-only in the wide panel.
+  role_text?: string | null;
   manner: string | null;
   manner_version: string | null;
   manner_at: string | null;

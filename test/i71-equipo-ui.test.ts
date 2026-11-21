@@ -45,7 +45,7 @@ const seat = (agent: string, role: string, reports_to: string | null, over: M = 
 const core = () => [seat("po-t", "product-owner", "ceo"), seat("research-t", "research", "po-t"), seat("artist-t", "artist", "po-t"), seat("taller-t", "taller", "po-t")];
 const extra = ["qa", "copy", "seguridad", "marketing", "data"];
 const teamOf = (n: number) => [...core(), ...extra.map((r) => seat(`${r}-t`, r, "po-t"))].slice(0, n);
-const links = { member: (a: string) => `/m/${a}`, equipo: "/eq", motor: "/mot", sumar: "/sumar", oficio: (a: string) => `/of/${a}`, work: "/todo" };
+const links = { member: (a: string) => `/m/${a}`, equipo: "/eq", motor: "/mot", sumar: "/sumar", tab: (a: string, t: string) => `/m/${a}?ficha=${t}`, work: "/todo" };
 const project = (team: M[], over: M = {}) => ({ slug: "tienda", title: "Tienda", paused: false, team, tablero: null, ...over });
 
 test("I71-1 #2: the tree hangs the PO from the owner and the seats from their manager", () => {
@@ -130,9 +130,9 @@ test("I71-1 #2 #4: Equipo renders one nested list with the owner at the root; no
   assert.equal(out.match(/tabindex="0"/g)?.length, 1);
   assert.match(out, /aria-pressed="true"[^>]*data-org="taller-t"/);
   assert.match(out, /<span class="sr-only">Trabajando<\/span>/);
-  // The selected seat's card: who it reports to, who reports to it, and the door to its page.
+  // The selected seat's panel opens beside the chart (its tabs are tested with I71-2).
   assert.match(out, /data-ficha="taller-t"/);
-  assert.match(out, /href="\/of\/taller-t"/);
+  assert.match(out, /data-control="cerrar-ficha" href="\/eq"/);
 });
 
 test("I71-1: an empty team says so and offers Sumar; nothing selected asks to pick someone", () => {
@@ -163,4 +163,65 @@ test("I71-1 #3: Dile algo and Reanudar corrida live on the step; Detener stays t
   assert.match(q, /Seguir de todos modos/);
   assert.equal(q.match(/data-control="arrancar"/g)?.length, 2);
   assert.equal(html(h(motores.PorArrancar, { p: project(held, { paused: true }), acts })), "");
+});
+
+// ---- PLA-I71-2: the seat's panel, rendered with its reads already in the cache.
+const agente = await load("components/corriente/agente.tsx");
+const cor = await load("lib/corriente.ts");
+const skillRow = (slug: string, on = true, over: M = {}) => ({ slug, name: slug, when: `When ${slug}`, source: "kit", version: `${slug}@abcd1234`, on, factory: true, owner: null, runs_carried: 2, runs_used: 1, deliveries_carried: 2, deliveries_used: 1, ...over });
+const oficio = (agent: string, n = 10) => ({ project: "tienda", agent, role: "artist", own: true, skills: Array.from({ length: n }, (_, i) => skillRow(`skill-${i}`, i < 8)), deliveries: [], counts: { closed: 5, first_time: 3, last_five: 5, last_five_first: 3 }, runs: { total: 5, with_kit: 5, used_any: 4 }, live: null, window_days: 90 });
+const lessonRow = (id: string, state: string) => ({ id, text: `Lección ${id}`, applies_when: null, state, proposed_by: state === "proposed" ? "reflector" : "owner", version: 1, owner_words: null, task_key: null, at: "2026-11-20T10:00:00Z", repeats: { confirmed: 0, flagged: false, suggested: [], last: null } });
+function panel(tab: string, over: M = {}) {
+  const client = new QueryClient();
+  const m = seat("artist-t", "artist", "po-t", { lessons: { active: 12, proposed: 1 } });
+  client.setQueryData(["oficio", "tienda", "artist-t"], oficio("artist-t"));
+  client.setQueryData(["lessons", "tienda", "artist-t"], { project: "tienda", agent: "artist-t", lessons: [lessonRow("p1", "proposed"), ...Array.from({ length: 12 }, (_, i) => lessonRow(`a${i}`, "active"))], reading: [], budget: { used: 600, budget: 1500, over: false, role: 300, manner: 20, skills: 200, lessons: 80 } });
+  client.setQueryData(["refs", "tienda", "artist-t"], []);
+  client.setQueryData(["puesto", "tienda", "artist-t"], { project: "tienda", agent: "artist-t", role: "artist", role_text: "# Artist", manner: "Usa los colores de la marca.", manner_version: "x", manner_at: null, motor: { model: "opus", effort: "medium" }, archived: [] });
+  const team = [seat("po-t", "product-owner", "ceo"), m, seat("qa-t", "qa", "artist-t")];
+  const el = h(agente.AgentePanel, { p: project(team, { runner: { limits: { max_per_agent: 2 }, seats: [] } }), m, paused: false, tab, motorLink: "/mot", links: { equipo: "/eq", tab: (t: string) => `/m/artist-t?ficha=${t}`, work: "/todo", store: "/tienda" }, onTab: () => undefined, ...over });
+  return renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, el)));
+}
+
+test("I71-2 #3: the panel's tab lives in the address; the old agent page's address selects that seat", () => {
+  assert.equal(agente.fichaTabOf("motor"), "motor");
+  assert.equal(agente.fichaTabOf("nada"), "perfil");
+  assert.equal(agente.fichaTabOf(null), "perfil");
+  assert.deepEqual(cor.atOf("?proyecto=tienda&ver=oficio:artist-t").ver, { kind: "miembro", agent: "artist-t" });
+  assert.equal(cor.atOf("?proyecto=tienda&ver=oficio:artist-t").tab, "equipo");
+});
+
+test("I71-2 #1: four tabs; Perfil says who it reports to, who reports to it, its post, your manner and its work", () => {
+  const out = panel("perfil");
+  assert.equal(out.match(/role="tab"/g)?.length, 4);
+  assert.match(out, /role="tablist" aria-label="La ficha de Artist"/);
+  assert.match(out, /aria-selected="true"[^>]*>Perfil/);
+  assert.match(out, /<dt>Reporta a<\/dt><dd>PO<\/dd>/);
+  assert.match(out, /<dt>A su cargo<\/dt><dd>QA<\/dd>/);
+  assert.match(out, /data-control="leer-puesto"/);
+  assert.match(out, /«Usa los colores de la marca\.» · cambiar/);
+  assert.match(out, /href="\/todo"/);
+  // The teach bar at the foot on every tab.
+  for (const t of agente.FICHA_TABS) assert.match(panel(t), /data-teach/, t);
+  // The proposed lesson marks its tab.
+  assert.match(out, /Aprendizaje<i class="org-dot espera"/);
+});
+
+test("I71-2 #1: Motor offers the models, the efforts and steps at once, and saves only after a change", () => {
+  const out = panel("motor");
+  for (const c of ["modelo-auto", "modelo-haiku", "modelo-sonnet", "modelo-opus", "esfuerzo-low", "esfuerzo-max"]) assert.match(out, new RegExp(`data-control="${c}"`), c);
+  assert.match(out, /<button[^>]*disabled=""[^>]*data-control="guardar-motor"/);
+  assert.match(out, /Pasos a la vez/);
+});
+
+test("I71-2 #1 #5: Habilidades lists every skill with a switch (10 skills), the budget and the store; Aprendizaje the proposal and its lessons", () => {
+  const out = panel("habilidades");
+  assert.equal(out.match(/data-shelf="/g)?.length, 10);
+  assert.equal(out.match(/role="switch"/g)?.length, 10);
+  assert.match(out, /data-budget="600\/1500"/);
+  assert.match(out, /href="\/tienda"/);
+  const ap = panel("aprendizaje");
+  assert.match(ap, /Lección p1/);
+  assert.match(ap, /Sus lecciones · 12/);
+  assert.match(ap, /A la primera: 3 de 5 entregas\./);
 });

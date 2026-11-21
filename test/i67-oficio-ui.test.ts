@@ -43,22 +43,22 @@ const delivery = (key: string, over: Partial<OficioDelivery> = {}): OficioDelive
   ...over,
 });
 
-test("I67-1 #1: the page's address lives in Equipo, survives a reload and Esc goes back to Equipo", () => {
-  const href = hrefOf({ slug: "tienda", ver: { kind: "oficio", agent: "taller-tienda" } });
-  assert.equal(href, "/ceo?proyecto=tienda&t=equipo&ver=oficio%3Ataller-tienda");
-  const at = atOf(href.slice(href.indexOf("?")));
-  assert.deepEqual(at.ver, { kind: "oficio", agent: "taller-tienda" });
+// PLA-I71-2: the agent page became the panel beside the org chart. Its old address opens the chart with that seat
+// selected; the panel's tab lives in the address; Esc steps back to the chart.
+test("I67-1 #1 (PLA-I71-2): the old page's address opens the chart with that seat selected, and Esc goes back to Equipo", () => {
+  const at = atOf("?proyecto=tienda&t=equipo&ver=oficio%3Ataller-tienda");
+  assert.deepEqual(at.ver, { kind: "miembro", agent: "taller-tienda" });
   assert.equal(at.tab, "equipo");
   assert.ok(isBuilt(at));
   assert.deepEqual(escFrom(at), { slug: "tienda", tab: "equipo" });
+  assert.equal(hrefOf({ slug: "tienda", ver: { kind: "miembro", agent: "taller-tienda" }, extra: { ficha: "motor" } }), "/ceo?proyecto=tienda&t=equipo&ver=miembro%3Ataller-tienda&ficha=motor");
   assert.match(legacyHref(at), /member%3Ataller-tienda/);
 });
 
-test("I67-1 #1 (PLA-I71-1): the selected seat's card on the chart opens that seat's page", () => {
-  const src = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/corriente/equipo.tsx"), "utf8");
-  assert.match(src, /to=\{links\.oficio\(m\.agent\)\}/);
+test("I67-1 #1 (PLA-I71-2): the selected seat opens its panel on the chart, its tab from the address", () => {
   const page = readFileSync(path.resolve(import.meta.dirname, "../ui/src/pages/corriente.tsx"), "utf8");
-  assert.match(page, /oficio: \(agent\) => linkTo\(\{ slug, ver: \{ kind: "oficio", agent \} \}\)/);
+  assert.match(page, /tab=\{fichaTabOf\(new URLSearchParams\(location\.search\)\.get\("ficha"\)\)\}/);
+  assert.ok(!/OficioPage/.test(page), "the separate page is gone");
 });
 
 test("I67-1 #2: rows are the seat, the skills it carries, then factory skills turned off; cut to fit", () => {

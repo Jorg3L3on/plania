@@ -435,14 +435,18 @@ export async function setManner(db: Db, project: string, agent: string, text: st
   return { manner: clean || null, version: mannerVersion(clean) };
 }
 
-export type Puesto = { project: string; agent: string; role: string; manner: string | null; manner_version: string | null; manner_at: string | null; motor: { model: string | null; effort: string | null } };
+// PLA-I71-2: role_text is the role prompt the seat's runs carry (read only on the screen), null when it has none.
+export type Puesto = { project: string; agent: string; role: string; role_text: string | null; manner: string | null; manner_version: string | null; manner_at: string | null; motor: { model: string | null; effort: string | null } };
 
 export async function puestoRead(db: Db, project: string, agent: string): Promise<Puesto> {
   const a = await seatOf(db, project, agent);
+  const role = roleOf(a);
+  const { rolePrompt } = await import("./prompts.js");
   return {
     project,
     agent: a.slug,
-    role: roleOf(a) ?? a.role,
+    role: role ?? a.role,
+    role_text: role ? ((await rolePrompt(db, role))?.markdown ?? null) : null,
     manner: a.manner ?? null,
     manner_version: mannerVersion(a.manner),
     manner_at: a.mannerUpdatedAt ? a.mannerUpdatedAt.toISOString() : null,
