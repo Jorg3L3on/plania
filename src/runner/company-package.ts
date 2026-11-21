@@ -24,8 +24,11 @@ import { addVersion } from "./skills.js";
 import { isTeamTemplate, teamOf, TEMPLATE_ROWS } from "./team.js";
 import { roleKey, specOf } from "./teams.js";
 import { scrub } from "../api/scoreboard.js";
+import { defineWords, say } from "../words.js";
 
 export type PackageFile = { path: string; content: string };
+// The name a package with no COMPANY.md name gets (it becomes a project's title on import).
+const PACKAGE_WORDS = defineWords({ es: { company: "Compañía" }, en: { company: "Company" } });
 const SAFE = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 
 const fm = (fields: Record<string, unknown>, body = "") => `---\n${YAML.stringify(fields).trimEnd()}\n---\n${body ? `\n${body.trim()}\n` : ""}`;
@@ -33,7 +36,7 @@ const fm = (fields: Record<string, unknown>, body = "") => `---\n${YAML.stringif
 export async function exportCompany(db: Db, opts: { lessons?: boolean; references?: boolean } = {}, env: NodeJS.ProcessEnv = process.env): Promise<PackageFile[]> {
   const files: PackageFile[] = [];
   const projs = (await db.select().from(projects).orderBy(projects.slug)).filter((p) => SAFE.test(p.slug));
-  files.push({ path: "COMPANY.md", content: fm({ name: "Plania", schema: "agentcompanies/v1", teams: projs.length }, "Equipos de agentes exportados de Plania. Texto que se lee y se compara.") });
+  files.push({ path: "COMPANY.md", content: fm({ name: "Plania", schema: "agentcompanies/v1", teams: projs.length }, "Agent teams exported from Plania. Plain text you can read and compare.") });
   const sidecar: { version: number; motors: Record<string, { model: string | null; effort: string | null }>; puestos: { slug: string; title: string; line: string; base: string }[]; lessons?: Record<string, string[]>; references?: Record<string, { title: string; url: string }[]>; secrets: string[] } = { version: 1, motors: {}, puestos: [], secrets: [] };
   const carried = new Set<string>();
   for (const p of projs) {
@@ -177,7 +180,7 @@ export function parsePackage(files: PackageFile[]): Parsed {
   const by = (re: RegExp) => files.filter((f) => re.test(f.path));
   const company = (() => {
     const c = files.find((f) => /(^|\/)COMPANY\.md$/i.test(f.path));
-    return (c && str(yfm(c.content).fields.name)) || "Compañía";
+    return (c && str(yfm(c.content).fields.name)) || say(PACKAGE_WORDS).company;
   })();
   const teams = by(/(^|\/)teams\/[^/]+\/TEAM\.md$/i).map((f) => {
     const { fields } = yfm(f.content);
