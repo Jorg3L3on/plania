@@ -210,7 +210,7 @@ export const edits = {
       } else if (cur === undefined) {
         place(d, m, "if", PAUSE_IF, { before: ["uses", "run", "with", "env"] });
         // PLA-I70-42: the file says why this step never runs.
-        m.commentBefore = ` ${PAUSE_NOTE_MARK}: the «if» below never holds, so the step does not run. Delete that line to run it again.`;
+        m.commentBefore = ` ${PAUSE_NOTE_MARK}: the 'if' below never holds, so the step does not run. Delete that line to run it again.`;
       }
     }),
   stepRemove: (t: string, job: string, i: number) => edit(t, (d) => void stepsOf(d, job)?.items.splice(i, 1)),
