@@ -21,8 +21,6 @@ import { readLogoFile } from "./logos.js";
 import { marcaRead, forgetMarcaOf, type MarcaRead } from "./marca.js";
 import { MARCA_WORDS } from "./words.js";
 import { LogoError } from "./upload.js";
-import { appTheme } from "./theme.js";
-import { styleOf } from "./style.js";
 
 export const MARKER = (id: string, rows: string[]) => `<!-- plania:marca set=${id} rows=${rows.join(",")} -->`;
 
@@ -45,15 +43,15 @@ const themeOf = (r: MarcaRead): string | null => themeOfRows(r.rows);
 const COMPARED: GenKey[] = ["ico", "svg", "apple", "a192", "a512", "mask", "mono", "og", "ios_app"];
 const ROW_OF_KEY = (k: GenKey): RowId => (k === "manifest" ? "man" : (k as RowId));
 const made = new Map<string, Map<string, Buffer>>();
-export async function staleRows(input: { slug: string; title: string; rows: Row[]; framework: Framework; root: string; native: boolean; logo: ProjectLogo; read: (path: string) => Promise<Buffer | null> }): Promise<RowId[]> {
+export async function staleRows(input: { slug: string; title: string; rows: Row[]; framework: Framework; root: string; native: boolean; logo: ProjectLogo; theme: string | null; read: (path: string) => Promise<Buffer | null> }): Promise<RowId[]> {
   if (input.logo.source === "repo") return [];
   const o = originalOf(input.slug, input.logo);
   if (!o) return [];
   const own = await surfaceOriginals(input.slug, { bytes: o.bytes, mime: o.mime, raw: input.logo.adjust?.raw ?? null });
   const plan = planFor(input.rows, { framework: input.framework, root: input.root }, "todo", o.mime === "image/svg+xml", input.native);
   plan.items = plan.items.filter((i) => COMPARED.includes(i.key));
-  // PLA-I69-1: the colour comes from the logo the owner chose, so a share image on an older logo's colour reads old.
-  const theme = appTheme(styleOf(input.slug), input.logo) ?? themeOfRows(input.rows);
+  // PLA-I69-1: a share image on another colour than the app's reads old. PLA-131: the caller's app colour (appColor).
+  const theme = input.theme ?? themeOfRows(input.rows);
   const key = `${input.slug}|${setId(o, plan, own)}|${theme ?? ""}`;
   let files = made.get(key);
   if (!files) {
@@ -97,7 +95,7 @@ export async function buildSet(db: Db, project: Project, mode: "faltan" | "todo"
   const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null });
   const id = setId(o, plan, own);
   // PLA-I69-1: the logo's colour, and a version for the manifest's icon URLs (installed apps see a new URL).
-  const theme = appTheme(styleOf(project.slug), l) ?? themeOf(r);
+  const theme = r.appColor ?? themeOf(r); // PLA-131: one app colour for the request, the stale check and the cards
   const version = id.slice(0, 8);
   // PLA-I69-3: install screenshots come from El Probador's latest stills; without any, that item waits.
   let shots: { narrow: Buffer[]; wide: Buffer[] } | undefined;
@@ -190,7 +188,7 @@ export async function madeFile(db: Db, project: Project, key: GenKey): Promise<{
   const plan = planFor(r.rows, { framework: r.framework ?? "static", root: r.root }, "todo", o.mime === "image/svg+xml", r.native, [key]);
   if (!plan.items.length) return null;
   const own = await surfaceOriginals(project.slug, { bytes: o.bytes, mime: o.mime, raw: l.adjust?.raw ?? null });
-  const theme = appTheme(styleOf(project.slug), l) ?? themeOf(r);
+  const theme = r.appColor ?? themeOf(r); // PLA-131: one app colour for the request, the stale check and the cards
   const id = `${project.slug}|${setId(o, plan, own)}|${theme ?? ""}|${key}`;
   let f = one.get(id);
   if (!f) {

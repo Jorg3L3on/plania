@@ -156,7 +156,7 @@ test("#7 the bar names what is pending and why, in the owner's words", async () 
   const p = ui.pending(r as never);
   assert.deepEqual(p.faces, ["and", "pwa"]);
   assert.equal(p.files, 3);
-  assert.equal(ui.pendingSay(p), "Android no iba en el último pedido. El color de la app es el del logo anterior.");
+  assert.equal(ui.pendingSay(p), "Android no iba en el último pedido. El manifiesto no tiene el color de la app.");
   const own = { ...r, trip: null, surfaces: { android: { file: "x", bg: null, scale: 70, at: "2026-11-19T00:00:00Z" } }, logo: { at: "2026-11-20T00:00:00Z" } };
   assert.match(ui.pendingSay(ui.pending(own as never)), /^Android tiene su propio ícono, hecho con el logo anterior\./);
   assert.equal(ui.rowWhy(r as never, r.rows[3] as never), "old_color");
