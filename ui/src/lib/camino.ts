@@ -19,7 +19,7 @@ export type ServiceInfo = { id: ProviderId; name: string; kind: "server" | "db";
 
 export const CAMINO_WORDS = defineWords({
   es: {
-    door: "Código",
+    door: "Despliegue",
     toFix: (n: number) => `${n} POR RESOLVER`,
     clear: "LISTO",
     title: (p: string) => `Camino de ${p}`,
@@ -238,7 +238,7 @@ export const CAMINO_WORDS = defineWords({
     sources: { github: "de GitHub", plania: "de Plania", mac: "de esta Mac", camino: "de tu configuración", settings: "de Ajustes", default: "por defecto" } as Record<string, string>,
   },
   en: {
-    door: "Code",
+    door: "Deploy",
     toFix: (n: number) => `${n} TO FIX`,
     clear: "READY",
     title: (p: string) => `${p}'s path`,
