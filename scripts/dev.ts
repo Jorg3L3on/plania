@@ -22,6 +22,7 @@ import { reapOrphans } from "../src/captures/prueba.js";
 import { drainOnParentRequest, exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
 import { GOOD_AFTER_MS, lastGoodFile, recordsGoodStart, writeLastGood } from "../src/ops/last-good.js";
 import { isPackage, readRelease } from "../src/release.js";
+import { kitSync } from "./kit.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -120,6 +121,20 @@ void withDb((db) => loadOwnerName(db)).catch((e) => console.log(`[owner] name no
 // PLA-I2-2: the password, tokens, time zone and wakes the first-start screen stored. Read before the jobs start,
 // since an install made by first start has wakes on with PLANIA_JOBS unset.
 await withDb((db) => loadInstallState(db)).catch((e) => console.log(`[install] state not loaded: ${e instanceof Error ? e.message : String(e)}`));
+
+// PLA-152 (guided test 3): the agents read their role prompts from the live `Prompt: <role>` docs, which only a
+// kit sync writes. Deploys by git pull + restart never ran it, so merged kit/roles changes sat two weeks without
+// reaching a run. Each start syncs the repo's prompts (drift-safe: a doc the owner edited in Plania is left alone
+// and named). Only the real service (jobs on): a dev server on another branch must not push unmerged prompts.
+// PLANIA_KIT_SYNC=0 turns it off.
+if (process.env.PLANIA_KIT_SYNC !== "0" && process.env.PLANIA_JOBS !== "0") {
+  void withDb((db) => kitSync(db))
+    .then((r) => {
+      if (r.written.length) console.log(`[kit] prompts synced: ${r.written.join(", ")}`);
+      if (r.drift.length) console.log(`[kit] left alone, edited in Plania since the last sync: ${r.drift.join(", ")} (pnpm kit:status)`);
+    })
+    .catch((e) => console.log(`[kit] sync failed: ${e instanceof Error ? e.message : String(e)}`));
+}
 
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();

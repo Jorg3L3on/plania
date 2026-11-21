@@ -1074,6 +1074,9 @@ the UI refetches what changed.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
   before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint and the nightly backup.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
+- On start, the service (jobs on) writes the repo's `kit/roles/*.md` into the live `Prompt: <role>` docs, as
+  `pnpm kit:sync` does: a doc edited in Plania since the last sync is left alone and named in the log (PLA-152).
+  `PLANIA_KIT_SYNC=0` turns it off.
 - Not built from one project's early requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
   results), runbooks with approval steps (R-23), rule proposals (R-26), and shared rules across projects (R-27).
   The v1 data cleanup (R-32) shipped in 2.9.
