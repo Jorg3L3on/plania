@@ -304,7 +304,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
     if (!t) throw new ToolError("TASK_NOT_FOUND", { key: input.task_key });
     taskId = t.id;
   }
-  const pages: ViewPage[] = input.views?.length ? input.views : input.pages?.length ? settings.pages.filter((x) => input.pages!.includes(x.key)) : settings.pages;
+  let pages: ViewPage[] = input.views?.length ? input.views : input.pages?.length ? settings.pages.filter((x) => input.pages!.includes(x.key)) : settings.pages;
   if (!pages.length) throw new ToolError("INVALID_FILTER", { field: "pages", allowed: settings.pages.map((x) => x.key) });
   const viewports = input.viewports?.length ? input.viewports : VIEWPORT_NAMES;
   const base = (input.base_url ?? baseUrl(settings)).replace(/\/$/, "");
@@ -350,6 +350,24 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
   if (up) {
     await failAll(pages, up);
     return finish();
+  }
+
+  // PLA-153 (guided test 3): a view the muestra did not mark session but that the app sends to its login page is
+  // photographed signed in. Taller forgot session on three panel views and every still was the sign-in form.
+  const loginPath = settings.session?.login_path;
+  if (loginPath) {
+    pages = await Promise.all(
+      pages.map(async (pg) => {
+        if (pg.session) return pg;
+        try {
+          const r = await doFetch(base + pg.path, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+          const to = r.status >= 300 && r.status < 400 ? r.headers.get("location") : null;
+          return to && new URL(to, base).pathname === loginPath ? { ...pg, session: true } : pg;
+        } catch {
+          return pg;
+        }
+      }),
+    );
   }
 
   let browser: Awaited<ReturnType<LaunchBrowser>>;

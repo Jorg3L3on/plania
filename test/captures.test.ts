@@ -109,8 +109,11 @@ const exec: Exec = async (command, opts) => {
   return { code: 0, stdout: "Contraseña cambiada.\n", stderr: "" };
 };
 let appUp = true;
-const fakeFetch = (async () => {
+const fakeFetch = (async (url: string | URL) => {
   if (!appUp) throw new TypeError("fetch failed");
+  // PLA-153: the fake app sends a signed-out visit to /panel… to its login, like the real one.
+  const u = new URL(String(url));
+  if (u.pathname.startsWith("/panel") && u.pathname !== "/panel/entrar") return new Response(null, { status: 307, headers: { location: `/panel/entrar?desde=${u.pathname}` } });
   return new Response("ok", { status: 200 });
 }) as unknown as typeof fetch;
 const fake: Fake = { logins: [], shots: [], broken: new Set(), closed: 0 };
@@ -275,6 +278,21 @@ describe("capture run (fake browser)", () => {
     const r = await runCapture(db, { project: "zigzag", checkout, pages: ["panel"], actor }, { ...deps(), launch: fakeBrowser(fake, () => "not-the-one"), loginWaitMs: 800 });
     assert.equal(r.ok, 0);
     assert.ok(r.stills.every((s: Json) => /No se pudo entrar con asesora@example.com/.test(s.error)));
+  });
+
+  test("PLA-153: a view the muestra forgot to mark session, which the app sends to its login, is taken signed in", async () => {
+    const views = [
+      { key: "vestidos", label: "Vestidos", path: "/panel/novias/n1" },
+      { key: "registro", label: "Registro", path: "/registro/ejemplo" },
+    ];
+    fake.logins.length = 0;
+    const r = await runCapture(db, { project: "zigzag", checkout, views, viewports: ["desktop"], actor } as never, deps());
+    const of = (page: string) => r.stills.find((s: Json) => s.page === page)!;
+    assert.equal(of("vestidos").status, "ok", of("vestidos").error ?? "");
+    const { rows } = await raw.query("select url from capture_stills where id = $1", [of("vestidos").id]);
+    assert.equal(rows[0].url, `${BASE}/panel/novias/n1`, "the panel page, not the login");
+    assert.equal(of("registro").status, "ok");
+    assert.deepEqual(fake.logins, ["asesora@example.com"], "signed in once, for the panel view only");
   });
 
   test("untied stills are pruned to the last few per page and viewport; a ticket's stills stay", async () => {
