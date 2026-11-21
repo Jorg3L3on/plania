@@ -288,7 +288,7 @@ describe("capture run (fake browser)", () => {
     fake.logins.length = 0;
     const r = await runCapture(db, { project: "zigzag", checkout, views, viewports: ["desktop"], actor } as never, deps());
     const of = (page: string) => r.stills.find((s: Json) => s.page === page)!;
-    assert.equal(of("vestidos").status, "ok", of("vestidos").error);
+    assert.equal(of("vestidos").status, "ok", of("vestidos").error ?? "");
     const { rows } = await raw.query("select url from capture_stills where id = $1", [of("vestidos").id]);
     assert.equal(rows[0].url, `${BASE}/panel/novias/n1`, "the panel page, not the login");
     assert.equal(of("registro").status, "ok");
