@@ -86,7 +86,7 @@ export type RunnerView = {
   limits: { max_concurrent: number; consulta_slots: number; max_per_agent: number; serialize_areas: boolean };
   live: { work: number; consulta: number };
   ceiling: { max: number; live: number; live_other_projects: number; reserved: number; capacity: number };
-  plan: { pct: number | null; guard: number; state: string; override: boolean; est_pct: number; live_weight: number };
+  plan: { pct: number | null; read_at: string | null; guard: number; state: string; override: boolean; est_pct: number; live_weight: number };
   queue: RunnerQueued[];
   seats: RunnerSeat[];
 };

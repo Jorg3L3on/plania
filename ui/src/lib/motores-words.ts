@@ -47,6 +47,10 @@ export const MOTORES = defineWords({
     save: "Guardar",
     planUse: "Uso del plan",
     planUseHead: "Uso del plan en las últimas 5 horas",
+    // PLA-144: say how old the figure is; an expired one is not shown.
+    planRead: (ago: string) => `Leído ${ago}.`,
+    planStale: (ago: string | null) => (ago ? `Sin lectura reciente: la última es de ${ago} y su ventana ya pasó. Plania pide una nueva.` : "Todavía no hay lectura. Plania pide una."),
+    ago: (min: number) => (min < 1 ? "hace un momento" : min < 60 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`),
     // PLA-141: with the brake switched off the two lines said «freno en 70% · sin freno» and «arriba del freno no arranca nada».
     brake: (guard: number, override: boolean) => (override ? `FRENO APAGADO · ESTARÍA EN ${guard}%` : `FRENO EN ${guard}%`),
     brakeLine: "Arriba del freno no arranca nada nuevo. Se mueve en",
@@ -107,6 +111,9 @@ export const MOTORES = defineWords({
     save: "Save",
     planUse: "Plan use",
     planUseHead: "Plan use in the last 5 hours",
+    planRead: (ago: string) => `Read ${ago}.`,
+    planStale: (ago: string | null) => (ago ? `No recent reading: the last one is from ${ago} and its window has passed. Plania is asking for a new one.` : "No reading yet. Plania is asking for one."),
+    ago: (min: number) => (min < 1 ? "just now" : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`),
     brake: (guard: number, override: boolean) => (override ? `BRAKE OFF · WOULD BE AT ${guard}%` : `BRAKE AT ${guard}%`),
     brakeLine: "Above the brake nothing new starts. It is set in",
     brakeOffLine: "The brake is off: work starts even past that line. It is switched on in",
