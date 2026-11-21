@@ -50,6 +50,7 @@ import {
 } from "../db/schema.js";
 import { runCapture, checkoutEnv, shellExec, type CaptureDeps, type CaptureInput, type CaptureSummary, type Exec } from "../captures/run.js";
 import { imageUrl } from "../captures/store.js";
+import { workPatternOf } from "../camino/store.js";
 import { addResult, type AddResultInput } from "../mcp/evidence.js";
 import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, type Ctx } from "../mcp/tx.js";
@@ -556,7 +557,7 @@ async function openLanes(db: Db): Promise<number> {
       taskId: t.id,
       taskKey: t.key,
       commit: pr.head,
-      branch: pr.branch ?? t.branch ?? branchFor(t.key),
+      branch: pr.branch ?? t.branch ?? branchFor(t.key, await workPatternOf(db, p.id)),
       prUrl: pr.url,
       attempt: Number(returned) + 1,
     });
@@ -576,7 +577,7 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   const exec = deps.exec ?? shellExec;
   const s: QaSettings | undefined = p.settings.qa;
   const repo = repoPathOf(p.slug, p.settings, env);
-  const branch = lane.branch ?? t.branch ?? branchFor(t.key);
+  const branch = lane.branch ?? t.branch ?? branchFor(t.key, await workPatternOf(db, p.id));
   const start = startBranchOf(p.settings);
   const made = await ensureWorktree({ repo, root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch, base: start }, git);
   if (!made.ok) return endLane(db, lane, "error", say(QA_WORDS).noWorktree(made.summary.replace(/^fail:\s*/, "")));
@@ -749,7 +750,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   // HEAD after the lane: QA never moves the delivery's branch.
   const env = deps.env ?? process.env;
   const git = deps.git ?? defaultGit;
-  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key), base: startBranchOf(p.settings) }, git);
+  const made = await ensureWorktree({ repo: repoPathOf(p.slug, p.settings, env), root: deps.worktreeRoot ?? worktreeRoot(env), project: p.slug, key: t.key, branch: lane.branch ?? branchFor(t.key, await workPatternOf(db, p.id)), base: startBranchOf(p.settings) }, git);
   const after = made.ok ? (await git(["rev-parse", "HEAD"], made.path)).stdout.trim() || null : null;
 
   await db.update(qaLanes).set({ review, marks, notes, status, headAfter: after, endedAt: new Date(), hold: null }).where(eq(qaLanes.id, lane.id));

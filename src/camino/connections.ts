@@ -8,11 +8,12 @@ import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { caminoKeys, KEY_SHAPE, last4 } from "./keys.js";
 import { keyed, testKey, type KeyTest } from "./providers.js";
-import { addHistory, caminoDeps, caminoRow, type CaminoDeps } from "./store.js";
+import { addHistory, caminoDeps, caminoRow, discoverOnce, type CaminoDeps } from "./store.js";
 import { caminoSay } from "./words.js";
 import type { CaminoConfig, ConnMeta, ProviderId } from "./types.js";
 
-async function setConnection(db: Db, projectId: string, provider: ProviderId, meta: ConnMeta | null) {
+/** bump: false for a bookkeeping write (a key test) that must not invalidate another tab's change set (PLA-I70-17). */
+async function setConnection(db: Db, projectId: string, provider: ProviderId, meta: ConnMeta | null, bump = true) {
   const row = await caminoRow(db, projectId);
   const connections = { ...(row.config.connections ?? {}) };
   if (meta) connections[provider] = meta;
@@ -21,7 +22,7 @@ async function setConnection(db: Db, projectId: string, provider: ProviderId, me
   await db
     .insert(camino)
     .values({ projectId, config, version: 1 })
-    .onConflictDoUpdate({ target: camino.projectId, set: { config, version: sql`${camino.version} + 1`, updatedAt: new Date() } });
+    .onConflictDoUpdate({ target: camino.projectId, set: { config, ...(bump ? { version: sql`${camino.version} + 1` } : {}), updatedAt: new Date() } });
 }
 
 const testMeta = (t: KeyTest, at: string): NonNullable<ConnMeta["test"]> => ({ ok: t.ok, at, message: t.message, account: t.account, scopes: t.scopes });
@@ -43,6 +44,8 @@ export async function saveKey(db: Db, slug: string, provider: string, value: str
   const meta: ConnMeta = { last4: last4(key), saved_at: at, store: store.kind === "keychain" ? "keychain" : "file", expires_at: t.expires_at, last_used_at: at, test: testMeta(t, at) };
   await setConnection(db, p.id, provider, meta);
   await addHistory(db, p.id, { who: "owner", label: caminoSay().keySaved(provider, meta.last4), dest: "llavero", undo: caminoSay().undoKey });
+  // PLA-I70-7: a GitHub key changes what GitHub shows; read again now, in the background, not at the next recheck.
+  if (provider === "github") void discoverOnce(db, p, deps).catch(() => {});
   return { provider, meta };
 }
 
@@ -55,7 +58,7 @@ export async function tryKey(db: Db, slug: string, provider: string, deps: Camin
   const row = await caminoRow(db, p.id);
   const old = row.config.connections?.[provider];
   const at = deps.now().toISOString();
-  if (old) await setConnection(db, p.id, provider, { ...old, expires_at: t.expires_at ?? old.expires_at ?? null, last_used_at: at, test: testMeta(t, at) });
+  if (old) await setConnection(db, p.id, provider, { ...old, expires_at: t.expires_at ?? old.expires_at ?? null, last_used_at: at, test: testMeta(t, at) }, false);
   return { provider, ok: t.ok, status: t.status, message: t.message, account: t.account };
 }
 
@@ -65,6 +68,7 @@ export async function removeKey(db: Db, slug: string, provider: string) {
   await caminoKeys().delete(p.slug, provider);
   await setConnection(db, p.id, provider, null);
   await addHistory(db, p.id, { who: "owner", label: caminoSay().keyRemoved(provider), dest: "llavero" });
+  if (provider === "github") void discoverOnce(db, p, caminoDeps).catch(() => {});
   return { provider, removed: true };
 }
 

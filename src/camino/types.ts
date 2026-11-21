@@ -137,8 +137,10 @@ export type DiscoveryGithub =
       runs: GhRun[];
       commits: GhCommit[];
       repos: string[];
+      /** PLA-I70-3: set when the last read failed (network, 5xx): this block is the last good one, with its age. */
+      stale?: { since: string; error: string };
     }
-  | { ok: false; error: "no_repo" | "no_token" | "not_found" | "unauthorized" | "network"; detail?: string; repos?: string[] };
+  | { ok: false; error: "no_repo" | "no_token" | "not_found" | "unauthorized" | "network"; detail?: string; repos?: string[]; /** PLA-I70-10: where the token Plania tried came from (null: there was none). */ source?: string | null };
 
 export type DiscoveryMac = {
   folder: { path: string; exists: boolean; clone: boolean; remote: string | null; matches: boolean | null; clones: string[] } | null;

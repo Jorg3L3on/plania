@@ -200,7 +200,11 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
         if (lint.available && lint.errors.length) throw new ToolError("CAMINO_ACTIONLINT", { errors: lint.errors.slice(0, 5) });
       }
       const R = `/repos/${enc(repo)}`;
-      const ref = await ghCall(api, "GET", `${R}/git/ref/heads/${enc(c.base)}`, "base");
+      // PLA-I70-4: a base branch that does not exist is named, not left as a bare 404.
+      const ref = await ghCall(api, "GET", `${R}/git/ref/heads/${enc(c.base)}`, "base").catch((e) => {
+        if (e instanceof ToolError && (e.detail as { status?: number }).status === 404) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "base", reason: "missing_base", branch: c.base });
+        throw e;
+      });
       const branch = `camino/${c.path.replace(/^\.github\//, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 40)}-${x.deps.now().getTime().toString(36)}`;
       await ghCall(api, "POST", `${R}/git/refs`, "branch", { ref: `refs/heads/${branch}`, sha: ref.object.sha });
       let sha: string | undefined;
