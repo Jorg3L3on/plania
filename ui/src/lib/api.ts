@@ -592,6 +592,12 @@ export type OrgMember = {
   motor?: MotorView;
   consulta_motor?: MotorView | null;
   used_week?: { tokens: number; share: number } | null;
+  // PLA-I71-1: the org chart's facts (its name, who it reports to by slug, its own lessons). Optional for older servers.
+  name?: string;
+  reports_to?: string | null;
+  lessons?: { active: number; proposed: number };
+  // PLA-I71-3: when the owner paused this seat (null: it works).
+  paused_at?: string | null;
 };
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
 // A part null clears it (the seat inherits again); the whole patch null clears both.

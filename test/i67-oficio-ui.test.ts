@@ -54,11 +54,11 @@ test("I67-1 #1: the page's address lives in Equipo, survives a reload and Esc go
   assert.match(legacyHref(at), /member%3Ataller-tienda/);
 });
 
-test("I67-1 #1: Equipo has an «Oficio» door on the lit card and on each row, to that seat's page", () => {
+test("I67-1 #1 (PLA-I71-1): the selected seat's card on the chart opens that seat's page", () => {
   const src = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/corriente/equipo.tsx"), "utf8");
-  assert.equal(src.match(/to=\{oficioTo\(m\.agent\)\}/g)?.length, 2);
+  assert.match(src, /to=\{links\.oficio\(m\.agent\)\}/);
   const page = readFileSync(path.resolve(import.meta.dirname, "../ui/src/pages/corriente.tsx"), "utf8");
-  assert.match(page, /oficioTo=\{\(agent\) => linkTo\(\{ slug: p\.slug, ver: \{ kind: "oficio", agent \} \}\)\}/);
+  assert.match(page, /oficio: \(agent\) => linkTo\(\{ slug, ver: \{ kind: "oficio", agent \} \}\)/);
 });
 
 test("I67-1 #2: rows are the seat, the skills it carries, then factory skills turned off; cut to fit", () => {

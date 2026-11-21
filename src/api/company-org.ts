@@ -8,7 +8,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { claudeSignInLine } from "../runner/run-env.js";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
+import { agentRuns, agents, docs, events, lessons, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { resolveMotor } from "../runner/motor.js";
 import { NO_SKILLS } from "../runner/packs.js";
@@ -157,6 +157,11 @@ export type TeamMember = {
   // This ISO week's input + output tokens of the seat's runs in this project, and its share of the project's
   // total (null when nothing was reported this week).
   used_week: { tokens: number; share: number } | null;
+  // PLA-I71-1 (the org chart): the seat's name, the slug of the agent it reports to (a teammate, the company's ceo
+  // seat, or null), and its own lessons in force and waiting for the owner.
+  name: string;
+  reports_to: string | null;
+  lessons: { active: number; proposed: number };
 };
 
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
@@ -347,6 +352,9 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     motor: motorView(a, ctx.settings, false),
     consulta_motor: a.roleTemplate === "product-owner" ? motorView(a, ctx.settings, true) : null,
     used_week: null,
+    name: a.name,
+    reports_to: null,
+    lessons: { active: 0, proposed: 0 },
   };
 }
 
@@ -494,6 +502,21 @@ async function teamView(db: Db, p: Project, ctx: { paused: boolean; threadId: st
   seats.forEach((a, i) => {
     const n = used.get(a.id) ?? 0;
     out[i]!.used_week = total > 0 ? { tokens: n, share: n / total } : null;
+  });
+  // PLA-I71-1: who each seat reports to (by slug), and its own lessons by state.
+  const bosses = [...new Set(seats.map((a) => a.reportsTo).filter((x): x is string => !!x))];
+  const slugOf = new Map(bosses.length ? (await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, bosses))).map((r) => [r.id, r.slug]) : []);
+  const ids = seats.map((a) => a.id);
+  const counts = ids.length
+    ? await db
+        .select({ agent: lessons.agentId, state: lessons.state, n: sql<number>`count(*)::int` })
+        .from(lessons)
+        .where(and(inArray(lessons.agentId, ids), inArray(lessons.state, ["active", "proposed"])))
+        .groupBy(lessons.agentId, lessons.state)
+    : [];
+  seats.forEach((a, i) => {
+    out[i]!.reports_to = a.reportsTo ? (slugOf.get(a.reportsTo) ?? null) : null;
+    for (const c of counts) if (c.agent === a.id) out[i]!.lessons[c.state as "active" | "proposed"] = c.n;
   });
   return out;
 }

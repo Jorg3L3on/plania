@@ -1,5 +1,6 @@
 // PLA-I62-6: a paso's (or an initiative's) detail, opened from the project's list. PLA-I64-7 retired the board
 // itself (the list's rows and levers took its place). A paso's detail: Hecho cuando, the evidence, PR and docs, its history, and its initiative with Cerrar.
+import { Trabajo } from "./trabajo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -234,6 +235,8 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
               </section>
             </div>
             {acts && here && <PasoActs p={p} t={here} acts={acts} decisions={decisions} />}
+            {/* PLA-I71-1: «Dile algo» and «Reanudar corrida», moved here from Equipo. */}
+            {acts && t.kind !== "initiative" && <Trabajo p={p} k={k} acts={acts} />}
           </>
         )}
       </div>

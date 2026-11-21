@@ -17,9 +17,7 @@ export const BARRA_WORDS = defineWords({
     todoCount: (open: number) => `${open} ${open === 1 ? "ABIERTA" : "ABIERTAS"}`,
     archivoEmpty: "VACÍO",
     archivoCount: (docs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"}`,
-    teamPaused: "EN PAUSA",
-    teamWorking: (n: number) => `${n} TRABAJANDO`,
-    teamFree: (n: number) => `${n} ${n === 1 ? "LIBRE" : "LIBRES"}`,
+    teamAgents: (n: number) => `${n} ${n === 1 ? "AGENTE" : "AGENTES"}`,
     noGoal: "Sin meta todavía",
     noDate: "sin fecha",
     setGoal: "Fijar meta",
@@ -38,9 +36,7 @@ export const BARRA_WORDS = defineWords({
     todoCount: (open: number) => `${open} OPEN`,
     archivoEmpty: "EMPTY",
     archivoCount: (docs: number) => `${docs} ${docs === 1 ? "DOC" : "DOCS"}`,
-    teamPaused: "PAUSED",
-    teamWorking: (n: number) => `${n} WORKING`,
-    teamFree: (n: number) => `${n} FREE`,
+    teamAgents: (n: number) => `${n} ${n === 1 ? "AGENT" : "AGENTS"}`,
     noGoal: "No goal yet",
     noDate: "no date",
     setGoal: "Set a goal",
@@ -77,9 +73,8 @@ export const todoCount = (open: number, language: Language = getLanguage()): str
 /** Archivo's count beside its door («24 DOCS»). PLA-I68-2: PRs moved to Camino's Propuestas. */
 export const archivoCount = (docs: number, language: Language = getLanguage()): string => (docs === 0 ? w(language).archivoEmpty : w(language).archivoCount(docs));
 
-/** Equipo's word beside its door: «EN PAUSA», «2 TRABAJANDO», «4 LIBRES». */
-export const teamWord = (members: number, working: number, paused: boolean, language: Language = getLanguage()): string =>
-  paused ? w(language).teamPaused : working ? w(language).teamWorking(working) : w(language).teamFree(members);
+/** Equipo's word beside its door: «4 AGENTES» (PLA-I71-1: Equipo is about the agents; who works shows on the list). */
+export const teamWord = (members: number, language: Language = getLanguage()): string => w(language).teamAgents(members);
 
 /** The meta line above the sentence: «Meta · <goal · date>» and its link. */
 export type MetaLine = { text: string; missing: boolean; link: string };

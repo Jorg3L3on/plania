@@ -31,10 +31,10 @@ test("I3-2: the bar's words", () => {
   assert.equal(words.archivoCount(0), "VACÍO");
   assert.equal(words.archivoCount(1), "1 DOC");
   assert.equal(words.archivoCount(24), "24 DOCS");
-  assert.equal(words.teamWord(4, 0, true), "EN PAUSA");
-  assert.equal(words.teamWord(4, 2, false), "2 TRABAJANDO");
-  assert.equal(words.teamWord(1, 0, false), "1 LIBRE");
-  assert.equal(words.teamWord(4, 0, false), "4 LIBRES");
+  // PLA-I71-1: the door counts agents, not who works (that shows on the list).
+  assert.equal(words.teamWord(4), "4 AGENTES");
+  assert.equal(words.teamWord(1), "1 AGENTE");
+  assert.equal(words.teamWord(4, "en"), "4 AGENTS");
   assert.deepEqual(words.metaLine(null, null, true), { text: "Sin meta todavía", missing: true, link: "Fijar meta" });
   assert.deepEqual(words.metaLine("Primera venta", null, false), { text: "Primera venta · sin fecha", missing: false, link: "Cambiar meta" });
   assert.deepEqual(words.metaLine("Primera venta", "15 DIC", false), { text: "Primera venta · 15 DIC", missing: false, link: "Cambiar meta" });

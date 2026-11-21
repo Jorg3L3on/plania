@@ -19,7 +19,7 @@ import { Pedir } from "@/components/corriente/pedir";
 import { Asistente } from "@/components/corriente/asistente";
 import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
-import { Equipo } from "@/components/corriente/equipo";
+import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equipo";
 import { OficioPage } from "@/components/corriente/oficio";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
@@ -244,6 +244,16 @@ export const CorrientePage = () => {
     hash: (href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : href === "#publicar" ? hojaHref("publicar", slug) : linkTo({ slug })),
   });
 
+  // PLA-I71-1: Equipo's places, a seat selected on the chart, and its work on the list.
+  const equipoLinks = (slug: string): EquipoLinks => ({
+    member: (agent) => linkTo({ slug, ver: { kind: "miembro", agent } }),
+    equipo: linkTo({ slug, tab: "equipo" }),
+    motor: linkTo({ slug, tab: "motores" }),
+    sumar: linkTo({ slug, ver: { kind: "sumar" } }),
+    oficio: (agent) => linkTo({ slug, ver: { kind: "oficio", agent } }),
+    work: linkTo({ slug, tab: "todo" }),
+  });
+
   const pendLinks: PendLinks = {
     entrega: (d) => linkTo({ slug: d.project ?? undefined, ver: { kind: "entrega", id: d.id } }),
     publicar: (d) => hojaHref("publicar", d.project),
@@ -424,14 +434,9 @@ export const CorrientePage = () => {
       return (
         <Equipo
           p={p}
-          now={now}
-          timeZone={timeZone}
           companyPaused={paused}
-          acts={acts}
           focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
-          motorTo={linkTo({ slug: p.slug, tab: "motores" })}
-          sumarTo={linkTo({ slug: p.slug, ver: { kind: "sumar" } })}
-          oficioTo={(agent) => linkTo({ slug: p.slug, ver: { kind: "oficio", agent } })}
+          links={equipoLinks(p.slug)}
           motorDefault={company?.motor_default}
         />
       );
@@ -488,17 +493,23 @@ export const CorrientePage = () => {
       );
     if (at.tab === "motores")
       return (
+        <>
+        <EquipoNav links={equipoLinks(p.slug)} at="motores" />
         <Motores
           p={p}
           def={company?.motor_default}
           signIn={company?.claude_sign_in}
           planTo="/machine"
+          acts={acts}
+          now={now}
+          timeZone={timeZone}
           onSave={async (save) => {
             const out = await api.saveMotores(save);
             void client.invalidateQueries({ queryKey: ["company"] });
             return out;
           }}
         />
+        </>
       );
     if (at.tab === "maquinas")
       return (
@@ -602,7 +613,6 @@ export const CorrientePage = () => {
   };
 
   // PLA-I3-2: the project view's one bar (the strip and the project's bar, merged).
-  const working = project ? project.team.filter((m) => m.state === "running").length : 0;
   const bar = project ? (
     <ProjectBar
       slug={project.slug}
@@ -612,7 +622,7 @@ export const CorrientePage = () => {
       href={(t) => linkTo({ slug: project.slug, tab: t })}
       projectHref={(slug) => linkTo({ slug, tab: at.tab })}
       back={hrefOf({ view: "corriente" })}
-      team={teamWord(project.team.length, working, paused || project.paused)}
+      team={teamWord(project.team.length)}
       open={project.work.open}
       paused={project.paused}
       pauseHref={hojaHref("pausar", project.slug)}

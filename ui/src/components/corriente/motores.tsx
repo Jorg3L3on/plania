@@ -12,6 +12,35 @@ import { EFFORTS, MODELS, applyPreset, effortWord, presetsOf, clearStrip, draftO
 import { MOTORES } from "@/lib/motores-words";
 import { byRole } from "@/lib/org";
 import { Btn, Label, Opt } from "./parts";
+import type { CorrienteActs } from "./acts";
+import { EQUIPO_WORDS } from "@/lib/equipo-words";
+import { startsLine } from "@/lib/edificio";
+
+// PLA-I71-1: the seats whose next step waits on nothing but a nudge, with «Que empiece ya» (or «Seguir de todos modos»
+// past the plan's brake). It lived on Equipo's rows; Equipo is about the agents now.
+export const PorArrancar = ({ p, acts, now, timeZone }: { p: OrgProject; acts: CorrienteActs; now: number; timeZone?: string }) => {
+  const w = words(EQUIPO_WORDS);
+  const rows = p.team.filter((m) => m.state !== "running" && m.next_start && (m.next_start.hold === "rest" || m.next_start.hold === "usage" || m.next_start.hold === "unqueued"));
+  if (p.paused || rows.length === 0) return null;
+  return (
+    <ul className="cor-brief" data-por-arrancar>
+      {rows.map((m) => {
+        const n = m.next_start!;
+        const past = n.hold === "usage";
+        return (
+          <li key={m.agent} data-member={m.agent}>
+            <span>
+              <b>{seatName(m.role)}</b> · {startsLine(n, now, timeZone)}{" "}
+              <Btn kind="link" onClick={() => acts.start(p.slug, m.agent, past)} disabled={acts.busy === `${p.slug}:start`} data-control="arrancar">
+                {past ? w.goAnyway : w.startNow}
+              </Btn>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
 
 const Stepper = ({ value, min = 1, max, onChange, label }: { value: number; min?: number; max: number; onChange: (v: number) => void; label: string }) => {
   const w = words(MOTORES);
@@ -41,7 +70,7 @@ const lineOf = (d: Draft, s: Strip) => {
   return { word, from, own };
 };
 
-export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def?: { model: string | null; effort: string | null }; signIn?: string; onSave: (s: MotoresSave) => Promise<unknown>; planTo: string }) => {
+export const Motores = ({ p, def, signIn, onSave, planTo, acts, now = Date.now(), timeZone }: { p: OrgProject; def?: { model: string | null; effort: string | null }; signIn?: string; onSave: (s: MotoresSave) => Promise<unknown>; planTo: string; acts?: CorrienteActs; now?: number; timeZone?: string }) => {
   const w = words(MOTORES);
   const team = useMemo(() => [...p.team].sort(byRole), [p.team]);
   const saved = useMemo(() => draftOf(team, def), [team, def]);
@@ -311,6 +340,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo }: { p: OrgProject; def
                 {w.nothingWaits}
               </p>
             )}
+            {acts && <PorArrancar p={p} acts={acts} now={now} timeZone={timeZone} />}
           </section>
         </aside>
       )}

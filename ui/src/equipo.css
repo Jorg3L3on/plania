@@ -1,0 +1,72 @@
+/* PLA-I71 Equipo de verdad (PLA-IDEA34, boards Main, Ancho, Sumar, Habilidades, Traer, Equipos, Adoptar, Compania).
+   eq- and org- classes under .cor, the floor's palette (corriente.css): near black, violet for live work and what is
+   selected, amber for what waits on the owner. The chart on the left, the seat's panel on the right; one column and
+   the chart as an indented list on a phone. */
+.eq { display: flex; gap: 24px; min-height: 0; }
+.eq-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.eq-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.eq-places { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--cor-line); background: var(--cor-surface); }
+.eq-places a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 9px; font-size: 13.5px; color: var(--cor-body); }
+.eq-places a:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
+.eq-places a[aria-current="page"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
+.eq-places a .cor-cap { color: var(--cor-muted); }
+.eq-title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.org-legend { display: inline-flex; gap: 14px; font-weight: 400; }
+.org-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* The chart: one nested list; on a wide screen its cards are placed absolutely over one SVG of lines. */
+.org { position: relative; min-width: 0; }
+.org-ul { list-style: none; margin: 0; padding: 0; }
+.org-lines { position: absolute; inset: 0 auto auto 0; pointer-events: none; overflow: visible; }
+.org-lines path { fill: none; stroke: rgba(167, 139, 250, 0.42); stroke-width: 1.2; }
+.org-lines path.dashed { stroke: rgba(255, 255, 255, 0.2); stroke-dasharray: 4 4; }
+.org-card { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; box-sizing: border-box; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: var(--cor-surface); color: var(--cor-text); font: inherit; text-align: left; }
+button.org-card { cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
+button.org-card:hover { border-color: var(--cor-line-strong); background: var(--cor-raised); }
+button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 2px; }
+.org-card.sel { border-color: rgba(167, 139, 250, 0.7); background: rgba(139, 92, 246, 0.1); }
+.org-card.owner { justify-content: center; border-color: var(--cor-line-strong); }
+.org-card.ghost { justify-content: center; border-style: dashed; background: transparent; color: var(--cor-body); }
+.org-card.loose { border-color: rgba(255, 180, 84, 0.55); border-style: dashed; }
+.org-card.loose .org-line { color: var(--cor-amber); }
+.org-card.pausa { opacity: 0.72; }
+.org-card-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.org-glyph { flex: none; display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: rgba(139, 92, 246, 0.16); color: var(--cor-violet-3); font-family: var(--cor-mono); font-size: 11px; text-transform: uppercase; }
+.org-glyph.you { background: var(--cor-text); color: var(--cor-bg); }
+.org-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.org-who b { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-line { font-size: 12.5px; color: var(--cor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--cor-muted); }
+.org-dot.vivo { border-color: #fff; background: #fff; box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.8); }
+.org-dot.espera { border: 0; border-radius: 2px; background: var(--cor-amber); transform: rotate(45deg) scale(0.85); }
+.org-dot.pausa { border: 0; border-radius: 2px; width: 10px; height: 4px; background: var(--cor-muted); }
+.org-tags { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
+.org-tag { flex: none; padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-body); white-space: nowrap; }
+.org-tag.vi { background: rgba(139, 92, 246, 0.14); color: var(--cor-violet-3); }
+.org-tag.am { background: rgba(255, 180, 84, 0.14); color: var(--cor-amber); }
+.org.compact .org-tags { display: none; }
+.org.compact .org-card { padding: 8px 12px; }
+/* Not measured yet, or a phone: the list as it is, indented, one card per row. */
+.org.list .org-ul .org-ul { padding-left: 18px; margin-left: 10px; border-left: 1px solid rgba(167, 139, 250, 0.3); }
+.org.list .org-li { padding-top: 8px; }
+.org.list .org-card { width: 100%; min-height: 72px; }
+.org.list .org-card.ghost { display: none; }
+.org.list .org-loose { margin-top: 12px; }
+
+/* The seat's card beside the chart (step 1) and its panel (step 2). */
+.eq-side { flex: 0 0 360px; align-self: flex-start; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.eq-side-empty { border-style: dashed; }
+.eq-side-head { display: flex; align-items: center; gap: 12px; }
+.eq-side-name { font-size: 18px; }
+.eq-kv { display: flex; flex-direction: column; margin: 0; }
+.eq-kv > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--cor-line); }
+.eq-kv dt { font-size: 13.5px; color: var(--cor-muted); }
+.eq-kv dd { margin: 0; font-size: 13.5px; color: var(--cor-text); text-align: right; }
+.eq-side-foot { display: flex; gap: 8px; flex-wrap: wrap; }
+.eq-side-foot > .cor-btn { flex: 1; }
+.cor-trabajo { padding-top: 6px; }
+
+@media (max-width: 1100px) {
+  .eq { flex-direction: column; }
+  .eq-side { flex: none; width: 100%; box-sizing: border-box; }
+}
