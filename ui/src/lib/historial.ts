@@ -58,7 +58,7 @@ export function runs(list: Entry[]): (Entry | Run)[] {
   return out;
 }
 
-const STYLE_KEYS = ["brand", "accent", "neutral", "head", "body", "mono", "base", "ratio", "radius", "pill", "shadow", "border", "density", "lib", "stroke", "fill", "motion", "img"] as const;
+const STYLE_KEYS = ["brand", "accent", "neutral", "head", "body", "mono", "base", "ratio", "radius", "pill", "shadow", "border", "density", "lib", "stroke", "fill", "motion"] as const;
 const VOICE_KEYS = ["trato", "cerca", "humor", "breve", "sencillo", "name", "short", "desc", "tag"] as const;
 /** What a version has that today's does not, field by field. */
 export function styleDiff(a: Style, b: Style): { k: (typeof STYLE_KEYS)[number]; from: string; to: string }[] {

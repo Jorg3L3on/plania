@@ -2351,7 +2351,6 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 .es-tile .demo { width: 44px; height: 26px; display: block; }
 .es-dens { display: grid; width: 54px; }
 .es-dens i { height: 5px; border-radius: 2px; background: rgba(255,255,255,.35); }
-.es-ill { width: 84px; height: 52px; border-radius: 6px; overflow: hidden; display: block; }
 .es-range { flex: 1; accent-color: #a78bfa; }
 .es-val { font-family: var(--cor-mono); font-size: 11px; width: 40px; color: var(--cor-text); }
 .es-check { font-size: 12px; color: var(--cor-body); margin-top: 4px; }
@@ -2364,10 +2363,6 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 .es-sw[aria-checked="true"] { background: var(--cor-violet); }
 .es-sw[aria-checked="true"]::after { left: 14px; background: #fff; }
 .es-exp { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--cor-body); cursor: pointer; white-space: nowrap; }
-.es-lock { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-.es-lock > div { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 58px; border-radius: 10px; font-size: 17px; border: 1px solid var(--cor-line); }
-.es-lock > div img { width: 30px; height: 30px; border-radius: 7px; }
-.es-lock > div small { position: absolute; left: 7px; bottom: 4px; font-family: var(--cor-mono); font-size: 8.5px; letter-spacing: .06em; opacity: .65; }
 .es-right { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: auto; scrollbar-width: thin; }
 .es-bar { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; flex: none; }
 .es-bar .say { flex: 1; min-width: 0; font-size: 13px; color: var(--cor-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2539,10 +2534,6 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 @media (max-width: 900px) { .hi-wrap { grid-template-columns: 1fr; overflow: auto; } .hi-list { max-height: 50vh; } .hi-two { grid-template-columns: 1fr; } }
 
 /* PLA-130: a theme the app does not have, locked in place of its preview. */
-.es-locked { display: grid; place-items: center; align-content: center; gap: 6px; aspect-ratio: 600 / 360; padding: 16px; border-radius: 16px; border: 1px dashed var(--cor-line-strong); background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px); color: var(--cor-muted); text-align: center; }
-.es-locked svg { color: var(--cor-body); }
-.es-locked b { font-size: 13.5px; font-weight: 600; color: var(--cor-text); }
-.es-locked span { max-width: 32ch; font-size: 11.5px; line-height: 1.45; }
 /* PLA-130: «cambia» in the parts list, and the pane's line with what changes and the way back. */
 .es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
 .es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }

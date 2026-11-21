@@ -188,7 +188,8 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
           <div className="vx">
             <span className="vx-k">{w.moments.vacio}</span>
             <div className="vx-e">
-              {style && <span className="vx-ill"><Illus x={style} /></span>}
+              {/* PLA-130: Imágenes left Estilo; the example keeps one plain drawing in the brand's colours. */}
+              {style && <span className="vx-ill"><Illus x={{ ...style, people: false, imgBrand: true }} kind="plano" /></span>}
               <p>{moment("vacio")}</p>
               <span className="vx-btn"><Icon n="plus" s={{ stroke: style?.stroke ?? 2, fill: false, lib: style?.lib }} size={14} />{x.cerca >= 50 ? w.emptyBtn[1] : w.emptyBtn[0]}</span>
             </div>

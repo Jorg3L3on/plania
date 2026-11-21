@@ -46,7 +46,8 @@ export const FONT_CAT: Record<string, FontCat> = {
 };
 export const PAIRS: [string, string, string][] = [["moderna", "Geist", "Geist"], ["caracter", "Bricolage Grotesque", "Geist"], ["editorial", "Fraunces", "Inter"], ["amable", "Nunito", "Nunito Sans"], ["tecnica", "Space Grotesk", "IBM Plex Sans"], ["legible", "Atkinson Hyperlegible", "Atkinson Hyperlegible"]];
 export const RATIOS = [1.125, 1.2, 1.25, 1.333] as const;
-export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov", "img", "logo"] as const;
+// PLA-130: Imágenes and Logo left Estilo: neither reached the repo or an agent (the logo is changed in Caras).
+export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov"] as const;
 export type Sec = (typeof SECS)[number];
 export const LIBS = ["Lucide", "Phosphor", "Tabler", "Heroicons", "Material Symbols"] as const;
 
@@ -232,7 +233,7 @@ export const ESTILO_WORDS = defineWords({
     doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), texts: (n: number) => (n === 1 ? "1 texto" : `${n} textos`), way: "en camino", ok: "al día" },
     loading: "Leyendo el estilo del repo…",
     readError: "el estilo",
-    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
+    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
     previewOnly: "Solo para la vista previa: no se escribe en el repo.",
@@ -264,7 +265,6 @@ export const ESTILO_WORDS = defineWords({
       shadow: (s: string) => `sombra ${s}`,
       stroke: (n: number) => `trazo ${n}`,
       people: "con personas",
-      versions: (n: number) => (n === 1 ? "1 versión" : `${n} versiones`),
     },
     color: {
       // PLA-130: Material UI's words (primary, secondary); «ideas» are only suggestions for the main colour.
@@ -354,20 +354,6 @@ export const ESTILO_WORDS = defineWords({
       says: { ninguno: "sin animación", calmo: "320 ms, suave", normal: "200 ms", vivo: "140 ms, con rebote" } as Record<string, string>,
       note: "Si el teléfono pide «reducir movimiento», la app no anima nada, elijas lo que elijas.",
     },
-    img: {
-      previewOnly: "Las imágenes guían a Artist y a la vista previa; no se escribe nada de esto en el repo.",
-      style: "Estilo de ilustración",
-      styles: { linea: "Línea", plano: "Plano", degradado: "Degradado" } as Record<string, string>,
-      people: "Con personas",
-      brandOnly: "Solo con los colores de la marca",
-      note: "Artist usa esto en la imagen para compartir, las pantallas vacías y las capturas de tienda. Se guarda en Plania; no es un archivo del repo.",
-    },
-    logo: {
-      title: "El logo con tu letra",
-      kinds: ["OSCURO", "CLARO", "SOBRE MARCA"],
-      note: "El nombre junto al logo usa tu letra de títulos. Deja libre medio ícono alrededor; tamaño mínimo 24 px.",
-      none: "El proyecto todavía no tiene logo: elígelo en Caras.",
-    },
     spec: {
       nav: ["Inicio", "Buscar", "Ajustes"],
       title: "Lo de hoy",
@@ -443,7 +429,7 @@ export const ESTILO_WORDS = defineWords({
     doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), texts: (n: number) => (n === 1 ? "1 text" : `${n} texts`), way: "on its way", ok: "up to date" },
     loading: "Reading the repo's style…",
     readError: "the style",
-    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
+    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
     previewOnly: "Preview only: it is not written into the repo.",
@@ -474,7 +460,6 @@ export const ESTILO_WORDS = defineWords({
       shadow: (s: string) => `${s} shadow`,
       stroke: (n: number) => `stroke ${n}`,
       people: "with people",
-      versions: (n: number) => (n === 1 ? "1 version" : `${n} versions`),
     },
     color: {
       brand: "Primary colour",
@@ -562,20 +547,6 @@ export const ESTILO_WORDS = defineWords({
       play: "Play the notice",
       says: { ninguno: "no animation", calmo: "320 ms, smooth", normal: "200 ms", vivo: "140 ms, with a bounce" } as Record<string, string>,
       note: "If the phone asks to reduce motion, the app animates nothing, whatever you pick.",
-    },
-    img: {
-      previewOnly: "Images guide Artist and the preview; none of this is written into the repo.",
-      style: "Illustration style",
-      styles: { linea: "Line", plano: "Flat", degradado: "Gradient" } as Record<string, string>,
-      people: "With people",
-      brandOnly: "Brand colours only",
-      note: "Artist uses this for the share image, empty screens and store screenshots. It is kept in Plania; it is not a repo file.",
-    },
-    logo: {
-      title: "The logo with your type",
-      kinds: ["DARK", "LIGHT", "ON BRAND"],
-      note: "The name next to the logo uses your heading font. Leave half an icon of room around it; 24 px minimum.",
-      none: "The project has no logo yet: choose it in Surfaces.",
     },
     spec: {
       nav: ["Home", "Search", "Settings"],

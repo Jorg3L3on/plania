@@ -309,9 +309,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     if (k === "forma") return `${x.pill ? w.sum.pill : `${x.radius} px`} · ${w.sum.shadow(w.forma.shadow[x.shadow]!.toLowerCase())}`;
     if (k === "espacio") return w.espacio.density[x.density];
     if (k === "iconos") return `${x.lib} · ${w.sum.stroke(x.stroke)}`;
-    if (k === "mov") return w.mov.motion[x.motion];
-    if (k === "img") return `${w.img.styles[x.img]}${x.people ? ` · ${w.sum.people}` : ""}`;
-    return w.sum.versions(r.versions);
+    return w.mov.motion[x.motion];
   };
 
   const paneColor = () => {
@@ -569,52 +567,6 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
       <p className="es-note">{w.mov.note}</p>
     </>
   );
-  const paneImg = () => (
-    <>
-      {/* PLA-130: images steer Artist and the sample; none of it is written into the repo's code. */}
-      <p className="es-note">{w.img.previewOnly}</p>
-      <div>
-        <H>{w.img.style}</H>
-        <div className="es-tiles three">
-          {(["linea", "plano", "degradado"] as const).map((k) => (
-            <button key={k} type="button" className="es-tile" aria-pressed={x.img === k} onClick={() => edit({ img: k })}>
-              <span className="es-ill"><Illus x={x} kind={k} /></span>
-              {w.img.styles[k]}
-            </button>
-          ))}
-        </div>
-      </div>
-      <label className="es-row es-check">
-        <button type="button" className="es-sw" role="switch" aria-checked={x.people} onClick={() => edit({ people: !x.people })} aria-label={w.img.people} />
-        {w.img.people}
-      </label>
-      <label className="es-row es-check">
-        <button type="button" className="es-sw" role="switch" aria-checked={x.imgBrand} onClick={() => edit({ imgBrand: !x.imgBrand })} aria-label={w.img.brandOnly} />
-        {w.img.brandOnly}
-      </label>
-      <p className="es-note">{w.img.note}</p>
-    </>
-  );
-  const paneLogo = () =>
-    logo ? (
-      <>
-        <div>
-          <H>{w.logo.title}</H>
-          <div className="es-lock">
-            {[["#0c0c10", "#ffffff"], ["#f4f4f6", "#0c0c10"], [x.brand, t.light["on-brand"]!]].map(([bg, fg], i) => (
-              <div key={i} style={{ background: bg, color: fg }}>
-                <img alt="" src={logo} />
-                <span style={{ fontFamily: family(x.head), fontWeight: x.wHead }}>{title}</span>
-                <small>{w.logo.kinds[i]}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-        <p className="es-note">{w.logo.note}</p>
-      </>
-    ) : (
-      <p className="es-note am">{w.logo.none}</p>
-    );
   // PLA-130: what a part changes, from the repo's value to this style's, and the way back to the repo's for that part.
   const say = (v: string) => (v === "—" ? w.unset : v === SYSTEM ? w.caps.sys : v.startsWith("#") ? v.toUpperCase() : v);
   const repoUndo = (k: Sec): Partial<Style> | null => {
@@ -658,7 +610,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   };
   const undoAll = (): Partial<Style> => Object.assign({}, ...ch.map((c) => undoOf(c.part as Sec) ?? {}));
   const canUndo = ch.some((c) => undoOf(c.part as Sec));
-  const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov, img: paneImg, logo: paneLogo };
+  const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov };
 
   const repoSay = [r.repo.head ?? r.repo.body ?? w.caps.sys, (r.repo.brand ?? r.repo.theme)?.toUpperCase(), r.repo.radius !== undefined ? w.caps.corners(r.repo.radius) : null].filter(Boolean).join(" · ");
   const knows = !!(r.repo.brand || r.repo.theme || r.repo.body || r.repo.radius !== undefined);
@@ -798,7 +750,7 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
               <button key={k} type="button" role="tab" className="es-ri" aria-selected={sec === k} onClick={() => setSec(k)} data-control={`estilo-parte-${k}`}>
                 <b>{w.secs[k]}</b>
                 {/* PLA-130: the tag leads the summary line, so every part stays two lines tall and the tags line up. */}
-                <span>{k !== "logo" && k !== "img" && changed(k) && <span className="es-tag" title={w.differs}>{w.tag}</span>}{summary(k)}</span>
+                <span>{changed(k) && <span className="es-tag" title={w.differs}>{w.tag}</span>}{summary(k)}</span>
               </button>
             ))}
           </nav>
