@@ -78,8 +78,8 @@ export const TrialPanel = ({ o, slug, name, n, onClose, onShow, now, timeZone }:
           {q.data && q.data.deliveries.length === 0 ? (
             <p className="cor-cap">{w.none}</p>
           ) : (
-            <label className="ofi-field" htmlFor="ofi-trial-pick">
-              <Label>{w.pick}</Label>
+            <div className="ofi-field">
+              <label htmlFor="ofi-trial-pick"><Label>{w.pick}</Label></label>
               <select id="ofi-trial-pick" className="cor-select" value={chosen} disabled={!q.data} onChange={(e) => setPick(e.target.value)}>
                 {(q.data?.deliveries ?? []).map((d) => (
                   <option key={d.run_id} value={d.run_id}>
@@ -87,7 +87,7 @@ export const TrialPanel = ({ o, slug, name, n, onClose, onShow, now, timeZone }:
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           )}
           <p className="cor-cap" role="status">
             {start.isPending ? w.starting : err ? <span className="cor-state bad">{err}</span> : ""}
@@ -218,10 +218,10 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
             }
           }}
         >
-          <label className="ofi-field" htmlFor="ofi-import-url">
-            <Label>{w.url}</Label>
+          <div className="ofi-field">
+            <label htmlFor="ofi-import-url"><Label>{w.url}</Label></label>
             <input id="ofi-import-url" className="cor-input" type="url" inputMode="url" value={url} placeholder={w.urlPlaceholder} maxLength={2048} onChange={(e) => setUrl(e.target.value)} />
-          </label>
+          </div>
           <Btn kind="secondary" className="ofi-wide" type="submit" disabled={!url.trim() || look.isPending} data-control="traer-enlace">
             {w.fetch}
           </Btn>
@@ -244,8 +244,8 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
               <p className="cor-cap cor-state warn">{w.taken}</p>
             ) : (
               <>
-                <label className="ofi-field" htmlFor="ofi-import-scope">
-                  <Label>{words(SKILL_CARD_WORDS).forWhom}</Label>
+                <div className="ofi-field">
+                  <label htmlFor="ofi-import-scope"><Label>{words(SKILL_CARD_WORDS).forWhom}</Label></label>
                   <select id="ofi-import-scope" className="cor-select" value={scope} onChange={(e) => setScope(e.target.value as SkillScope)}>
                     {scopeOptions(seat).map((s) => (
                       <option key={s.value} value={s.value}>
@@ -253,7 +253,7 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
                       </option>
                     ))}
                   </select>
-                </label>
+                </div>
                 <p className="cor-cap">{w.savedHint}</p>
                 <Btn kind="primary" className="ofi-wide" disabled={save.isPending} onClick={() => save.mutate()} data-control="guardar-importada">
                   {w.save}

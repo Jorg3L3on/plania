@@ -45,20 +45,20 @@ const Fields = ({ d, set, seat, idPrefix }: { d: SkillDraft; set: (d: SkillDraft
   const w = words(SKILL_CARD_WORDS);
   return (
     <>
-      <label className="ofi-field" htmlFor={`${idPrefix}-name`}>
-        <Label>{w.name}</Label>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-name`}><Label>{w.name}</Label></label>
         <input id={`${idPrefix}-name`} className="cor-input" value={d.name} maxLength={80} placeholder={w.namePlaceholder} onChange={(e) => set({ ...d, name: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-when`}>
-        <Label>{w.when}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-when`}><Label>{w.when}</Label></label>
         <textarea id={`${idPrefix}-when`} className="cor-textarea" rows={2} value={d.description} maxLength={1024} placeholder={w.whenPlaceholder} onChange={(e) => set({ ...d, description: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-what`}>
-        <Label>{w.what}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-what`}><Label>{w.what}</Label></label>
         <textarea id={`${idPrefix}-what`} className="cor-textarea ofi-mono" rows={4} value={d.body} placeholder={w.whatPlaceholder} onChange={(e) => set({ ...d, body: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-scope`}>
-        <Label>{w.forWhom}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-scope`}><Label>{w.forWhom}</Label></label>
         <select id={`${idPrefix}-scope`} className="cor-select" value={d.scope} onChange={(e) => set({ ...d, scope: e.target.value as SkillScope })}>
           {scopeOptions(seat).map((s) => (
             <option key={s.value} value={s.value}>
@@ -66,7 +66,7 @@ const Fields = ({ d, set, seat, idPrefix }: { d: SkillDraft; set: (d: SkillDraft
             </option>
           ))}
         </select>
-      </label>
+      </div>
     </>
   );
 };
@@ -80,8 +80,8 @@ const Diff = ({ card, onBack, onRollback, busy }: { card: SkillCard; onBack: () 
   const lines = useMemo(() => changedOnly(versionDiff(prev, v)), [prev, v]);
   return (
     <>
-      <label className="ofi-field ofi-field-row" htmlFor="ofi-diff-n">
-        <Label>{w.diffPick}</Label>
+      <div className="ofi-field ofi-field-row">
+        <label htmlFor="ofi-diff-n"><Label>{w.diffPick}</Label></label>
         <select id="ofi-diff-n" className="cor-select" value={n} onChange={(e) => setN(Number(e.target.value))}>
           {card.versions.map((x) => (
             <option key={x.n} value={x.n}>
@@ -89,7 +89,7 @@ const Diff = ({ card, onBack, onRollback, busy }: { card: SkillCard; onBack: () 
             </option>
           ))}
         </select>
-      </label>
+      </div>
       <p className="cor-cap">{prev ? w.diffTitle(v.n) : w.diffFirst}</p>
       <pre className="ofi-diff" data-diff={v.n} aria-label={prev ? w.diffTitle(v.n) : w.diffFirst}>
         {prev && lines.length === 0 ? (
@@ -288,10 +288,10 @@ export const PuestoPanel = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: 
         <div className="ofi-shelf-scroll ofi-skill-body">
           <h4 className="ofi-puesto-seat">{seat}</h4>
           <p className="cor-cap">{w.roleLine}</p>
-          <label className="ofi-field" htmlFor="ofi-manner">
-            <Label>{w.manner}</Label>
+          <div className="ofi-field">
+            <label htmlFor="ofi-manner"><Label>{w.manner}</Label></label>
             <textarea id="ofi-manner" className="cor-textarea" rows={4} maxLength={2000} value={text} placeholder={w.mannerPlaceholder} onChange={(e) => setText(e.target.value)} />
-          </label>
+          </div>
           <p className="cor-cap">{w.mannerHint}</p>
           <div>
             <Label as="p">{w.motor}</Label>
