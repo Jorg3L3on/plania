@@ -73,6 +73,19 @@ export async function createPuesto(db: Q, input: { title: string; line: string; 
   return { slug, title, line, origin: "owner", base: input.base, taken: false };
 }
 
+/** PLA-142: deletes a role of the owner's own that no live seat holds. Retired seats keep their history. */
+export async function deletePuesto(db: Db, slug: string): Promise<{ deleted: string }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('equipo:puestos'))`);
+    const [own] = await tx.select().from(puestos).where(and(eq(puestos.slug, slug), eq(puestos.origin, "owner"))).limit(1);
+    if (!own) throw new ToolError("PUESTO_NOT_FOUND", { slug });
+    const live = await tx.select({ slug: agents.slug }).from(agents).where(and(eq(agents.role, slug), sql`${agents.status} <> 'retired'`));
+    if (live.length) throw new ToolError("PUESTO_IN_USE", { seats: live.map((a) => a.slug) });
+    await tx.delete(puestos).where(eq(puestos.slug, own.slug));
+    return { deleted: slug };
+  });
+}
+
 /** One seat on the team, from the catalog, arriving paused. Its manager is the PO (the owner for a PO). */
 export async function addSeat(db: Db, project: string, role: string, opts: { fromTeam?: string | null; reportsTo?: string | null; paused?: boolean } = {}): Promise<Agent> {
   return db.transaction(async (tx) => {

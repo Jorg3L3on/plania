@@ -51,6 +51,16 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
   const save = useMutation({ mutationFn: () => api.saveTeam(p.slug, { name, lessons: withL, references: withR }), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
   const onceBring = useOnce({ sticky: true, key: url + (file?.name ?? "") });
   const bring = useMutation({ mutationFn: async () => api.bringTeam(await sourceOf(url, file)), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
+  // PLA-142: a team the owner saved or brought can leave the catalog.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const onceRemove = useOnce();
+  const remove = useMutation({
+    mutationFn: (slug: string) => api.deleteTeam(slug),
+    onSuccess: () => {
+      setRemoving(null);
+      void client.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
   const card = (t: TeamView) => (
     <li key={t.slug}>
       <article className="cor-card eqs-card" data-team={t.slug}>
@@ -70,6 +80,23 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
             {w.adopt(p.title)}
           </Link>
         </span>
+        {t.origin !== "factory" &&
+          (removing === t.slug ? (
+            <span className="agt-retire" role="group" aria-label={w.remove}>
+              <p className="cor-text">{w.removeAsk(t.name)}</p>
+              <Btn kind="secondary" disabled={remove.isPending} onClick={() => onceRemove(() => remove.mutateAsync(t.slug))} data-control={`borrar-equipo-si-${t.slug}`}>
+                {w.removeYes}
+              </Btn>
+              <Btn kind="quiet" onClick={() => setRemoving(null)} data-control="borrar-equipo-no">
+                {w.removeNo}
+              </Btn>
+              {remove.isError && <span className="cor-cap cor-state bad">{w.removeFailed(remove.error instanceof ApiError ? remove.error.code : "NETWORK")}</span>}
+            </span>
+          ) : (
+            <Btn kind="link" onClick={() => (remove.reset(), setRemoving(t.slug))} data-control={`borrar-equipo-${t.slug}`}>
+              {w.remove}
+            </Btn>
+          ))}
       </article>
     </li>
   );

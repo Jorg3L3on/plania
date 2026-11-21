@@ -337,6 +337,9 @@ export const api = {
   pauseSeat: (slug: string, agent: string, paused: boolean) => request<{ paused: boolean }>("PUT", `${seatPath(slug, agent)}/pause`, { paused }),
   retireSeat: (slug: string, agent: string) => request<{ moved: string[] }>("POST", `${seatPath(slug, agent)}/retire`, {}),
   createPuesto: (input: { title: string; line: string; base: string }) => request<PuestoView>("POST", "/company/puestos", input),
+  // PLA-142: a role of the owner's own and a saved or brought team can be deleted.
+  deletePuesto: (slug: string) => request<{ deleted: string }>("DELETE", `/company/puestos/${encodeURIComponent(slug)}`),
+  deleteTeam: (slug: string) => request<{ deleted: string }>("DELETE", `/company/teams/${encodeURIComponent(slug)}`),
   decideProposal: (slug: string, id: string, accept: boolean) => request<{ state: string; agent: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(id)}/decide`, { accept }),
   // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),

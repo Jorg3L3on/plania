@@ -140,3 +140,34 @@ test("PLA-140: a seat whose list became its own goes back to its role's factory 
   assert.deepEqual(back.json.packs.map((p: { slug: string }) => p.slug), ["cited-research"]);
   assert.equal(await n(`select count(*)::int as n from agents where slug = 'research-tienda' and skill_packs = '{}'`), 1);
 });
+
+test("PLA-142: a role of the owner's own is deleted once no live seat holds it; factory roles cannot be", async () => {
+  const made = await call("POST", "/api/company/puestos", { title: "Soporte", line: "Contesta a clientes.", base: "research" });
+  assert.equal(made.status, 201);
+  const seat = await call("POST", `${T}/team`, { template: made.json.slug });
+  assert.equal(seat.status, 201, JSON.stringify(seat.json));
+  const busy = await call("DELETE", `/api/company/puestos/${made.json.slug}`);
+  assert.equal(busy.status, 409);
+  assert.equal(busy.json.error, "PUESTO_IN_USE");
+  assert.deepEqual(busy.json.seats, [seat.json.agent.agent]);
+  assert.equal((await call("POST", `${T}/team/${seat.json.agent.agent}/retire`, {})).status, 200);
+  const gone = await call("DELETE", `/api/company/puestos/${made.json.slug}`);
+  assert.equal(gone.status, 200);
+  assert.equal(await n(`select count(*)::int as n from puestos where slug = $1`, [made.json.slug]), 0);
+  assert.equal(await n(`select count(*)::int as n from agents where slug = $1`, [seat.json.agent.agent]), 1, "the retired seat keeps its history");
+  for (const slug of ["taller", "nada", made.json.slug]) assert.equal((await call("DELETE", `/api/company/puestos/${slug}`)).json.error, "PUESTO_NOT_FOUND");
+  // The slug is free again.
+  assert.equal((await call("POST", "/api/company/puestos", { title: "Soporte", line: "", base: "research" })).status, 201);
+});
+
+test("PLA-142: a saved team is deleted from the catalog; a factory team or an unknown one is not found; two saves of one name both land", async () => {
+  const both = await Promise.all([call("POST", `${T}/teams/save`, { name: "Equipo de prueba" }), call("POST", `${T}/teams/save`, { name: "Equipo de prueba" })]);
+  assert.deepEqual(both.map((r) => r.status), [201, 201], JSON.stringify(both.map((r) => r.json)));
+  assert.notEqual(both[0]!.json.slug, both[1]!.json.slug);
+  for (const r of both) assert.equal((await call("DELETE", `/api/company/teams/${r.json.slug}`)).status, 200);
+  assert.equal(await n(`select count(*)::int as n from team_templates`), 0);
+  const factory = (await call("GET", "/api/company/teams")).json.teams.find((t: { origin: string }) => t.origin === "factory");
+  if (factory) assert.equal((await call("DELETE", `/api/company/teams/${factory.slug}`)).json.error, "TEAM_NOT_FOUND");
+  assert.equal((await call("DELETE", "/api/company/teams/nada")).status, 404);
+  assert.equal((await call("GET", `${T}/teams/nada/adopt`)).json.error, "TEAM_NOT_FOUND");
+});

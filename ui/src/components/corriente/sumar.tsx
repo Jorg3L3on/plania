@@ -17,7 +17,7 @@ const NEW = "__nuevo";
 const BASES = ["research", "artist", "taller", "qa", "copy", "seguridad", "marketing", "data"];
 const errText = (e: unknown) => {
   const w = words(SUMAR_PAGE_WORDS);
-  return e instanceof ApiError ? (e.code === "TEAM_FULL" ? w.full : w.failed(e.code)) : e ? w.failed("NETWORK") : null;
+  return e instanceof ApiError ? (e.code === "TEAM_FULL" ? w.full : e.code === "PUESTO_IN_USE" ? w.inUse : w.failed(e.code)) : e ? w.failed("NETWORK") : null;
 };
 export const roleTitle = (x: Pick<PuestoView, "slug" | "title" | "origin">) => (x.origin === "owner" ? x.title : seatName(x.slug));
 
@@ -63,6 +63,17 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
     onSuccess: (x) => {
       setPicked(x.slug);
       setOwn({ title: "", line: "", base: "taller" });
+      refresh();
+    },
+  });
+  // PLA-142: a role of the owner's own can be deleted (the server refuses while a live seat holds it).
+  const [asking, setAsking] = useState(false);
+  const onceRemove = useOnce();
+  const remove = useMutation({
+    mutationFn: (slug: string) => api.deletePuesto(slug),
+    onSuccess: () => {
+      setAsking(false);
+      setPicked(null);
       refresh();
     },
   });
@@ -213,6 +224,23 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
                 <Btn kind="primary" disabled={full || chosen.taken || add.isPending} onClick={() => onceAdd(() => add.mutateAsync())} data-control="sumar-rol">
                   {add.isPending ? w.adding : w.add(roleTitle(chosen))}
                 </Btn>
+                {chosen.origin === "owner" &&
+                  (asking ? (
+                    <div className="agt-retire" role="group" aria-label={w.removePuesto}>
+                      <p className="cor-text">{w.removeAsk(roleTitle(chosen))}</p>
+                      <Btn kind="secondary" disabled={remove.isPending} onClick={() => onceRemove(() => remove.mutateAsync(chosen.slug))} data-control="borrar-puesto-si">
+                        {w.removeYes}
+                      </Btn>
+                      <Btn kind="quiet" onClick={() => setAsking(false)} data-control="borrar-puesto-no">
+                        {w.removeNo}
+                      </Btn>
+                    </div>
+                  ) : (
+                    <Btn kind="link" onClick={() => (remove.reset(), setAsking(true))} data-control="borrar-puesto">
+                      {w.removePuesto}
+                    </Btn>
+                  ))}
+                {remove.isError && <p className="cor-cap cor-state bad">{errText(remove.error)}</p>}
               </>
             ) : null}
           </aside>
