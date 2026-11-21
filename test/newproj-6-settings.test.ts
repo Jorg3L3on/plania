@@ -290,23 +290,11 @@ test("NEWPROJ-6: the view's refusals are plain Spanish, never the code", () => {
   assert.match(aj.ajustesError(null), /No se guardó/);
 });
 
-test("NEWPROJ-6: the release form, the verify lines and the code choice are checked before sending", () => {
-  assert.deepEqual(aj.lanzamientoBody({ from: " sandbox ", into: "main", env: "prod", merge: false }), { from: "sandbox", into: "main", env: "prod" });
-  assert.deepEqual(aj.lanzamientoBody({ from: "sandbox", into: "main", env: "prod", merge: true }), { from: "sandbox", into: "main", env: "prod", mode: "merge" });
-  assert.equal(aj.lanzamientoBody({ from: "main", into: "main", env: "prod", merge: false }), null);
-  assert.equal(aj.lanzamientoBody({ from: "sandbox", into: "main", env: "Prod", merge: false }), null);
-  assert.equal(aj.lanzamientoBody({ from: "", into: "main", env: "prod", merge: false }), null);
+test("NEWPROJ-6: the verify lines are checked before sending", () => {
   assert.deepEqual(aj.comandos("pnpm test\n\n  pnpm lint \n"), ["pnpm test", "pnpm lint"]);
   assert.equal(aj.comandosAviso(aj.comandos("a\nb\nc\nd\ne\nf\ng\nh\ni")), "Caben 8 comandos como máximo.");
   assert.equal(aj.comandosAviso(["x".repeat(301)]), "Cada comando cabe en 300 caracteres.");
   assert.equal(aj.comandosAviso(["pnpm test"]), null);
-  assert.equal(aj.vistaPreviaOk("https://a.example.com"), true);
-  assert.equal(aj.vistaPreviaOk("ftp://a"), false);
-  assert.equal(aj.vistaPreviaOk(""), true, "empty clears it");
-  assert.deepEqual(aj.codigoDe({ repo_path: "/a", github_repo: "o/r", no_code: false }), "carpeta");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: "o/r", no_code: false }), "github");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: null, no_code: true }), "ninguno");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: null, no_code: false }), null);
 });
 
 test("NEWPROJ-6: each context doc and the readiness items it fixes have their words", () => {

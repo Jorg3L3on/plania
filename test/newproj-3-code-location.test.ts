@@ -212,7 +212,7 @@ test("NEWPROJ-3: set_project takes settings.local (a folder or no_code), validat
 
 test("NEWPROJ-3: the sheet says what to fix for each folder check, in Spanish, with no code in capitals", () => {
   const d = { path: "/repos/viajia", branch: "sandbox" };
-  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta, o elige «Todavía no hay código» y prepáralo después desde Ajustes.");
+  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta, o elige «Todavía no hay código» y prepáralo después desde Despliegue.");
   assert.match(nuevoProyectoError("REPO_NOT_GIT", d), /tiene archivos pero no es un repositorio/);
   assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no está conectada a GitHub\. Elige «Todavía no hay código»/);
   assert.match(nuevoProyectoError("REPO_ORIGIN_UNREACHABLE", d), /no pude leer el repositorio en GitHub/);

@@ -321,7 +321,18 @@ describe("findings", () => {
     assert.deepEqual(ids(F).filter((i) => !["public-repo", "all-good"].includes(i)), ["unprotected:main", "nothing-required:main", "no-convention", "prod-unset"]);
     assert.equal(F[0]!.sev, "warn");
     assert.equal(F[0]!.title, "main no está protegida");
-    assert.deepEqual(F.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", ajustes: "lanzamiento" });
+    // PLA-132: no production environment to open yet, so no fix button; never a link to Ajustes.
+    assert.equal(F.find((f) => f.id === "prod-unset")!.fix, null);
+  });
+
+  test("PLA-132: who migrates production is fixed in its environment, and a saved environment that says it clears the finding", () => {
+    const env = { id: "prod", name: "Producción", kind: "produccion", record: "prod", runs: { kind: "branch", branch: "main" }, url: null, server: { provider: null, project: null, note: null }, database: { provider: null, name: null, data: "real", roles_split: false, migrate_when: "mano", lock: false, sql_review: false, approve_destructive: true, backup: "ninguna" }, vars: [], health: { url: null, pages: [] }, publisher: "owner", freeze: false };
+    const derived = cam.findings(base({ config: { envs: [env] } }), NOW, "es");
+    assert.deepEqual(derived.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", go: "env:prod" });
+    const saved = { ...env, database: { ...env.database, provider: "neon" } };
+    const F = cam.findings(base({ config: { envs: [saved], source: { model: "settings", branches: "settings", merge: "default", envs: "camino" } } }), NOW, "es");
+    assert.ok(!ids(F).includes("prod-unset"), "Despliegue already says who migrates");
+    for (const f of F) assert.equal((f.fix as { ajustes?: string } | null)?.ajustes, undefined, f.id);
   });
 
   test("a ruleset that protects main and requires a check that nobody produces", () => {

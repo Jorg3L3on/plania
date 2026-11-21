@@ -1,4 +1,4 @@
-// PLA-I2-5: under «Dónde está el código» in Ajustes. A project with no code gets its folder, repository and working
+// PLA-I2-5: under «Dónde está el código» in Ajustes; PLA-132: now in Despliegue › Repositorio y ramas. A project with no code gets its folder, repository and working
 // branch from here («Preparar el código»); a repository without the working branch gets it («Crear la rama de
 // trabajo»); «Revisar de nuevo» reads the readiness list again. Each step is shown as it ended. Words:
 // @/lib/preparar-codigo. Never a branch name on screen.
@@ -10,6 +10,7 @@ import { ESTADO, NOMBRE_GITHUB, PASO, PREPARAR_CODIGO_WORDS, acciones, porQue, r
 import { words } from "@/lib/i18n";
 import type { Ajustes } from "@/lib/ajustes";
 import { Btn, Switch } from "./parts";
+import { caminoKey } from "./camino-query";
 
 export function PrepararCodigo({ a }: { a: Ajustes }) {
   const client = useQueryClient();
@@ -26,6 +27,8 @@ export function PrepararCodigo({ a }: { a: Ajustes }) {
     void client.invalidateQueries({ queryKey: ["readiness", a.slug] });
     void client.invalidateQueries({ queryKey: ["ajustes", a.slug] });
     void client.invalidateQueries({ queryKey: ["company"] });
+    // PLA-132: it lives in Despliegue now, whose read shows the new repo, folder and branch.
+    void client.invalidateQueries({ queryKey: caminoKey(a.slug) });
   };
   const preparar = useMutation({
     mutationFn: () => api.prepararCodigo(a.slug, { version: a.version, ...(carpeta.trim() ? { repo_path: carpeta.trim() } : {}), github: enGithub ? { name: nombre.trim(), private: privado } : null }),

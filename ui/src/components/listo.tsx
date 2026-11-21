@@ -4,10 +4,13 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { linkTo } from "@/lib/corriente";
-import { listoAjuste, listoIr, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
+import { listoIrA, listoIr, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
 import { cn } from "@/lib/utils";
 import { words } from "@/lib/i18n";
 import { TASK } from "@/lib/task-words";
+
+const irHref = (slug: string, to: { tab: "ajustes" | "camino"; sec: string }): string =>
+  to.tab === "camino" ? linkTo({ slug, tab: "camino", ver: { kind: "camino", sec: to.sec } }) : `${linkTo({ slug, tab: "ajustes" })}#ajustes-${to.sec}`;
 
 const DOT: Record<"cor" | "page", (l: ListoLinea) => string> = {
   cor: (l) => `cor-listo-dot ${l.estado === "missing" ? (l.para ? "bad" : "amber") : l.estado === "ready" ? "ok" : ""}`,
@@ -33,10 +36,10 @@ export const ListoLista = ({ r, look, ajustes }: { r: Listo; look: "cor" | "page
                     {l.para && <span className={cor ? "cor-listo-para" : "ml-2 text-xs font-normal text-destructive"}>{w.blocksStart}</span>}
                   </b>
                   <span className={cor ? undefined : "break-words text-muted-foreground"}>{l.texto}</span>
-                  {/* PLA-I2-6: a missing item links to its control in the project's Ajustes. */}
-                  {l.estado === "missing" && listoAjuste(l.id) && (
-                    <Link to={`${linkTo({ slug: r.slug, tab: "ajustes" })}#ajustes-${listoAjuste(l.id)}`} className={cor ? "cor-btn link small" : "text-sm font-medium underline underline-offset-2"} data-listo-ir={listoAjuste(l.id)}>
-                      {listoIr()}
+                  {/* PLA-I2-6: a missing item links to its control in the project's Ajustes; PLA-132: or in Despliegue. */}
+                  {l.estado === "missing" && listoIrA(l.id) && (
+                    <Link to={irHref(r.slug, listoIrA(l.id)!)} className={cor ? "cor-btn link small" : "text-sm font-medium underline underline-offset-2"} data-listo-ir={listoIrA(l.id)!.sec}>
+                      {listoIr(undefined, listoIrA(l.id)!.tab)}
                     </Link>
                   )}
                 </span>

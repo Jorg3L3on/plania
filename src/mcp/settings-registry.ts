@@ -12,8 +12,9 @@ import { defineWords, say } from "../words.js";
 
 export type SettingTier = "basic" | "advanced";
 export type SettingControl =
-  | "ajustes.codigo"
-  | "ajustes.lanzamiento"
+  // PLA-132: where the code is, the release step and the production address are edited in Despliegue (Camino).
+  | "camino.codigo"
+  | "camino.entornos"
   | "ajustes.pruebas"
   | "ajustes.vista"
   | "ajustes.arranque"
@@ -119,22 +120,22 @@ export const SETTING_WORDS = defineWords<SettingWords>({
 });
 
 export const SETTINGS = {
-  local: { tier: "basic", control: "ajustes.codigo", default: "the folder named after the project under PLANIA_PROJECTS_ROOT", get frase() { return say(SETTING_WORDS).frase.local; } },
+  local: { tier: "basic", control: "camino.codigo", default: "the folder named after the project under PLANIA_PROJECTS_ROOT", get frase() { return say(SETTING_WORDS).frase.local; } },
   github: {
     tier: "basic",
-    control: "ajustes.codigo",
+    control: "camino.codigo",
     default: "none: no pull requests or checks are read",
     get frase() { return say(SETTING_WORDS).frase.github; },
   },
   release: {
     tier: "basic",
-    control: "ajustes.lanzamiento",
+    control: "camino.codigo",
     default: "a project made on the screen ships from the screen (mode merge, start branch → main, env prod); one made by the script or the MCP tool has none, and an older one keeps what it has",
     get frase() { return say(SETTING_WORDS).frase.release; },
   },
   qa: { tier: "basic", control: "ajustes.pruebas", default: "no verify list; the other QA switches off", get frase() { return say(SETTING_WORDS).frase.qa; } },
   capture: { tier: "basic", control: "ajustes.arranque", default: "none until Máquinas guesses it from the dev script", get frase() { return say(SETTING_WORDS).frase.capture; } },
-  preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "ajustes.vista", default: "none", get frase() { return say(SETTING_WORDS).frase.preview_url; } },
+  preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "camino.entornos", default: "none", get frase() { return say(SETTING_WORDS).frase.preview_url; } },
   // PLA-I66-6: the switch on the Marca door.
   marca: { tier: "basic", control: "marca.nativo", default: "off: only the web files are counted", get frase() { return say(SETTING_WORDS).frase.marca; } },
   plan_approval: { owner_only: "off, a PO's plan makes tickets without the owner's «Sí, empiecen»", tier: "basic", control: "ajustes.vista", default: "on for a new project", get frase() { return say(SETTING_WORDS).frase.plan_approval; } },

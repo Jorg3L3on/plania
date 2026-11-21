@@ -103,6 +103,9 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
   const pages = ["/", ...(r.settings.capture_pages ?? [])];
   const who = whoMigrates(e);
   const tool = mac?.migrations;
+  // PLA-132: «Fusionar desde Plania» (settings.release.mode), moved here from Ajustes.
+  const release = r.settings.release;
+  const merge = ((cambios.staged("release_mode") as { mode: "command" | "merge" } | undefined)?.mode ?? release?.mode ?? "command") === "merge";
   return (
     <Ed id={`env-${e.id}`} title={e.name} lead={`${w.leadKind[e.kind]}${e.record ? ` · ${w.record(e.record)}` : ""}`} right={<span className={cls("cam-chip", prod && "warn")}>{w.kinds[e.kind]}</span>}>
       <div className="cam-grid3">
@@ -458,6 +461,15 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
 
       <Blk cap={w.whoPublishes}>
         <p className="cam-line">{w.onlyYou}</p>
+        {prod && release && (
+          <Tg
+            on={merge}
+            title={w.merge}
+            sub={w.mergeSub}
+            onClick={() => cambios.stage({ key: "release_mode", change: { kind: "release_mode", label: w.merge, mode: merge ? "command" : "merge" }, dest: "plania", from: release.mode === "merge" ? w.mergeOn : w.mergeOff, to: merge ? w.mergeOff : w.mergeOn })}
+            data-control="fusionar-desde-plania"
+          />
+        )}
         <div className="cam-acts">
           <Btn kind="quiet" small onClick={() => {
               setEnvs(envs.filter((x) => x.id !== id), e.name);
