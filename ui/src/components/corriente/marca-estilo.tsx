@@ -618,9 +618,9 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   // PLA-130: what a part changes, from the repo's value to this style's, and the way back to the repo's for that part.
   const say = (v: string) => (v === "—" ? w.unset : v === SYSTEM ? w.caps.sys : v.startsWith("#") ? v.toUpperCase() : v);
   const repoUndo = (k: Sec): Partial<Style> | null => {
-    if (k === "color") { const b = r.repo.brand ?? r.repo.theme; return b ? { brand: b, ...(r.repo.accent ? { accent: r.repo.accent } : {}), brandTie: "fijo" } : null; }
+    if (k === "color") { const b = r.repo.brand ?? r.repo.theme; return b ? { brand: b, ...(r.repo.accent ? { accent: r.repo.accent } : {}), brandTie: "fijo" } : r.start ? { brand: r.start.brand, brandTie: r.start.brandTie } : null; }
     if (k === "letra") return { head: r.repo.head ?? r.repo.body ?? SYSTEM, body: r.repo.body ?? SYSTEM };
-    if (k === "forma") return r.repo.radius !== undefined ? { radius: r.repo.radius } : null;
+    if (k === "forma") return r.repo.radius !== undefined ? { radius: r.repo.radius } : r.start ? { radius: r.start.radius } : null;
     return null;
   };
   // PLA-130: a part goes back whole: what the repo says, and every other setting to where the style started.
@@ -646,10 +646,10 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     const undo = undoOf(k);
     return (
       <div className="es-diff" role="status">
-        {c.from && <span>{w.diff(say(c.from), say(c.to))}</span>}
+        {c.from && <span>{c.base === "start" ? w.diffStart(say(c.from), say(c.to)) : w.diff(say(c.from), say(c.to))}</span>}
         {!!c.fields?.length && <span>{w.fieldsLine(fieldsSay(c))}</span>}
         {undo ? (
-          <button type="button" className="es-more" onClick={() => edit(undo)} data-control={`estilo-deshacer-${k}`}>{w.undo}</button>
+          <button type="button" className="es-more" onClick={() => edit(undo)} data-control={`estilo-deshacer-${k}`}>{c.base === "start" && !c.fields?.length ? w.undoStart(say(c.from)) : w.undo}</button>
         ) : (
           <small>{w.undoNone}</small>
         )}

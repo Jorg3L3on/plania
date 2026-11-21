@@ -299,3 +299,16 @@ test("PLA-130: the brand as text always reads at 4.5:1, light or dark; a dark br
   assert.equal(style.tokens({ ...style.startStyle({ files: [] }, null), brand: "#1f2b5c" }).light["brand-text"], "#1f2b5c", "a brand that reads is used as it is");
   assert.match(style.brandCss(style.startStyle({ files: [] }, null)), /--brand-text: /);
 });
+
+test("PLA-130: a value the repo does not set compares with where the style started, so undoing it clears the change", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const repo = { theme: "#f2c14e", files: [] };
+  const start = style.startStyle(repo, null);
+  assert.equal(ui.changesOf(start, repo, start).find((c) => c.part === "forma"), undefined, "untouched corners: no change, though the repo sets none");
+  const f = ui.changesOf({ ...start, radius: 20 }, repo, start).find((c) => c.part === "forma")!;
+  assert.deepEqual([f.from, f.to, f.base], [`${start.radius} px`, "20 px", "start"]);
+  assert.ok(ui.changesOf({ ...start, radius: 20 }, repo).some((c) => c.part === "forma"), "without a start, an unset repo value still counts as a change");
+  const noColour = { files: [] };
+  const s0 = style.startStyle(noColour, null);
+  assert.equal(ui.changesOf(s0, noColour, s0).find((c) => c.part === "color"), undefined, "a repo with no colour and an untouched one: no change");
+});

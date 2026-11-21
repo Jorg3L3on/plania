@@ -14,7 +14,8 @@ export type Style = {
 };
 export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
 // PLA-130: fields, the settings of a part that reach the files and differ from where the style started.
-export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string; fields?: (keyof Style)[] };
+// base "start": the repo does not set this value, so it is compared with where the style started (PLA-130).
+export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string; fields?: (keyof Style)[]; base?: "start" };
 export type StyleRead = {
   style: Style | null;
   base: Style;
@@ -197,9 +198,12 @@ export function repoAsStyle(repo: RepoStyle, base: Style): Style {
 export function changesOf(s: Style, repo: RepoStyle, start?: Style): StyleChange[] {
   const out: StyleChange[] = [];
   const rb = repo.brand ?? repo.theme;
-  if (!rb || distance(rb, s.brand) > 0.02 || (repo.accent && distance(repo.accent, s.accent) > 0.02)) out.push({ part: "color", from: rb ?? "—", to: s.brand });
+  // PLA-130: a value the repo does not set is compared with where the style started, so undoing it clears the tag.
+  if (!rb && start) { if (distance(start.brand, s.brand) > 0.02) out.push({ part: "color", from: start.brand, to: s.brand, base: "start" }); }
+  else if (!rb || distance(rb, s.brand) > 0.02 || (repo.accent && distance(repo.accent, s.accent) > 0.02)) out.push({ part: "color", from: rb ?? "—", to: s.brand });
   if ((repo.body ?? SYSTEM) !== s.body || (repo.head ?? repo.body ?? SYSTEM) !== s.head) out.push({ part: "letra", from: repo.head ?? repo.body ?? SYSTEM, to: s.head === s.body ? s.head : `${s.head} + ${s.body}` });
-  if ((repo.radius ?? -1) !== s.radius) out.push({ part: "forma", from: repo.radius === undefined ? "—" : `${repo.radius} px`, to: `${s.radius} px` });
+  if (repo.radius === undefined && start) { if (start.radius !== s.radius) out.push({ part: "forma", from: `${start.radius} px`, to: `${s.radius} px`, base: "start" }); }
+  else if ((repo.radius ?? -1) !== s.radius) out.push({ part: "forma", from: repo.radius === undefined ? "—" : `${repo.radius} px`, to: `${s.radius} px` });
   if (!start) return out;
   // PLA-130: the settings the repo cannot say, against where the style started; only those that reach brand.css,
   // tokens.json or Taller's note (borders, icon fill and images only change the preview).
@@ -235,8 +239,10 @@ export const ESTILO_WORDS = defineWords({
     // PLA-130: a «cambia» tag instead of a dot, what it changes from and to, and undoing one part.
     tag: "cambia",
     diff: (from: string, to: string) => `Hoy en el repo: ${from} → con este estilo: ${to}`,
+    diffStart: (from: string, to: string) => `El repo no lo define; Plania empieza en ${from} → con este estilo: ${to}`,
     unset: "no lo define",
     undo: "Volver a lo del repo",
+    undoStart: (v: string) => `Volver a ${v}`,
     undoNone: "El repo no lo define: Plania lo agrega.",
     fields: { neutral: "grises", accent: "color secundario", base: "tamaño del texto", ratio: "escala de títulos", wHead: "grosor de títulos", lh: "interlineado", mono: "letra de código", pill: "botones píldora", shadow: "sombras", density: "aire", lib: "librería", stroke: "trazo", motion: "movimiento" } as Record<string, string>,
     fieldsLine: (list: string) => `Cambia: ${list}`,
@@ -443,8 +449,10 @@ export const ESTILO_WORDS = defineWords({
     previewOnly: "Preview only: it is not written into the repo.",
     tag: "changes",
     diff: (from: string, to: string) => `In the repo today: ${from} → with this style: ${to}`,
+    diffStart: (from: string, to: string) => `The repo does not set it; Plania starts at ${from} → with this style: ${to}`,
     unset: "not set",
     undo: "Back to what the repo has",
+    undoStart: (v: string) => `Back to ${v}`,
     undoNone: "The repo does not set it: Plania adds it.",
     fields: { neutral: "greys", accent: "secondary colour", base: "text size", ratio: "heading scale", wHead: "heading weight", lh: "line height", mono: "code font", pill: "pill buttons", shadow: "shadows", density: "spacing", lib: "library", stroke: "stroke", motion: "motion" } as Record<string, string>,
     fieldsLine: (list: string) => `Changes: ${list}`,
