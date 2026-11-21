@@ -1368,8 +1368,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I67-5: within what the always-on budget leaves after the role prompt, «tu manera» and the skill list.
   const carriedLessons = consulta || qa || asks ? [] : await lessonsForRun(db, ctx.agent, lessonRoomOf(await fixedWords(db, ctx.agent, carried, env))).catch(() => []);
   const lessonText = lessonBlock(carriedLessons);
-  // PLA-I69-5: the project's voice (Marca → Voz y nombre) rides in every run that writes for the app.
-  const voiceText = consulta || qa ? "" : voiceBlock(project.slug, project.title);
+  // PLA-I69-5, PLA-130: how the app addresses people (Marca → Estilo → Trato) rides in every run that writes for it.
+  const voiceText = consulta || qa ? "" : voiceBlock(project.slug);
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
   const motor = resolveMotor({
     qaModel: qa?.model ?? null,

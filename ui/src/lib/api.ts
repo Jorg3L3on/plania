@@ -237,6 +237,7 @@ export const api = {
   marcaNative: (slug: string, on: boolean) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/native`, { on }),
   // PLA-I66-5: Artist's marks.
   marcaMarks: (slug: string) => request<{ request: MarksRequest | null }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/marks`),
+  marcaCancelMarks: (slug: string, id: string) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${encodeURIComponent(id)}/cancel`),
   marcaAskMarks: (slug: string, hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null; surface?: Surface | null }) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks`, hints),
   marcaUseMark: (slug: string, id: string, mark: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${mark}`),
   marcaKeep: (slug: string, sha: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/keep`, { sha }),
@@ -261,7 +262,6 @@ export const api = {
   marcaVozBack: (slug: string, v: number) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/back`, { v }),
   // PLA-I69-6: Marca → Historial.
   marcaHistorial: (slug: string) => request<Historial>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/historial`),
-  marcaVozPedido: (slug: string) => request<VoiceRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),

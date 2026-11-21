@@ -326,18 +326,17 @@ test("PLA-I67-2/5: an unknown lesson or skill, and a lesson that is no longer ac
   await assert.rejects(skills.rollbackSkill(db, "no-existe", 1), { code: "SKILL_NOT_FOUND" });
 });
 
-test("PLA-I69-5: the project's voice (Marca → Voz y nombre) rides in its runs; with none set, nothing is added", async () => {
+test("PLA-I69-5, PLA-130: how the app addresses people (Estilo → Trato) rides in its runs; with none set, nothing is added", async () => {
   const before = process.env.PLANIA_CAPTURES_DIR;
   const store = mkdtempSync(path.join(tmpdir(), "plania-i69v-run-"));
   process.env.PLANIA_CAPTURES_DIR = store;
   try {
-    assert.doesNotMatch((await runOnce("taller")).prompt, /La voz del proyecto/);
+    assert.doesNotMatch((await runOnce("taller")).prompt, /Cómo trata la app a la gente/);
     const voz = await import("../src/brand/voz.js");
-    await voz.saveVoice(db, "micasa", { trato: "usted", no: ["error fatal"] });
+    await voz.saveVoice(db, "micasa", { trato: "usted" });
     const p = (await runOnce("taller")).prompt;
-    assert.match(p, /La voz del proyecto/);
-    assert.match(p, /Trata a la gente de usted\./);
-    assert.match(p, /No uses: «error fatal»\./);
+    assert.match(p, /Cómo trata la app a la gente/);
+    assert.match(p, /tratándola de usted\./);
   } finally {
     if (before === undefined) delete process.env.PLANIA_CAPTURES_DIR;
     else process.env.PLANIA_CAPTURES_DIR = before;

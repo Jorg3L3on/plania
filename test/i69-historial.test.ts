@@ -36,7 +36,6 @@ after(async () => {
 });
 beforeEach(async () => {
   style.forgetStyle();
-  voz.forgetVoice();
   rmSync(path.join(STORE, "_marca", "tienda"), { recursive: true, force: true });
   await raw.query("delete from project_logos");
   await raw.query("delete from tasks where project_id in (select id from projects where slug = 'tienda')");
@@ -45,6 +44,8 @@ beforeEach(async () => {
   project = (await raw.query("select * from projects where slug = 'tienda'")).rows[0];
 });
 
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
 test("#1 one history: logo, style and voice versions with their values, and the requests by kind", async () => {
   for (const c of ["#8c2f39", "#0f766e"]) {
     const s = await stageUpload("tienda", await tile(c), `${c.slice(1)}.png`);
@@ -64,7 +65,9 @@ test("#1 one history: logo, style and voice versions with their values, and the 
   const all = ui.entries(h as never);
   assert.equal(all.length, 2 + 2 + 1 + 3);
   assert.ok(all.every((e, i) => i === 0 || all[i - 1]!.at >= e.at), "newest first");
-  assert.deepEqual(ui.entries(h as never, "estilo").map((e) => e.id), ["estilo-2", "estilo-1"]);
+  // PLA-130: Trato lives in Estilo, so its changes list under the Estilo filter too.
+  assert.deepEqual(ui.entries(h as never, "estilo").filter((e) => e.lane === "estilo").map((e) => e.id), ["estilo-2", "estilo-1"]);
+  assert.ok(ui.entries(h as never, "estilo").some((e) => e.lane === "voz"));
   const diff = ui.styleDiff(h.style[1]!.style as never, h.style[0]!.style as never);
   assert.deepEqual(diff.map((d) => d.k).sort(), ["head", "radius"]);
   assert.deepEqual(diff.find((d) => d.k === "radius"), { k: "radius", from: "16", to: "4" });

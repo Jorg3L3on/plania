@@ -54,8 +54,6 @@ export type MarcaRead = {
   trip: Trip | null;
 };
 
-// PLA-I69-1: the stations of an icons request, in order. step is the one it waits at (6: every station passed).
-export const TRIP_STATIONS = ["armado", "pr", "qa", "aceptas", "rama", "visto"] as const;
 // PLA-I69-2: how a surface follows the logo, and whether its own picture predates the logo (knot: it asks).
 export type SurfaceRead = { mode: "variante" | "propia"; file: string | null; bg: string | null; scale: number; at: string; logoV: number | null; knot: boolean };
 export type Trip = { key: string; status: string; step: number; cancelled: boolean; pr: string | null; rows: string[]; at: string; movedAt: string | null };

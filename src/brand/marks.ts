@@ -89,7 +89,8 @@ const realWake: Wake = async (db, input) => {
 /** Keeps the hints and queues the project's Artist. A request already drawing is answered as it is. */
 export async function requestMarks(db: Db, project: Pick<Project, "id" | "slug" | "title">, input: Partial<Hints>, deps: { wake?: Wake } = {}): Promise<MarksRequest> {
   const open = latestRequest(project.slug);
-  if (open?.status === "drawing") return open;
+  // PLA-130: a stale request no longer blocks a new one.
+  if (open?.status === "drawing" && Date.now() - Date.parse(open.at) <= MARKS_STALE_MS) return open;
   const hints: Hints = {
     about: String(input.about ?? "").replace(/\s+/g, " ").trim().slice(0, 600),
     feel: words(input.feel, 6),
@@ -124,8 +125,26 @@ export async function requestMarks(db: Db, project: Pick<Project, "id" | "slug" 
 }
 
 /** A request still drawing whose run ended without marks has failed (the screen offers to try again). */
-export async function settle(db: Db, r: MarksRequest | null): Promise<MarksRequest | null> {
-  if (!r || r.status !== "drawing" || !r.runId) return r;
+/** PLA-130: a request still drawing after this long is not coming; the screen offers to ask again. */
+export const MARKS_STALE_MS = 30 * 60_000;
+/** PLA-130: the owner stops a request that is still drawing (a run that never started or never ends). */
+export function cancelMarks(slug: string, id: string): MarksRequest | null {
+  const r = loadRequest(slug, id);
+  if (!r || r.status !== "drawing") return r;
+  r.status = "failed";
+  r.why = "cancelled";
+  save(r);
+  return r;
+}
+export async function settle(db: Db, r: MarksRequest | null, now = Date.now()): Promise<MarksRequest | null> {
+  if (!r || r.status !== "drawing") return r;
+  if (now - Date.parse(r.at) > MARKS_STALE_MS) {
+    r.status = "failed";
+    r.why = "timeout";
+    save(r);
+    return r;
+  }
+  if (!r.runId) return r;
   const [run] = await db.select({ status: agentRuns.status }).from(agentRuns).where(eq(agentRuns.id, r.runId)).limit(1);
   if (run && !["queued", "running", "starting"].includes(run.status)) {
     r.status = "failed";

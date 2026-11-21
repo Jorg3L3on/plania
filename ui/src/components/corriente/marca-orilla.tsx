@@ -130,7 +130,7 @@ export function Orilla({ r, w, title, sel, core, onPick }: { r: MarcaRead; w: Ma
           const on = (Object.keys(w.extras.items) as (keyof typeof w.extras.items)[]).filter((k) => r.extras?.[k]);
           return (
             <div className="mk-c" key={f} data-col="more">
-              <button type="button" className="mk-lab" data-face="more" onClick={() => onPick("more")}>
+              <button type="button" className="mk-lab" data-face="more" tabIndex={-1} onClick={() => onPick("more")}>
                 <span>{w.orilla.more}</span>
                 <span className="mk-tie more">{on.length + (r.native ? 1 : 0)}</span>
               </button>
@@ -162,16 +162,17 @@ export function Orilla({ r, w, title, sel, core, onPick }: { r: MarcaRead; w: Ma
         const cap = st.st === "aldia" ? w.orilla.same : st.st === "camino" ? w.orilla.onWay : w.trip.why[st.why ?? "falta"] ?? "";
         return (
           <div className="mk-c" key={f} data-col={f}>
-            <button type="button" className="mk-lab" data-face={f} onClick={() => onPick(f)}>
+            {/* PLA-130: one Tab stop per card (the device); the label and the reflection stay clickable. */}
+            <button type="button" className="mk-lab" data-face={f} tabIndex={-1} onClick={() => onPick(f)}>
               <span>{w.face[f].name}</span>
-              {s && <span className={`mk-tie ${tie}`}>{w.tie[tie]}</span>}
+              {s && <span className={`mk-tie ${tie}`} title={w.tie[tie]}>{w.tie[tie]}</span>}
             </button>
             <button type="button" className={`mk-dev${wave ? " flip" : ""}${knot ? " knot" : ""}`} key={`d${wave}`} style={{ animationDelay: delay }} data-face={f} aria-pressed={sel === f} onClick={() => onPick(f)} aria-label={w.face[f].name}>
               <Device f={f} src={made} title={title} ask={w.orilla.install} />
               {knot && <span className="mk-knot-tag">{w.knot.text}</span>}
             </button>
             <span className={`mk-hz ${st.st}`} title={cap}><b>{st.st === "aldia" ? "=" : st.st === "camino" ? "↓" : "≠"}</b></span>
-            <button type="button" className={`mk-refl ${st.st}`} data-face={f} onClick={() => onPick(f)} aria-label={w.orilla.reflection(w.face[f].name)}>
+            <button type="button" className={`mk-refl ${st.st}`} data-face={f} tabIndex={-1} onClick={() => onPick(f)} aria-label={w.orilla.reflection(w.face[f].name)}>
               <div className="mir"><Device f={f} src={repoSrc} title={title} ask={w.orilla.install} /></div>
             </button>
             <span className={`mk-cap ${st.st}`}>{row || st.st !== "llevar" ? cap : w.orilla.none}</span>
@@ -186,7 +187,7 @@ const SWATCHES = ["#ffffff", "#000000", "#0f766e", "#1f2b5c", "#8c2f39"];
 
 /** A surface's drawer: where it comes from (three ways, the recipe, its own picture), how it looks, its files, why a
  * phone may not show it yet, and its history. */
-export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: MarcaWords; face: Face; onClose: () => void; took: (next: MarcaRead) => void; onOwn: (s: Surface) => void }) {
+export function Cajon({ r, w, face, onClose, took, onOwn, onGo, onStyle }: { r: MarcaRead; w: MarcaWords; face: Face; onClose: () => void; took: (next: MarcaRead) => void; onOwn: (s: Surface) => void; onGo?: (f: Face) => void; onStyle?: () => void }) {
   const s = SURFACE_OF[face];
   const tie = tieOf(r, s);
   const entry = s ? (r.surfaces?.[s] as { mode?: string; bg: string | null; scale: number; knot?: boolean } | undefined) : undefined;
@@ -255,7 +256,8 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
     <section className="mk-drawer" role="dialog" aria-modal="false" aria-label={w.face[face].name} data-cajon={face}>
       <header className="mk-dh">
         <div>
-          <h3>{w.face[face].name} {s && <span className={`mk-tie ${tie}`}>{w.tie[tie]}</span>}</h3>
+          {/* PLA-130: «Imagen propia» chosen but no picture yet says so, instead of the old mode. */}
+          <h3>{w.face[face].name} {s && (wantOwn && tie !== "propia" ? <span className="mk-tie propia">{w.cajon.ownWaiting}</span> : <span className={`mk-tie ${tie}`}>{w.tie[tie]}</span>)}</h3>
           <p>{w.face[face].what}</p>
         </div>
         {st && <span className={`mk-dh-st ${st.st}`}>{st.st === "aldia" ? w.orilla.same : st.st === "camino" ? w.orilla.onWay : w.trip.why[st.why ?? "falta"]}</span>}
@@ -312,6 +314,9 @@ export function Cajon({ r, w, face, onClose, took, onOwn }: { r: MarcaRead; w: M
             </>
           ) : null}
           <p className="mk-dnote">{note}</p>
+          {/* PLA-130: the two faces made from others lead to where they are changed. */}
+          {face === "pwa" && onGo && <button type="button" className="cor-btn secondary small" onClick={() => onGo("and")} data-control="marca-ir-android">{w.cajon.goAndroid}</button>}
+          {face === "share" && onStyle && <button type="button" className="cor-btn secondary small" onClick={onStyle} data-control="marca-ir-estilo">{w.cajon.goStyle}</button>}
         </div>
         <div className="mk-dcol" tabIndex={0}>
           <div className="mk-dl">

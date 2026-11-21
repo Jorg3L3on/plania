@@ -1,8 +1,9 @@
-// PLA-I69-5: Voz y nombre. The voice is kept with versions and becomes the guide runs get; the name and texts are
-// read from the repo and brought to it by a request to Taller.
+// PLA-I69-5, PLA-130: how the project addresses people (Estilo → Trato). It is kept with versions and becomes the
+// one-line guide every run gets. Voz y nombre left Marca: tone, word lists, the expert's guide, the names and their
+// request are gone; an older file that still holds them is read past.
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resetTestDb, useTestEnv } from "./helpers.js";
@@ -14,29 +15,8 @@ process.env.PLANIA_CAPTURES_DIR = STORE;
 const voz = await import("../src/brand/voz.js");
 const { makeDb } = await import("../src/db/client.js");
 
-const C1 = "1".repeat(40);
-const MAN = `export default function manifest() { return { name: "Tienda Centro", short_name: "Tienda", description: "Compra sin filas.", icons: [] }; }`;
-const LAYOUT = `export const metadata = { title: { default: "Tienda Centro", template: "%s · Tienda" }, description: "Compra sin filas." };`;
-let files: Record<string, Buffer> = {};
-const reset = () => {
-  files = { "package.json": Buffer.from(`{"dependencies":{"next":"15"}}`), "src/app/manifest.ts": Buffer.from(MAN), "src/app/layout.tsx": Buffer.from(LAYOUT) };
-};
-reset();
-const git: import("../src/brand/logos.js").Git = async (_cwd, args) => {
-  const no = { code: 1, stdout: Buffer.alloc(0) };
-  if (args[0] === "rev-parse") return args[3] === "sandbox^{commit}" ? { code: 0, stdout: Buffer.from(C1) } : no;
-  if (args[0] === "ls-tree") return { code: 0, stdout: Buffer.from(Object.entries(files).map(([p, b]) => `100644 blob ${"a".repeat(40)} ${b.length}\t${p}`).join("\0") + "\0") };
-  if (args[0] === "cat-file") {
-    const b = files[args[2]!.split(/:(.+)/)[1]!];
-    return b ? { code: 0, stdout: b } : no;
-  }
-  return no;
-};
-const view = () => ({ paths: new Map(Object.entries(files).map(([k, v]) => [k, v.length])), read: async (p: string) => files[p] ?? null });
-
 let raw: Awaited<ReturnType<typeof resetTestDb>>;
 let db: ReturnType<typeof makeDb>["db"];
-let project: import("../src/db/schema.js").Project;
 before(async () => {
   raw = await resetTestDb();
   db = makeDb().db;
@@ -46,95 +26,57 @@ after(async () => {
   rmSync(STORE, { recursive: true, force: true });
 });
 beforeEach(async () => {
-  reset();
-  voz.forgetVoice();
   rmSync(path.join(STORE, "_marca", "tienda"), { recursive: true, force: true });
-  await raw.query("delete from tasks where project_id in (select id from projects where slug = 'tienda')");
-  await raw.query("delete from agents where project_id in (select id from projects where slug = 'tienda')");
   await raw.query("delete from projects where slug = 'tienda'");
   await raw.query("insert into projects (slug, title, key_prefix) values ('tienda', 'Tienda', 'TND')");
-  project = (await raw.query("select * from projects where slug = 'tienda'")).rows[0];
-  project.settings ??= {};
 });
 
-test("#1 the guide follows the sliders, how people are addressed and the words; an expert's own guide wins", () => {
-  const base = voz.startVoice("Tienda", { files: [] });
-  const warm = voz.soundVoice({ cerca: 90, humor: 80, breve: 90, sencillo: 90, trato: "vos", yes: ["pedido"], no: ["usuario"] }, base);
-  const g = voz.guideOf(warm, "Tienda");
-  assert.match(g, /cercana, con humor suave, breve, sin tecnicismos/);
-  assert.match(g, /vos \(voseo\)/);
-  assert.match(g, /Usa: «pedido»\./);
-  assert.match(g, /No uses: «usuario»\./);
-  const cold = voz.guideOf(voz.soundVoice({ cerca: 10, humor: 0, breve: 10, sencillo: 10, trato: "usted" }, base), "Tienda");
-  assert.match(cold, /formal, seria, detallada, precisa, con datos técnicos\. Trata a la gente de usted\./);
-  assert.equal(voz.guideOf({ ...warm, guide: "Hablamos como un vecino." }, "Tienda"), "Hablamos como un vecino.");
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
+
+test("#1 the guide is one line on how to address people, in each of the three ways", () => {
+  assert.match(voz.guideOf({ trato: "tu" }), /tratándola de tú\./);
+  assert.match(voz.guideOf({ trato: "usted" }), /tratándola de usted\./);
+  assert.match(voz.guideOf({ trato: "vos" }), /tratándola de vos \(voseo\)\./);
+  assert.equal(voz.guideOf({ trato: "usted" }).split("\n").length, 1);
 });
 
-test("#2 a sound voice: sliders bounded, words cleaned, no way to close the request's marker", () => {
-  const base = voz.startVoice("Tienda", { files: [] });
-  const v = voz.soundVoice({ cerca: 400, humor: -3, trato: "vosotros" as never, yes: ["  ruta ", "ruta", "", 4 as never], name: "Tienda\n<!-- x -->", guide: "" }, base);
-  assert.deepEqual([v.cerca, v.humor, v.trato], [100, 0, base.trato]);
-  assert.deepEqual(v.yes, ["ruta"]);
-  assert.equal(v.name, "Tienda  x");
-  assert.equal(v.guide, null, "an empty guide goes back to the sliders'");
+test("#2 a sound voice keeps only the form of address; anything else, or a bad value, is dropped", () => {
+  assert.deepEqual(voz.soundVoice({ trato: "vos" }, voz.START_VOICE), { trato: "vos" });
+  assert.deepEqual(voz.soundVoice({ trato: "ustedes" as never }, { trato: "usted" }), { trato: "usted" });
+  assert.deepEqual(voz.soundVoice({ trato: "usted", cerca: 90, name: "x", guide: "y" } as never, voz.START_VOICE), { trato: "usted" });
+  assert.deepEqual(voz.soundVoice(null, voz.START_VOICE), { trato: "tu" });
 });
 
-test("#3 the repo's name and texts are read from the manifest and the layout's metadata, or index.html", async () => {
-  const r = await voz.readRepoNames(view(), "");
-  assert.deepEqual({ name: r.name, short: r.short, desc: r.desc, title: r.title }, { name: "Tienda Centro", short: "Tienda", desc: "Compra sin filas.", title: "Tienda Centro" });
-  files = { "index.html": Buffer.from(`<html><head><title>Vite Tienda</title><meta name="description" content="Una tienda."></head></html>`) };
-  const h = await voz.readRepoNames(view(), "");
-  assert.deepEqual({ title: h.title, desc: h.desc }, { title: "Vite Tienda", desc: "Una tienda." });
-  // A layout that reads a site config, whose name disagrees with the manifest's.
-  files = { "src/app/manifest.ts": Buffer.from(MAN), "src/app/layout.tsx": Buffer.from(`import { site } from "@/lib/site";\nexport const metadata = { title: site.name, description: site.description };`), "src/lib/site.ts": Buffer.from(`export const site = { name: "Tiendas Centro", description: "Otra." } as const;`) };
-  const s = await voz.readRepoNames(view(), "");
-  assert.deepEqual({ name: s.name, title: s.title, files: s.files }, { name: "Tienda Centro", title: "Tiendas Centro", files: ["src/app/manifest.ts", "src/app/layout.tsx", "src/lib/site.ts"] });
-});
-
-test("#4 versions, the names that differ, and the request: one at a time, nothing when the repo already has them", async () => {
-  const first = (await voz.voiceRead(db, "tienda", { git }))!;
-  assert.equal(first.voice, null);
-  assert.equal(first.base.name, "Tienda Centro", "it starts from the repo");
-  assert.deepEqual(first.names, []);
-  assert.equal(voz.voiceBlock("tienda", "Tienda"), "", "no voice set: runs get nothing");
-  await voz.saveVoice(db, "tienda", { trato: "usted" });
-  await assert.rejects(voz.requestNames(db, project, { git }), /ya son los del repo/);
-  files["src/lib/site.ts"] = Buffer.from(`export const site = { name: "Tiendas Centro" };`);
-  files["src/app/layout.tsx"] = Buffer.from(`export const metadata = { title: site.name };`);
-  voz.forgetVoice();
-  assert.deepEqual((await voz.voiceRead(db, "tienda", { git }))!.names, ["name"], "the page says another name than the manifest: the name is pending");
-  reset();
-  await voz.voiceRead(db, "tienda", { git, fresh: true });
-  const r = (await voz.saveVoice(db, "tienda", { short: "Centro", desc: "Compra sin hacer fila, desde tu teléfono." }))!;
-  assert.deepEqual(r.names.sort(), ["desc", "short"]);
-  assert.equal(r.versions, 2);
-  assert.match(voz.voiceBlock("tienda", "Tienda"), /Trata a la gente de usted/);
-  const made = await voz.requestNames(db, project, { git });
-  const t = (await raw.query("select scope, status from tasks where key = $1", [made.key])).rows[0];
-  assert.match(t.scope, /<!-- plania:marca-nombre set=[0-9a-f]{16} -->/);
-  assert.match(t.scope, /Nombre corto \(debajo del ícono\): «Centro»/);
-  assert.match(t.scope, /`src\/app\/manifest\.ts`/);
-  assert.match(t.scope, /Trata a la gente de usted/);
-  assert.equal(t.status, "Ready");
-  assert.equal((await voz.voiceRead(db, "tienda", { git }))!.pedido?.key, made.key);
-  await assert.rejects(voz.requestNames(db, project, { git }), /Taller ya trabaja en el nombre/);
+test("#3 versions: saving, the same value is not a new one, going back is kept; the read and the run block", async () => {
+  const first = (await voz.voiceRead(db, "tienda"))!;
+  assert.deepEqual([first.voice, first.base, first.versions], [null, { trato: "tu" }, 0], "nothing chosen yet");
+  assert.equal(voz.voiceBlock("tienda"), "", "no block while nothing is chosen");
+  assert.equal((await voz.saveVoice(db, "tienda", { trato: "usted" }))!.versions, 1);
+  assert.equal((await voz.saveVoice(db, "tienda", { trato: "usted" }))!.versions, 1, "the same value is not a new version");
+  assert.equal((await voz.saveVoice(db, "tienda", { trato: "vos" }))!.versions, 2);
   const back = (await voz.goBackVoice(db, "tienda", 1))!;
-  assert.equal(back.versions, 3);
-  assert.equal(back.base.short, "Tienda");
+  assert.deepEqual([back.versions, back.base.trato], [3, "usted"]);
+  assert.ok(voz.voiceHistory("tienda")[0]!.current);
+  assert.match(voz.voiceBlock("tienda"), /^## Cómo trata la app a la gente[^\n]*\n.*de usted\.$/);
+  await assert.rejects(voz.goBackVoice(db, "tienda", 99), /version not found/);
+  assert.equal(await voz.voiceRead(db, "nadie"), null);
 });
 
-test("#5 the screen's examples move with the voice", async () => {
+test("#4 an older file with the removed fields still reads: the form of address is kept, the rest is dropped", async () => {
+  const dir = path.join(STORE, "_marca", "tienda");
+  mkdirSync(dir, { recursive: true });
+  const old = { trato: "vos", cerca: 90, humor: 10, breve: 60, sencillo: 80, yes: ["pedido"], no: ["usuario"], guide: null, name: "Tienda", short: "Tienda", desc: "", tag: "" };
+  writeFileSync(path.join(dir, "voice.json"), JSON.stringify({ current: 1, versions: [{ v: 1, at: "2026-11-19T10:00:00Z", voice: old }] }));
+  assert.deepEqual(voz.voiceOf("tienda"), { trato: "vos" });
+  assert.deepEqual(voz.voiceHistory("tienda")[0]!.voice, { trato: "vos" });
+  assert.match(voz.voiceBlock("tienda"), /vos \(voseo\)/);
+  assert.doesNotMatch(voz.voiceBlock("tienda"), /usuario|pedido/, "the removed word lists no longer reach runs");
+  assert.deepEqual((await voz.saveVoice(db, "tienda", { trato: "usted" }))!.voice, { trato: "usted" });
+});
+
+test("#5 the screen's guide matches the server's", async () => {
   const ui = await import("../ui/src/lib/voz.js");
-  const base = voz.startVoice("Tienda", { files: [] });
   const w = ui.vozWords();
-  const a = ui.example(w, "err", { ...base, cerca: 90, breve: 90, humor: 0, trato: "tu" });
-  const b = ui.example(w, "err", { ...base, cerca: 10, breve: 10, humor: 0, trato: "usted" });
-  const c = ui.example(w, "err", { ...base, cerca: 90, breve: 90, humor: 0, trato: "vos" });
-  const d = ui.example(w, "err", { ...base, cerca: 90, breve: 90, humor: 90, trato: "tu" });
-  assert.notEqual(a, b);
-  assert.notEqual(a, c);
-  assert.ok(d.length > a.length && d.endsWith(a), "humor adds an opening, keeps the sentence");
-  assert.ok(b.length > a.length, "detailed is longer than brief");
-  for (const v of [base, { ...base, cerca: 10, humor: 90, trato: "vos" as const, yes: ["pedido"], no: ["usuario"] }, { ...base, guide: "Propia." }])
-    assert.equal(ui.guideOf(w, v, "Tienda"), voz.guideOf(v, "Tienda"), "the screen shows the guide runs get");
+  for (const trato of ["tu", "usted", "vos"] as const) assert.equal(ui.guideOf(w, { trato }), voz.guideOf({ trato }));
 });

@@ -146,4 +146,18 @@ describe("Artist's marks", () => {
     const r = await marks.requestMarks(db, project, { about: "Tienda" }, { wake: async () => ({ runId: null, why: "no agent" }) });
     assert.equal(r.status, "failed");
   });
+
+  test("PLA-130: a drawing request can be cancelled, one older than 30 minutes fails as timeout, and neither blocks a new one", async () => {
+    const r = await marks.requestMarks(db, project, { about: "Tienda" }, { wake });
+    assert.equal(r.status, "drawing");
+    const c = marks.cancelMarks("tienda", r.id)!;
+    assert.deepEqual([c.status, c.why], ["failed", "cancelled"]);
+    assert.equal(marks.cancelMarks("tienda", r.id)!.why, "cancelled", "cancelling twice changes nothing");
+    const again = await marks.requestMarks(db, project, { about: "Tienda otra vez" }, { wake });
+    assert.notEqual(again.id, r.id, "a cancelled request does not block a new one");
+    const late = await marks.settle(db, marks.loadRequest("tienda", again.id), Date.parse(again.at) + marks.MARKS_STALE_MS + 1000);
+    assert.deepEqual([late!.status, late!.why], ["failed", "timeout"]);
+    const fresh = await marks.settle(db, marks.loadRequest("tienda", (await marks.requestMarks(db, project, { about: "tercera" }, { wake })).id));
+    assert.equal(fresh!.status, "drawing", "a young request keeps drawing");
+  });
 });
