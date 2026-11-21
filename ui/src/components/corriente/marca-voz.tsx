@@ -62,6 +62,8 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
   const [expert, setExpert] = useState(false);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved">("idle");
   const [sending, setSending] = useState(false);
+  // PLA-130: the request asks first, like Estilo and Caras.
+  const [confirm, setConfirm] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   const r = q.data;
@@ -116,7 +118,7 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
     <div className={`vz-wrap${expert ? " expert" : ""}`} data-voz={slug}>
       <div className="vz-left">
         <div className="es-row" style={{ justifyContent: "space-between" }}>
-          <h3 className="es-h" style={{ margin: 0 }}>{w.how(x.name || title)}</h3>
+          <h2 className="es-h" style={{ margin: 0 }}>{w.how(x.name || title)}</h2>
           <label className="es-exp">
             <button type="button" className="es-sw" role="switch" aria-checked={expert} onClick={() => setExpert((e) => !e)} aria-label={w.expert} data-control="voz-experto" />
             {w.expert}
@@ -137,7 +139,9 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
           return (
             <div key={k} className="vz-sl">
               <div className="vz-sl-l"><span>{a}</span><span>{b}</span></div>
-              <input type="range" className="es-range" min={0} max={100} value={x[k]} onChange={(e) => edit({ [k]: Number(e.target.value), guide: null })} aria-label={w.sliderLabel(a, b)} data-control={`voz-${k}`} />
+              {/* PLA-130: where the slider sits, in words, on screen and for screen readers. */}
+              <input type="range" className="es-range" min={0} max={100} value={x[k]} onChange={(e) => edit({ [k]: Number(e.target.value), guide: null })} aria-label={w.sliderLabel(a, b)} aria-valuetext={w.stop(x[k], a, b)} data-control={`voz-${k}`} />
+              <span className="vz-sl-v">{w.stop(x[k], a, b)}</span>
             </div>
           );
         })}
@@ -213,18 +217,36 @@ export function Voz({ slug, title, logo }: { slug: string; title: string; logo: 
                 <small className={over ? "no" : ""}>{x[k].length} / {max}{over ? ` · ${w.over}` : ""}</small>
               </div>
               {k === "desc" ? (
-                <textarea id={`vz-${k}`} className="vz-in" rows={3} value={x[k]} onChange={(e) => edit({ [k]: e.target.value })} data-control={`voz-${k}`} />
+                <textarea id={`vz-${k}`} className="vz-in" rows={3} value={x[k]} aria-invalid={over || undefined} onChange={(e) => edit({ [k]: e.target.value })} data-control={`voz-${k}`} />
               ) : (
-                <input id={`vz-${k}`} className="vz-in" value={x[k]} onChange={(e) => edit({ [k]: e.target.value })} data-control={`voz-${k}`} />
+                <input id={`vz-${k}`} className="vz-in" value={x[k]} aria-invalid={over || undefined} onChange={(e) => edit({ [k]: e.target.value })} data-control={`voz-${k}`} />
               )}
+              {/* PLA-130: a short name over its limit shows how the phone will cut it. */}
+              {over && k === "short" && <span className="w am">{w.cut(`${x[k].slice(0, max - 1)}…`)}</span>}
               <span className="w">{why}</span>
               {repo !== null && (differ.includes(k as "name") ? <span className="w am">{repo ? w.inRepo(repo) : w.notInRepo}</span> : null)}
             </div>
           );
         })}
-        <button type="button" className={`cor-btn ${differ.length && !r.pedido ? "primary" : "secondary"} small`} disabled={!!r.pedido || !differ.length || sending} onClick={() => void send()} data-control="voz-llevar">
+        <button type="button" className={`cor-btn ${differ.length && !r.pedido ? "primary" : "secondary"} small`} disabled={!!r.pedido || !differ.length || sending} onClick={() => setConfirm((c) => !c)} aria-expanded={confirm} data-control="voz-llevar">
           {r.pedido ? w.way(r.pedido.key) : differ.length ? w.bring(differ.length) : w.same}
         </button>
+        <p className="vz-only">{w.onlyNames}</p>
+        {confirm && differ.length > 0 && !r.pedido && (
+          <div className="vz-confirm" role="dialog" aria-label={w.confirmTitle} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setConfirm(false); } }}>
+            <b>{w.confirmTitle}</b>
+            <ul>
+              {differ.map((k) => (
+                <li key={k}><span>{w.fields[k]![0]}</span><span>{repoOf[k] || w.none} → {x[k]}</span></li>
+              ))}
+            </ul>
+            <p>{w.confirmLead}</p>
+            <div className="es-row" style={{ justifyContent: "flex-end" }}>
+              <button type="button" className="cor-btn secondary small" onClick={() => setConfirm(false)}>{w.cancel}</button>
+              <button type="button" className="cor-btn primary small" autoFocus disabled={sending} onClick={() => { setConfirm(false); void send(); }} data-control="voz-pedir">{w.go}</button>
+            </div>
+          </div>
+        )}
       </aside>
     </div>
   );
