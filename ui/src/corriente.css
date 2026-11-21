@@ -2721,3 +2721,7 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .hi-when .hi-kept { margin-left: 6px; color: var(--cor-violet-3); background: rgba(139, 92, 246, 0.12); }
 /* PLA-130: Voz word buttons reach the 24 px minimum with room. */
 .vz-word.add { min-height: 28px; }
+/* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
+.mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
+.mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
+.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span { font-size: 11px; }
