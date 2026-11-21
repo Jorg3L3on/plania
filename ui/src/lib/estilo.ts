@@ -47,7 +47,7 @@ export const FONT_CAT: Record<string, FontCat> = {
 export const PAIRS: [string, string, string][] = [["moderna", "Geist", "Geist"], ["caracter", "Bricolage Grotesque", "Geist"], ["editorial", "Fraunces", "Inter"], ["amable", "Nunito", "Nunito Sans"], ["tecnica", "Space Grotesk", "IBM Plex Sans"], ["legible", "Atkinson Hyperlegible", "Atkinson Hyperlegible"]];
 export const RATIOS = [1.125, 1.2, 1.25, 1.333] as const;
 // PLA-130: Imágenes and Logo left Estilo: neither reached the repo or an agent (the logo is changed in Caras).
-export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov"] as const;
+export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov", "trato"] as const;
 export type Sec = (typeof SECS)[number];
 export const LIBS = ["Lucide", "Phosphor", "Tabler", "Heroicons", "Material Symbols"] as const;
 
@@ -228,15 +228,18 @@ export function changesOf(s: Style, repo: RepoStyle, start?: Style): StyleChange
 
 export const ESTILO_WORDS = defineWords({
   es: {
-    doors: { caras: "Caras", estilo: "Estilo", voz: "Voz y nombre", historial: "Historial" },
+    doors: { caras: "Caras", estilo: "Estilo", historial: "Historial" },
     doorsLabel: "Partes de la marca",
-    doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), texts: (n: number) => (n === 1 ? "1 texto" : `${n} textos`), way: "en camino", ok: "al día" },
+    doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), way: "en camino", ok: "al día" },
     loading: "Leyendo el estilo del repo…",
     readError: "el estilo",
-    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento" } as Record<string, string>,
+    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", trato: "Trato" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
     previewOnly: "Solo para la vista previa: no se escribe en el repo.",
+    // PLA-130: «Cómo trata a la gente» moved here when Voz y nombre left Marca.
+    tratoNote: "Taller, Artist y el bot del producto escriben los textos de la app con este trato. Se aplica al guardar: no hace falta pedido.",
+    tratoSaved: "Guardado: los agentes ya tratan así a la gente.",
     // PLA-130: a «cambia» tag instead of a dot, what it changes from and to, and undoing one part.
     tag: "cambia",
     diff: (from: string, to: string) => `Hoy en el repo: ${from} → con este estilo: ${to}`,
@@ -424,15 +427,17 @@ export const ESTILO_WORDS = defineWords({
     },
   },
   en: {
-    doors: { caras: "Surfaces", estilo: "Style", voz: "Voice and name", historial: "History" },
+    doors: { caras: "Surfaces", estilo: "Style", historial: "History" },
     doorsLabel: "Parts of the brand",
-    doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), texts: (n: number) => (n === 1 ? "1 text" : `${n} texts`), way: "on its way", ok: "up to date" },
+    doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), way: "on its way", ok: "up to date" },
     loading: "Reading the repo's style…",
     readError: "the style",
-    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion" } as Record<string, string>,
+    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", trato: "Address" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
     previewOnly: "Preview only: it is not written into the repo.",
+    tratoNote: "Taller, Artist and the product bot write the app's texts with this form of address. It applies when saved: no request needed.",
+    tratoSaved: "Saved: the agents already address people this way.",
     tag: "changes",
     diff: (from: string, to: string) => `In the repo today: ${from} → with this style: ${to}`,
     diffStart: (from: string, to: string) => `The repo does not set it; Plania starts at ${from} → with this style: ${to}`,

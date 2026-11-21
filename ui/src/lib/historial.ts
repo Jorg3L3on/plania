@@ -72,7 +72,7 @@ export const HISTORIAL_WORDS = defineWords({
   es: {
     loading: "Leyendo el historial…",
     readError: "el historial",
-    lanes: { todo: "Todo", logo: "Logo", estilo: "Estilo", voz: "Voz y nombre", pedido: "Pedidos" } as Record<string, string>,
+    lanes: { todo: "Todo", logo: "Logo", estilo: "Estilo", voz: "Trato", pedido: "Pedidos" } as Record<string, string>,
     lanesLabel: "Qué mostrar",
     empty: "Todavía no hay nada aquí: cada cambio en Marca queda en esta lista.",
     current: "Actual",
@@ -104,7 +104,7 @@ export const HISTORIAL_WORDS = defineWords({
   en: {
     loading: "Reading the history…",
     readError: "the history",
-    lanes: { todo: "All", logo: "Logo", estilo: "Style", voz: "Voice and name", pedido: "Requests" } as Record<string, string>,
+    lanes: { todo: "All", logo: "Logo", estilo: "Style", voz: "Address", pedido: "Requests" } as Record<string, string>,
     lanesLabel: "What to show",
     empty: "Nothing here yet: every change in Marca stays in this list.",
     current: "Current",

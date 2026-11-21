@@ -2453,49 +2453,7 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 }
 
 /* ---- PLA-I69-5 «Marca · Voz y nombre». */
-.vz-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 380px) minmax(0, 1fr) minmax(280px, 330px); gap: 16px; }
-.vz-left { min-height: 0; overflow: auto; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
-.vz-left h3.es-h { font-weight: 400; }
-.vz-chip { all: unset; cursor: pointer; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--cor-line); font-size: 12px; color: var(--cor-body); }
-.vz-chip:hover, .vz-chip[aria-pressed="true"] { border-color: var(--cor-violet-2); color: var(--cor-text); }
-.vz-chip[aria-pressed="true"] { background: rgba(139,92,246,.1); }
-.vz-sl { display: grid; gap: 1px; }
-.vz-sl-l { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--cor-body); }
-.vz-word { all: unset; cursor: pointer; font-size: 11px; padding: 3px 8px; border-radius: 6px; }
-.vz-word.ok { background: rgba(110,231,160,.09); color: var(--cor-green); }
-.vz-word.no { background: rgba(255,122,122,.09); color: var(--cor-red); text-decoration: line-through; }
-.vz-word.ok:hover, .vz-word.no:hover { box-shadow: inset 0 0 0 1px currentColor; }
-.vz-word.add { border: 1px dashed var(--cor-line-strong); color: var(--cor-muted); }
-.vz-wordin { all: unset; box-sizing: border-box; width: 120px; font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--cor-violet-2); color: var(--cor-text); }
-.vz-guide { all: unset; box-sizing: border-box; width: 100%; min-height: 140px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--cor-line-strong); background: #0a0a0e; font-family: var(--cor-mono); font-size: 11px; line-height: 1.5; color: var(--cor-body); white-space: pre-wrap; }
-.vz-guide:focus { border-color: var(--cor-violet-2); }
-.vz-wrap button:focus-visible, .vz-wrap input:focus-visible { outline: 2px solid var(--cor-violet-2); outline-offset: 2px; }
-.vz-mid { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.vz-voices { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 16px; border-radius: 16px; background: var(--bg, #fafafa); color: var(--fg, #111); font-family: var(--fb, system-ui); }
-.vx { display: grid; gap: 6px; align-content: start; }
-.vx-k { font-family: var(--cor-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--mu, #555); }
-.vx-t { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--r, 8px); background: var(--card, #fff); border: 1px solid var(--bd, #ddd); border-left: 4px solid var(--er, #b91c1c); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
-.vx-t svg { flex: none; margin-top: 2px; color: var(--er, #b91c1c); }
-.vx-t p, .vx-e p { margin: 0; font-size: 14px; line-height: 1.45; }
-.vx-e { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 14px; border-radius: var(--r, 8px); border: 1.5px dashed var(--bd, #ddd); background: var(--card, #fff); text-align: center; }
-.vx-ill { display: block; width: 150px; height: 90px; border-radius: min(var(--r, 8px), 10px); overflow: hidden; }
-.vx-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: var(--rb, 8px); background: var(--b, #4f46e5); color: var(--on, #fff); font-size: 13px; font-weight: 600; }
-.vx-n { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 16px; background: rgba(30,30,36,.94); color: #fff; font-family: -apple-system, system-ui, sans-serif; }
-.vx-n img, .vx-n > i { width: 34px; height: 34px; border-radius: 8px; background: var(--b, #4f46e5); }
-.vx-n b { font-size: 13px; }
-.vx-n p { margin: 2px 0 0; font-size: 12.5px; line-height: 1.35; color: #e5e5ea; }
-.vx-n small { font-size: 11px; color: #a1a1aa; }
-.vz-names { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); scrollbar-width: thin; }
-.vz-f { display: grid; gap: 4px; }
-.vz-f label { font-size: 12px; color: var(--cor-body); }
-.vz-f small { font-family: var(--cor-mono); font-size: 10px; color: var(--cor-green); }
-.vz-f small.no { color: var(--cor-amber); }
-.vz-f .w { font-size: 10.5px; line-height: 1.35; color: var(--cor-muted); }
-.vz-f .w.am { color: var(--cor-amber); }
-.vz-in { all: unset; box-sizing: border-box; width: 100%; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--cor-line-strong); background: #0a0a0e; font-size: 13px; color: var(--cor-text); font-family: var(--cor-sans); }
 textarea.vz-in { resize: vertical; line-height: 1.4; }
-.vz-in:focus { border-color: var(--cor-violet-2); }
-.vz-names .cor-btn { align-self: flex-start; }
 @media (max-width: 1100px) { .vz-wrap { grid-template-columns: 1fr; overflow: auto; } .vz-voices { min-height: 420px; } }
 
 /* ---- PLA-I69-6 «Marca · Historial». */
@@ -2534,6 +2492,10 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 @media (max-width: 900px) { .hi-wrap { grid-template-columns: 1fr; overflow: auto; } .hi-list { max-height: 50vh; } .hi-two { grid-template-columns: 1fr; } }
 
 /* PLA-130: a theme the app does not have, locked in place of its preview. */
+.es-locked { display: grid; place-items: center; align-content: center; gap: 6px; aspect-ratio: 600 / 360; padding: 16px; border-radius: 16px; border: 1px dashed var(--cor-line-strong); background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px); color: var(--cor-muted); text-align: center; }
+.es-locked svg { color: var(--cor-body); }
+.es-locked b { font-size: 13.5px; font-weight: 600; color: var(--cor-text); }
+.es-locked span { max-width: 32ch; font-size: 11.5px; line-height: 1.45; }
 /* PLA-130: «cambia» in the parts list, and the pane's line with what changes and the way back. */
 .es-tag { font-family: var(--cor-mono); font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; color: var(--cor-amber); background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.28); }
 .es-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(255,180,84,.24); background: rgba(255,180,84,.05); font-size: 11.5px; color: var(--cor-body); }
@@ -2572,17 +2534,6 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .es-hex-err { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; white-space: nowrap; font-size: 11px; color: var(--cor-red); }
 .es-seg[aria-disabled="true"] { opacity: 0.5; }
 .es-seg button:disabled { cursor: not-allowed; }
-/* PLA-130: Voz y nombre: the slider's stop in words, the request asks first, a too-long field is marked. */
-.vz-sl-v { font-size: 11px; color: var(--cor-violet-3); text-align: center; }
-.vz-only { margin: 0; font-size: 11px; line-height: 1.4; color: var(--cor-muted); }
-.vz-confirm { display: grid; gap: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); }
-.vz-confirm b { font-size: 13px; color: var(--cor-text); }
-.vz-confirm ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-.vz-confirm li { display: grid; gap: 1px; font-size: 12px; color: var(--cor-body); }
-.vz-confirm li span:first-child { font-family: var(--cor-mono); font-size: 11px; color: var(--cor-text); }
-.vz-confirm p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--cor-muted); }
-.vz-in[aria-invalid="true"] { border-color: var(--cor-amber); }
-.vz-f small, .vz-f .w { font-size: 11px; }
 /* PLA-130: Historial folds runs of quick versions, marks kept ones, and keeps its text at 11px or more. */
 .hi-lane, .hi-two figcaption { font-size: 11px; }
 .hi-when { font-size: 12px; }
@@ -2590,8 +2541,6 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .hi-run b { font-weight: 500; color: var(--cor-body); }
 .hi-sub { margin: 2px 0 6px 18px; padding: 0 0 0 10px; list-style: none; border-left: 1px solid var(--cor-line); display: grid; gap: 2px; }
 .hi-when .hi-kept { margin-left: 6px; color: var(--cor-violet-3); background: rgba(139, 92, 246, 0.12); }
-/* PLA-130: Voz word buttons reach the 24 px minimum with room. */
-.vz-word.add { min-height: 28px; }
 /* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
 .mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
 .mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,

@@ -4,6 +4,7 @@
 // repo has today. «Modo experto» adds every value's variable and the code (Tailwind 4, shadcn/ui, W3C tokens), which
 // can be edited and applied. Every change is a version kept in Plania; «Llevar al repo» asks Taller.
 // Logic and words: @/lib/estilo. Styles: corriente.css («Marca · Estilo»).
+import { vozWords, type Voice } from "@/lib/voz";
 import { ICON_LIBS } from "@/lib/icon-sets";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -65,35 +66,6 @@ export const Icon = ({ n, s, size = 16 }: { n: string; s: Pick<Style, "stroke" |
 };
 
 /** A small drawing in the chosen illustration style, for the Imágenes part and the empty state. */
-export function Illus({ x, kind = x.img }: { x: Style; kind?: Style["img"] }) {
-  const b = x.imgBrand ? x.brand : "#3b4a6b";
-  const a = x.imgBrand ? x.accent : "#e5c07b";
-  const line = kind === "linea";
-  const f = (c: string) => (line ? { fill: "none", stroke: b, strokeWidth: 3 } : { fill: c });
-  const gid = `gg-${kind}-${b.slice(1)}`;
-  return (
-    <svg viewBox="0 0 160 100" width="100%" height="100%" aria-hidden>
-      {kind === "degradado" && (
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={a} stopOpacity=".5" />
-            <stop offset="1" stopColor="#ffffff" />
-          </linearGradient>
-        </defs>
-      )}
-      <rect width="160" height="100" fill={kind === "degradado" ? `url(#${gid})` : "#f6f5f2"} />
-      <rect x="54" y="26" width="52" height="40" rx="6" {...f(b)} />
-      <circle cx="80" cy="46" r="10" {...(line ? { fill: "none", stroke: a, strokeWidth: 3 } : { fill: a })} />
-      <path d="M0 84 Q20 76 40 84 T80 84 T120 84 T160 84 V100 H0Z" {...(line ? { fill: "none", stroke: b, strokeWidth: 3 } : { fill: b, opacity: 0.85 })} />
-      {x.people && (
-        <g>
-          <circle cx="32" cy="56" r="6" {...f(a)} />
-          <path d="M32 63 v12 M25 68 h14" stroke={line ? b : a} strokeWidth="3" />
-        </g>
-      )}
-    </svg>
-  );
-}
 
 /** The small app drawn with a style (600 × 360, scaled by its frame). */
 export function Spec({ x, dark, logo, title, w, play }: { x: Style; dark: boolean; logo: string | null; title: string; w: EstiloWords; play?: number }) {
@@ -238,6 +210,9 @@ function FontPick({ cur, which, w, fonts, onPick }: { cur: string; which: "head"
 export function Estilo({ slug, title, logo }: { slug: string; title: string; logo: string | null }) {
   const w = estiloWords();
   const client = useQueryClient();
+  // PLA-130: «Cómo trata a la gente» lives in Estilo now; it is the voice's form of address, saved with the voice.
+  const vq = useQuery({ queryKey: ["voz", slug], queryFn: () => api.marcaVoz(slug), staleTime: 30_000 });
+  const [tratoSaved, setTratoSaved] = useState(false);
   const q = useQuery({ queryKey: ["estilo", slug], queryFn: () => api.marcaEstilo(slug), staleTime: 30_000 });
   const [x, setX] = useState<Style | null>(null);
   const [sec, setSec] = useState<Sec>("color");
@@ -291,6 +266,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   if (!r || !x || !repoX) return <div className="cor-skel" style={{ flex: 1 }} role="status" aria-busy="true" aria-label={w.loading} />;
 
   const t = tokens(x);
+  const vw = vozWords();
+  const trato: Voice["trato"] = vq.data?.voice?.trato ?? vq.data?.base.trato ?? "tu";
   const ch = changesOf(x, r.repo, r.start);
   const nFiles = 2 + (x.head !== SYSTEM || x.body !== SYSTEM ? 1 : 0);
   const changed = (k: Sec) => ch.some((c) => c.part === k);
@@ -309,7 +286,8 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
     if (k === "forma") return `${x.pill ? w.sum.pill : `${x.radius} px`} · ${w.sum.shadow(w.forma.shadow[x.shadow]!.toLowerCase())}`;
     if (k === "espacio") return w.espacio.density[x.density];
     if (k === "iconos") return `${x.lib} · ${w.sum.stroke(x.stroke)}`;
-    return w.mov.motion[x.motion];
+    if (k === "mov") return w.mov.motion[x.motion];
+    return vw.tratos[trato] ?? "";
   };
 
   const paneColor = () => {
@@ -610,7 +588,25 @@ export function Estilo({ slug, title, logo }: { slug: string; title: string; log
   };
   const undoAll = (): Partial<Style> => Object.assign({}, ...ch.map((c) => undoOf(c.part as Sec) ?? {}));
   const canUndo = ch.some((c) => undoOf(c.part as Sec));
-  const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov };
+  const setTrato = async (v: Voice["trato"]) => {
+    try {
+      client.setQueryData(["voz", slug], await api.marcaVozSave(slug, { trato: v }));
+      setTratoSaved(true);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    }
+  };
+  const paneTrato = () => (
+    <>
+      <div>
+        <H>{vw.trato}</H>
+        <Seg label={vw.trato} value={trato} opts={(["tu", "usted", "vos"] as Voice["trato"][]).map((k) => [k, vw.tratos[k]!])} onPick={(v) => void setTrato(v)} />
+        {tratoSaved && <p className="es-sub" role="status" style={{ marginTop: 6 }}>{w.tratoSaved}</p>}
+      </div>
+      <p className="es-note">{w.tratoNote}</p>
+    </>
+  );
+  const panes: Record<Sec, () => ReactNode> = { color: paneColor, letra: paneLetra, forma: paneForma, espacio: paneEspacio, iconos: paneIconos, mov: paneMov, trato: paneTrato };
 
   const repoSay = [r.repo.head ?? r.repo.body ?? w.caps.sys, (r.repo.brand ?? r.repo.theme)?.toUpperCase(), r.repo.radius !== undefined ? w.caps.corners(r.repo.radius) : null].filter(Boolean).join(" · ");
   const knows = !!(r.repo.brand || r.repo.theme || r.repo.body || r.repo.radius !== undefined);

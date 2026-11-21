@@ -15,7 +15,6 @@ import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
 import { useSearchParams } from "react-router";
 import { Estilo } from "./marca-estilo";
-import { Voz } from "./marca-voz";
 import { Historial } from "./marca-historial";
 import { changesOf, estiloWords } from "@/lib/estilo";
 
@@ -33,7 +32,9 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const client = useQueryClient();
   // PLA-I69-4: Marca's own doors (Caras · Estilo · Voz y nombre · Historial), kept in the address as ?m=.
   const [params, setParams] = useSearchParams();
-  const door: Door = DOORS.includes(params.get("m") as Door) ? (params.get("m") as Door) : "caras";
+  // An old link to Voz y nombre opens Estilo, where «Cómo trata a la gente» is now.
+  const asked = params.get("m") === "voz" ? "estilo" : params.get("m");
+  const door: Door = DOORS.includes(asked as Door) ? (asked as Door) : "caras";
   const goDoor = (d: Door) => {
     const next = new URLSearchParams(params);
     if (d === "caras") next.delete("m");
@@ -110,7 +111,6 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         {/* PLA-130: the tabs are Marca's first level; each page brings its own bar under them. */}
         {doors}
         {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
-        {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
         {door === "historial" && <Historial slug={p.slug} title={p.title} />}
       </div>
     );
@@ -247,7 +247,8 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   );
 }
 
-const DOORS = ["caras", "estilo", "voz", "historial"] as const;
+// PLA-130: Voz y nombre left Marca; its form of address lives in Estilo.
+const DOORS = ["caras", "estilo", "historial"] as const;
 type Door = (typeof DOORS)[number];
 /** PLA-I69-4: Marca's doors, as tabs under the title. */
 /** PLA-130: Marca's first level, a tab bar across the page; each tab says in a word where its part stands (what
@@ -255,18 +256,16 @@ type Door = (typeof DOORS)[number];
 function MarcaDoors({ door, onGo, r, slug }: { door: Door; onGo: (d: Door) => void; r: MarcaRead; slug: string }) {
   const w = estiloWords();
   const est = useQuery({ queryKey: ["estilo", slug], queryFn: () => api.marcaEstilo(slug), staleTime: 30_000 });
-  const voz = useQuery({ queryKey: ["voz", slug], queryFn: () => api.marcaVoz(slug), staleTime: 30_000 });
   const state = (d: Door): { k: "todo" | "way" | "ok"; n?: number } | null => {
     if (d === "caras") return r.pedido ? { k: "way" } : r.repo !== "ok" ? null : pending(r).files ? { k: "todo", n: pending(r).files } : { k: "ok" };
     if (d === "estilo") { const e = est.data; if (!e) return null; const n = changesOf(e.base, e.repo, e.start).length; return e.pedido ? { k: "way" } : n ? { k: "todo", n } : { k: "ok" }; }
-    if (d === "voz") { const v = voz.data; if (!v) return null; return v.pedido ? { k: "way" } : v.names.length ? { k: "todo", n: v.names.length } : { k: "ok" }; }
     return null;
   };
   return (
     <nav className="mk-doors" role="tablist" aria-label={w.doorsLabel}>
       {DOORS.map((d) => {
         const st = state(d);
-        const say = st ? (st.k === "todo" ? w.doorState[d === "voz" ? "texts" : d === "estilo" ? "changes" : "files"](st.n!) : w.doorState[st.k]) : null;
+        const say = st ? (st.k === "todo" ? w.doorState[d === "estilo" ? "changes" : "files"](st.n!) : w.doorState[st.k]) : null;
         return (
           <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
             <span>{w.doors[d]}</span>
