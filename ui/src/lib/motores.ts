@@ -172,3 +172,15 @@ export function hintOf(team: OrgMember[], d: Draft): { agent: string; role: stri
   if (on !== "opus" && on !== "fable") return null;
   return { agent: big.agent, role: big.role, pct: Math.round((big.used_week!.share ?? 0) * 100), on };
 }
+
+// PLA-144: the line under the plan meter. pct is null when the server judged the last reading stale (or there is none).
+export function planReadLine(
+  plan: { pct: number | null; read_at: string | null },
+  now: number,
+  w: { planRead: (ago: string) => string; planStale: (ago: string | null) => string; ago: (min: number) => string },
+): string {
+  const at = plan.read_at ? Date.parse(plan.read_at) : NaN;
+  const ago = Number.isFinite(at) ? w.ago(Math.max(0, Math.floor((now - at) / 60_000))) : null;
+  if (plan.pct === null) return w.planStale(ago);
+  return ago ? w.planRead(ago) : "";
+}

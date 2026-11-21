@@ -8,7 +8,7 @@ import type { MotoresSave, OrgProject } from "@/lib/api";
 import { MAX, countsOf, pendingCounts, previewAdmission, seatCap, withCounts, type Counts } from "@/lib/a-la-vez";
 import { seatName, thousands } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
-import { EFFORTS, MODELS, applyPreset, effortWord, presetsOf, clearStrip, draftOf, isOwn, motorLine, pendingOf, saveOf, setEffort, setModel, shownOf, type Draft, type Strip } from "@/lib/motores";
+import { EFFORTS, MODELS, applyPreset, effortWord, presetsOf, clearStrip, draftOf, isOwn, motorLine, pendingOf, planReadLine, saveOf, setEffort, setModel, shownOf, type Draft, type Strip } from "@/lib/motores";
 import { MOTORES } from "@/lib/motores-words";
 import { byRole } from "@/lib/org";
 import { Btn, Label, Opt } from "./parts";
@@ -281,6 +281,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo, acts, now = Date.now()
               <i style={{ width: `${Math.min(100, planPct ?? 0)}%` }} />
               <u style={{ left: `${r.plan.guard}%` }} />
             </span>
+            <p className="cor-text" data-plan-read>{planReadLine(r.plan, now, w)}</p>
             <p className="cor-text">
               {w.brakeLine}{" "}
               <Link className="cor-inline" to={planTo}>

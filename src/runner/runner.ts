@@ -90,6 +90,7 @@ import {
   loadSettings,
   planGuardSummary,
   planView,
+  readingStale,
   recordReading,
   roleOf,
   type RunnerRole,
@@ -550,7 +551,9 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
   const result: AdmitResult = { started: 0, dropped: 0, outcomes: new Map() };
   const settings = await loadSettings(db);
   // The free /usage probe runs outside the transaction.
-  if (planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride).state === "unknown") await probeIfUnknown(db, deps, now);
+  // PLA-144: probe whenever the last reading is stale, also with the override on (state "ok" there), so the screen's
+  // meter gets a fresh figure without waiting for a run to start.
+  if (readingStale(await lastReading(db), now)) await probeIfUnknown(db, deps, now);
   const machine = await machineFacts(deps, env);
   const worker = workerId(env);
   const capacity = workerCapacity(env);
