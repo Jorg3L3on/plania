@@ -2152,3 +2152,38 @@ export const seatProposals = pgTable(
   (t) => [index("seat_proposals_project_idx").on(t.projectId, t.state)],
 );
 export type SeatProposal = typeof seatProposals.$inferSelect;
+
+// PLA-I71-6 (0077): the team catalog (saved and brought teams; factory teams are kit/teams/*.json), adoptions, and
+// whole-company transfers (src/runner/teams.ts, src/runner/company-package.ts).
+export type TeamSeatSpec = { role: string; title?: string | null; line?: string | null; base?: string | null; reports_to: string | null; skills: string[]; motor?: { model: string | null; effort: string | null } | null; manner?: string | null };
+export type TeamSpec = { seats: TeamSeatSpec[]; skills?: { slug: string; name: string; description: string; body: string }[]; lessons?: { role: string; text: string }[]; references?: { role: string; title: string; url: string }[] };
+export const teamTemplates = pgTable("team_templates", {
+  slug: text("slug").primaryKey(),
+  name: text("name").notNull(),
+  line: text("line").notNull().default(""),
+  origin: text("origin").$type<"owner" | "imported">().notNull(),
+  spec: jsonb("spec").$type<TeamSpec>().notNull(),
+  source: text("source"),
+  sourceCommit: text("source_commit"),
+  hash: text("hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const teamAdoptions = pgTable("team_adoptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  template: text("template").notNull(),
+  hash: text("hash").notNull(),
+  plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const companyTransfers = pgTable("company_transfers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  direction: text("direction").$type<"export" | "import">().notNull(),
+  state: text("state").$type<"previewed" | "done" | "failed">().notNull().default("done"),
+  manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  counts: jsonb("counts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});

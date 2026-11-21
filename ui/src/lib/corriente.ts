@@ -104,6 +104,10 @@ export type Ver =
   | { kind: "tienda"; skill: string | null }
   // PLA-I71-5: bring a skill from outside (a link or skills.sh).
   | { kind: "traer" }
+  // PLA-I71-6: the team catalog, adopting one team, and the whole company in a file.
+  | { kind: "equipos" }
+  | { kind: "adoptar"; team: string }
+  | { kind: "compania" }
   | { kind: "maq"; what: string }
   | { kind: "tabla"; name: string }
   // PLA-I68-2: the Camino section open (conn, codigo, commits, ci, propuestas, hist, env:<id>).
@@ -113,7 +117,7 @@ export type Ver =
  *  project's list (no ver, tab todo). */
 export type At = { view: View; slug: string | null; tab: Tab; ver: Ver | null; paso?: string };
 
-const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "tienda", "traer", "maq", "tabla", "camino"] as const;
+const VER_KINDS = ["paso", "iniciativa", "sueltos", "pedido", "idea", "guardadas", "pr", "doc", "lienzo", "entrega", "miembro", "oficio", "sumar", "tienda", "traer", "equipos", "adoptar", "compania", "maq", "tabla", "camino"] as const;
 
 export function verOf(raw: string | null): Ver | null {
   if (!raw) return null;
@@ -123,7 +127,8 @@ export function verOf(raw: string | null): Ver | null {
   if (!(VER_KINDS as readonly string[]).includes(kind)) return null;
   // PLA-I64-7: a pedido and a lienzo are their idea; Sueltos and Guardadas are lines of the list.
   if (kind === "sueltos" || kind === "guardadas") return null;
-  if (kind === "sumar" || kind === "traer") return { kind };
+  if (kind === "sumar" || kind === "traer" || kind === "equipos" || kind === "compania") return { kind };
+  if (kind === "adoptar") return ref ? { kind, team: ref } : null;
   if (kind === "tienda") return { kind, skill: ref || null };
   if (!ref) return null;
   if (kind === "pedido" || kind === "lienzo") return { kind: "idea", key: ref };
@@ -143,7 +148,11 @@ export function verParam(v: Ver): string {
     case "guardadas":
     case "sumar":
     case "traer":
+    case "equipos":
+    case "compania":
       return v.kind;
+    case "adoptar":
+      return `adoptar:${v.team}`;
     case "tienda":
       return v.skill ? `tienda:${v.skill}` : "tienda";
     case "pr":
@@ -177,6 +186,9 @@ export function tabOfVer(v: Ver): Tab {
     case "sumar":
     case "tienda":
     case "traer":
+    case "equipos":
+    case "adoptar":
+    case "compania":
       return "equipo";
     case "maq":
     case "tabla":
@@ -327,7 +339,7 @@ export function clockLine(now: number, timeZone?: string): string {
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
   tabs: [...TABS],
-  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "tienda", "traer", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
+  vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "tienda", "traer", "equipos", "adoptar", "compania", "idea", "lienzo", "pr", "doc", "maq", "tabla", "camino"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");

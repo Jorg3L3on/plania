@@ -1,0 +1,13 @@
+{
+  "slug": "producto-web",
+  "name": "Producto web",
+  "line": "PO, Research, Artist y Taller. De la idea al PR, con diseño antes de construir.",
+  "spec": {
+    "seats": [
+      { "role": "product-owner", "reports_to": null, "skills": ["preguntas-antes-de-construir", "spec", "tickets"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "research", "reports_to": "product-owner", "skills": ["cited-research", "codebase-facts"], "motor": { "model": "sonnet", "effort": "medium" } },
+      { "role": "artist", "reports_to": "product-owner", "skills": ["design-it-twice"], "motor": { "model": "opus", "effort": "medium" } },
+      { "role": "taller", "reports_to": "product-owner", "skills": ["tdd", "diagnosing-bugs", "pr", "handoff"], "motor": { "model": "opus", "effort": "medium" } }
+    ]
+  }
+}

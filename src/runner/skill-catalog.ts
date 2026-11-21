@@ -46,3 +46,34 @@ export async function resolveCatalog(source: string, skill: string, deps: Import
   if (dir === null) throw new ToolError("SKILL_IMPORT_FORMAT", { reason: "catalog_not_found", skill });
   return `https://github.com/${owner}/${repo}/tree/${branch}${dir ? `/${dir}` : ""}`;
 }
+
+/** PLA-I71-6: every text file of a GitHub folder in the open layout (one tree read at the ref, then each raw file),
+ *  through the safe fetch; .md and .yaml only, at most 300. Returns the commit it was read at. */
+export async function repoFiles(url: string, deps: ImportDeps = {}): Promise<{ files: { path: string; content: string }[]; commit: string | null; source: string }> {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+)((?:\/[^/]+)*))?\/?$/.exec(url.trim());
+  if (!m || !SEG.test(m[1]!) || !SEG.test(m[2]!)) throw new ToolError("SKILL_IMPORT_FORMAT", { reason: "link" });
+  const [owner, repo] = [m[1]!, m[2]!];
+  const meta = (await json(`https://api.github.com/repos/${owner}/${repo}`, deps)) as { default_branch?: unknown };
+  const ref = m[3] && SEG.test(m[3]) ? m[3] : typeof meta.default_branch === "string" ? meta.default_branch : "main";
+  const dir = (m[4] ?? "").replace(/^\//, "");
+  if (dir && !dir.split("/").every((x) => SEG.test(x))) throw new ToolError("SKILL_IMPORT_FORMAT", { reason: "link" });
+  const commitJson = (await json(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, deps)) as { sha?: unknown };
+  const commit = typeof commitJson.sha === "string" && /^[0-9a-f]{40}$/.test(commitJson.sha) ? commitJson.sha : null;
+  const tree = (await json(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit ?? encodeURIComponent(ref)}?recursive=1`, deps, 4_000_000)) as { tree?: { path?: unknown; type?: unknown }[] };
+  const paths = (tree.tree ?? [])
+    .filter((t) => t.type === "blob")
+    .map((t) => String(t.path ?? ""))
+    .filter((p) => (!dir || p.startsWith(`${dir}/`)) && /\.(md|ya?ml)$/i.test(p) && p.split("/").every((x) => SEG.test(x)))
+    .slice(0, 300);
+  const files: { path: string; content: string }[] = [];
+  for (const p of paths) {
+    try {
+      const r = await safeFetch(`https://raw.githubusercontent.com/${owner}/${repo}/${commit ?? ref}/${p}`, { accept: ["text/"], maxBytes: 200_000, ...deps.fetch, headers: { "User-Agent": "Plania/1 (company import)", ...deps.fetch?.headers } });
+      files.push({ path: dir ? p.slice(dir.length + 1) : p, content: r.bytes.toString("utf8") });
+    } catch (e) {
+      if (e instanceof SafeFetchError) throw new ToolError(e.code, e.detail);
+      throw e;
+    }
+  }
+  return { files, commit, source: url.trim() };
+}

@@ -28,16 +28,20 @@ function tagsOf(m: OrgMember) {
 /** The words a card is read with: seat, its line, its state. */
 export const cardLine = (m: OrgMember) => ROLE_LINE[m.template ?? m.role] ?? m.name ?? "";
 
-const Card = ({ m, paused, selected, focusable, loose, onPick, style }: { m: OrgMember; paused: boolean; selected: boolean; focusable: boolean; loose?: boolean; onPick: (agent: string) => void; style?: React.CSSProperties }) => {
+/** PLA-I71-6: a chart drawn for a preview (adopting a team) names each card's fate and colours the arrivals. */
+export type CardLook = { line: (m: OrgMember) => string | null; tone: (m: OrgMember) => string | null };
+
+const Card = ({ m, paused, selected, focusable, loose, onPick, style, look }: { m: OrgMember; paused: boolean; selected: boolean; focusable: boolean; loose?: boolean; onPick: (agent: string) => void; style?: React.CSSProperties; look?: CardLook }) => {
   const w = words(ORGANIGRAMA_WORDS);
   const proposal = m.agent.startsWith("propuesta:");
   const d = proposal ? "espera" : dotOf(m, paused);
   const name = m.puesto ?? (proposal && seatName(m.role) === m.role ? (m.name ?? m.role) : seatName(m.role));
-  const line = proposal ? words(SUMAR_PAGE_WORDS).proposalLine : cardLine(m);
+  const line = look?.line(m) ?? (proposal ? words(SUMAR_PAGE_WORDS).proposalLine : cardLine(m));
+  const tone = look?.tone(m) ?? "";
   return (
     <button
       type="button"
-      className={`org-card ${selected ? "sel" : ""} ${loose ? "loose" : ""} ${proposal ? "proposal" : ""} ${d}`}
+      className={`org-card ${selected ? "sel" : ""} ${loose ? "loose" : ""} ${proposal ? "proposal" : ""} ${tone} ${d}`}
       style={style}
       aria-pressed={selected}
       tabIndex={focusable ? 0 : -1}
@@ -57,7 +61,7 @@ const Card = ({ m, paused, selected, focusable, loose, onPick, style }: { m: Org
         <span className="sr-only">{w.dot[d]}</span>
       </span>
       <span className="org-tags">
-        {(proposal ? [] : tagsOf(m)).map((t) => (
+        {(proposal || look ? [] : tagsOf(m)).map((t) => (
           <span key={t.t} className={`org-tag ${t.tone ?? ""}`}>
             {t.t}
           </span>
@@ -87,7 +91,7 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number, 
   return [ref, size.w, size.room];
 }
 
-export const Organigrama = ({ team, project, paused, selected, onPick }: { team: OrgMember[]; project: string; paused: boolean; selected: string | null; onPick: (agent: string) => void }) => {
+export const Organigrama = ({ team, project, paused, selected, onPick, look }: { team: OrgMember[]; project: string; paused: boolean; selected: string | null; onPick: (agent: string) => void; look?: CardLook }) => {
   const w = words(ORGANIGRAMA_WORDS);
   const tree = useMemo(() => treeOf(team), [team]);
   const order = useMemo(() => walkOrder(tree), [tree]);
@@ -112,7 +116,7 @@ export const Organigrama = ({ team, project, paused, selected, onPick }: { team:
   };
   const node = (n: OrgNode) => (
     <li key={n.m.agent} className="org-li">
-      <Card m={n.m} paused={paused} selected={selected === n.m.agent} focusable={tabbable === n.m.agent} onPick={onPick} style={at(n.m.agent)} />
+      <Card m={n.m} paused={paused} selected={selected === n.m.agent} focusable={tabbable === n.m.agent} onPick={onPick} style={at(n.m.agent)} look={look} />
       {n.children.length > 0 && <ul className="org-ul">{n.children.map(node)}</ul>}
     </li>
   );

@@ -246,7 +246,7 @@ test("I71-3 #5: a PO's proposal is an amber dashed card under the PO, and opens 
   const seats = equipo.proposalSeats(core(), EQ.proposals);
   assert.deepEqual(seats.map((s: M) => [s.agent, s.reports_to]), [["propuesta:11111111-1111-4111-8111-111111111111", "po-t"]]);
   const out = withEquipo(h(equipo.Equipo, { p: project(core()), companyPaused: false, focus: "propuesta:11111111-1111-4111-8111-111111111111", links }));
-  assert.match(out, /class="org-card sel  proposal espera"[^>]*data-org="propuesta:/);
+  assert.match(out, /class="org-card sel\s+proposal\s+espera"[^>]*data-org="propuesta:/);
   assert.match(out, /Lo propone el PO · espera tu sí/);
   assert.match(out, /data-proposal="11111111/);
   assert.match(out, /data-control="propuesta-si"/);
@@ -303,4 +303,42 @@ test("I71-5 #4: the store marks a brought skill with a newer upstream «versión
   assert.match(out, /<span class="org-tag am">versión nueva<\/span>/);
   assert.match(out, /data-control="ver-version-nueva" href="\/m\/artist-t\?skill=a11y"/);
   assert.match(out, /data-control="tienda-traer" href="\/traer"/);
+});
+
+// ---- PLA-I71-6: the team catalog, adopting a team, the whole company.
+const equiposUi = await load("components/corriente/equipos.tsx");
+const eqLinks = { adopt: (t: string) => `/adoptar/${t}`, company: "/compania", equipos: "/equipos" };
+
+test("I71-6: the catalog shows each team with its origin and an adopt link; the company has its own place", () => {
+  const client = new QueryClient();
+  client.setQueryData(["teams"], { teams: [{ slug: "minimo", name: "Mínimo", line: "PO y Taller.", origin: "factory", seats: [{ role: "product-owner", title: null }, { role: "taller", title: null }], skills: 5, hash: "x", source: null, at: null, spec: { seats: [] } }, { slug: "mio", name: "Mío", line: "", origin: "owner", seats: [{ role: "qa", title: null }], skills: 2, hash: "y", source: null, at: "2026-11-20T00:00:00Z", spec: { seats: [] } }] });
+  const out = renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, h(equiposUi.EquiposPage, { p: project(core()), nav: null, links: eqLinks }))));
+  assert.match(out, /data-team="minimo"/);
+  assert.match(out, /de fábrica/);
+  assert.match(out, /tuyo/);
+  assert.match(out, /href="\/adoptar\/minimo"/);
+  assert.match(out, /2 puestos · 5 habilidades/);
+  assert.match(out, /href="\/compania"/);
+});
+
+test("I71-6 #3: the adopt preview draws who joins paused beside who stays, and confirms only on the button", () => {
+  const client = new QueryClient();
+  client.setQueryData(["adopt", "tienda", "revision", "keep"], { template: "revision", name: "Producto web con revisión", hash: "h", stays: core().map((m) => ({ role: m.role, agent: m.agent, adds: [] })), arrives: [{ role: "qa", title: null, reports_to: "product-owner", skills: ["app-walkthrough"], motor: null }], no_room: ["data"], plan_note: { more_agents: 1 } });
+  const out = renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, h(equiposUi.AdoptarPage, { p: project(core()), team: "revision", links: eqLinks, onDone: () => undefined }))));
+  assert.match(out, /Adoptar «Producto web con revisión» en Tienda/);
+  assert.match(out, /Nada cambia hasta que lo confirmes/);
+  assert.match(out, /data-org="llega:qa"/);
+  assert.match(out, /Un puesto nuevo\. Llega en pausa/);
+  assert.match(out, /No caben \(ocho puestos\): Data\./);
+  assert.match(out, /data-control="adoptar-si"/);
+});
+
+test("I71-6 #4: the company page says what never goes in the file, and saves a tar", () => {
+  const client = new QueryClient();
+  client.setQueryData(["export", false, false], { files: [{ path: "COMPANY.md", content: "" }, { path: "plania.yaml", content: "" }] });
+  const out = renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, h(equiposUi.CompaniaPage, { links: eqLinks }))));
+  assert.match(out, /Nunca va/);
+  assert.match(out, /Llaves y sus valores, el código de tus proyectos, las tareas/);
+  assert.match(out, /href="\/api\/company\/export\.tar\?lessons=0&amp;references=0"/);
+  assert.match(out, /2 archivos de texto/);
 });

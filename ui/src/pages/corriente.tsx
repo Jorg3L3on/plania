@@ -23,6 +23,7 @@ import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equi
 import { fichaTabOf } from "@/components/corriente/agente";
 import { TiendaPage } from "@/components/corriente/tienda";
 import { TraerPage } from "@/components/corriente/traer";
+import { AdoptarPage, CompaniaPage, EquiposPage } from "@/components/corriente/equipos";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -256,6 +257,12 @@ export const CorrientePage = () => {
     tab: (agent, t) => hrefOf({ slug, ver: { kind: "miembro", agent }, extra: t === "perfil" ? {} : { ficha: t } }),
     work: linkTo({ slug, tab: "todo" }),
     store: linkTo({ slug, ver: { kind: "tienda", skill: null } }),
+    teams: linkTo({ slug, ver: { kind: "equipos" } }),
+  });
+  const equiposLinks = (slug: string) => ({
+    adopt: (team: string) => linkTo({ slug, ver: { kind: "adoptar", team } }),
+    company: linkTo({ slug, ver: { kind: "compania" } }),
+    equipos: linkTo({ slug, ver: { kind: "equipos" } }),
   });
 
   const pendLinks: PendLinks = {
@@ -430,6 +437,10 @@ export const CorrientePage = () => {
           }}
         />
       );
+    // PLA-I71-6: the team catalog, adopting one, and the whole company in a file.
+    if (at.ver?.kind === "equipos") return <EquiposPage p={p} nav={<EquipoNav links={equipoLinks(p.slug)} at="teams" />} links={equiposLinks(p.slug)} />;
+    if (at.ver?.kind === "adoptar") return <AdoptarPage p={p} team={at.ver.team} links={equiposLinks(p.slug)} onDone={() => navigate(linkTo({ slug: p.slug, tab: "equipo" }))} />;
+    if (at.ver?.kind === "compania") return <CompaniaPage links={equiposLinks(p.slug)} />;
     // PLA-I71-5: bring a skill from outside, reviewed before install.
     if (at.ver?.kind === "traer")
       return <TraerPage p={p} back={linkTo({ slug: p.slug, ver: { kind: "tienda", skill: null } })} onBrought={(skill) => navigate(linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }))} />;

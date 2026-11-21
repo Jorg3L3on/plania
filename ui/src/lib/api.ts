@@ -317,6 +317,15 @@ export const api = {
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
   // PLA-I71-3: Equipo's seat changes (only the owner's session reaches them).
   equipo: (slug: string) => request<EquipoRead>("GET", `/company/projects/${encodeURIComponent(slug)}/equipo`),
+  // PLA-I71-6: the team catalog, adopting a team, and the whole company in a file.
+  teams: () => request<{ teams: TeamView[] }>("GET", "/company/teams"),
+  saveTeam: (slug: string, input: { name: string; line?: string; lessons?: boolean; references?: boolean }) => request<TeamView>("POST", `/company/projects/${encodeURIComponent(slug)}/teams/save`, input),
+  adoptPreview: (slug: string, team: string, mode: "keep" | "also") => request<AdoptPlan>("GET", `/company/projects/${encodeURIComponent(slug)}/teams/${encodeURIComponent(team)}/adopt?mode=${mode}`),
+  adopt: (slug: string, team: string, mode: "keep" | "also") => request<AdoptPlan>("POST", `/company/projects/${encodeURIComponent(slug)}/teams/${encodeURIComponent(team)}/adopt`, { mode }),
+  bringTeam: (source: PackageSource) => request<{ slug: string; ignored: string[] }>("POST", "/company/teams/import", { source }),
+  exportFiles: (opts: { lessons: boolean; references: boolean }) => request<{ files: { path: string; content: string }[] }>("GET", `/company/export?lessons=${opts.lessons ? 1 : 0}&references=${opts.references ? 1 : 0}`),
+  importPreview: (source: PackageSource) => request<CompanyImportPreview>("POST", "/company/import/preview", { source }),
+  importCompany: (source: PackageSource, choices: Record<string, "create" | "rename" | "skip">) => request<{ created: string[]; renamed: string[]; skipped: string[]; agents: string[] }>("POST", "/company/import", { source, choices }),
   // PLA-I71-4: the skill store.
   tienda: (slug: string) => request<import("./tienda").Tienda>("GET", `/company/projects/${encodeURIComponent(slug)}/tienda`),
   seatBelow: (slug: string, agent: string) => request<{ below: string[] }>("GET", `${seatPath(slug, agent)}/below`),
@@ -617,6 +626,12 @@ export type OrgMember = {
 };
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
 // PLA-I71-3: the role catalog (factory and the owner's own) and a PO's open seat proposals.
+export type TeamSeatSpec = { role: string; title?: string | null; line?: string | null; base?: string | null; reports_to: string | null; skills: string[]; motor?: { model: string | null; effort: string | null } | null; manner?: string | null };
+export type TeamView = { slug: string; name: string; line: string; origin: "factory" | "owner" | "imported"; seats: { role: string; title: string | null }[]; skills: number; hash: string; source: string | null; at: string | null; spec: { seats: TeamSeatSpec[]; lessons?: unknown[]; references?: unknown[] } };
+export type AdoptPlan = { template: string; name: string; hash: string; stays: { role: string; agent: string; adds: string[] }[]; arrives: { role: string; title: string | null; reports_to: string | null; skills: string[]; motor: { model: string | null; effort: string | null } | null }[]; no_room: string[]; plan_note: { more_agents: number } };
+export type PackageSource = { files: { path: string; content: string }[] } | { tar: string } | { url: string };
+export type CompanyImportItem = { key: string; kind: "team" | "skill"; name: string; action: "create" | "rename" | "skip"; to: string; taken: boolean; agents?: number; marks?: number };
+export type CompanyImportPreview = { company: string; items: CompanyImportItem[]; agents: number; ignored: string[]; secrets: string[] };
 export type CatalogHit = { id: string; name: string; source: string; skill: string; publisher: string; installs: number | null };
 export type PuestoView = { slug: string; title: string; line: string; origin: "factory" | "owner"; base: string; taken: boolean };
 export type SeatProposalView = { id: string; role: string; title: string; reason: string; proposed_by: string; state: string; at: string };

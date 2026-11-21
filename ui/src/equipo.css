@@ -186,6 +186,30 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .trr-radio input { width: 16px; height: 16px; accent-color: var(--cor-violet); }
 .tda-upstream { display: block; min-height: 24px; text-decoration: underline; }
 
+/* PLA-I71-6: teams (boards Equipos, Adoptar, Compania). */
+.eqs { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.eqs-sub { font-size: 14px; font-weight: 400; }
+.eqs-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; overflow: auto; max-height: calc(100svh - 380px); }
+.eqs-card { display: flex; flex-direction: column; gap: 12px; height: 100%; box-sizing: border-box; padding: 14px 16px; }
+.eqs-mid { display: flex; align-items: flex-start; gap: 14px; }
+.eqs-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.eqs-bars { flex: none; display: grid; grid-template-columns: repeat(3, 20px); gap: 3px; padding-top: 4px; width: 66px; }
+.eqs-bars i { height: 8px; border-radius: 3px; background: #7c6ad6; }
+.eqs-bars i.top { grid-column: 2; }
+.eqs-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 16px; }
+.eqs-form .cor-input { flex: 1 1 260px; min-height: 44px; }
+.eqs-company { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; }
+.eqs-company > span { display: flex; flex-direction: column; gap: 4px; }
+.eqs-plan { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; overflow: auto; max-height: calc(100svh - 230px); }
+.eqs-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--cor-body); }
+.eqs-green { color: var(--cor-green); }
+.org-card.arrives { border-color: rgba(110, 231, 160, 0.55); background: rgba(110, 231, 160, 0.05); }
+.org-card.arrives .org-line { color: var(--cor-green); }
+.eqs-tick { min-height: 44px; border-bottom: 1px solid var(--cor-line); }
+.eqs-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.eqs-items li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; }
+.eqs-items .cor-select { min-height: 40px; max-width: 55%; }
+
 @media (max-width: 1100px) {
   .eq { flex-direction: column; }
   .eq-side, .eq-side.agt, .eq-side.agt.wide { flex: none; width: 100%; max-height: none; box-sizing: border-box; }
