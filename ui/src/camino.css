@@ -231,9 +231,10 @@
   /* PLA-I70-31: phone. Steps stack their buttons under the text, the strip stacks, paths wrap, the section list is one scrolling row. */
   .cam-step { grid-template-columns: 22px minmax(0, 1fr); padding: 6px 8px; }
   .cam-step-a { grid-column: 1 / -1; flex-wrap: wrap; }
-  .cam-strip { flex-direction: column; overflow-x: visible; }
-  .cam-strip-cell { min-width: 0; flex-direction: column; align-items: stretch; }
-  .cam-arw { transform: rotate(90deg); align-self: center; margin: 2px 0; }
+  .cam-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow-x: visible; }
+  .cam-strip-cell { min-width: 0; }
+  .cam-strip-cell .cam-node { width: 100%; }
+  .cam-arw, .cam-node-s { display: none; }
   .cam-card, .cam-find, .cam-blk, .cam-ed { overflow-wrap: anywhere; min-width: 0; }
   .cam-secs { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
   .cam-secs .cam-sec { flex: none; }

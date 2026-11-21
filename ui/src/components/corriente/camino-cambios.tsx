@@ -207,6 +207,8 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
                 {g.items.map((s) => {
                   const o = outcome.get(s.key);
                   const st = o === "skipped" ? "skip" : o ? (o.ok ? "done" : "fail") : null;
+                  // PLA-I70-14: a change with plain lines shows them instead of the raw before → after, until it fails, is skipped or has a note.
+                  const plain = !!s.lines?.length && st !== "fail" && st !== "skip" && !(st === "done" && o !== "skipped" && o?.note);
                   return (
                     <li key={s.key} className={cls(st)} data-cambio={s.key} data-estado={st ?? "pendiente"}>
                       <span className="cam-st" aria-hidden>
@@ -218,24 +220,25 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
                           {w.discard}
                         </Btn>
                       )}
-                      {s.lines?.length && st !== "fail" && st !== "skip" && !(st === "done" && o !== "skipped" && o?.note) ? (
+                      {plain ? (
                         <ul className="cam-d cam-lines" data-lineas>
-                          {s.lines.map((l) => (
+                          {s.lines!.map((l) => (
                             <li key={l}>{l}</li>
                           ))}
                         </ul>
-                      ) : null}
-                      <span className={cls("cam-d", !!s.lines?.length && st !== "fail" && st !== "skip" && !(st === "done" && o !== "skipped" && o?.note) && "sr-only")}>
-                        {st === "fail" && o !== "skipped" && o ? whyStopped(o.error ?? "", o.detail) : st === "skip" ? w.skipped : st === "done" && o !== "skipped" && o?.note ? o.note : w.beforeAfter(s.from, s.to)}
-                        {st === "done" && o !== "skipped" && o?.pr && (
-                          <>
-                            {" "}
-                            <a className="cor-inline" href={o.pr.url} target="_blank" rel="noreferrer" data-pr-abierta>
-                              {w.prOpened(o.pr.number)}
-                            </a>
-                          </>
-                        )}
-                      </span>
+                      ) : (
+                        <span className="cam-d">
+                          {st === "fail" && o !== "skipped" && o ? whyStopped(o.error ?? "", o.detail) : st === "skip" ? w.skipped : st === "done" && o !== "skipped" && o?.note ? o.note : w.beforeAfter(s.from, s.to)}
+                          {st === "done" && o !== "skipped" && o?.pr && (
+                            <>
+                              {" "}
+                              <a className="cor-inline" href={o.pr.url} target="_blank" rel="noreferrer" data-pr-abierta>
+                                {w.prOpened(o.pr.number)}
+                              </a>
+                            </>
+                          )}
+                        </span>
+                      )}
                       {st === "fail" && o !== "skipped" && o && whyDetail(o.error ?? "", o.detail) && (
                         <details className="cam-why">
                           <summary>{w.why.detail}</summary>
