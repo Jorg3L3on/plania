@@ -104,13 +104,13 @@ test("PLA-137: the store's search finds what the card shows", async () => {
 });
 
 test("PLA-139: a wrapped level is joined by a spine inside the drawing, and every card hangs from its row's line", async () => {
-  const o = await import("../ui/src/lib/organigrama.js");
+  const o = (await import(new URL("../ui/src/lib/organigrama.ts", import.meta.url).href)) as any;
   const m = (agent: string, role: string, reports_to: string) => ({ agent, role, template: role, reports_to, state: "idle" }) as never;
   const team = [m("po", "product-owner", "ceo"), ...["research", "artist", "taller", "qa", "copy", "marketing", "seguridad"].map((r) => m(r, r, "po"))];
   for (const width of [736, 836, 960]) {
     const l = o.layoutOf(o.treeOf(team), width, {});
-    const h = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)H([\d.]+)$/.exec(x.d)).filter(Boolean).map((r: RegExpExecArray) => ({ x1: +r[1]!, y: +r[2]!, x2: +r[3]! }));
-    const v = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)V([\d.]+)$/.exec(x.d)).filter(Boolean).map((r: RegExpExecArray) => ({ x: +r[1]!, y1: +r[2]!, y2: +r[3]! }));
+    const h = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)H([\d.]+)$/.exec(x.d)).filter((r: RegExpExecArray | null): r is RegExpExecArray => !!r).map((r: RegExpExecArray) => ({ x1: +r[1]!, y: +r[2]!, x2: +r[3]! }));
+    const v = l.lines.map((x: { d: string }) => /^M([\d.]+) ([\d.]+)V([\d.]+)$/.exec(x.d)).filter((r: RegExpExecArray | null): r is RegExpExecArray => !!r).map((r: RegExpExecArray) => ({ x: +r[1]!, y1: +r[2]!, y2: +r[3]! }));
     const rows = [...new Set(["research", "copy"].map((id) => l.boxes.get(id)!.y))];
     if (rows.length < 2) continue; // it fit on one row at this width
     const buses = h.filter((b: { y: number }) => b.y > 60).sort((a: { y: number }, b: { y: number }) => a.y - b.y);
@@ -170,4 +170,17 @@ test("PLA-142: a saved team is deleted from the catalog; a factory team or an un
   if (factory) assert.equal((await call("DELETE", `/api/company/teams/${factory.slug}`)).json.error, "TEAM_NOT_FOUND");
   assert.equal((await call("DELETE", "/api/company/teams/nada")).status, 404);
   assert.equal((await call("GET", `${T}/teams/nada/adopt`)).json.error, "TEAM_NOT_FOUND");
+});
+
+test("PLA-141: built-in texts read on the screen lose their maintainer notes, not their instructions", async () => {
+  const { ownerText } = (await import(new URL("../ui/src/lib/owner-text.ts", import.meta.url).href)) as { ownerText: (s: string) => string };
+  const prompt = "# Prompt: Research\n\nRole prompt the Plania runner appends on the first run. Edit it here, never in a repo.\n\nYou are Research.\n\n## Rules\n- Read the doc (PLA-82, F-11: «sin fuente») first.";
+  assert.equal(ownerText(prompt), "You are Research.\n\n## Rules\n- Read the doc first.");
+  const skill = "# Cited research\n\nPaquete de habilidad de Plania (PLA-I46-12). Vive en Plania.\n\n## Done when\n\n- A link per claim.\n\nOrigin: seed skill from the audit of 2026-11-17 (AUDIT-4); no run on record yet.";
+  assert.equal(ownerText(skill), "# Cited research\n\nPaquete de habilidad de Plania. Vive en Plania.\n\n## Done when\n\n- A link per claim.");
+  // Parentheses that do not start with a key stay.
+  assert.equal(ownerText("Use `gh pr list` (the last five) first."), "Use `gh pr list` (the last five) first.");
+  const refs = (await import(new URL("../ui/src/lib/references-words.ts", import.meta.url).href)) as { REFERENCE_UI_WORDS: { es: { snapshot: (d: string, n: number) => string } } };
+  assert.equal(refs.REFERENCE_UI_WORDS.es.snapshot("hoy", 156), "Copia del texto guardada hoy · 156 letras");
+  assert.equal(refs.REFERENCE_UI_WORDS.es.snapshot("3 nov", 1200), "Copia del texto guardada el 3 nov · 1,200 letras");
 });

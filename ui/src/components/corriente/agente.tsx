@@ -6,6 +6,7 @@
 // a trial) widens the panel over the chart; Esc narrows it first, then closes the panel. It replaces the separate
 // agent page (PLA-I67-1), whose panels it reuses.
 import { useEffect, useState } from "react";
+import { ownerText } from "@/lib/owner-text";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgMember, type OrgProject } from "@/lib/api";
@@ -310,7 +311,7 @@ const PuestoWide = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: string; 
           <span className="org-tag">{w.readOnly}</span>
         </span>
         <pre className="agt-pre" tabIndex={0}>
-          {q.data ? (q.data.role_text ?? w.noRoleText) : "…"}
+          {q.data ? (q.data.role_text ? ownerText(q.data.role_text) : w.noRoleText) : "…"}
         </pre>
       </section>
       <PuestoPanel o={o} seat={seat} motorLink={motorLink} onClose={onClose} />

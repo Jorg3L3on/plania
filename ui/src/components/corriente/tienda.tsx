@@ -10,6 +10,7 @@ import { ApiError, api, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
 import { skillWords } from "@/lib/oficio";
+import { ownerText } from "@/lib/owner-text";
 import { FILTERS, filterCounts, matches, searchOf, seatListAfter, usageLine, type Filter, type Tienda, type TiendaSkill } from "@/lib/tienda";
 import { TIENDA_WORDS } from "@/lib/tienda-words";
 import { Btn, Label, ReadError, Switch, useOnce } from "./parts";
@@ -57,7 +58,7 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
       <b className="eq-side-name">{sw.name}</b>
       <p className="cor-text">{w.whenUsed(sw.line)}</p>
       <pre className="agt-pre tda-text" tabIndex={0}>
-        {card.data?.body ?? "…"}
+        {card.data ? ownerText(card.data.body) : "…"}
       </pre>
       {s.upstream && seat && (
         <Link className="cor-state warn tda-upstream" to={links.tryIn(seat, s.slug)} data-control="ver-version-nueva">

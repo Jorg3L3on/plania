@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgProject, type PuestoView } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
+import { skillName } from "@/lib/oficio";
 import { MODELS, type ModelId } from "@/lib/motores";
 import { suggestedPacks } from "@/lib/sumar";
 import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
@@ -213,7 +214,7 @@ export const SumarPage = ({ p, back }: { p: OrgProject; back: string }) => {
                 <span className="org-tags sum-brings">
                   {pk.map((s) => (
                     <span key={s} className="org-tag vi">
-                      {(packs.data?.packs ?? []).find((x) => x.slug === s)?.name ?? s}
+                      {skillName(s)}
                     </span>
                   ))}
                 </span>

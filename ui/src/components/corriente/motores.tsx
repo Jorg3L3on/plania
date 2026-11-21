@@ -282,7 +282,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo, acts, now = Date.now()
               <u style={{ left: `${r.plan.guard}%` }} />
             </span>
             <p className="cor-text">
-              {w.brakeLine}{" "}
+              {r.plan.override ? w.brakeOffLine : w.brakeLine}{" "}
               <Link className="cor-inline" to={planTo}>
                 {w.plomeria}
               </Link>

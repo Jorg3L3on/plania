@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgMember, type OrgProject, type PackageSource, type TeamView } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
+import { skillName } from "@/lib/oficio";
 import { EQUIPOS_WORDS } from "@/lib/equipos-words";
 import { Btn, Label, ReadError, useOnce } from "./parts";
 import { Organigrama } from "./organigrama";
@@ -215,7 +216,7 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
   const chart = useMemo<OrgMember[]>(() => {
     if (!plan) return p.team;
     const byRole = new Map(p.team.map((m) => [m.puesto ? m.role : (m.template ?? m.role), m.agent]));
-    const arrivals = plan.arrives.map((a) => ({ agent: `llega:${a.role}`, role: a.role, template: a.role, state: "idle" as const, now: null, last: null, produced: null, waiting: null, puesto: a.title, reports_to: null as string | null }));
+    const arrivals = plan.arrives.map((a) => ({ agent: `llega:${a.role}`, role: a.role, template: a.role, state: "paused" as const, now: null, last: null, produced: null, waiting: null, puesto: a.title, reports_to: null as string | null }));
     for (const a of arrivals) byRole.set(a.role, a.agent);
     for (const [i, a] of plan.arrives.entries()) arrivals[i]!.reports_to = a.reports_to ? (byRole.get(a.reports_to) ?? null) : (byRole.get("product-owner") ?? null);
     return [...p.team, ...arrivals.map((a) => (a.reports_to === a.agent ? { ...a, reports_to: null } : a))];
@@ -256,14 +257,14 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
             <ul className="eqs-rows">
               {plan.arrives.map((a) => (
                 <li key={a.role}>
-                  <span className="org-tag ok">{w.arriveLine}</span> <b>{roleTitle(a)}</b> · {w.brings(a.skills.join(", "))}
+                  <span className="org-tag ok">{w.arriveLine}</span> <b>{roleTitle(a)}</b> · {w.brings(a.skills.map((x) => skillName(x)).join(", "))}
                 </li>
               ))}
               {plan.stays
                 .filter((s) => s.adds.length)
                 .map((s) => (
                   <li key={s.agent}>
-                    <span className="org-tag vi">{w.stayLine}</span> <b>{seatName(s.role)}</b> · {w.adds(s.adds.join(", "))}
+                    <span className="org-tag vi">{w.stayLine}</span> <b>{seatName(s.role)}</b> · {w.adds(s.adds.map((x) => skillName(x)).join(", "))}
                   </li>
                 ))}
             </ul>

@@ -37,7 +37,7 @@ export const EQUIPOS_WORDS = defineWords({
     cancel: "Cancelar",
     failed: (code: string) => `No se pudo (${code}).`,
     company: "Compañía completa",
-    companyLine: "Todos los equipos de todos tus proyectos, con Asistente, en un solo archivo. Para respaldarla, llevarla a otra máquina o empezar una compañía igual.",
+    companyLine: "Todos los equipos de todos tus proyectos, con sus motores (y sus lecciones, si las incluyes), en un solo archivo. Para respaldarla, llevarla a otra máquina o empezar una compañía igual.",
     companyOpen: "Llevar o traer la compañía",
     // adopt
     backTeams: "Equipos",
@@ -136,7 +136,7 @@ export const EQUIPOS_WORDS = defineWords({
     cancel: "Cancel",
     failed: (code: string) => `That did not work (${code}).`,
     company: "Whole company",
-    companyLine: "Every team of every project, with the Assistant, in one file. To back it up, move it to another machine or start a company just like it.",
+    companyLine: "Every team of every project, with their engines (and lessons, if you include them), in one file. To back it up, move it to another machine or start a company just like it.",
     companyOpen: "Take or bring the company",
     backTeams: "Teams",
     adoptTitle: (team: string, project: string) => `Adopt “${team}” in ${project}`,
