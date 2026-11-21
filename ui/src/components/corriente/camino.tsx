@@ -34,7 +34,7 @@ import type { CaminoRead } from "@/lib/camino-types";
 import { LOCALE } from "@/lib/locale";
 import { Btn, ReadError } from "./parts";
 import { caminoKey, useCamino } from "./camino-query";
-import { useCambios } from "./camino-store";
+import { useCambios, type Cambios } from "./camino-store";
 import { CambiosBar } from "./camino-cambios";
 import { Codigo } from "./camino-codigo";
 import { Commits } from "./camino-commits";
@@ -238,7 +238,44 @@ function keyDetail(e: unknown): string | undefined {
   return e instanceof ApiError && e.code === "CAMINO_KEY_REJECTED" && e.detail.message ? String(e.detail.message) : undefined;
 }
 
-const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
+/** PLA-133: the variable that holds the GitHub key (settings.github.token_env), moved here from Ajustes › Avanzado.
+ * Staged like every other change; empty removes it. A value that is not a variable's name is never staged. */
+const KeyEnv = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
+  const w = caminoWords();
+  const staged = cambios.staged("github_key_env") as { name: string | null } | undefined;
+  const value = staged ? staged.name : (r.settings.github_token_env ?? null);
+  const [bad, setBad] = useState(false);
+  const read = r.settings.github_token_env ?? null;
+  return (
+    <label className="cam-field" data-llave-variable>
+      <span className="cam-lab">
+        {w.conn.keyEnv}
+      </span>
+      <input
+        key={`kenv-${cambios.epoch}`}
+        className="cor-input cor-mono"
+        defaultValue={value ?? ""}
+        placeholder="GITHUB_TOKEN"
+        onBlur={(e) => {
+          const next = e.target.value.trim() || null;
+          if (next && !/^[A-Z][A-Z0-9_]{0,63}$/.test(next)) return setBad(true);
+          setBad(false);
+          if (next === read) return cambios.drop("github_key_env");
+          cambios.stage({ key: "github_key_env", change: { kind: "github_key_env", label: w.conn.keyEnvLabel, name: next }, dest: "plania", from: read ?? w.conn.keyEnvNone, to: next ?? w.conn.keyEnvNone });
+        }}
+        autoComplete="off"
+        spellCheck={false}
+        aria-invalid={bad || undefined}
+        data-campo="llave-variable-github"
+      />
+      <span className={cls("cam-hint", bad && "bad-t")} role={bad ? "alert" : undefined}>
+        {bad ? w.conn.keyEnvBad : w.conn.keyEnvHint}
+      </span>
+    </label>
+  );
+};
+
+const CardView = ({ r, c, now, cambios }: { r: CaminoRead; c: Card; now: Date; cambios?: Cambios }) => {
   const w = caminoWords();
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -415,6 +452,7 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
           </div>
         </div>
       )}
+      {c.id === "github" && cambios && <KeyEnv r={r} cambios={cambios} />}
       {keyable && (
         <div className="cam-acts">
           {c.saved ? (
@@ -451,7 +489,7 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
   );
 };
 
-const Conexiones = ({ r, now }: { r: CaminoRead; now: Date }) => {
+const Conexiones = ({ r, now, cambios }: { r: CaminoRead; now: Date; cambios: Cambios }) => {
   const w = caminoWords();
   const list = cards(r);
   const cat = catalog();
@@ -461,7 +499,7 @@ const Conexiones = ({ r, now }: { r: CaminoRead; now: Date }) => {
     <Ed id="conn" title={w.sections.conn} lead={r.plania.keys_store === "file" ? w.conn.leadFile : w.conn.lead}>
       <div className="cam-cards">
         {[...list, ...extra].map((c) => (
-          <CardView key={c.id} r={r} c={c} now={now} />
+          <CardView key={c.id} r={r} c={c} now={now} cambios={cambios} />
         ))}
       </div>
       <Blk cap={w.conn.addTitle} hint={w.conn.addHint}>
@@ -597,7 +635,7 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
       case "resumen":
         return <Resumen r={r} F={F} links={links} onRecheck={onRecheck} busy={checking} />;
       case "conn":
-        return <Conexiones r={r} now={now} />;
+        return <Conexiones r={r} now={now} cambios={cambios} />;
       case "propuestas":
         return <Propuestas r={r} links={links} />;
       case "hist":

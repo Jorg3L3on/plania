@@ -87,6 +87,20 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const noCode = (cambios.staged("no_code") as { none: boolean } | undefined)?.none ?? r.settings.no_code;
   const setNoCode = (none: boolean) => cambios.stage({ key: "no_code", change: { kind: "no_code", label: w.noCodeLabel, none }, dest: "plania", from: r.settings.no_code ? w.noCode : w.hasCode, to: none ? w.noCode : w.hasCode });
 
+  // PLA-133: the working branch (settings.start_branch), moved here from Ajustes › Avanzado. The integration model
+  // sets it from the roles change, so it is only typed here for the other models. Empty puts the default back.
+  const startDefault = r.settings.start_default ?? "sandbox";
+  const startStaged = cambios.staged("start_branch") as { branch: string | null } | undefined;
+  const start = startStaged ? startStaged.branch : (r.settings.start_branch ?? null);
+  const [startBad, setStartBad] = useState(false);
+  const setStart = (raw: string) => {
+    const next = raw.trim() || null;
+    if (next && (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/.test(next) || /\.\.|\/\/|\/$|\.$|\.lock$/.test(next) || ["main", "master", "production", "prod"].includes(next.toLowerCase()))) return setStartBad(true);
+    setStartBad(false);
+    if (next === (r.settings.start_branch ?? null)) return cambios.drop("start_branch");
+    cambios.stage({ key: "start_branch", change: { kind: "start_branch", label: w.startLabel, branch: next }, dest: "plania", from: r.settings.start_branch ?? startDefault, to: next ?? startDefault });
+  };
+
   const integBranch = g?.branches.find((b) => b.name === roles.integration);
   const roleBranches = [roles.published, ...(roles.model === "integ" && roles.integration ? [roles.integration] : [])];
 
@@ -232,6 +246,23 @@ export const Codigo = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
             <span className="cam-hint" data-coinciden={matches.length}>
               {w.matches(matches.length, matches.slice(0, 3).join(", "))}
             </span>
+          </div>
+        </div>
+        <div className="cam-grid3">
+          <div className="cam-field" data-rama-trabajo={roles.model === "integ" ? "integracion" : "propia"}>
+            <label className="cam-lab" htmlFor="cam-start">
+              {w.start} <i>{w.startHint}</i>
+            </label>
+            {roles.model === "integ" ? (
+              <p className="cam-hint">{w.startInteg(roles.integration ?? "—")}</p>
+            ) : (
+              <>
+                <input id="cam-start" key={`start-${cambios.epoch}`} className="cor-input cor-mono" defaultValue={start ?? ""} placeholder={startDefault} onBlur={(e) => setStart(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={startBad || undefined} data-campo="rama-trabajo" />
+                <span className={cls("cam-hint", startBad && "bad-t")} role={startBad ? "alert" : undefined}>
+                  {startBad ? w.startBad : w.startDefault(startDefault)}
+                </span>
+              </>
+            )}
           </div>
         </div>
         {g && (

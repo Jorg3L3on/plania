@@ -6,6 +6,7 @@ import pg from "pg";
 import type { Db } from "../db/client.js";
 import { camino, caminoHistory, envStates, projects, pullRequests, tasks, type CaminoDest, type Project } from "../db/schema.js";
 import { githubToken } from "../jobs/github.js";
+import { startBranchOf } from "../runner/start-branch.js";
 import { projectsRoot, repoPathOf } from "../runner/worktree.js";
 import { findProject } from "../mcp/queries.js";
 import { effectiveConfig, RUNNER_WORK_PATTERN, type EffectiveConfig } from "./config.js";
@@ -162,7 +163,10 @@ export type CaminoRead = {
   title: string;
   version: number;
   config: EffectiveConfig;
-  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations: string | null } | null; capture: boolean; capture_pages: string[]; vercel: boolean };
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations: string | null } | null; capture: boolean; capture_pages: string[]; vercel: boolean;
+    // PLA-133: the four settings Camino edits since they left Ajustes › Avanzado, as stored (null: the default holds).
+    start_branch: string | null; start_default: string; github_token_env: string | null; release_on: "env" | "branch" | null; release_target: string | null;
+    vercel_config: { project_id: string; team_id: string | null; token_env: string | null; targets: Record<string, string> | null } | null };
   discovery: Discovery | null;
   checked_at: string | null;
   checking: boolean;
@@ -206,6 +210,12 @@ export async function caminoRead(db: Db, slug: string): Promise<CaminoRead> {
       capture: !!s.capture,
       capture_pages: [...new Set((s.capture?.pages ?? []).map((x) => x.path))],
       vercel: !!s.vercel,
+      start_branch: s.start_branch ?? null,
+      start_default: startBranchOf({}),
+      github_token_env: s.github?.token_env ?? null,
+      release_on: s.release_on ?? null,
+      release_target: s.release_target ?? null,
+      vercel_config: s.vercel ? { project_id: s.vercel.project_id, team_id: s.vercel.team_id ?? null, token_env: s.vercel.token_env ?? null, targets: s.vercel.targets ?? null } : null,
     },
     discovery: d,
     checked_at: row.checkedAt?.toISOString() ?? null,

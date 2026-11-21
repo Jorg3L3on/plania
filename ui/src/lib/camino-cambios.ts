@@ -11,7 +11,7 @@ export type Staged = { key: string; change: Change; dest: Dest; from: string; to
 export const DEST_ORDER: Dest[] = ["plania", "proveedor", "github", "pr"];
 /** The server's destOf (src/camino/changes.ts), for the kinds the screen stages. */
 export function destOf(kind: string, rulesAvailable: boolean): Dest {
-  if (["config", "roles", "repo", "folder", "no_code", "release_mode"].includes(kind)) return "plania";
+  if (["config", "roles", "repo", "folder", "no_code", "release_mode", "start_branch", "github_key_env", "release_rule", "vercel"].includes(kind)) return "plania";
   if (kind === "ruleset") return rulesAvailable ? "github" : "plania";
   if (["file_pr"].includes(kind)) return "pr";
   if (["provider"].includes(kind)) return "proveedor";

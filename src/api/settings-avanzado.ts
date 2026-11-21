@@ -1,23 +1,19 @@
 // PLA-I2-6: the pure parts of Ajustes' new sections (src/api/project-settings.ts writes them through setProject).
-//   «Avanzado»: one field per advanced setting of src/mcp/settings-registry.ts, plus the token variable of the basic
-//               github key. Each field's sentence and default come from the registry.
+//   «Avanzado»: one field per advanced setting of src/mcp/settings-registry.ts whose control is «Avanzado». Each
+//               field's sentence and default come from the registry.
 //   «Cómo arranca la app»: settings.capture as a form, for when Máquinas' guess is wrong.
 import type { CaptureSettings } from "../captures/settings.js";
 import type { ProjectSettings } from "../db/schema.js";
 import { ADVANCED_KEYS, SETTINGS, type SettingKey } from "../mcp/settings-registry.js";
-import { defineWords, say } from "../words.js";
 
+// PLA-133: start_branch, release_target, release_on, the GitHub key's variable and vercel left for Despliegue
+// (src/camino/changes.ts): each value has one place to edit it.
 export const AVANZADO_FIELDS = [
-  "start_branch",
   "branch_pattern",
   "claim_from",
-  "release_target",
-  "release_on",
   "auto_done",
   "team",
   "identity",
-  "github_token_env",
-  "vercel",
   "resources",
   "quotas",
   "maquinas",
@@ -27,38 +23,21 @@ export type AvanzadoField = (typeof AVANZADO_FIELDS)[number];
 export type AvanzadoEditor = "text" | "select" | "switch" | "number" | "env" | "json";
 
 export const AVANZADO: Record<AvanzadoField, { key: SettingKey; editor: AvanzadoEditor; options?: string[] }> = {
-  start_branch: { key: "start_branch", editor: "text" },
   branch_pattern: { key: "branch_pattern", editor: "text" },
   claim_from: { key: "claim_from", editor: "select", options: ["backlog", "ready"] },
-  release_target: { key: "release_target", editor: "text" },
-  release_on: { key: "release_on", editor: "select", options: ["env", "branch"] },
   auto_done: { key: "auto_done", editor: "switch" },
   team: { key: "team", editor: "number" },
   identity: { key: "identity", editor: "number" }, // PLA-I2-3: the place in lists
-  github_token_env: { key: "github", editor: "env" },
-  vercel: { key: "vercel", editor: "json" },
   resources: { key: "resources", editor: "json" },
   quotas: { key: "quotas", editor: "json" },
   maquinas: { key: "maquinas", editor: "json" },
   qa: { key: "qa", editor: "json" },
 };
 
-/** Every advanced key of the registry has a field here (test/settings-registry.test.ts). */
+/** Every advanced key of the registry whose control is «Avanzado» has a field here (test/settings-registry.test.ts);
+ * PLA-133: the ones Despliegue edits have none. */
 export const avanzadoKeys = (): SettingKey[] => [...new Set(Object.values(AVANZADO).map((f) => f.key))];
-export const advancedWithoutField = (): SettingKey[] => ADVANCED_KEYS.filter((k) => !avanzadoKeys().includes(k));
-
-// PLA-I2-10: the GitHub key field's words in the install's language; the Spanish is unchanged.
-export const GITHUB_TOKEN_WORDS = defineWords({
-  es: {
-    defecto: "se usa la sesión de gh.",
-    frase: "El nombre de la variable que guarda la llave de GitHub, si no usas la sesión de gh. Nunca la llave misma.",
-  },
-  en: {
-    defecto: "gh's own login is used.",
-    frase: "The name of the variable that holds the GitHub key, if you do not use gh's login. Never the key itself.",
-  },
-});
-const GITHUB_TOKEN = () => ({ default: "none: gh's own login", ...say(GITHUB_TOKEN_WORDS) });
+export const advancedWithoutField = (): SettingKey[] => ADVANCED_KEYS.filter((k) => SETTINGS[k].control === "ajustes.avanzado" && !avanzadoKeys().includes(k));
 
 export type AvanzadoRead = { field: AvanzadoField; key: SettingKey; editor: AvanzadoEditor; options?: string[]; value: unknown; defecto: string; frase: string };
 
@@ -68,8 +47,6 @@ function avanzadoValue(field: AvanzadoField, s: ProjectSettings): unknown {
       return s.team?.idle_minutes ?? null;
     case "identity":
       return s.identity?.order ?? null;
-    case "github_token_env":
-      return s.github?.token_env ?? null;
     case "qa": {
       // The verify list has its own section; this is the rest of settings.qa.
       const { verify: _verify, ...rest } = s.qa ?? { verify: [] };
@@ -83,7 +60,7 @@ function avanzadoValue(field: AvanzadoField, s: ProjectSettings): unknown {
 export const avanzadoRead = (s: ProjectSettings): AvanzadoRead[] =>
   (Object.keys(AVANZADO) as AvanzadoField[]).map((field) => {
     const f = AVANZADO[field];
-    const d = field === "github_token_env" ? GITHUB_TOKEN() : SETTINGS[f.key];
+    const d = SETTINGS[f.key];
     return { field, key: f.key, editor: f.editor, ...(f.options ? { options: f.options } : {}), value: avanzadoValue(field, s), defecto: ("defecto" in d ? d.defecto : undefined) ?? d.default, frase: d.frase };
   });
 

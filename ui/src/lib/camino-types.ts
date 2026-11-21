@@ -25,7 +25,10 @@ export type CaminoRead = {
   title: string;
   version: number;
   config: CaminoConfigRead;
-  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; mode?: "command" | "merge"; prod_migrations: string | null } | null; capture: boolean; capture_pages?: string[]; vercel: boolean };
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; mode?: "command" | "merge"; prod_migrations: string | null } | null; capture: boolean; capture_pages?: string[]; vercel: boolean;
+    // PLA-133: moved here from Ajustes › Avanzado (src/camino/store.ts caminoRead); null: the default holds.
+    start_branch?: string | null; start_default?: string; github_token_env?: string | null; release_on?: "env" | "branch" | null; release_target?: string | null;
+    vercel_config?: { project_id: string; team_id: string | null; token_env: string | null; targets: Record<string, string> | null } | null };
   discovery: Discovery | null;
   checked_at: string | null;
   checking: boolean;

@@ -10,8 +10,9 @@ import { camino, projects, type CaminoDest, type Project } from "../db/schema.js
 import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { setProject } from "../mcp/project.js";
+import { ENV_NAME } from "../mcp/settings-registry.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
-import { startBranchProblem } from "../runner/start-branch.js";
+import { startBranchOf, startBranchProblem } from "../runner/start-branch.js";
 import { GITHUB_REPO } from "../runner/repo-check.js";
 import { originOf, repoOfRemote } from "./mac.js";
 import { addHistory, caminoDeps, caminoRow, githubFor, type CaminoDeps } from "./store.js";
@@ -40,6 +41,32 @@ export const ChangeSchema = z.discriminatedUnion("kind", [
   // PLA-132: Plania: how the release step ships (settings.release.mode): the owner runs the command, or merges from
   // Plania's screen. Moved here from Ajustes.
   z.object({ kind: z.literal("release_mode"), label, mode: z.enum(["command", "merge"]) }).strict(),
+  // PLA-133: Plania: the four settings that lived only in Ajustes › Avanzado. Each writes the same settings key its
+  // readers use (the runner and Aceptar read start_branch, the GitHub client github.token_env, the pollers
+  // release_target, release_on and vercel), so nothing reads Camino for them.
+  //   start_branch      the branch Taller starts from and Aceptar merges into (never a protected one); null: default.
+  //   github_key_env    the variable that holds the GitHub key, instead of gh's login or the key file; null: none.
+  //   release_rule      what counts as released (on: env | branch, null: Plania decides) and the environment that
+  //                     counts (target, null: prod).
+  //   vercel            which Vercel project the deploy poller reads, and the variable with its key; null: none.
+  z.object({ kind: z.literal("start_branch"), label, branch: z.string().regex(BRANCH).nullable() }).strict(),
+  z.object({ kind: z.literal("github_key_env"), label, name: z.string().regex(ENV_NAME).nullable() }).strict(),
+  z.object({ kind: z.literal("release_rule"), label, on: z.enum(["env", "branch"]).nullable(), target: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/).nullable() }).strict(),
+  z
+    .object({
+      kind: z.literal("vercel"),
+      label,
+      config: z
+        .object({
+          project_id: z.string().min(1).max(120).regex(/^[A-Za-z0-9._-]+$/),
+          team_id: z.string().min(1).max(120).regex(/^[A-Za-z0-9._-]+$/).nullable(),
+          token_env: z.string().regex(ENV_NAME).nullable(),
+          targets: z.record(z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/), z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/)).nullable(),
+        })
+        .strict()
+        .nullable(),
+    })
+    .strict(),
   // GitHub: one Plania-owned ruleset per role branch (plania-<branch>), in plain words.
   z.object({ kind: z.literal("ruleset"), label, branch: z.string().regex(BRANCH), rule: Rule }).strict(),
   // GitHub: the repo's merge settings.
@@ -56,9 +83,12 @@ export const ChangeSchema = z.discriminatedUnion("kind", [
 export type Change = z.infer<typeof ChangeSchema>;
 export type ChangeKind = Change["kind"];
 
+// PLA-133: kinds that only write the project's settings.
+const PLANIA_SETTING_KINDS = new Set<ChangeKind>(["start_branch", "github_key_env", "release_rule", "vercel"]);
+
 /** Where a change is applied. A ruleset on a repo whose plan has no rules is Plania's own (it enforces it). */
 export const destOf = (c: Change, rulesAvailable = true): CaminoDest =>
-  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" || c.kind === "no_code" || c.kind === "release_mode" ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : c.kind === "file_pr" ? "pr" : "github";
+  c.kind === "config" || c.kind === "roles" || c.kind === "repo" || c.kind === "folder" || c.kind === "no_code" || c.kind === "release_mode" || PLANIA_SETTING_KINDS.has(c.kind) ? "plania" : c.kind === "ruleset" && !rulesAvailable ? "plania" : c.kind === "file_pr" ? "pr" : "github";
 
 const ORDER: Record<CaminoDest, number> = { plania: 0, llavero: 0, proveedor: 1, github: 2, pr: 3 };
 /** The order changes are reviewed and applied in: Plania, the services, GitHub's API, then PRs; stable within each. */
@@ -199,6 +229,37 @@ async function applyOne(x: Ctx, c: Change): Promise<{ undo: string | null; note?
       if (!release) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "mode", reason: "no_release" });
       await settingsPatch(db, p, { release: { ...release, mode: c.mode } });
       return { undo: w.undoMode(release.mode ?? "command") };
+    }
+    case "start_branch": {
+      // null puts the default back.
+      const problem = c.branch === null ? null : startBranchProblem(c.branch);
+      if (problem) throw new ToolError("CAMINO_CHANGE_INVALID", { field: "branch", reason: problem.startsWith("never") ? "protected_branch" : "branch_name" });
+      const prev = startBranchOf(p.settings);
+      await settingsPatch(db, p, { start_branch: c.branch });
+      return { undo: w.undoStart(prev) };
+    }
+    case "github_key_env": {
+      // As Avanzado did: the variable sits beside the repository; a project with no code keeps only the variable.
+      const prev = p.settings.github?.token_env ?? null;
+      const { token_env: _old, ...rest } = p.settings.github ?? ({} as { repo?: string; token_env?: string });
+      const github = c.name ? { ...rest, token_env: c.name } : rest;
+      await settingsPatch(db, p, { github: Object.keys(github).length ? github : null });
+      return { undo: w.undoKeyEnv(prev) };
+    }
+    case "release_rule": {
+      await settingsPatch(db, p, { release_on: c.on, release_target: c.target });
+      return { undo: w.undoPublished };
+    }
+    case "vercel": {
+      const had = !!p.settings.vercel;
+      if (!c.config) {
+        if (had) await settingsPatch(db, p, { vercel: null });
+        return { undo: w.undoVercel(had) };
+      }
+      // Optional fields left empty are left out, as the poller reads them (token_env defaults to VERCEL_TOKEN).
+      const { project_id, team_id, token_env, targets } = c.config;
+      await settingsPatch(db, p, { vercel: { project_id, ...(team_id ? { team_id } : {}), ...(token_env ? { token_env } : {}), ...(targets && Object.keys(targets).length ? { targets } : {}) } });
+      return { undo: w.undoVercel(had) };
     }
     case "ruleset": {
       await patchConfig(db, p, (cfg) => ({ ...cfg, rules: { ...(cfg.rules ?? {}), [c.branch]: c.rule } }));
