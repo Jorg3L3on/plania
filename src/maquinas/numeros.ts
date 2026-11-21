@@ -14,11 +14,12 @@ import pg from "pg";
 import type { Db } from "../db/client.js";
 import { maquinaCopias } from "../db/schema.js";
 import { and, eq, isNull } from "drizzle-orm";
-import { appBaseUrl, copyRuntime, idOf } from "../captures/prueba.js";
+import { appBaseUrl, copyRuntime, idOf, pruebaLog } from "../captures/prueba.js";
+import { secretValues } from "./env.js";
 import { worktreeRoot } from "../runner/worktree.js";
 import { copiasRead, START_ID, type CopiaRead } from "./copias.js";
 import { MaquinaError } from "./errors.js";
-import { menv, projectOf, type ProjectRow } from "./machines.js";
+import { appEnvOf, menv, projectOf, type ProjectRow } from "./machines.js";
 import { migrationsOf, type Queryable } from "./reader.js";
 import { defineWords, say } from "../words.js";
 
@@ -274,6 +275,8 @@ export type ServerNumbers = {
   cpu_samples: number[];
   mem_samples: number[];
   disk: DiskSplit | null;
+  // The last request line, or for a copy that did not start its first error line; scrubbed like the log.
+  line: string | null;
 };
 export type BaseNumbers = {
   name: string;
@@ -304,13 +307,22 @@ function urlFor(base: string, name: string): string {
 }
 const num = (v: unknown): number | null => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
-async function serverNumbers(slug: string, c: CopiaRead): Promise<ServerNumbers> {
+const REQ_LINE = /\b(GET|POST|PUT|PATCH|DELETE|HEAD)\s+\S+.*?\b[1-5]\d\d\b/;
+const ERR_LINE = /\b(error|missing|exited|fatal|cannot|failed)\b/i;
+function lineOf(slug: string, id: string, failed: boolean, secrets: string[]): string | null {
+  const lines = pruebaLog(id, secrets);
+  if (failed) return lines.find((l) => ERR_LINE.test(l))?.trim().slice(0, 200) ?? null;
+  return [...lines].reverse().find((l) => REQ_LINE.test(l))?.trim().slice(0, 200) ?? null;
+}
+
+async function serverNumbers(slug: string, c: CopiaRead, secrets: string[]): Promise<ServerNumbers> {
   const id = copyIdOf(slug, c);
   const rt = copyRuntime(id);
+  const line = rt ? lineOf(slug, id, c.phase === "failed", secrets) : null;
   const on = !!rt?.pid && LIVE.has(c.phase);
   const wt = c.worktree ?? rt?.worktree ?? null;
   const disk = wt && existsSync(wt) ? await diskOf(wt) : null;
-  if (!on) return { on: false, cpu: null, mem_bytes: null, uptime_s: null, response_ms: null, cpu_samples: [], mem_samples: [], disk };
+  if (!on) return { on: false, cpu: null, mem_bytes: null, uptime_s: null, response_ms: null, cpu_samples: [], mem_samples: [], disk, line };
   if (!samples.get(id)) await sampleTick([{ id, pid: rt!.pid! }]);
   const s = samples.get(id);
   return {
@@ -322,6 +334,7 @@ async function serverNumbers(slug: string, c: CopiaRead): Promise<ServerNumbers>
     cpu_samples: s?.cpu ?? [],
     mem_samples: s?.mem ?? [],
     disk,
+    line,
   };
 }
 
@@ -339,7 +352,7 @@ async function baseNumbers(p: ProjectRow, c: CopiaRead, base: string, createdAt:
     const [r] = await q(url, BASE_SQL);
     const client: Queryable = { query: async (sql: string, params?: unknown[]) => ({ rows: (await q(url, sql, params)) as any[] }) };
     const m = await migrationsOf(client, p, c.worktree && existsSync(c.worktree) ? c.worktree : null).catch(() => null);
-    return { name, reachable: true, size_bytes: num(r?.size), tables: num(r?.tables), rows: num(r?.rows), connections: num(r?.connections), migrations: m && m.files.length ? { applied: m.applied, pending: m.pending } : null, origin };
+    return { name, reachable: true, size_bytes: num(r?.size), tables: num(r?.tables), rows: num(r?.rows), connections: num(r?.connections), migrations: m && m.table && m.files.length ? { applied: m.applied, pending: m.pending } : null, origin };
   } catch {
     return { name, reachable: false, size_bytes: null, tables: null, rows: null, connections: null, migrations: null, origin };
   }
@@ -360,9 +373,10 @@ export async function numerosRead(db: Db, slug: string): Promise<NumerosRead> {
   const servers: Record<string, ServerNumbers> = {};
   const bases: Record<string, BaseNumbers> = {};
   const base = appBaseUrl(p);
+  const secrets = secretValues(appEnvOf(p).env.values);
   for (const c of copias) {
     if (c.kind === "iniciativa" && !c.worktree) continue; // never made: nothing to count
-    servers[c.id] = await serverNumbers(slug, c);
+    servers[c.id] = await serverNumbers(slug, c, secrets);
     if (c.database && base) bases[c.id] = await baseNumbers(p, c, base, c.key ? (created.get(c.key) ?? null) : null);
   }
   const disk = (deps.disk ?? defaultDisk)(existsSync(worktreeRoot(menv())) ? worktreeRoot(menv()) : "/");

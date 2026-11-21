@@ -1,537 +1,1235 @@
-// PLA-I62-8: Máquinas (board D2), the project's services, the building's lower level redrawn with the same reads and
-// calls (lib/maquinas.ts maqView). The app (its last capture or live, Computadora / Teléfono, its pages, Tomar
-// captura, Abrir); Servidor (state in words, Encender / Apagar / Reiniciar / Reintentar, address, last log line and
-// the log); Base de datos (Encender / Apagar; Más: Aplicar migraciones, Sembrar, and Vaciar y sembrar apart, with its
-// consequence and a confirmation that names the rows); its tables (rows of one, the map); Llaves; Pruebas (Correr);
-// the test walk (Cómo probarla, ticks, Copiar una contraseña nueva, Algo falló → Pedir). States: sin configurar,
-// apagada, encendiendo, encendida, no arrancó. The state is always said in words, never by colour alone.
-// PLA-I2-10: its words in lib/maquinas-words.ts, in both languages.
-import { useEffect, useRef, useState } from "react";
+// PLA-I72-5: Máquinas, el cuarto de máquinas (pass 10 of the approved canvas). For whoever looks after the project's
+// services on this Mac: a summary on top with the «Entrar a tu app» strip (the test user and its kept password, the
+// eye, copy, Cambiarla), the shared machines on the left (Esta Mac, Motor de bases, Llaves de la app), one row per
+// copy (the start copy and one per open initiative: name and state, its Servidor switch, Borrar la copia, its server,
+// its base and its app), the leftovers full width below, and each machine's detail in a drawer (Esc closes it). No
+// still of the app, no Tomar captura, no Pruebas and no test walk here: the app opens in its own tab. Rules and words
+// in lib/cuarto.ts and lib/maquinas-words.ts (CUARTO_WORDS), tested without a browser.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Copy, Database, Eye, EyeOff, Folder, KeyRound, Laptop, Server, X } from "lucide-react";
 import { ApiError, api, type OrgProject } from "@/lib/api";
-import { bytes, filas, maqView, pedirFallo, serverUp, setupLine, tickKey, type MaquinasRead, type Paso } from "@/lib/maquinas";
-import type { CapturesRead } from "@/lib/ventana";
-import { Btn, Label, Opt, ReadError } from "./parts";
-import { noDisponible } from "@/lib/sistema";
+import type { LlavesRead, MaquinasRead, RowsRead, TablesRead } from "@/lib/maquinas";
+import {
+  appUrl,
+  basesList,
+  copyName,
+  copySub,
+  cpuText,
+  dayOf,
+  diskBars,
+  errorLine,
+  focusKey,
+  focusOf,
+  isOn,
+  leftLine,
+  missingKey,
+  pct,
+  pillTone,
+  pillWord,
+  rowState,
+  since,
+  size,
+  sizeText,
+  spark,
+  summaryOf,
+  switchOf,
+  type Copia,
+  type CopiasRead,
+  type EntrarRead,
+  type Focus,
+  type Numeros,
+  type Sobrante,
+  type SobrantesRead,
+} from "@/lib/cuarto";
+import { CUARTO_WORDS } from "@/lib/maquinas-words";
 import { words } from "@/lib/i18n";
-import { MAQUINAS_WORDS } from "@/lib/maquinas-words";
+import { Btn, Logo, ReadError } from "./parts";
 
-const ERR = (e: unknown, what: string) => (e instanceof ApiError ? `${what} (${e.code}).` : words(MAQUINAS_WORDS).errAsleep(what));
-const readTicks = (k: string): number[] => {
+const W = () => words(CUARTO_WORDS);
+const errText = (e: unknown, what: string) => (e instanceof ApiError ? (typeof e.detail.hint === "string" && e.detail.hint ? `${what}: ${e.detail.hint}` : W().errAct(what, e.code)) : W().errAsleep(what));
+const copyText = async (text: string, said: string) => {
   try {
-    const v = JSON.parse(window.localStorage.getItem(k) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "number") : [];
+    await navigator.clipboard.writeText(text);
   } catch {
-    return [];
+    /* the browser refused: nothing to do */
   }
+  toast.success(said);
 };
+const failedTail = (x: { ok: boolean; steps: { tail: string[] }[] }) => x.steps.at(-1)?.tail.at(-1) ?? null;
 
-const Light = ({ on, word, tone }: { on: boolean; word: string; tone: "ok" | "bad" | "live" | undefined }) => (
-  <span className={`cor-state ${tone ?? ""}`} data-light={on ? "on" : "off"}>
-    {on ? "● " : "○ "}
-    {word}
+type Tone = "ok" | "bad" | "live" | "";
+const Dot = ({ tone }: { tone: Tone | "warn" }) => <span className={`cq-dot ${tone}`} aria-hidden />;
+const Pill = ({ tone, children }: { tone: Tone; children: ReactNode }) => (
+  <span className={`cq-pill ${tone}`}>
+    <Dot tone={tone} />
+    {children}
   </span>
 );
-
-// PLA-116: one key of Llaves. Falta offers Poner, Puesta offers Cambiar; the field is a password field (Mostrar
-// toggles it) and the value leaves the browser once, in the save. Nothing reads it back.
-const LlaveRow = ({ slug, name, set, file, serverUp: up }: { slug: string; name: string; set: boolean; file: string | null; serverUp: boolean }) => {
-  const w = words(MAQUINAS_WORDS);
-  const client = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const [show, setShow] = useState(false);
-  const field = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (open) field.current?.focus();
-  }, [open]);
-  const close = () => {
-    setOpen(false);
-    setValue("");
-    setShow(false);
-  };
-  const save = useMutation({
-    mutationFn: () => api.ponerLlave(slug, name, value),
-    onSuccess: (read) => {
-      client.setQueryData(["maq-llaves", slug], read);
-      close();
-      toast.success(w.keySaved(name), up ? { description: w.keyRestart, duration: 8000 } : undefined);
-    },
-    onError: (e) => toast.error(e instanceof ApiError && typeof e.detail.hint === "string" ? `${w.keyErr}: ${e.detail.hint}` : ERR(e, w.keyErr)),
-  });
+const Num = ({ n, unit }: { n: string; unit?: string }) => (
+  <b className="cq-num">
+    {n}
+    {unit ? <small>{unit}</small> : null}
+  </b>
+);
+const Spark = ({ values, h = 14 }: { values: number[]; h?: number }) => {
+  const p = spark(values, h);
+  if (!p) return null;
   return (
-    <li className="cor-row cor-llave" data-llave={name} data-open={open ? "1" : undefined}>
-      <div className="cor-llave-line">
-        <span className="cor-mono cor-ellipsis" style={{ flex: 1 }}>
-          {name}
+    <svg viewBox={`0 0 100 ${h}`} preserveAspectRatio="none" aria-hidden>
+      <path className="cq-spa" d={p.area} />
+      <path className="cq-spk" d={p.line} />
+    </svg>
+  );
+};
+const Gauge = ({ label, value, share, warn }: { label: string; value: string; share: number | null; warn?: boolean }) => (
+  <span className="cq-gauge">
+    <span className="cq-gt">
+      <span>{label}</span>
+      <b>{value}</b>
+    </span>
+    <span className="cq-gb" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={share ?? 0}>
+      <i className={warn ? "warn" : ""} style={{ width: `${share ?? 0}%` }} />
+    </span>
+  </span>
+);
+const num = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString());
+
+// ---- the login strip
+
+const Login = ({ slug, read, copias }: { slug: string; read: EntrarRead | undefined; copias: Copia[] }) => {
+  const w = W();
+  const client = useQueryClient();
+  const [show, setShow] = useState(false);
+  const [ask, setAsk] = useState(false);
+  const change = useMutation({
+    mutationFn: () => api.cambiarContrasena(slug),
+    onSuccess: (r) => {
+      client.setQueryData(["maq-entrar", slug], r);
+      setAsk(false);
+      setShow(true);
+      toast.success(w.changed(r.set_in.length), r.stale.length ? { description: w.staleCopies(r.stale.length) } : undefined);
+    },
+    onError: (e) => toast.error(errText(e, w.errPassword)),
+  });
+  if (!read?.user) return null;
+  const pw = read.password;
+  const stale = read.stale.filter((id) => copias.some((c) => c.id === id));
+  return (
+    <div className="cq-login" role="group" aria-label={w.login} data-entrar>
+      <span className="cq-lt">{w.login}</span>
+      <span className="cq-f">
+        <span>{w.user}</span>
+        <b className="cor-mono cor-ellipsis" data-usuario>
+          {read.user}
+        </b>
+        <button type="button" className="cq-ico" aria-label={w.copyUser} onClick={() => void copyText(read.user!, w.copied)} data-control="copiar-usuario">
+          <Copy size={15} aria-hidden />
+        </button>
+      </span>
+      {read.can_password && (
+        <span className="cq-f">
+          <span>{w.password}</span>
+          <b className={`cor-mono ${!pw ? "unset" : !show ? "masked" : ""}`} data-contrasena={show && pw ? "visible" : "oculta"} title={stale.length ? w.staleCopies(stale.length) : undefined}>
+            {pw ? (show ? pw : "••••••••••") : w.noPassword}
+          </b>
+          {pw && (
+            <>
+              <button type="button" className="cq-ico" aria-pressed={show} aria-label={show ? w.hide : w.show} onClick={() => setShow(!show)} data-control="ojo">
+                {show ? <EyeOff size={15} aria-hidden /> : <Eye size={15} aria-hidden />}
+              </button>
+              <button type="button" className="cq-ico" aria-label={w.copyPassword} onClick={() => void copyText(pw, w.copied)} data-control="copiar-contrasena">
+                <Copy size={15} aria-hidden />
+              </button>
+            </>
+          )}
         </span>
-        <span className={`cor-state ${set ? "ok" : "bad"}`}>{set ? w.keySet : w.keyMissing}</span>
-        {!open && (
-          <Btn kind="link" small onClick={() => setOpen(true)} data-control="llave-poner" aria-label={`${set ? w.keyChange : w.keyPut} ${name}`}>
-            {set ? w.keyChange : w.keyPut}
+      )}
+      {read.can_password &&
+        (!pw ? (
+          <Btn kind="quiet" small disabled={change.isPending} onClick={() => change.mutate()} data-control="poner-contrasena">
+            {w.setOne}
+          </Btn>
+        ) : ask ? (
+          <span className="cq-ask">
+            <Btn kind="danger" small disabled={change.isPending} onClick={() => change.mutate()} data-control="cambiar-si">
+              {w.changeAll}
+            </Btn>
+            <Btn kind="quiet" small onClick={() => setAsk(false)} data-control="cambiar-no">
+              {w.no}
+            </Btn>
+          </span>
+        ) : (
+          <Btn kind="quiet" small onClick={() => setAsk(true)} data-control="cambiarla">
+            {w.change}
+          </Btn>
+        ))}
+    </div>
+  );
+};
+
+// ---- one row per copy
+
+type Act = (key: string, call: () => Promise<unknown>, ok?: () => void) => void;
+type RowProps = { slug: string; p: OrgProject; c: Copia; n: Numeros | undefined; ownBases: boolean; open: Focus | null; busy: string | null; onOpen: (f: Focus) => void; act: Act };
+
+const Line = ({ slug, p, c, n, ownBases, open, busy, onOpen, act }: RowProps) => {
+  const w = W();
+  const [askDel, setAskDel] = useState(false);
+  const st = rowState(c);
+  const sw = switchOf(c);
+  const sn = n?.servers[c.id];
+  const bn = n?.bases[c.id];
+  const name = copyName(c);
+  const url = appUrl(c);
+  const copySize = (sn?.disk?.total ?? 0) + (bn?.size_bytes ?? 0);
+  const live = st === "on";
+  const mem = size(sn?.mem_bytes ?? null);
+  const dsk = size(sn?.disk?.total ?? null);
+  const bsize = size(bn?.size_bytes ?? null);
+  const baseSub = c.kind === "inicio" ? (ownBases ? w.baseCopyOfApp : w.baseOfApp) : w.baseOfStart(dayOf(bn?.origin.at ?? null));
+  const pending = bn?.migrations?.pending ?? 0;
+  return (
+    <div className={`cq-ln ${st === "failed" ? "bad" : ""} ${open?.who === c.id ? "focus" : ""}`} data-copia={c.id} data-estado={st}>
+      <div className="cq-idc">
+        <div className="cq-idt">
+          <div className="cq-nm cor-ellipsis" title={name}>
+            {name}
+          </div>
+          <div className="cq-stage cor-ellipsis">{copySub(c)}</div>
+        </div>
+        <div className="cq-meta">
+          <Pill tone={pillTone(st)}>{pillWord(st)}</Pill>
+          {copySize > 0 && <span className="cor-ellipsis">{w.onDisk(sizeText(copySize))}</span>}
+        </div>
+        <div className="cq-meta">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={sw.on}
+            className="cq-sw"
+            disabled={!sw.can || !!busy || st === "unavailable" || st === "outside"}
+            aria-label={w.serverSwitch(name, sw.on)}
+            onClick={() => act(`sw:${c.id}`, () => api.copiaAct(slug, c.id, sw.on ? "apagar" : "encender"))}
+            data-control="servidor"
+          >
+            <span className="cq-tr" aria-hidden />
+            {w.server}
+          </button>
+          {c.kind === "iniciativa" && c.made && (
+            <Btn kind="quiet" small className="cq-del" onClick={() => setAskDel(true)} data-control="borrar-copia">
+              {w.deleteCopy}
+            </Btn>
+          )}
+        </div>
+      </div>
+      <button type="button" className={`cq-cell ${st === "failed" ? "bad" : ""}`} onClick={() => onOpen({ who: c.id, part: "servidor" })} aria-label={`${w.server} · ${name}`} data-abre="servidor">
+        <span className="cq-ch">
+          {w.server}
+          <span className="cq-sub cor-mono">{c.port ? `localhost:${c.port}` : ""}</span>
+          <span className="cq-go">{w.detail}</span>
+        </span>
+        <span className="cq-tiles t4">
+          <span className={`cq-tile ${live ? "" : "dim"}`}>
+            <span>{w.cpu}</span>
+            <Num n={live ? cpuText(sn?.cpu ?? null) : "—"} unit="%" />
+            {live && <Spark values={sn?.cpu_samples ?? []} />}
+          </span>
+          <span className={`cq-tile ${live ? "" : "dim"}`}>
+            <span>{w.mem}</span>
+            <Num n={live && mem ? mem.v : "—"} unit={live && mem ? mem.u : "MB"} />
+            {live && <Spark values={sn?.mem_samples ?? []} />}
+          </span>
+          <span className={`cq-tile ${dsk ? "" : "dim"}`}>
+            <span>{w.disk}</span>
+            <Num n={dsk?.v ?? "—"} unit={dsk?.u ?? ""} />
+          </span>
+          <span className={`cq-tile ${live ? "" : "dim"}`}>
+            <span>{w.up}</span>
+            <Num n={live ? since(sn?.uptime_s ?? null) : "—"} />
+          </span>
+        </span>
+        <span className={`cq-foot cor-mono ${st === "failed" ? "err" : ""}`}>{st === "failed" ? (sn?.line ?? c.error ?? "") : st === "never" ? w.noCopyYet : (sn?.line ?? "")}</span>
+      </button>
+      <button type="button" className="cq-cell" onClick={() => onOpen({ who: c.id, part: "base" })} aria-label={`${w.base} · ${name}`} data-abre="base" disabled={!c.database}>
+        <span className="cq-ch">
+          {w.base}
+          <span className="cq-sub cor-mono">{c.database ? baseSub : ""}</span>
+          {c.database && <span className="cq-go">{w.detail}</span>}
+        </span>
+        {c.database ? (
+          <>
+            <span className="cq-tiles t3">
+              <span className={`cq-tile ${bsize ? "" : "dim"}`}>
+                <span>{w.size}</span>
+                <Num n={bsize?.v ?? "—"} unit={bsize?.u ?? ""} />
+              </span>
+              <span className={`cq-tile ${bn?.rows !== null && bn?.rows !== undefined ? "" : "dim"}`}>
+                <span>{w.rows}</span>
+                <Num n={num(bn?.rows)} />
+              </span>
+              <span className={`cq-tile ${bn?.connections ? "" : "dim"}`}>
+                <span>{w.connections}</span>
+                <Num n={num(bn?.connections)} />
+              </span>
+            </span>
+            <span className={`cq-foot cor-mono ${pending ? "warn" : ""}`}>
+              {bn && !bn.reachable ? w.baseUnreachable : bn ? [bn.tables !== null ? w.tables(bn.tables) : null, bn.migrations ? (pending ? w.migrationsPending(pending) : w.migrationsOk) : null].filter(Boolean).join(" · ") : ""}
+            </span>
+          </>
+        ) : (
+          <span className="cq-foot">{c.kind === "inicio" ? w.noBase : st === "never" ? w.noCopyYet : ""}</span>
+        )}
+      </button>
+      <div className="cq-cell cq-appc">
+        <span className="cq-ar">
+          <span className={`cq-ring ${live ? "on" : st === "failed" ? "bad" : ""}`} aria-hidden>
+            <Logo slug={p.slug} title={p.title} size="sm" />
+          </span>
+          <span className="cq-arw">
+            <span className="cq-yl">{live || st === "outside" ? w.yourAppAnswers : w.yourApp}</span>
+            <span className="cq-v">{live || st === "outside" ? w.answersIn(sn?.response_ms ?? null) : st === "starting" ? w.startingApp : w.noServer}</span>
+          </span>
+        </span>
+        {url ? (
+          <a className="cor-btn secondary small" href={url} target="_blank" rel="noreferrer" aria-label={w.openAppOf(name)} data-control="abrir-app">
+            {w.openApp}
+          </a>
+        ) : (
+          <Btn small disabled aria-label={w.openAppOf(name)} data-control="abrir-app">
+            {w.openApp}
           </Btn>
         )}
       </div>
-      {open && (
+      {askDel && (
+        <div className="cq-confirm" role="alertdialog" aria-label={w.deleteCopy}>
+          <span>{w.deleteAsk(name, sizeText(copySize))}</span>
+          <Btn
+            kind="danger"
+            small
+            disabled={!!busy}
+            onClick={() =>
+              act(`del:${c.id}`, () => api.copiaAct(slug, c.id, "borrar"), () => {
+                setAskDel(false);
+                toast.success(w.freed(name));
+              })
+            }
+            data-control="borrar-copia-si"
+          >
+            {w.deleteYes}
+          </Btn>
+          <Btn kind="quiet" small onClick={() => setAskDel(false)} data-control="borrar-copia-no">
+            {w.no}
+          </Btn>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---- the leftovers
+
+const LeftIcon = ({ kind }: { kind: "db" | "server" | "folder" }) => (kind === "db" ? <Database size={14} aria-hidden /> : kind === "server" ? <Server size={14} aria-hidden /> : <Folder size={14} aria-hidden />);
+const Leftovers = ({ slug, read, busy, act }: { slug: string; read: SobrantesRead | undefined; busy: string | null; act: Act }) => {
+  const w = W();
+  const [askAll, setAskAll] = useState(false);
+  const list = read?.sobrantes ?? [];
+  const total = sizeText(read?.total_bytes ?? 0);
+  return (
+    <section className={`cq-left ${list.length ? "" : "clean"}`} aria-label={w.leftTitle} id="cq-sobrantes" data-sobrantes={list.length}>
+      <div className="cq-lh">
+        <span className="cq-lhead">
+          <Dot tone={list.length ? "warn" : "ok"} />
+          <b>{w.leftTitle}</b>
+        </span>
+        <span className="cq-hint">{list.length ? w.leftHint : w.leftNone}</span>
+      </div>
+      {list.length > 0 && (
+        <div className="cq-lrows">
+          {list.map((s: Sobrante) => {
+            const l = leftLine(s);
+            return (
+              <div className="cq-lr" key={s.id} data-sobrante={s.id}>
+                <span className="cq-lmain">
+                  <span className="cq-lgl">
+                    <LeftIcon kind={l.icon} />
+                    <span className="cor-ellipsis">{l.kind}</span>
+                    {l.amount && <em>{l.amount}</em>}
+                  </span>
+                  <b className="cor-mono" title={s.name}>
+                    {l.name}
+                  </b>
+                  <span title={l.from}>{l.from}</span>
+                </span>
+                <Btn kind="danger" small disabled={!!busy} onClick={() => act(`sob:${s.id}`, () => api.borrarSobrante(slug, s.id), () => toast.success(w.freed(l.name)))} data-control="borrar-sobrante">
+                  {l.button}
+                </Btn>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {list.length > 0 && (
+        <div className="cq-lall">
+          {askAll ? (
+            <>
+              <span className="cq-hint">{w.delAllAsk(list.length, total)}</span>
+              <span className="cq-ask">
+                <Btn
+                  kind="danger"
+                  small
+                  disabled={!!busy}
+                  onClick={() =>
+                    act("sob:todo", () => api.borrarSobrantes(slug, list.length), () => {
+                      setAskAll(false);
+                      toast.success(w.freed(w.leftTitle));
+                    })
+                  }
+                  data-control="borrar-todo-si"
+                >
+                  {w.delAllYes}
+                </Btn>
+                <Btn kind="quiet" small onClick={() => setAskAll(false)} data-control="borrar-todo-no">
+                  {w.no}
+                </Btn>
+              </span>
+            </>
+          ) : (
+            <Btn kind="danger" small onClick={() => setAskAll(true)} data-control="borrar-todo">
+              {w.delAll(total)}
+            </Btn>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+
+// ---- the drawer
+
+const Sec = ({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) => (
+  <div className="cq-sec">
+    <h3>
+      {title}
+      {aside ? <em>{aside}</em> : null}
+    </h3>
+    {children}
+  </div>
+);
+
+const KeyRow = ({ slug, name, set, only, editing, onEdit, onSaved }: { slug: string; name: string; set: boolean; only?: string[]; editing: boolean; onEdit: (on: boolean) => void; onSaved: (r: LlavesRead) => void }) => {
+  const w = W();
+  const [value, setValue] = useState("");
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) field.current?.focus();
+  }, [editing]);
+  const save = useMutation({
+    mutationFn: () => api.ponerLlave(slug, name, value),
+    onSuccess: (r) => {
+      setValue("");
+      onEdit(false);
+      onSaved(r);
+      toast.success(w.keySaved(name));
+    },
+    onError: (e) => toast.error(errText(e, w.keyErr)),
+  });
+  return (
+    <div className={`cq-row ${set ? "" : "bad"}`} data-llave={name}>
+      <span className="cq-rt">
+        <b className="cor-mono">{name}</b>
+        {only?.length ? <span>{w.keyOnly(only.join(", "))}</span> : null}
+      </span>
+      <span className={`cq-rv ${set ? "ok" : "bad"}`}>{set ? w.keySetWord : w.keyMissingWord}</span>
+      {!editing ? (
+        <Btn small kind={set ? "secondary" : "primary"} onClick={() => onEdit(true)} data-control="llave-poner" aria-label={`${set ? w.keyChangeBtn : w.keyPutBtn} ${name}`}>
+          {set ? w.keyChangeBtn : w.keyPutBtn}
+        </Btn>
+      ) : (
+        <span />
+      )}
+      {editing && (
         <form
-          className="cor-llave-form"
+          className="cq-field"
           onSubmit={(e) => {
             e.preventDefault();
             if (value.trim() && !save.isPending) save.mutate();
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
+              e.preventDefault();
               e.stopPropagation();
-              close();
+              onEdit(false);
             }
           }}
         >
-          <div className="cor-llave-field">
-            <input
-              ref={field}
-              className="cor-input cor-mono"
-              type={show ? "text" : "password"}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              autoComplete="new-password"
-              spellCheck={false}
-              aria-label={w.keyField(name)}
-              data-campo="llave-valor"
-            />
-            <Btn kind="link" small onClick={() => setShow(!show)} aria-pressed={show} data-control="llave-mostrar">
-              {show ? w.keyHide : w.keyShow}
-            </Btn>
-          </div>
-          <span className="cor-cap">{w.keyWhere(file)}</span>
-          <div className="cor-llave-actions">
-            <Btn kind="primary" small type="submit" disabled={!value.trim() || save.isPending} data-control="llave-guardar">
-              {w.keySave}
-            </Btn>
-            <Btn small onClick={close} data-control="llave-cancelar">
-              {w.keyCancel}
-            </Btn>
-          </div>
+          <input ref={field} type="password" className="cor-input cor-mono" value={value} onChange={(e) => setValue(e.target.value)} placeholder={w.keyPlaceholder(name)} aria-label={w.keyValue(name)} autoComplete="new-password" spellCheck={false} data-campo="llave-valor" />
+          <Btn kind="primary" small type="submit" disabled={!value.trim() || save.isPending} data-control="llave-guardar">
+            {w.keySave}
+          </Btn>
+          <Btn kind="quiet" small onClick={() => onEdit(false)} data-control="llave-cancelar">
+            {w.keyCancel}
+          </Btn>
         </form>
       )}
-    </li>
+    </div>
   );
 };
 
-export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedir: (text: string) => void; focus: string | null; onFocus: (what: string | null) => void }) => {
+type DrawerProps = {
+  slug: string;
+  f: Focus;
+  r: CopiasRead;
+  n: Numeros | undefined;
+  left: SobrantesRead | undefined;
+  llaves: LlavesRead | undefined;
+  maq: MaquinasRead | undefined;
+  busy: string | null;
+  editKey: string | null;
+  setEditKey: (k: string | null) => void;
+  onOpen: (f: Focus | null) => void;
+  onPedir: (text: string) => void;
+  act: Act;
+};
+
+const MacBody = ({ slug, r, n, left, busy, onOpen, act }: DrawerProps) => {
+  const w = W();
+  const m = n?.mac;
+  const dFree = size(m?.disk_free ?? null);
+  const mFree = size(m?.mem_free ?? null);
+  const on = r.copias.filter(isOn);
+  return (
+    <>
+      <div className="cq-stat s2">
+        <div>
+          <span>{w.freeDiskT}</span>
+          <Num n={dFree?.v ?? "—"} unit={dFree ? `${dFree.u} ${w.ofT(sizeText(m?.disk_total ?? null))}` : ""} />
+        </div>
+        <div>
+          <span>{w.freeMemT}</span>
+          <Num n={mFree?.v ?? "—"} unit={mFree ? `${mFree.u} ${w.ofT(sizeText(m?.mem_total ?? null))}` : ""} />
+        </div>
+      </div>
+      <Sec title={w.usesMemory}>
+        <div className="cq-rows">
+          {on.length === 0 && <p className="cq-note cq-pad">{w.nothingOn}</p>}
+          {on.map((x) => (
+            <div className="cq-row" key={x.id}>
+              <span className="cq-rt">
+                <b>{copyName(x)}</b>
+                <span>{w.serverOf}</span>
+              </span>
+              <span className="cq-rv">{sizeText(n?.servers[x.id]?.mem_bytes ?? null) || "—"}</span>
+              <Btn small disabled={!!busy || !x.managed} onClick={() => act(`sw:${x.id}`, () => api.copiaAct(slug, x.id, "apagar"))} data-control="mac-apagar">
+                {w.turnOff}
+              </Btn>
+            </div>
+          ))}
+        </div>
+      </Sec>
+      <Sec title={w.usesDisk}>
+        <div className="cq-rows">
+          {r.copias
+            .filter((x) => x.made || x.kind === "inicio")
+            .map((x) => (
+              <div className="cq-row" key={x.id}>
+                <span className="cq-rt">
+                  <b>{copyName(x)}</b>
+                  <span>{w.folderAndBase}</span>
+                </span>
+                <span className="cq-rv">{sizeText((n?.servers[x.id]?.disk?.total ?? 0) + (n?.bases[x.id]?.size_bytes ?? 0)) || "—"}</span>
+                <Btn small onClick={() => onOpen({ who: x.id, part: "servidor" })} data-control="mac-ver-copia">
+                  {w.see}
+                </Btn>
+              </div>
+            ))}
+          {(left?.total ?? 0) > 0 && (
+            <div className="cq-row warn">
+              <span className="cq-rt">
+                <b>{w.leftTitle}</b>
+                <span>{w.leftRow}</span>
+              </span>
+              <span className="cq-rv">{sizeText(left!.total_bytes)}</span>
+              <Btn
+                small
+                onClick={() => {
+                  onOpen(null);
+                  setTimeout(() => document.getElementById("cq-sobrantes")?.scrollIntoView({ block: "center" }), 50);
+                }}
+                data-control="mac-ver-sobrantes"
+              >
+                {w.see}
+              </Btn>
+            </div>
+          )}
+        </div>
+      </Sec>
+      <p className="cq-note">{w.macNote}</p>
+    </>
+  );
+};
+
+const MotorBody = ({ slug, r, n, left, maq, busy, onOpen, act }: DrawerProps) => {
+  const w = W();
+  const [ask, setAsk] = useState(false);
+  const e = n?.engine;
+  const lever = maq?.base.lever;
+  const off = (!!n && !e?.on) || maq?.base.state === "off";
+  const bases = basesList(r, n);
+  const leftBases = (left?.sobrantes ?? []).filter((x) => x.kind === "base");
+  return (
+    <>
+      <div className="cq-stat s3">
+        <div>
+          <span>{w.basesOf}</span>
+          <Num n={String(e?.project_bases ?? bases.length + leftBases.length)} />
+        </div>
+        <div>
+          <span>{w.connections}</span>
+          <Num n={off ? "0" : num(e?.connections)} unit={e?.max_connections ? w.ofT(String(e.max_connections)) : ""} />
+        </div>
+        <div>
+          <span>{w.upT}</span>
+          <Num n={off ? "—" : since(e?.uptime_s ?? null)} />
+        </div>
+      </div>
+      <Sec title={w.theBases}>
+        <div className="cq-rows">
+          {bases.map((b) => (
+            <div className="cq-row" key={b.id}>
+              <span className="cq-rt">
+                <b>{b.name}</b>
+                <span className="cor-mono">
+                  {b.db} · {w.liveCopy(b.conns)}
+                </span>
+              </span>
+              <span className="cq-rv">{sizeText(b.size) || "—"}</span>
+              <Btn small onClick={() => onOpen({ who: b.id, part: "base" })} data-control="motor-ver-base">
+                {w.see}
+              </Btn>
+            </div>
+          ))}
+          {leftBases.map((s) => (
+            <div className="cq-row warn" key={s.id}>
+              <span className="cq-rt">
+                <b className="cor-mono">{s.name}</b>
+                <span>
+                  {w.leftBase} · {leftLine(s).from}
+                </span>
+              </span>
+              <span className="cq-rv">{sizeText(s.size_bytes)}</span>
+              <Btn small kind="danger" disabled={!!busy} onClick={() => act(`sob:${s.id}`, () => api.borrarSobrante(slug, s.id), () => toast.success(w.freed(s.name)))} data-control="motor-borrar-sobrante">
+                {w.del}
+              </Btn>
+            </div>
+          ))}
+          {!bases.length && !leftBases.length && <p className="cq-note cq-pad">—</p>}
+        </div>
+        <p className="cq-note">{w.engineNote}</p>
+      </Sec>
+      <div className="cq-danger">
+        <h4>{w.allProjects}</h4>
+        {!lever?.can ? (
+          <p>{lever?.reason ?? w.engineCant}</p>
+        ) : off ? (
+          <>
+            <p>{w.engineOffNow}</p>
+            <span className="cq-acts">
+              <Btn kind="primary" disabled={!!busy} onClick={() => act("motor:on", () => api.baseLever(slug, "encender"))} data-control="motor-encender">
+                {w.engineOnBtn}
+              </Btn>
+            </span>
+          </>
+        ) : ask ? (
+          <>
+            <p>{w.engineConfirm(r.copias.filter((x) => x.database && (x.made || x.kind === "inicio")).length)}</p>
+            <span className="cq-acts">
+              <Btn kind="danger" disabled={!!busy} onClick={() => act("motor:off", () => api.baseLever(slug, "apagar"), () => setAsk(false))} data-control="motor-apagar-si">
+                {w.engineOffBtn}
+              </Btn>
+              <Btn kind="quiet" onClick={() => setAsk(false)} data-control="motor-apagar-no">
+                {w.no}
+              </Btn>
+            </span>
+          </>
+        ) : (
+          <>
+            <p>{w.engineAsk}</p>
+            <span className="cq-acts">
+              <Btn kind="danger" onClick={() => setAsk(true)} data-control="motor-apagar">
+                {w.engineAskBtn}
+              </Btn>
+            </span>
+          </>
+        )}
+      </div>
+    </>
+  );
+};
+
+const LlavesBody = ({ slug, r, llaves, busy, editKey, setEditKey, act }: DrawerProps) => {
+  const w = W();
   const client = useQueryClient();
-  const w = words(MAQUINAS_WORDS);
+  const [restart, setRestart] = useState<{ id: string; title: string }[]>([]);
+  const list = llaves?.llaves ?? [];
+  return (
+    <>
+      <div className="cq-rows">
+        {list.length === 0 && <p className="cq-note cq-pad">{w.keysNone}</p>}
+        {list.map((l) => (
+          <KeyRow
+            key={l.name}
+            slug={slug}
+            name={l.name}
+            set={l.set}
+            only={l.iniciativas?.map((k) => r.copias.find((c) => c.key === k)?.title ?? "")?.filter(Boolean)}
+            editing={editKey === l.name}
+            onEdit={(on) => setEditKey(on ? l.name : null)}
+            onSaved={(rr) => {
+              client.setQueryData(["maq-llaves", slug], rr);
+              setRestart(rr.reiniciar ?? []);
+            }}
+          />
+        ))}
+      </div>
+      {restart.length > 0 && (
+        <div className="cq-callout info">
+          <span>{w.keyRestartAsk}</span>
+          <span className="cq-acts">
+            <Btn
+              kind="primary"
+              disabled={!!busy}
+              onClick={() =>
+                act("reiniciar-todas", () => api.reiniciarEncendidas(slug), () => {
+                  toast.success(w.restarted(restart.length));
+                  setRestart([]);
+                })
+              }
+              data-control="reiniciar-encendidas"
+            >
+              {w.keyRestartBtn(restart.length)}
+            </Btn>
+          </span>
+        </div>
+      )}
+      <p className="cq-note">{w.keysNote}</p>
+    </>
+  );
+};
+
+const ServerBody = ({ slug, c, n, llaves, busy, setEditKey, onOpen, onPedir, act }: DrawerProps & { c: Copia }) => {
+  const w = W();
+  const st = rowState(c);
+  const sn = n?.servers[c.id];
+  const live = st === "on";
+  const log = useQuery({ queryKey: ["maq-bitacora", slug, c.id], queryFn: () => api.bitacoraDe(slug, c.id), refetchInterval: 5000, retry: 0 });
+  const lines = log.data?.lines ?? [];
+  const failText = errorLine(lines, sn?.line ?? c.error);
+  const key = st === "failed" ? missingKey([c.error, ...lines].join("\n"), (llaves?.llaves ?? []).filter((l) => !l.set).map((l) => l.name)) : null;
+  const bars = diskBars(sn?.disk ?? null);
+  const cache = sn?.disk?.cache ?? 0;
+  const mem = size(sn?.mem_bytes ?? null);
+  const url = appUrl(c);
+  return (
+    <>
+      <div className="cq-acts">
+        {switchOf(c).on ? (
+          <Btn disabled={!!busy || !c.managed} onClick={() => act(`sw:${c.id}`, () => api.copiaAct(slug, c.id, "apagar"))} data-control="drawer-apagar">
+            {w.turnOff}
+          </Btn>
+        ) : (
+          <Btn kind="primary" disabled={!!busy || st === "unavailable" || st === "outside"} onClick={() => act(`sw:${c.id}`, () => api.copiaAct(slug, c.id, "encender"))} data-control="drawer-encender">
+            {st === "failed" ? w.retry : w.turnOn}
+          </Btn>
+        )}
+        {live && (
+          <Btn disabled={!!busy || !c.managed} onClick={() => act(`re:${c.id}`, () => api.copiaAct(slug, c.id, "reiniciar"))} data-control="drawer-reiniciar">
+            {w.restart}
+          </Btn>
+        )}
+        {url ? (
+          <a className="cor-btn secondary" href={url} target="_blank" rel="noreferrer" data-control="drawer-abrir-app">
+            {w.openApp}
+          </a>
+        ) : (
+          <Btn disabled data-control="drawer-abrir-app">
+            {w.openApp}
+          </Btn>
+        )}
+      </div>
+      <label className="cq-chk">
+        <input
+          type="checkbox"
+          checked={c.keep}
+          disabled={!!busy || (c.kind === "iniciativa" && !c.made) || (c.kind === "inicio" && !c.managed)}
+          onChange={(e) => {
+            const keep = e.target.checked;
+            act(`keep:${c.id}`, () => api.copiaAct(slug, c.id, "quedarse", { keep }), () => toast.success(keep ? w.keepOn(copyName(c)) : w.keepOff(copyName(c))));
+          }}
+          data-control="no-apagarla-sola"
+        />
+        {w.keep}
+      </label>
+      {st === "failed" && (
+        <div className="cq-callout bad">
+          <span>
+            <b>{w.failedT}</b> {key ? w.failedKey(key) : w.failedLog}
+          </span>
+          <span className="cq-acts">
+            {key && (
+              <Btn
+                kind="primary"
+                onClick={() => {
+                  setEditKey(key);
+                  onOpen({ who: "shared", part: "llaves" });
+                }}
+                data-control="poner-la-llave"
+              >
+                {w.putKey}
+              </Btn>
+            )}
+            <Btn onClick={() => onPedir(w.askFixText(copyName(c), failText ?? c.error ?? ""))} data-control="pedir-arreglo">
+              {w.askFix}
+            </Btn>
+          </span>
+        </div>
+      )}
+      <div className="cq-stat">
+        <div>
+          <span>{w.cpu}</span>
+          <Num n={live ? cpuText(sn?.cpu ?? null) : "—"} unit="%" />
+          {live && <Spark values={sn?.cpu_samples ?? []} h={20} />}
+        </div>
+        <div>
+          <span>{w.mem}</span>
+          <Num n={live && mem ? mem.v : "—"} unit={live && mem ? mem.u : "MB"} />
+          {live && <Spark values={sn?.mem_samples ?? []} h={20} />}
+        </div>
+        <div>
+          <span>{w.up}</span>
+          <Num n={live ? since(sn?.uptime_s ?? null) : "—"} />
+        </div>
+        <div>
+          <span>{w.respondsIn}</span>
+          <Num n={live && sn?.response_ms !== null && sn?.response_ms !== undefined ? String(sn.response_ms) : "—"} unit="ms" />
+        </div>
+      </div>
+      <Sec title={w.diskWhat} aside={sizeText(sn?.disk?.total ?? null)}>
+        {bars.length ? (
+          <div className="cq-bars">
+            {bars.map((b) => (
+              <div className="cq-bar" key={b.key}>
+                <span>{b.label}</span>
+                <i style={{ width: `${b.share}%` }} />
+                <em>{b.text}</em>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="cq-note">{w.noFolderYet}</p>
+        )}
+        {cache > 0 ? (
+          <span className="cq-acts">
+            <Btn small disabled={!!busy} onClick={() => act(`cache:${c.id}`, () => api.borrarCache(slug, c.id).then((x) => void toast.success(w.cacheCleared(sizeText(x.freed_bytes)))))} data-control="borrar-cache">
+              {w.clearCache(sizeText(cache))}
+            </Btn>
+          </span>
+        ) : bars.length ? (
+          <p className="cq-note">{w.cacheEmpty}</p>
+        ) : null}
+      </Sec>
+      <Sec
+        title={w.log}
+        aside={
+          <button type="button" className="cor-btn link" onClick={() => void copyText(lines.join("\n"), w.logCopied)} disabled={!lines.length} data-control="copiar-registro">
+            {w.copyLog}
+          </button>
+        }
+      >
+        <pre className="cq-log" tabIndex={0} aria-label={w.log}>
+          {lines.length
+            ? lines.slice(-12).map((l, i) => (
+                <span key={i} className={/\b(error|missing|exited|fatal)\b/i.test(l) ? "e" : undefined}>
+                  {l}
+                  {"\n"}
+                </span>
+              ))
+            : w.noLines}
+        </pre>
+      </Sec>
+    </>
+  );
+};
+
+const BaseBody = ({ slug, c, n, busy, act }: DrawerProps & { c: Copia }) => {
+  const w = W();
+  const [askWipe, setAskWipe] = useState(false);
+  const [openTb, setOpenTb] = useState<string | null>(null);
+  const tablas = useQuery<TablesRead>({ queryKey: ["maq-tablas", slug, c.id], queryFn: () => api.tablas(slug, c.id), enabled: !!c.database, retry: 0, staleTime: 5000 });
+  const filas = useQuery<RowsRead>({ queryKey: ["maq-filas", slug, c.id, openTb], queryFn: () => api.filas(slug, openTb!, 0, c.id), enabled: !!openTb, retry: 0 });
+  const bn = n?.bases[c.id];
+  const t = tablas.data;
+  const pending = t?.migrations.pending ?? bn?.migrations?.pending ?? 0;
+  const applied = t?.migrations.applied ?? bn?.migrations?.applied ?? 0;
+  const heavy = [...(t?.tables ?? [])].sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0) || b.rows - a.rows).slice(0, 6);
+  const max = Math.max(1, ...heavy.map((x) => x.size_bytes ?? x.rows));
+  const rows = t?.total_rows ?? bn?.rows ?? 0;
+  const bsize = size(bn?.size_bytes ?? null);
+  const after = (ok: string, fail: string) => (x: { ok: boolean; steps: { tail: string[] }[] }) => void (x.ok ? toast.success(ok) : toast.error(failedTail(x) ?? fail));
+  return (
+    <>
+      <div className="cq-stat">
+        <div>
+          <span>{w.size}</span>
+          <Num n={bsize?.v ?? "—"} unit={bsize?.u ?? ""} />
+        </div>
+        <div>
+          <span>{w.tablesT}</span>
+          <Num n={num(t?.tables.length ?? bn?.tables)} />
+        </div>
+        <div>
+          <span>{w.rows}</span>
+          <Num n={num(rows)} />
+        </div>
+        <div>
+          <span>{w.connections}</span>
+          <Num n={num(bn?.connections)} />
+        </div>
+      </div>
+      {tablas.isError && <p className="cq-note">{errText(tablas.error, w.baseUnreachable)}</p>}
+      {pending > 0 ? (
+        <div className="cq-callout warn">
+          <span>
+            <b>{w.pendingT(pending)}</b> {w.pendingWhy}
+          </span>
+          <span className="cq-acts">
+            <Btn kind="primary" disabled={!!busy} onClick={() => act(`mig:${c.id}`, () => api.migrar(slug, c.id).then(after(w.applied, w.errDo)))} data-control="aplicar-migracion">
+              {w.applyBtn(pending)}
+            </Btn>
+          </span>
+        </div>
+      ) : t && t.migrations.table && t.migrations.files.length ? (
+        <p className="cq-note">{w.migOk(applied)}</p>
+      ) : null}
+      <Sec title={w.heavy} aside={heavy.length ? w.heavyHint : undefined}>
+        {t && !heavy.length && <p className="cq-note">{w.noTables}</p>}
+        <div className="cq-bars">
+          {heavy.map((x) => (
+            <div key={x.name}>
+              <button type="button" className="cq-bar" aria-expanded={openTb === x.name} onClick={() => setOpenTb(openTb === x.name ? null : x.name)} data-tabla={x.name}>
+                <span>{x.name}</span>
+                <i style={{ width: `${Math.round(((x.size_bytes ?? x.rows) / max) * 100)}%` }} />
+                <em>{x.size_bytes !== null && x.size_bytes !== undefined ? sizeText(x.size_bytes) : num(x.rows)}</em>
+              </button>
+              {openTb === x.name && (
+                <pre className="cq-log" tabIndex={0} aria-label={x.name}>
+                  {filas.data
+                    ? [...filas.data.rows.slice(0, 3).map((row) => filas.data!.columns.slice(0, 4).map((col) => row[col] ?? "—").join(" · ")), filas.data.total > 3 ? w.moreRows(filas.data.total - 3) : ""].filter(Boolean).join("\n") || w.noLines
+                    : filas.isError
+                      ? errText(filas.error, w.baseUnreachable)
+                      : "…"}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      </Sec>
+      <Sec title={w.testData}>
+        <span className="cq-acts">
+          <Btn disabled={!!busy} onClick={() => act(`seed:${c.id}`, () => api.sembrar(slug, c.id).then(after(w.seeded, w.seedFail)))} data-control="sembrar">
+            {w.seedBtn}
+          </Btn>
+        </span>
+      </Sec>
+      <div className="cq-danger">
+        <h4>{w.wipeT}</h4>
+        <p>{c.kind === "inicio" ? w.wipeStart : w.wipeIni}</p>
+        {askWipe ? (
+          <span className="cq-acts">
+            <Btn
+              kind="danger"
+              disabled={!!busy}
+              onClick={() =>
+                c.kind === "inicio"
+                  ? act(`wipe:${c.id}`, () => api.vaciarYSembrar(slug, rows, c.id).then(after(w.wiped, w.errDo)), () => setAskWipe(false))
+                  : act(`wipe:${c.id}`, () => api.copiaAct(slug, c.id, "rehacer"), () => {
+                      setAskWipe(false);
+                      toast.success(w.remade);
+                    })
+              }
+              data-control="vaciar-si"
+            >
+              {c.kind === "inicio" ? w.wipeYesStart(num(rows)) : w.wipeYesIni}
+            </Btn>
+            <Btn kind="quiet" onClick={() => setAskWipe(false)} data-control="vaciar-no">
+              {w.no}
+            </Btn>
+          </span>
+        ) : (
+          <span className="cq-acts">
+            <Btn kind="danger" onClick={() => setAskWipe(true)} disabled={c.kind === "iniciativa" && !c.made} data-control="vaciar">
+              {c.kind === "inicio" ? w.wipeAskStart : w.wipeAskIni}
+            </Btn>
+          </span>
+        )}
+      </div>
+    </>
+  );
+};
+
+const Drawer = (props: DrawerProps) => {
+  const { f, r, llaves, onOpen } = props;
+  const w = W();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, [f.who, f.part]);
+  const c = f.who === "shared" ? null : (r.copias.find((x) => x.id === f.who) ?? null);
+  let title = "";
+  let pill: [Tone, string] | null = null;
+  let sub = "";
+  let body: ReactNode = null;
+  if (f.who === "shared" && f.part === "mac") {
+    title = w.mac;
+    sub = w.macSub;
+    body = <MacBody {...props} />;
+  } else if (f.who === "shared" && f.part === "motor") {
+    const off = (!!props.n && !props.n.engine.on) || props.maq?.base.state === "off";
+    title = w.engine;
+    pill = off ? ["bad", w.engineOff] : ["ok", w.engineOn];
+    sub = w.engineSub(props.n?.engine.version ?? null);
+    body = <MotorBody {...props} />;
+  } else if (f.who === "shared") {
+    const list = llaves?.llaves ?? [];
+    const missing = list.filter((l) => !l.set).length;
+    title = w.keys;
+    pill = list.length ? (missing ? ["bad", w.keysMissing(missing)] : ["ok", w.keysAll(list.length)]) : null;
+    sub = w.keysSub(llaves?.env_file ?? null);
+    body = <LlavesBody {...props} />;
+  } else if (c) {
+    title = copyName(c);
+    pill = [pillTone(rowState(c)), pillWord(rowState(c))];
+    sub = f.part === "servidor" ? w.serverSub(c.port) : w.baseSub(c.database ?? "");
+    body = f.part === "servidor" ? <ServerBody key={c.id} {...props} c={c} /> : <BaseBody key={c.id} {...props} c={c} />;
+  }
+  return (
+    <aside className="cq-drawer" aria-label={title} data-drawer={focusKey(f)}>
+      <div className="cq-dh">
+        <span className="cq-dt">
+          <b>{title}</b>
+          <span>
+            {pill && <Pill tone={pill[0]}>{pill[1]}</Pill>}
+            {sub}
+          </span>
+        </span>
+        <button ref={closeRef} type="button" className="cq-ico" aria-label={w.close} onClick={() => onOpen(null)} data-control="cerrar-cajon">
+          <X size={18} aria-hidden />
+        </button>
+      </div>
+      <div className="cq-db">{body}</div>
+    </aside>
+  );
+};
+
+// ---- the door
+
+export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedir: (text: string) => void; focus: string | null; onFocus: (what: string | null) => void }) => {
+  const w = W();
   const s = p.slug;
-  const [page, setPage] = useState<string | null>(null);
-  const [size, setSize] = useState<"desktop" | "phone">("desktop");
-  const [more, setMore] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [password, setPassword] = useState<string | null>(null);
+  const client = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
-  const [offset, setOffset] = useState(0);
-  const menu = useRef<HTMLDivElement>(null);
-  const read = useQuery<MaquinasRead>({
-    queryKey: ["maquinas", s],
-    queryFn: () => api.maquinas(s),
-    refetchInterval: (x) => (x.state.data?.server.phase === "starting" || x.state.data?.server.phase === "capturing" ? 1500 : 15_000),
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const copias = useQuery<CopiasRead>({
+    queryKey: ["maq-copias", s],
+    queryFn: () => api.copias(s),
+    refetchInterval: (x) => (x.state.data?.copias.some((c) => c.phase === "starting" || c.phase === "capturing") ? 1500 : 10_000),
     retry: 1,
   });
-  const r = read.data;
-  const v = r ? maqView(r) : null;
-  const baseOn = r?.base.state === "on";
-  const tables = useQuery({ queryKey: ["maq-tablas", s], queryFn: () => api.tablas(s), enabled: !!baseOn, staleTime: 10_000, retry: 0 });
-  const tabla = focus?.startsWith("tabla:") ? focus.slice(6) : null;
-  const rows = useQuery({ queryKey: ["maq-filas", s, tabla, offset], queryFn: () => api.filas(s, tabla!, offset), enabled: !!tabla && !!baseOn, retry: 0 });
-  const captures = useQuery<CapturesRead>({ queryKey: ["captures", s], queryFn: () => api.captures(s), enabled: !!r?.configured, retry: 0 });
-  const llaves = useQuery({ queryKey: ["maq-llaves", s], queryFn: () => api.llaves(s), staleTime: 30_000, retry: 0 });
-  const pruebas = useQuery({ queryKey: ["maq-pruebas", s], queryFn: () => api.pruebas(s), refetchInterval: (x) => (x.state.data?.running ? 2000 : false), retry: 0 });
-  const log = useQuery({ queryKey: ["maq-bitacora", s], queryFn: () => api.bitacora(s), enabled: !!r?.configured, refetchInterval: 5000, retry: 0 });
-  const recorrido = useQuery({ queryKey: ["maq-recorrido", s], queryFn: () => api.recorrido(s), retry: 0 });
-  const tk = tickKey(s, recorrido.data?.doc_id ?? null);
-  const [ticks, setTicks] = useState<number[]>([]);
-  useEffect(() => setTicks(readTicks(tk)), [tk]);
+  // The numbers are read only while this door is open: the query lives as long as the component.
+  const numeros = useQuery<Numeros>({ queryKey: ["maq-numeros", s], queryFn: () => api.numeros(s), refetchInterval: 5000, retry: 0 });
+  const sobrantes = useQuery<SobrantesRead>({ queryKey: ["maq-sobrantes", s], queryFn: () => api.sobrantes(s), refetchInterval: 30_000, retry: 0 });
+  const entrar = useQuery<EntrarRead>({ queryKey: ["maq-entrar", s], queryFn: () => api.entrar(s), retry: 0 });
+  const llaves = useQuery<LlavesRead>({ queryKey: ["maq-llaves", s], queryFn: () => api.llaves(s), staleTime: 30_000, retry: 0 });
+  const maq = useQuery<MaquinasRead>({ queryKey: ["maquinas", s], queryFn: () => api.maquinas(s), staleTime: 15_000, retry: 0 });
+  const r = copias.data;
+  const f = useMemo(() => focusOf(focus, r?.copias ?? []), [focus, r]);
+  const open = (x: Focus | null) => onFocus(x ? focusKey(x) : null);
+
   useEffect(() => {
-    if (!more) return;
-    const onDown = (e: MouseEvent) => !menu.current?.contains(e.target as Node) && (setMore(false), setConfirming(false));
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [more]);
+    if (!f) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onFocus(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [f, onFocus]);
+
   const refresh = () => {
-    for (const k of ["maquinas", "captures", "maq-tablas", "maquinas-tablero", "maq-pruebas"]) void client.invalidateQueries({ queryKey: [k, s] });
+    for (const k of ["maq-copias", "maq-numeros", "maq-sobrantes", "maq-entrar", "maq-llaves", "maquinas", "maq-tablas", "maq-bitacora"]) void client.invalidateQueries({ queryKey: [k, s] });
     void client.invalidateQueries({ queryKey: ["maquinas-tablero"] });
   };
   const run = useMutation({
-    mutationFn: async (x: { key: string; call: () => Promise<unknown>; what: string; then?: (o: unknown) => void }) => {
-      const out = await x.call();
-      x.then?.(out);
+    mutationFn: async (x: { key: string; call: () => Promise<unknown>; ok?: () => void }) => {
+      await x.call();
+      x.ok?.();
     },
     onMutate: (x) => setBusy(x.key),
-    onError: (e, x) => toast.error(ERR(e, x.what)),
+    // A leftover list that changed since it was shown is read again by the refresh below.
+    onError: (e) => toast.error(e instanceof ApiError && e.code === "LEFTOVERS_CHANGED" ? w.leftChanged : errText(e, w.errDo)),
     onSettled: () => {
       setBusy(null);
       refresh();
     },
   });
-  const act = (key: string, what: string, call: () => Promise<unknown>, then?: (o: unknown) => void) => run.mutate({ key, what, call, then });
-
-  if (read.isError && !r) return <ReadError what={w.readWhat} onRetry={() => void read.refetch()} />;
-  if (!r || !v) return <div className="cor-skel" style={{ height: 400 }} role="status" aria-busy="true" aria-label={w.reading} />;
-
-  const pages = captures.data?.pages ?? [];
-  const pg = pages.find((x) => x.key === (page ?? r.pages[0]?.key)) ?? pages[0] ?? null;
-  const still = pg ? pg[size].still : null;
-  const url = r.server.url ? `${r.server.url.replace(/\/$/, "")}${pg?.path ?? ""}` : null;
-  const live = v.window === "live";
-  const tbl = tables.data;
-  const lastLine = log.data?.lines.at(-1) ?? null;
-  const steps = recorrido.data?.steps ?? [];
-  const tick = (n: number, done: boolean) => {
-    const next = done ? [...new Set([...ticks, n])] : ticks.filter((x) => x !== n);
-    setTicks(next);
-    try {
-      window.localStorage.setItem(tk, JSON.stringify(next));
-    } catch {
-      /* nothing kept */
-    }
+  const act: Act = (key, call, ok) => {
+    if (!run.isPending) run.mutate({ key, call, ok });
   };
-  const firstOpen: Paso | undefined = steps.find((x) => !ticks.includes(x.n));
-  const sideFocus = focus === "registro" || focus === "llaves" || focus === "pruebas" || focus === "probar" || focus === "mapa" || !!tabla;
+
+  if (copias.isError && !r) return <ReadError what={w.readWhat} onRetry={() => void copias.refetch()} />;
+  if (!r) return <div className="cor-skel" style={{ height: 480 }} role="status" aria-busy="true" aria-label={w.reading} />;
+
+  const sum = summaryOf(r, sobrantes.data);
+  const n = numeros.data;
+  const mac = n?.mac;
+  const diskUsed = mac?.disk_total && mac.disk_free !== null ? mac.disk_total - mac.disk_free : null;
+  const memUsed = mac?.mem_total && mac.mem_free !== null ? mac.mem_total - mac.mem_free : null;
+  const memShare = pct(memUsed, mac?.mem_total ?? null);
+  const diskShare = pct(diskUsed, mac?.disk_total ?? null);
+  const e = n?.engine;
+  const engineOff = (!!n && !e?.on) || maq.data?.base.state === "off";
+  const keyList = llaves.data?.llaves ?? [];
+  const missing = keyList.filter((k) => !k.set);
+  const leftBases = (sobrantes.data?.sobrantes ?? []).filter((x) => x.kind === "base").length;
+  const free = size(mac?.disk_free ?? null);
+  const sharedOpen = f?.who === "shared" ? f.part : null;
+  // An open initiative with no copy yet is a chip that makes it; a row only once it exists (or is starting/failed).
+  const unmade = r.copias.filter((c) => rowState(c) === "never");
+  const rows = r.copias.filter((c) => rowState(c) !== "never");
 
   return (
-    <div className="cor-maq" data-maquinas={v.state}>
-      <div className="cor-maq-main">
-        <div className="cor-pedidos-head" style={{ borderBottom: 0, paddingBottom: 0 }}>
-          <h2 className="cor-h3" style={{ fontSize: 22 }}>
-            {v.state === "on" ? w.head.on : v.state === "unavailable" ? noDisponible().unavailable : v.state === "unconfigured" ? w.head.unconfigured : v.state === "no-code" ? w.head.noCode : v.state === "starting" ? w.head.starting : v.state === "failed" ? w.head.failed : v.state === "base-down" ? w.head.baseDown : w.head.off}{" "}
-            <span className="cor-cap">{w.tag}</span>
-          </h2>
-          <span className="cor-segbox" role="group" aria-label={w.size}>
-            <Opt on={size === "desktop"} onClick={() => setSize("desktop")} data-size="desktop">
-              {w.desktop}
-            </Opt>
-            <Opt on={size === "phone"} onClick={() => setSize("phone")} data-size="phone">
-              {w.phone}
-            </Opt>
-          </span>
-        </div>
-        <div className="cor-card cor-appwin" data-window={v.window}>
-          <div className="cor-appbar">
-            <Light on={live} word={live ? w.live : v.word} tone={live ? "ok" : v.state === "failed" ? "bad" : undefined} />
-            <span className="cor-urlbox cor-mono cor-ellipsis">{url ?? v.say}</span>
-            <Btn kind="secondary" disabled={!live || busy === "captura"} onClick={() => act("captura", w.errCapture, () => api.prueba(s, "tomar"))} data-control="maq-captura">
-              {busy === "captura" ? w.taking : w.take}
-            </Btn>
-            {url && live ? (
-              <a className="cor-btn primary" href={url} target="_blank" rel="noreferrer" data-control="maq-abrir">
-                {w.open}
-              </a>
-            ) : v.state === "unconfigured" ? (
-              <Btn kind="primary" disabled={busy === "configurar"} onClick={() => act("configurar", w.errConfigure, () => api.configurar(s))} data-control="maq-configurar">
-                {w.configure}
-              </Btn>
-            ) : (
-              v.server.lever &&
-              !v.server.lever.on && (
-                <Btn kind="primary" disabled={!!busy} onClick={() => act(`server:${v.server.lever!.act}`, w.errTurnOn, () => api.prueba(s, "encender"))} data-control="maq-encender">
-                  {v.server.lever.label}
-                </Btn>
-              )
-            )}
-          </div>
-          {r.pages.length > 0 && (
-            <div className="cor-seg cor-appages" role="group" aria-label={w.pages}>
-              {r.pages.slice(0, 5).map((x) => (
-                <Opt key={x.key} on={(pg?.key ?? r.pages[0]?.key) === x.key} onClick={() => setPage(x.key)} data-page={x.key}>
-                  {x.label}
-                </Opt>
-              ))}
-            </div>
-          )}
-          <div className={`cor-appview ${size}`}>
-            {still ? (
-              <img src={still.image_url} alt={w.stillAlt(pg?.label ?? null, size === "phone")} />
-            ) : (
-              <div className="cor-noshot">
-                <b>{v.word}</b>
-                <span className="cor-text">{v.state === "unconfigured" || v.state === "no-code" ? setupLine(r) : v.state === "failed" ? (r.server.error ?? v.say) : live ? w.takeToSee : v.say}</span>
-              </div>
+    <div className={`cq ${f ? "open" : ""}`} data-maquinas="cuarto" data-cajon={f ? focusKey(f) : undefined}>
+      <header className="cq-head">
+        <div className="cq-tt">
+          <h2>{w.title}</h2>
+          <div className="cq-chips">
+            <span className="cq-chip">
+              <b>{sum.total}</b> {w.copies(sum.total)}
+            </span>
+            <span className="cq-chip">
+              <Dot tone={sum.on ? "ok" : ""} />
+              <b>{sum.on}</b> {w.onCount(sum.on)}
+            </span>
+            {sum.failed.map((x) => (
+              <button key={x.id} type="button" className="cq-chip bad" onClick={() => open({ who: x.id, part: "servidor" })} data-control="chip-fallo">
+                <Dot tone="bad" />
+                {w.didNotStart(x.name)}
+              </button>
+            ))}
+            {unmade.map((c) => (
+              <button key={c.id} type="button" className="cq-chip add" disabled={!!busy} onClick={() => act(`sw:${c.id}`, () => api.copiaAct(s, c.id, "encender"))} aria-label={w.makeCopyOf(c.title)} title={w.makeCopyOf(c.title)} data-control="hacer-copia" data-copia-nueva={c.id}>
+                + {c.title}
+              </button>
+            ))}
+            {sum.leftovers > 0 && (
+              <button type="button" className="cq-chip warn" onClick={() => document.getElementById("cq-sobrantes")?.scrollIntoView({ block: "center", behavior: "smooth" })} data-control="chip-sobrantes">
+                <Dot tone="warn" />
+                {w.leftovers(sum.leftovers, sizeText(sum.leftover_bytes))}
+              </button>
             )}
           </div>
         </div>
-        <div className="cor-card cor-recorrido" data-recorrido>
-          <span className="cor-text">
-            <b>{w.walk}</b> · {w.stepsDone(ticks.length, steps.length)}
-            {(recorrido.data?.user ?? r.test_user) && (
-              <>
-                {" "}
-                · {w.user} <span className="cor-mono">{recorrido.data?.user ?? r.test_user}</span>
-              </>
-            )}
-            {password && (
-              <>
-                {" "}
-                · {w.password} <span className="cor-mono" data-password>{password}</span>
-              </>
-            )}
-          </span>
-          {recorrido.data?.can_password && (
-            <Btn kind="quiet" disabled={busy === "contrasena"} onClick={() => act("contrasena", w.errPassword, () => api.contrasena(s), (o) => setPassword((o as { password: string }).password))} data-control="maq-contrasena">
-              {w.newPassword}
+        <Login slug={s} read={entrar.data} copias={r.copias} />
+      </header>
+
+      {!r.configured && (
+        <div className="cq-setup" role="status">
+          <span className="cor-text">{r.no_code ? w.noCode : w.unconfigured}</span>
+          {!r.no_code && (
+            <Btn kind="primary" disabled={!!busy} onClick={() => act("configurar", () => api.configurar(s))} data-control="configurar">
+              {w.configure}
             </Btn>
           )}
-          {firstOpen && (
-            <Btn kind="quiet" onClick={() => onPedir(pedirFallo(firstOpen))} data-control="maq-fallo">
-              {w.failedStep}
-            </Btn>
-          )}
-          <Btn kind="secondary" aria-expanded={focus === "probar"} onClick={() => onFocus(focus === "probar" ? null : "probar")} data-control="maq-probar">
-            {w.howToTest}
-          </Btn>
         </div>
-      </div>
-      <aside className="cor-maq-side">
-        {sideFocus ? (
-          <section className="cor-card cor-maq-panel" data-panel={focus}>
-            <div className="cor-side-head">
-              <Label as="h2">{tabla ? w.table(tabla) : focus === "registro" ? w.log : focus === "llaves" ? w.llaves : focus === "pruebas" ? w.pruebas : focus === "mapa" ? w.map : w.howToTest}</Label>
-              <Btn kind="quiet" onClick={() => onFocus(null)} data-control="maq-cerrar">
-                {w.close}
-              </Btn>
-            </div>
-            <div className="cor-maq-scroll" tabIndex={0} aria-label={w.detail}>
-              {focus === "registro" && <pre className="cor-code">{(log.data?.lines ?? []).slice(-40).join("\n") || w.noLines}</pre>}
-              {focus === "llaves" && (
-                <ul>
-                  {(llaves.data?.llaves ?? []).map((l) => (
-                    <LlaveRow key={l.name} slug={s} name={l.name} set={l.set} file={llaves.data?.env_file ?? null} serverUp={serverUp(r.server.phase)} />
-                  ))}
-                  {llaves.data && !llaves.data.llaves.length && <li className="cor-text">{w.noKeys}</li>}
-                </ul>
-              )}
-              {focus === "pruebas" && (
+      )}
+
+      <div className="cq-body">
+        <div className="cq-rail">
+          <button type="button" className={`cq-mach ${sharedOpen === "mac" ? "focus" : ""}`} onClick={() => open({ who: "shared", part: "mac" })} data-abre="mac">
+            <span className="cq-mh">
+              <Laptop size={16} aria-hidden />
+              <b>{w.mac}</b>
+              <span className="cq-go">{w.macGo}</span>
+            </span>
+            <span className="cq-mval">
+              {free ? `${free.v} ${free.u}` : "—"}
+              <small>{w.freeDisk}</small>
+            </span>
+            <span className="cq-gauges">
+              <Gauge label={w.disk} value={`${diskShare ?? "—"} %`} share={diskShare} warn={(diskShare ?? 0) > 90} />
+              <Gauge label={w.memory} value={`${memShare ?? "—"} %`} share={memShare} warn={(memShare ?? 0) > 75} />
+            </span>
+          </button>
+          <button type="button" className={`cq-mach ${engineOff ? "bad" : ""} ${sharedOpen === "motor" ? "focus" : ""}`} onClick={() => open({ who: "shared", part: "motor" })} data-abre="motor">
+            <span className="cq-mh">
+              <Database size={16} aria-hidden />
+              <b>{w.engine}</b>
+              <span className="cq-go">{w.engineGo}</span>
+            </span>
+            <span className={`cq-mval ${engineOff ? "bad" : ""}`}>
+              {!n ? "—" : engineOff ? w.engineOff : w.engineOn}
+              {!engineOff && e?.uptime_s ? <small>{w.engineSince(since(e.uptime_s))}</small> : null}
+            </span>
+            <Gauge label={w.connections} value={e?.max_connections ? w.connOf(engineOff ? 0 : (e.connections ?? 0), e.max_connections) : "—"} share={pct(engineOff ? 0 : (e?.connections ?? null), e?.max_connections ?? null)} />
+            <span className="cq-msub">
+              {w.liveBases(r.copias.filter((c) => c.database && (c.made || c.kind === "inicio")).length)}
+              {leftBases > 0 && (
                 <>
-                  {pruebas.data?.running ? <p className="cor-state live">{w.running(pruebas.data.running.step)}</p> : null}
-                  {(pruebas.data?.last?.steps ?? []).map((st) => (
-                    <div key={st.name} className="cor-row">
-                      <span className={`cor-state ${st.ok ? "ok" : "bad"}`}>{st.ok ? w.passes : w.fails}</span>
-                      <span className="cor-ellipsis">{st.name}</span>
-                      <span className="cor-cap">{st.passed !== null ? w.okBad(st.passed, st.failed) : ""}</span>
-                    </div>
-                  ))}
-                  {!pruebas.data?.last && !pruebas.data?.running && <p className="cor-text">{w.notRunYet}</p>}
+                  {" · "}
+                  <span className="w">{w.leftBases(leftBases)}</span>
                 </>
               )}
-              {focus === "probar" && (
-                <ol className="cor-steps">
-                  {steps.map((x) => (
-                    <li key={x.n}>
-                      <label className="cor-check" data-inline-ok>
-                        <input type="checkbox" checked={ticks.includes(x.n)} onChange={(e) => tick(x.n, e.target.checked)} />
-                        <span>{x.text}</span>
-                      </label>
-                      {x.page && (
-                        <Btn kind="link" onClick={() => setPage(x.page)}>
-                          {w.go}
-                        </Btn>
-                      )}
-                    </li>
-                  ))}
-                  {!steps.length && <li className="cor-text">{w.noWalk}</li>}
-                </ol>
+            </span>
+          </button>
+          <button type="button" className={`cq-mach ${missing.length ? "bad" : ""} ${sharedOpen === "llaves" ? "focus" : ""}`} onClick={() => open({ who: "shared", part: "llaves" })} data-abre="llaves">
+            <span className="cq-mh">
+              <KeyRound size={16} aria-hidden />
+              <b>{w.keys}</b>
+              <span className="cq-go">{missing.length ? w.keysPut : w.keysSee}</span>
+            </span>
+            <span className={`cq-mval ${missing.length ? "bad" : ""}`}>
+              {keyList.length ? (missing.length ? w.keysMissing(missing.length) : w.keysAll(keyList.length)) : "—"}
+              {missing.length > 0 && <small>{w.keysOf(keyList.length)}</small>}
+            </span>
+            <span className="cq-keyrow" aria-hidden>
+              {keyList.slice(0, 24).map((k) => (
+                <i key={k.name} className={k.set ? "" : "miss"} />
+              ))}
+            </span>
+            <span className="cq-msub cor-ellipsis">
+              {missing.length ? (
+                <>
+                  <span className="b cor-mono">{missing[0]!.name}</span>
+                  {missing[0]!.iniciativas?.length ? ` · ${missing[0]!.iniciativas.map((k) => r.copias.find((c) => c.key === k)?.title ?? k).join(", ")}` : ""}
+                </>
+              ) : keyList.length ? (
+                w.keysRead
+              ) : (
+                w.keysNone
               )}
-              {focus === "mapa" && tbl && (
-                <ul>
-                  {tbl.tables.map((t) => (
-                    <li key={t.name}>
-                      <button type="button" className="cor-row" onClick={() => onFocus(`tabla:${t.name}`)} data-tabla={t.name}>
-                        <span className="cor-mono" style={{ flex: 1 }}>
-                          {t.name}
-                        </span>
-                        <span className="cor-cap">{filas(t.rows)}</span>
-                        {t.relations.length > 0 && <span className="cor-cap">{`→ ${t.relations.map((x) => x.table).join(", ")}`}</span>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {tabla &&
-                (rows.data ? (
-                  <>
-                    <div className="cor-rows" role="table" aria-label={w.rowsOf(tabla)}>
-                      <div role="row" className="cor-rows-head">
-                        {rows.data.columns.slice(0, 4).map((c) => (
-                          <span key={c} role="columnheader" className="cor-label">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                      {rows.data.rows.map((row, i) => (
-                        <div role="row" key={i}>
-                          {rows.data.columns.slice(0, 4).map((c) => (
-                            <span key={c} role="cell" className="cor-ellipsis cor-mono">
-                              {row[c] ?? "—"}
-                            </span>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="cor-acts">
-                      <Btn kind="quiet" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - rows.data.limit))}>
-                        {w.previous}
-                      </Btn>
-                      <span className="cor-cap">{w.range(offset + 1, Math.min(offset + rows.data.limit, rows.data.total), rows.data.total)}</span>
-                      <Btn kind="quiet" disabled={offset + rows.data.limit >= rows.data.total} onClick={() => setOffset(offset + rows.data.limit)}>
-                        {w.next}
-                      </Btn>
-                    </div>
-                  </>
-                ) : (
-                  <p className="cor-text">{baseOn ? w.readingRows : w.baseOff}</p>
-                ))}
-            </div>
-          </section>
-        ) : (
-          <>
-            <section className="cor-card cor-maq-card" data-card="servidor">
-              <div className="cor-maq-head">
-                <span>
-                  <b>{w.server}</b>
-                  <Light on={v.server.light === "on"} word={v.server.word} tone={v.server.light === "on" ? "ok" : v.server.light === "error" ? "bad" : v.server.light === "starting" ? "live" : undefined} />
-                </span>
-                {v.server.lever?.on && (
-                  <Btn kind="quiet" disabled={!!busy} onClick={() => act("server:reiniciar", w.errRestart, () => api.reiniciar(s))} data-control="maq-reiniciar">
-                    {w.restart}
-                  </Btn>
-                )}
-                {v.server.lever && (
-                  <Btn kind="secondary" disabled={!!busy} onClick={() => act(`server:${v.server.lever!.act}`, v.server.lever!.act === "apagar" ? w.errTurnOff : w.errTurnOn, () => api.prueba(s, v.server.lever!.act === "apagar" ? "apagar" : "encender"))} data-control={`maq-${v.server.lever.act}`}>
-                    {v.server.lever.label}
-                  </Btn>
-                )}
-              </div>
-              <dl className="cor-kv">
-                <div>
-                  <dt>{w.address}</dt>
-                  <dd className="cor-mono cor-ellipsis">{v.server.sub || "—"}</dd>
-                </div>
-                <div>
-                  <dt>{w.lastLine}</dt>
-                  <dd className="cor-mono cor-ellipsis" title={lastLine ?? undefined}>
-                    {lastLine ?? "—"}
-                  </dd>
-                </div>
-              </dl>
-              <div className="cor-maq-foot">
-                <span className="cor-cap">{v.server.outside ? w.outside : w.idle}</span>
-                <Btn kind="link" onClick={() => onFocus("registro")} data-control="maq-registro">
-                  {w.seeLog}
-                </Btn>
-              </div>
-            </section>
-            <section className="cor-card cor-maq-card" data-card="base">
-              <div className="cor-maq-head">
-                <span>
-                  <b>{w.base}</b>
-                  <Light on={baseOn} word={`${v.base.word}${tbl ? (tbl.migrations.pending ? w.pendingSuffix(tbl.migrations.pending) : w.upToDate) : ""}`} tone={baseOn ? "ok" : undefined} />
-                </span>
-                {v.base.lever && (
-                  <Btn kind="secondary" disabled={!!busy} onClick={() => act(`base:${v.base.lever!.act}`, v.base.lever!.act === "apagar" ? w.errBaseOff : w.errBaseOn, () => api.baseLever(s, v.base.lever!.act))} title={v.base.warn ?? undefined} data-control={`maq-base-${v.base.lever.act}`}>
-                    {v.base.lever.label}
-                  </Btn>
-                )}
-                <div className="cor-menu" ref={menu}>
-                  <Btn kind="secondary" aria-haspopup="menu" aria-expanded={more} disabled={!baseOn} onClick={() => (setMore((x) => !x), setConfirming(false))} data-control="maq-mas">
-                    {w.more}
-                  </Btn>
-                  {more && (
-                    <div className="cor-menu-list down right" role="menu">
-                      <Btn kind="quiet" role="menuitem" disabled={!!busy} onClick={() => (setMore(false), act("aplicar", w.errApply, () => api.migrar(s)))} data-control="maq-migrar">
-                        {w.apply}
-                      </Btn>
-                      <Btn kind="quiet" role="menuitem" disabled={!!busy} onClick={() => (setMore(false), act("sembrar", w.errSeed, () => api.sembrar(s)))} data-control="maq-sembrar">
-                        {w.seed}
-                      </Btn>
-                      <div className="cor-danger" data-vaciar>
-                        <span className="cor-label" style={{ color: "var(--cor-red)" }}>
-                          {w.erases}
-                        </span>
-                        <p className="cor-cap">{w.eraseWhat}</p>
-                        {confirming ? (
-                          <>
-                            <p className="cor-text" role="alert">{w.erasing(tbl ? filas(tbl.total_rows) : null, tbl?.connection.database ?? null)}</p>
-                            <span className="cor-acts">
-                              <Btn kind="danger" disabled={!!busy} onClick={() => act("vaciar", w.errEmpty, () => api.vaciarYSembrar(s, tbl?.total_rows ?? 0), () => (setConfirming(false), setMore(false), toast.success(w.seededAgain)))} data-control="maq-vaciar-si">
-                                {w.yesErase}
-                              </Btn>
-                              <Btn kind="quiet" onClick={() => setConfirming(false)}>
-                                {w.cancel}
-                              </Btn>
-                            </span>
-                          </>
-                        ) : (
-                          <Btn kind="danger" onClick={() => setConfirming(true)} data-control="maq-vaciar">
-                            {w.emptyAndSeed}
-                          </Btn>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {v.base.reason && <p className="cor-cap">{v.base.reason}</p>}
-              <dl className="cor-kv">
-                <div>
-                  <dt>{w.migrations}</dt>
-                  <dd className="cor-mono">{tbl ? w.appliedPending(tbl.migrations.applied, tbl.migrations.pending) : "—"}</dd>
-                </div>
-                <div>
-                  <dt>{w.dbSize}</dt>
-                  <dd className="cor-mono">{baseOn ? `${bytes(r.base.size_bytes) || "—"}${tbl ? ` · ${filas(tbl.total_rows)}` : ""}` : "—"}</dd>
-                </div>
-              </dl>
-              {tbl && tbl.tables.length > 0 && (
-                <div className="cor-maq-foot">
-                  <span className="cor-seg">
-                    {tbl.tables.slice(0, 1).map((t) => (
-                      <Btn key={t.name} kind="secondary" small onClick={() => onFocus(`tabla:${t.name}`)} data-tabla={t.name}>
-                        <span className="cor-mono">{`${t.name} · ${t.rows}`}</span>
-                      </Btn>
-                    ))}
-                  </span>
-                  <Btn kind="link" onClick={() => onFocus("mapa")} data-control="maq-mapa">
-                    {w.seeAll}
-                  </Btn>
-                </div>
-              )}
-            </section>
-            <section className="cor-card cor-maq-card" data-card="llaves-pruebas">
-              <div className="cor-maq-head">
-                <span className="cor-text cor-inline-head">
-                  <b>{w.llaves}</b> · {llaves.data ? w.keysSet(llaves.data.set, llaves.data.set + llaves.data.missing) : "—"}
-                </span>
-                <Btn kind="link" onClick={() => onFocus("llaves")} data-control="maq-llaves">
-                  {llaves.data?.missing ? w.seeMissing : w.seeKeys}
-                </Btn>
-              </div>
-              <div className="cor-maq-head">
-                <span className="cor-text cor-inline-head">
-                  <b>{w.pruebas}</b> ·{" "}
-                  {pruebas.data?.running ? w.runningLower : pruebas.data?.last ? (pruebas.data.last.ok ? w.pass(pruebas.data.last.passed) : w.fail(pruebas.data.last.failed)) : w.neverRun}
-                </span>
-                <Btn kind="secondary" disabled={!pruebas.data?.can || !!pruebas.data?.running || busy === "pruebas"} title={pruebas.data?.reason ?? undefined} onClick={() => act("pruebas", w.errRun, () => api.correrPruebas(s))} data-control="maq-correr">
-                  {w.run}
-                </Btn>
-                {pruebas.data?.last && (
-                  <Btn kind="link" onClick={() => onFocus("pruebas")}>
-                    {w.see}
-                  </Btn>
-                )}
-              </div>
-            </section>
-            <p className="cor-cap">{w.foot}</p>
-          </>
-        )}
-      </aside>
+            </span>
+          </button>
+        </div>
+        <div className="cq-lines">
+          {rows.map((c) => (
+            <Line key={c.id} slug={s} p={p} c={c} n={n} ownBases={r.own_bases} open={f} busy={busy} onOpen={open} act={act} />
+          ))}
+        </div>
+      </div>
+
+      <Leftovers slug={s} read={sobrantes.data} busy={busy} act={act} />
+
+      {f && <Drawer slug={s} f={f} r={r} n={n} left={sobrantes.data} llaves={llaves.data} maq={maq.data} busy={busy} editKey={editKey} setEditKey={setEditKey} onOpen={open} onPedir={onPedir} act={act} />}
     </div>
   );
 };

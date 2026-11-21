@@ -26,6 +26,7 @@ import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSumm
 import type { CaptureSettings } from "./settings.js";
 import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
 import { pgSearchPath } from "../lib/pg-bin.js";
+import { readPg, type PgReading } from "../lib/pg-connect.js";
 import { supported } from "../lib/system-support.js";
 import { isSelfProject, serverRoot } from "../self/plania-self.js";
 import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
@@ -184,6 +185,8 @@ export type PruebaDeps = {
   // PLA-I2-9: the running server's checkout (to tell a copy of Plania itself) and how its copy's database is built.
   serverRoot?: string;
   selfDb?: SelfDbBuild;
+  // PLA-I72-5: the server's version and program folder, to pick psql and pg_dump of the same major.
+  readPg?: (url: string) => Promise<PgReading>;
 };
 
 // PLA-I52-2: two lanes per project. «sandbox» is Encenderla's copy (the before, and what the Ventana shows);
@@ -246,6 +249,7 @@ export function setPruebaDeps(d: PruebaDeps): void {
 // Tests: forget every copy (their fake processes are gone with the test).
 export function resetPrueba(): void {
   copies.clear();
+  pgPaths.clear();
   if (sweeper) clearInterval(sweeper);
   sweeper = null;
 }
@@ -875,6 +879,27 @@ export function entregaUrl(base: string, suffix: CopySuffix = "_entrega"): { url
 // PLA-I2-4: psql and pg_dump are found on macOS and Linux alike (src/lib/pg-bin.ts), PATH included.
 export const pgPathOf = (): string => pgSearchPath(checkoutEnv().PATH);
 
+// PLA-I72-5: psql and pg_dump of the server's own major (and its own program folder first). The newest client on the
+// Mac dumps settings an older server rejects (pg_dump 17 → «transaction_timeout» on a 14 server), and every copy of a
+// project on that server failed to make its base. Cached per host and port; unknown servers fall back to the search.
+const pgPaths = new Map<string, string>();
+export async function pgPathFor(url: string): Promise<string> {
+  let key = url;
+  try {
+    const u = new URL(url);
+    key = `${u.hostname}:${u.port || "5432"}`;
+  } catch {
+    return pgPathOf();
+  }
+  const had = pgPaths.get(key);
+  if (had) return had;
+  const r = await (deps.readPg ?? readPg)(url).catch(() => ({ ok: false }) as PgReading);
+  if (!r.ok) return pgPathOf();
+  const found = pgSearchPath(checkoutEnv().PATH, { major: Math.floor(r.versionNum / 10000), ...(r.binDir ? { serverBinDir: r.binDir } : {}) });
+  pgPaths.set(key, found);
+  return found;
+}
+
 async function entregaDatabase(
   db: Db,
   c: Copy,
@@ -891,7 +916,7 @@ async function entregaDatabase(
   const target = entregaUrl(base, suffix);
   if (!target) return { ok: false, error: w.notLocal(cfg.env_var) };
   const exec = deps.exec ?? shellExec;
-  const pgPath = pgPathOf();
+  const pgPath = await pgPathFor(base);
   // The URLs go in the environment, never in the command line.
   const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
   const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
@@ -960,7 +985,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   // statement, so rows the delivery already made are skipped; they never take the copy's own datos slot.
   if (opts.earlier) {
     if (c.earlier.has(hash) || c.datos === hash) return { ok: true, skipped: true };
-    const pgPath0 = pgPathOf();
+    const pgPath0 = await pgPathFor(target.url);
     await (deps.exec ?? shellExec)(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
       cwd: c.worktree ?? process.cwd(),
       stdin: sql,
@@ -973,7 +998,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   if (c.datos === hash) return { ok: true, skipped: true };
   if (c.datos) return { ok: false, error: say(PRUEBA_WORDS).otherDatos };
   const exec = deps.exec ?? shellExec;
-  const pgPath = pgPathOf();
+  const pgPath = await pgPathFor(target.url);
   const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
     cwd: c.worktree ?? process.cwd(),
     stdin: sql,
@@ -1068,20 +1093,30 @@ export const keepOf = (slug: string): boolean => copies.get(idOf(slug, "sandbox"
 export function appBaseUrl(p: typeof projects.$inferSelect): string | null {
   const repo = repoPathOf(p.slug, p.settings, env());
   if (isSelfProject(repo, deps.serverRoot ?? serverRoot())) return env().DATABASE_URL ?? null;
+  // The copies' variable, else the usual database variables (a project whose copies run on the app's own base).
   const cfg = p.settings.capture?.database;
-  if (!cfg) return null;
+  const vars = cfg ? [cfg.env_var] : ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "PG_URL", "DB_URL"];
   const names = p.settings.maquinas?.env_file ? [p.settings.maquinas.env_file] : ENV_FILES;
   for (const f of names) {
     const full = path.join(repo, f);
     if (!existsSync(full)) continue;
-    const v = envValue(readFileSync(full, "utf8"), cfg.env_var);
-    if (v) return v;
+    const text = readFileSync(full, "utf8");
+    for (const v of vars) {
+      const got = envValue(text, v);
+      if (got && /^postgres(ql)?:/.test(got)) return got;
+    }
   }
   return null;
 }
 
+/** Whether a project's copies get bases of their own (settings.capture.database, or Plania itself). */
+export function ownBases(p: typeof projects.$inferSelect): boolean {
+  return !!p.settings.capture?.database || isSelfProject(repoPathOf(p.slug, p.settings, env()), deps.serverRoot ?? serverRoot());
+}
+
 /** The database name an initiative's copy gets, or null when the project has no base of its own for copies. */
 export function iniDatabaseName(p: typeof projects.$inferSelect, key: string): string | null {
+  if (!ownBases(p)) return null;
   const base = appBaseUrl(p);
   return base ? (entregaUrl(base, iniSuffix(key)) ?? copyDatabaseUrlLoose(base, iniSuffix(key)))?.name ?? null : null;
 }
@@ -1108,8 +1143,15 @@ async function iniciativaDatabase(db: Db, c: Copy, slug: string, wt: string, env
   const target = entregaUrl(base, iniSuffix(c.taskKey ?? ""));
   const startDb = entregaUrl(base, "_prueba");
   if (!target || !startDb) return { ok: false, error: w.notLocal(cfg.env_var) };
+  // The start copy rebuilds its base while it starts: wait for it, or this copy would take a half-made base.
+  const until = now() + (deps.readyMs ?? READY_MS);
+  for (let sb = copies.get(idOf(slug, "sandbox")); sb && sb.phase === "starting" && !sb.stopping && now() < until; sb = copies.get(idOf(slug, "sandbox"))) {
+    if (copies.get(c.id) !== c || c.stopping) return { ok: true };
+    await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
+  }
   const exec = deps.exec ?? shellExec;
-  const pgEnv = (extra: Record<string, string>) => checkoutEnv({ PATH: pgPathOf(), PLANIA_BASE_URL: base, ...extra });
+  const pgPath = await pgPathFor(base);
+  const pgEnv = (extra: Record<string, string>) => checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, ...extra });
   const there = await exec(`psql "$PLANIA_BASE_URL" -X -tA -c "select datname from pg_database where datname in ('${target.name}', '${startDb.name}')"`, { cwd: wt, timeoutMs: 30_000, env: pgEnv({}) });
   if (there.code !== 0) {
     c.tail = tailOf(there.stderr || there.stdout);
@@ -1155,19 +1197,7 @@ export async function borrarIni(db: Db, slug: string, key: string, names: { data
   const exec = deps.exec ?? shellExec;
   const repo = repoPathOf(p.slug, p.settings, env());
   const out: BorrarResult = { database: names.database, worktree: names.worktree, dropped: false, removed: false };
-  const base = appBaseUrl(p);
-  if (names.database && base && /^[A-Za-z0-9_]{1,90}$/.test(names.database)) {
-    const r = await exec(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${names.database} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: pgPathOf(), PLANIA_BASE_URL: base }) });
-    out.dropped = r.code === 0;
-    if (out.dropped && deps.footprints !== false) {
-      // Found by name: the registered locator may spell the host another way (localhost, 127.0.0.1).
-      const held = await db
-        .select({ locator: footprints.locator })
-        .from(footprints)
-        .where(and(eq(footprints.projectId, p.id), eq(footprints.kind, "database"), isNull(footprints.releasedAt), sql`split_part(${footprints.locator}, '@', 1) = ${names.database}`));
-      for (const h of held) await releaseFootprint(db, { project: slug, kind: "database", locator: h.locator }, ctx()).catch(() => undefined);
-    }
-  }
+  if (names.database) out.dropped = await dropIniBase(db, slug, names.database);
   const wt = names.worktree;
   const root = worktreeRoot(env());
   if (wt && isInside(wt, root) && path.basename(wt) === iniSuffix(key)) {
@@ -1190,4 +1220,24 @@ export function copyRuntime(id: string): { pid: number | null; started_at: numbe
 export function copyEnvOf(slug: string, key: string | null): Record<string, string> | null {
   const c = copies.get(key ? idOf(slug, "iniciativa", key) : idOf(slug, "sandbox"));
   return c ? (c.dbEnv ?? {}) : null;
+}
+
+/** PLA-I72-5: drops one copy base by name (Borrar la copia, Rehacer desde inicio) and releases its footprint. The
+ * caller has refused protected names; the next start makes it again from the start copy's base. */
+export async function dropIniBase(db: Db, slug: string, name: string): Promise<boolean> {
+  const { p } = await settingsOf(db, slug);
+  const base = appBaseUrl(p);
+  if (!base || !/^[A-Za-z0-9_]{1,90}$/.test(name)) return false;
+  const repo = repoPathOf(p.slug, p.settings, env());
+  const r = await (deps.exec ?? shellExec)(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${name} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: await pgPathFor(base), PLANIA_BASE_URL: base }) });
+  if (r.code !== 0) return false;
+  if (deps.footprints !== false) {
+    // Found by name: the registered locator may spell the host another way (localhost, 127.0.0.1).
+    const held = await db
+      .select({ locator: footprints.locator })
+      .from(footprints)
+      .where(and(eq(footprints.projectId, p.id), eq(footprints.kind, "database"), isNull(footprints.releasedAt), sql`split_part(${footprints.locator}, '@', 1) = ${name}`));
+    for (const h of held) await releaseFootprint(db, { project: slug, kind: "database", locator: h.locator }, ctx()).catch(() => undefined);
+  }
+  return true;
 }

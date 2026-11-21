@@ -76,6 +76,7 @@ export function fakeMachine(wtRoot: string) {
     stopGraceMs: 10,
     sweep: false,
     signals: false,
+    readPg: async () => ({ ok: false }),
     ...over,
   });
   const reset = () => {

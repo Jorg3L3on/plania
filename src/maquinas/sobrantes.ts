@@ -12,7 +12,7 @@ import type { Db } from "../db/client.js";
 import { footprints, machineState, maquinaCopias, projects, tasks } from "../db/schema.js";
 import { bus } from "../events.js";
 import { releaseFootprint } from "../mcp/footprint.js";
-import { appBaseUrl, copyRuntime, idOf, iniSuffix, pgPathOf } from "../captures/prueba.js";
+import { appBaseUrl, copyRuntime, idOf, iniSuffix, pgPathFor } from "../captures/prueba.js";
 import { checkoutEnv, shellExec } from "../captures/run.js";
 import { defaultGit, repoPathOf, worktreeRoot } from "../runner/worktree.js";
 import { processCommand } from "../lib/proc-command.js";
@@ -178,7 +178,7 @@ async function removeOne(db: Db, p: ProjectRow, s: Sobrante): Promise<void> {
   if (s.kind === "base") {
     const base = appBaseUrl(p)!;
     if (protectedBases(p).has(s.name) || !/^[A-Za-z0-9_]{1,90}$/.test(s.name)) throw new MaquinaError("BASE_PROTECTED", "");
-    const r = await exec(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${s.name} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: pgPathOf(), PLANIA_BASE_URL: base }) });
+    const r = await exec(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${s.name} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: await pgPathFor(base), PLANIA_BASE_URL: base }) });
     if (r.code !== 0) throw new MaquinaError("COMMAND_FAILED", say(SOBRANTES_WORDS).failed);
     await releaseAsCopy(db, p, "database", { name: s.name });
   } else if (s.kind === "servidor") {

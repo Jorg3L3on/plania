@@ -16,7 +16,8 @@
 //   GET  /:slug/maquinas/recorrido              Cómo probarla's steps and the test user (F3)
 //   POST /:slug/maquinas/recorrido/contrasena   a fresh password for the test user, once (F3)
 //   GET  /:slug/maquinas/copias                 the start copy and one per open initiative (PLA-I72-1)
-//   POST /:slug/maquinas/copias/:id/:action     encender | apagar | reiniciar | borrar | quedarse {keep} (PLA-I72-1)
+//   POST /:slug/maquinas/copias/:id/:action     encender | apagar | reiniciar | borrar | quedarse {keep} (PLA-I72-1),
+//                                               rehacer: an initiative's base made again from the start copy's (PLA-I72-5)
 //   GET  /:slug/maquinas/numeros                live numbers of every machine; keeps sampling while read (PLA-I72-2)
 //   POST /:slug/maquinas/copias/:id/borrar-cache the copy's build cache folders only (PLA-I72-2)
 //   GET  /:slug/maquinas/sobrantes              what closed initiatives left: bases, servers, folders (PLA-I72-3)
@@ -93,7 +94,7 @@ maquinasRoutes.get("/:slug/maquinas/recorrido", (c) => answer(c, (db) => recorri
 maquinasRoutes.post("/:slug/maquinas/recorrido/contrasena", (c) => answer(c, (db) => nuevaContrasena(db, c.req.param("slug"))));
 
 maquinasRoutes.get("/:slug/maquinas/copias", (c) => answer(c, (db) => copiasRead(db, c.req.param("slug"))));
-const ACTIONS = new Set<CopiaAction>(["encender", "apagar", "reiniciar", "borrar", "quedarse"]);
+const ACTIONS = new Set<CopiaAction>(["encender", "apagar", "reiniciar", "borrar", "quedarse", "rehacer"]);
 maquinasRoutes.get("/:slug/maquinas/entrar", (c) => answer(c, (db) => entrarRead(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/entrar/cambiar", (c) => answer(c, (db) => cambiarContrasena(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/copias/reiniciar-encendidas", (c) => answer(c, (db) => reiniciarEncendidas(db, c.req.param("slug"))));

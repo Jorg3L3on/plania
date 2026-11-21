@@ -12,6 +12,7 @@ import {
   apagarIni,
   appBaseUrl,
   borrarIni,
+  dropIniBase,
   encender,
   encenderIni,
   entregaUrl,
@@ -20,6 +21,7 @@ import {
   iniSuffix,
   iniWorktree,
   keepOf,
+  ownBases,
   pruebaInfo,
   pruebaRead,
   reiniciar,
@@ -75,7 +77,9 @@ export type CopiaRead = {
   worktree: string | null;
   made: boolean; // its worktree exists on this machine
 };
-export type CopiasRead = { project: string; configured: boolean; copias: CopiaRead[] };
+// own_bases: each copy has a base of its own (else the start copy runs on the app's). no_code: the project said it has
+// no code yet. unavailable: this system cannot run a copy.
+export type CopiasRead = { project: string; configured: boolean; own_bases: boolean; no_code: boolean; copias: CopiaRead[] };
 
 type Ini = { id: string; key: string; title: string; status: string; branch: string | null; baseBranch: string | null };
 
@@ -124,7 +128,8 @@ function startCopy(p: ProjectRow, r: Awaited<ReturnType<typeof pruebaRead>>): Co
     error: r.error,
     detail: r.detail,
     keep: keepOf(p.slug),
-    database: p.settings.capture?.database && base ? (entregaUrl(base, "_prueba")?.name ?? null) : null,
+    // Its own base (<db>_prueba) when copies get one; else it runs on the app's own.
+    database: base ? (ownBases(p) ? (entregaUrl(base, "_prueba")?.name ?? null) : liveDatabaseName(base)) : null,
     worktree: info?.worktree ?? appDirs(p.slug, p.settings, menv()).prueba,
     made: !!(info?.worktree ?? appDirs(p.slug, p.settings, menv()).prueba),
   };
@@ -163,7 +168,7 @@ export async function copiasRead(db: Db, slug: string, look = true): Promise<Cop
   const inis = await openInitiatives(db, p);
   const list = inis.map((i) => iniCopy(p, i, byKey.get(i.key), look));
   list.sort((a, b) => Number(!!b.worktree) - Number(!!a.worktree));
-  return { project: slug, configured: !!s, copias: [startCopy(p, await pruebaRead(slug, s)), ...list] };
+  return { project: slug, configured: !!s, own_bases: ownBases(p), no_code: !s && p.settings.local?.no_code === true, copias: [startCopy(p, await pruebaRead(slug, s)), ...list] };
 }
 
 async function initiativeOf(db: Db, p: ProjectRow, key: string): Promise<Ini & { closed: boolean }> {
@@ -183,7 +188,7 @@ async function rowOf(db: Db, projectId: string, key: string): Promise<MaquinaCop
   return r;
 }
 
-export type CopiaAction = "encender" | "apagar" | "reiniciar" | "borrar" | "quedarse";
+export type CopiaAction = "encender" | "apagar" | "reiniciar" | "borrar" | "quedarse" | "rehacer";
 
 /** One action on one copy. id is "inicio" or an initiative key. The answer is the copies again (and, for borrar,
  * what was dropped and removed). */
@@ -227,6 +232,15 @@ export async function copiaAction(db: Db, slug: string, id: string, action: Copi
     if (!row && !iniRead(slug, ini.key, false)) throw new MaquinaError("COPY_NOT_FOUND", W.notFound);
     setKeep(slug, "iniciativa", ini.key, keep);
     if (row) await db.update(maquinaCopias).set({ keep, updatedAt: new Date() }).where(eq(maquinaCopias.id, row.id));
+  } else if (action === "rehacer") {
+    // PLA-I72-5: Rehacer desde inicio: the initiative's base is dropped and made again from the start copy's.
+    const database = row?.database ?? iniDatabaseName(p, ini.key);
+    if (!database || protectedBases(p).has(database) || !database.endsWith(iniSuffix(ini.key))) throw new MaquinaError("BASE_PROTECTED", W.protectedBase, { database });
+    const wasOn = !!iniRead(slug, ini.key, false);
+    await apagarIni(db, slug, ini.key);
+    await dropIniBase(db, slug, database);
+    if (wasOn && !ini.closed && (ini.branch ?? ini.baseBranch)) await encenderIni(db, slug, { key: ini.key, branch: (ini.branch ?? ini.baseBranch)!, keep: row?.keep ?? false });
+    else if (row) await db.update(maquinaCopias).set({ state: "off", updatedAt: new Date() }).where(eq(maquinaCopias.id, row.id));
   } else if (action === "borrar") {
     const borrada = await deleteCopy(db, p, ini.key, ini.id, row, "owner");
     return { ...(await copiasRead(db, slug)), borrada };

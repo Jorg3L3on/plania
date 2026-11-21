@@ -36,13 +36,15 @@ export type MaqPage = { key: string; path: string; label: string; session?: bool
 export type MaquinasRead = { project: string; configured: boolean; no_code?: boolean; server: ServerRead; base: BaseRead; found: Found | null; pages: MaqPage[]; test_user: string | null };
 
 export type Column = { name: string; type: string; not_null: boolean; key: boolean; unique: boolean; default: string | null; references: { table: string; column: string } | null; hidden: boolean };
-export type Table = { name: string; rows: number; columns: Column[]; indexes: { name: string; definition: string }[]; relations: { column: string; table: string; foreign: string }[] };
+export type Table = { name: string; rows: number; size_bytes?: number | null; columns: Column[]; indexes: { name: string; definition: string }[]; relations: { column: string; table: string; foreign: string }[] };
 export type Migrations = { dir: string | null; files: { name: string; applied: boolean | null }[]; applied: number; pending: number; table: string | null };
 export type TablesRead = { connection: { host: string; port: number; database: string }; tables: Table[]; total_rows: number; sample: boolean; migrations: Migrations };
 export type RowsRead = { table: string; columns: string[]; hidden: string[]; rows: Record<string, string | null>[]; offset: number; limit: number; total: number };
 export type SeedResult = { ok: boolean; steps: { command: string; ok: boolean; tail: string[] }[]; tables: TablesRead | null };
-export type Llave = { name: string; set: boolean; from: string[]; public: boolean };
-export type LlavesRead = { env_file: string | null; where: "prueba" | "repo" | null; example_file: string | null; llaves: Llave[]; set: number; missing: number };
+// PLA-I72-4: iniciativas: the initiatives whose branch asks for a key the start copy's does not; reiniciar: after a
+// save, the running copies to restart.
+export type Llave = { name: string; set: boolean; from: string[]; public: boolean; iniciativas?: string[] };
+export type LlavesRead = { env_file: string | null; where: "prueba" | "repo" | null; example_file: string | null; llaves: Llave[]; set: number; missing: number; reiniciar?: { id: string; title: string }[] };
 export type PruebaStep = { name: string; command: string; ok: boolean; code: number | null; ms: number; passed: number | null; failed: number | null; tail: string[] };
 export type PruebasResult = { ok: boolean; started_at: string; ended_at: string; duration_ms: number; passed: number | null; failed: number | null; steps: PruebaStep[] };
 export type PruebasRead = { running: { started_at: string; step: string | null } | null; last: PruebasResult | null; commands: { name: string; command: string }[]; can: boolean; reason: string | null };

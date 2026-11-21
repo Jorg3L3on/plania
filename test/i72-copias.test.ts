@@ -93,7 +93,7 @@ const fakeExec: Deps["exec"] = async (command, opts) => {
 // The app writing a row into the base its server was started with.
 const writeRow = (child: Child, row: string) => bases.get(nameOf(child.env.DATABASE_URL))!.push(row);
 
-const deps = (): Deps => ({
+const deps = (over: Partial<Deps> = {}): Deps => ({
   git: fakeGit,
   spawn: fakeSpawn,
   kill: (pid) => void killed.push(pid),
@@ -107,6 +107,8 @@ const deps = (): Deps => ({
   stopGraceMs: 10,
   sweep: false,
   signals: false,
+  readPg: async () => ({ ok: false }),
+  ...over,
 });
 
 const REPO = path.join(TMP, "repos", "zigzag");
@@ -300,4 +302,35 @@ test("I72-1 #4: after a simulated restart the copies are listed again, off, with
 test("I72-1: the screen cookie is required", async () => {
   const r = await app.request("/api/projects/zigzag/maquinas/copias");
   assert.equal(r.status, 401);
+});
+
+test("I72-5: the copy commands use psql and pg_dump of the server's own major, found once per server", async () => {
+  let reads = 0;
+  const bin = path.join(TMP, "pg14", "bin");
+  mkdirSync(bin, { recursive: true });
+  prueba.setPruebaDeps(deps({ readPg: async () => (reads++, { ok: true, versionNum: 140017, binDir: bin }) } as Partial<Deps>));
+  const a = await prueba.pgPathFor("postgres://zz@localhost:5432/zz_dev");
+  const b = await prueba.pgPathFor("postgres://zz@localhost:5432/zz_dev_prueba");
+  assert.equal(a.split(path.delimiter)[0], bin, "the server's own program folder first");
+  assert.equal(a, b);
+  assert.equal(reads, 1, "cached per host and port");
+  prueba.resetPrueba();
+  prueba.setPruebaDeps(deps({ readPg: async () => ({ ok: false }) } as Partial<Deps>));
+  assert.equal(await prueba.pgPathFor("postgres://zz@localhost:5432/zz_dev"), prueba.pgPathOf(), "an unknown server falls back to the plain search");
+});
+
+test("I72-5: an initiative made while the start copy is still starting waits for its base, then copies it", async () => {
+  // The start copy answers only once the test says so; its base is made at once.
+  prueba.setPruebaDeps(deps({ up: async (url) => upPorts.has(Number(new URL(url).port)) && released }));
+  let released = false;
+  bases.delete("zz_dev_prueba");
+  await act("inicio", "encender");
+  await until(() => bases.has("zz_dev_prueba"));
+  bases.get("zz_dev_prueba")!.push("migrated-start-row");
+  await act("ZZ-I1", "encender");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(!bases.has("zz_dev_ini_zz_i1"), "nothing copied while the start copy is starting");
+  released = true;
+  await live("ZZ-I1");
+  assert.ok(bases.get("zz_dev_ini_zz_i1")!.includes("migrated-start-row"), "copied from the finished start base");
 });
