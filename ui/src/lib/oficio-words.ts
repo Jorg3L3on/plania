@@ -77,6 +77,9 @@ export const OFICIO_WORDS = defineWords({
     saving: "Guardando…",
     saveFailed: (code: string) => `No se pudo guardar (${code}).`,
     savedNext: "Lo lleva desde su próxima corrida.",
+    savedOff: "Deja de llevarla desde su próxima corrida.",
+    backToFactory: "Volver a las de fábrica",
+    backDone: "Vuelve a llevar las de fábrica de su puesto desde su próxima corrida.",
     tooManyCode: "Son demasiadas: el tope es diez.",
   },
   en: {
@@ -143,6 +146,9 @@ export const OFICIO_WORDS = defineWords({
     saving: "Saving…",
     saveFailed: (code: string) => `Could not save (${code}).`,
     savedNext: "It carries it from its next run.",
+    savedOff: "It stops carrying it from its next run.",
+    backToFactory: "Back to the factory set",
+    backDone: "It carries its seat's factory set again from its next run.",
     tooManyCode: "Too many: the limit is ten.",
   },
 });

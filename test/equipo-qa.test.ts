@@ -128,3 +128,15 @@ test("PLA-139: a wrapped level is joined by a spine inside the drawing, and ever
     }
   }
 });
+
+test("PLA-140: a seat whose list became its own goes back to its role's factory set", async () => {
+  const put = (packs: string[], own: boolean) => call("PUT", `${T}/team/research-tienda/packs`, { packs, own });
+  const mine = await put(["cited-research", "tdd"], true);
+  assert.equal(mine.status, 200);
+  assert.equal(mine.json.own, true);
+  const back = await put([], false);
+  assert.equal(back.status, 200);
+  assert.equal(back.json.own, false);
+  assert.deepEqual(back.json.packs.map((p: { slug: string }) => p.slug), ["cited-research"]);
+  assert.equal(await n(`select count(*)::int as n from agents where slug = 'research-tienda' and skill_packs = '{}'`), 1);
+});

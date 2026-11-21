@@ -346,6 +346,9 @@ export const api = {
   oficio: (slug: string, agent: string) => request<Oficio>("GET", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/oficio`),
   setSeatPacks: (slug: string, agent: string, packs: string[]) =>
     request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs, own: true }),
+  // PLA-140: back to the role's factory list (an empty list that is not its own).
+  resetSeatPacks: (slug: string, agent: string) =>
+    request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs: [], own: false }),
   // PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
   skillCard: (slug: string, agent: string, skill: string) => request<SkillCard>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
   createSkill: (slug: string, agent: string, d: SkillDraft) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills`, d),

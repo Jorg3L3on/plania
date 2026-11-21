@@ -4,7 +4,7 @@
 // selected one shows its text, a switch per seat, «Hacer mi copia» for a factory skill and «Probarla» (its card in
 // the seat's panel, where trials live). «Nueva habilidad» creates one. GET …/tienda; writes reuse the seat routes.
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
@@ -34,7 +34,18 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
     onSuccess: refresh,
   });
   const onceCopy = useOnce();
-  const copy = useMutation({ mutationFn: () => api.duplicateSkill(p.slug, seat!, s.slug), onSuccess: refresh });
+  const navigate = useNavigate();
+  // PLA-140: the copy is one seat's skill; the owner picks the seat (it was the first carrier, else the first seat, said
+  // nowhere) and the store then opens the copy.
+  const [copyFor, setCopyFor] = useState<string | null>(null);
+  const copy = useMutation({
+    mutationFn: (agent: string) => api.duplicateSkill(p.slug, agent, s.slug),
+    onSuccess: (c) => {
+      refresh();
+      setCopyFor(null);
+      navigate(links.pick(c.slug));
+    },
+  });
   const sw = skillWords(s);
   const wide = s.scope && s.scope !== "agent";
   return (
@@ -70,10 +81,30 @@ const Side = ({ p, s, store, links }: { p: OrgProject; s: TiendaSkill; store: Ti
         {flip.isPending || copy.isPending ? w.saving : flip.error || copy.error ? <span className="cor-state bad">{w.failed(((flip.error ?? copy.error) as ApiError)?.code ?? "NETWORK")}</span> : copy.isSuccess ? w.copied : flip.isSuccess ? w.saved : ""}
       </p>
       <div className="eq-side-foot">
-        {s.origin === "factory" && seat && (
-          <Btn kind="secondary" disabled={copy.isPending} onClick={() => onceCopy(() => copy.mutateAsync())} data-control="hacer-copia">
+        {s.origin === "factory" && seat && copyFor === null && (
+          <Btn kind="secondary" onClick={() => setCopyFor(seat)} data-control="hacer-copia">
             {w.copy}
           </Btn>
+        )}
+        {s.origin === "factory" && copyFor !== null && (
+          <span className="tda-copy" role="group" aria-label={w.copyFor}>
+            <label className="cor-cap" htmlFor={`tda-copy-${s.slug}`}>
+              {w.copyFor}
+            </label>
+            <select id={`tda-copy-${s.slug}`} className="cor-input" value={copyFor} onChange={(e) => setCopyFor(e.target.value)} data-control="copia-para">
+              {store.seats.map((x) => (
+                <option key={x.agent} value={x.agent}>
+                  {p.team.find((m) => m.agent === x.agent)?.puesto ?? seatName(x.role)}
+                </option>
+              ))}
+            </select>
+            <Btn kind="primary" disabled={copy.isPending} onClick={() => onceCopy(() => copy.mutateAsync(copyFor))} data-control="hacer-copia-si">
+              {w.copyGo}
+            </Btn>
+            <Btn kind="quiet" onClick={() => setCopyFor(null)} data-control="hacer-copia-no">
+              {w.copyCancel}
+            </Btn>
+          </span>
         )}
         {seat && (
           <Link className="cor-btn secondary" to={links.tryIn(seat, s.slug)} data-control="probarla">
