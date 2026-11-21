@@ -173,12 +173,13 @@ const oficio = (agent: string, n = 10) => ({ project: "tienda", agent, role: "ar
 const lessonRow = (id: string, state: string) => ({ id, text: `Lección ${id}`, applies_when: null, state, proposed_by: state === "proposed" ? "reflector" : "owner", version: 1, owner_words: null, task_key: null, at: "2026-11-20T10:00:00Z", repeats: { confirmed: 0, flagged: false, suggested: [], last: null } });
 function panel(tab: string, over: M = {}) {
   const client = new QueryClient();
-  const m = seat("artist-t", "artist", "po-t", { lessons: { active: 12, proposed: 1 } });
-  client.setQueryData(["oficio", "tienda", "artist-t"], oficio("artist-t"));
-  client.setQueryData(["lessons", "tienda", "artist-t"], { project: "tienda", agent: "artist-t", lessons: [lessonRow("p1", "proposed"), ...Array.from({ length: 12 }, (_, i) => lessonRow(`a${i}`, "active"))], reading: [], budget: { used: 600, budget: 1500, over: false, role: 300, manner: 20, skills: 200, lessons: 80 } });
-  client.setQueryData(["refs", "tienda", "artist-t"], []);
-  client.setQueryData(["puesto", "tienda", "artist-t"], { project: "tienda", agent: "artist-t", role: "artist", role_text: "# Artist", manner: "Usa los colores de la marca.", manner_version: "x", manner_at: null, motor: { model: "opus", effort: "medium" }, archived: [] });
-  const team = [seat("po-t", "product-owner", "ceo"), m, seat("qa-t", "qa", "artist-t")];
+  const m = (over.m as M | undefined) ?? seat("artist-t", "artist", "po-t", { lessons: { active: 12, proposed: 1 } });
+  const id = m.agent as string;
+  client.setQueryData(["oficio", "tienda", id], oficio(id));
+  client.setQueryData(["lessons", "tienda", id], { project: "tienda", agent: "artist-t", lessons: [lessonRow("p1", "proposed"), ...Array.from({ length: 12 }, (_, i) => lessonRow(`a${i}`, "active"))], reading: [], budget: { used: 600, budget: 1500, over: false, role: 300, manner: 20, skills: 200, lessons: 80 } });
+  client.setQueryData(["refs", "tienda", id], []);
+  client.setQueryData(["puesto", "tienda", id], { project: "tienda", agent: "artist-t", role: "artist", role_text: "# Artist", manner: "Usa los colores de la marca.", manner_version: "x", manner_at: null, motor: { model: "opus", effort: "medium" }, archived: [] });
+  const team = [...[seat("po-t", "product-owner", "ceo"), seat("artist-t", "artist", "po-t"), seat("qa-t", "qa", "artist-t")].filter((x) => x.agent !== id), m];
   const el = h(agente.AgentePanel, { p: project(team, { runner: { limits: { max_per_agent: 2 }, seats: [] } }), m, paused: false, tab, motorLink: "/mot", links: { equipo: "/eq", tab: (t: string) => `/m/artist-t?ficha=${t}`, work: "/todo", store: "/tienda" }, onTab: () => undefined, ...over });
   return renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, el)));
 }
@@ -196,7 +197,7 @@ test("I71-2 #1: four tabs; Perfil says who it reports to, who reports to it, its
   assert.equal(out.match(/role="tab"/g)?.length, 4);
   assert.match(out, /role="tablist" aria-label="La ficha de Artist"/);
   assert.match(out, /aria-selected="true"[^>]*>Perfil/);
-  assert.match(out, /<dt>Reporta a<\/dt><dd>PO<\/dd>/);
+  assert.match(out, /<dt>Reporta a<\/dt><dd>PO <button/);
   assert.match(out, /<dt>A su cargo<\/dt><dd>QA<\/dd>/);
   assert.match(out, /data-control="leer-puesto"/);
   assert.match(out, /«Usa los colores de la marca\.» · cambiar/);
@@ -224,4 +225,58 @@ test("I71-2 #1 #5: Habilidades lists every skill with a switch (10 skills), the 
   assert.match(ap, /Lección p1/);
   assert.match(ap, /Sus lecciones · 12/);
   assert.match(ap, /A la primera: 3 de 5 entregas\./);
+});
+
+// ---- PLA-I71-3: a proposal on the chart, Sumar, and the seat's own actions in Perfil.
+const sumar = await load("components/corriente/sumar.tsx");
+const EQ = { puestos: [
+  { slug: "product-owner", title: "Product owner", line: "", origin: "factory", base: "product-owner", taken: true },
+  { slug: "qa", title: "QA", line: "", origin: "factory", base: "qa", taken: false },
+  { slug: "seguridad", title: "Seguridad", line: "", origin: "factory", base: "seguridad", taken: false },
+  { slug: "redes", title: "Redes", line: "Publica en redes.", origin: "owner", base: "copy", taken: false },
+], proposals: [{ id: "11111111-1111-4111-8111-111111111111", role: "qa", title: "QA", reason: "Tres entregas volvieron por una prueba.", proposed_by: "po-t", state: "proposed", at: "2026-11-20T10:00:00Z" }] };
+const withEquipo = (el: React.ReactElement) => {
+  const client = new QueryClient();
+  client.setQueryData(["equipo", "tienda"], EQ);
+  client.setQueryData(["company-packs"], { packs: [] });
+  return renderToStaticMarkup(h(QueryClientProvider, { client }, h(MemoryRouter, {}, el)));
+};
+
+test("I71-3 #5: a PO's proposal is an amber dashed card under the PO, and opens its yes/no beside the chart", () => {
+  const seats = equipo.proposalSeats(core(), EQ.proposals);
+  assert.deepEqual(seats.map((s: M) => [s.agent, s.reports_to]), [["propuesta:11111111-1111-4111-8111-111111111111", "po-t"]]);
+  const out = withEquipo(h(equipo.Equipo, { p: project(core()), companyPaused: false, focus: "propuesta:11111111-1111-4111-8111-111111111111", links }));
+  assert.match(out, /class="org-card sel  proposal espera"[^>]*data-org="propuesta:/);
+  assert.match(out, /Lo propone el PO · espera tu sí/);
+  assert.match(out, /data-proposal="11111111/);
+  assert.match(out, /data-control="propuesta-si"/);
+  assert.match(out, /«Tres entregas volvieron por una prueba\.»/);
+  // The headline still counts agents, not proposals.
+  assert.match(out, /Cuatro agentes en Tienda\./);
+});
+
+test("I71-3 #6: Sumar lists the free catalog roles and the owner's, the proposal on top, and a new post of your own", () => {
+  const out = withEquipo(h(sumar.SumarPage, { p: project(core()), back: "/eq" }));
+  assert.match(out, /Sumar a alguien a Tienda/);
+  assert.match(out, /El PO propone sumar un puesto de QA/);
+  for (const s of ["qa", "seguridad", "redes", "__nuevo"]) assert.match(out, new RegExp(`data-puesto="${s}"`), s);
+  assert.ok(!/data-puesto="product-owner"/.test(out), "a taken factory role is not offered");
+  assert.match(out, /Llega en pausa/);
+  assert.match(out, /data-control="sumar-rol"/);
+  // Eight seats: nothing more can be added.
+  const full = withEquipo(h(sumar.SumarPage, { p: project(teamOf(8)), back: "/eq" }));
+  assert.match(full, /<button[^>]*disabled=""[^>]*data-control="sumar-rol"/);
+  assert.match(full, /ya tiene ocho puestos/);
+});
+
+test("I71-3 #2 #3 #4: Perfil offers Mover, Pausar or Reanudar, and Retirar (not for the PO)", () => {
+  const out = panel("perfil");
+  assert.match(out, /data-control="mover"/);
+  assert.match(out, /data-control="pausar-puesto"/);
+  assert.match(out, /data-control="retirar"/);
+  const paused = panel("perfil", { m: seat("artist-t", "artist", "po-t", { paused_at: "2026-11-20T10:00:00Z", state: "paused" }) });
+  assert.match(paused, /data-control="reanudar-puesto"/);
+  assert.match(paused, /En pausa: no arranca nada/);
+  const po = panel("perfil", { m: seat("po-t", "product-owner", "ceo") });
+  assert.match(po, /<button[^>]*disabled=""[^>]*data-control="retirar"/);
 });

@@ -62,6 +62,7 @@ import { registerTemplateTools } from "./templates.js";
 import { registerHeartbeatTools } from "./heartbeat.js";
 import { closingLine, questionLine, registerThreadTools } from "./threads.js";
 import { registerConsultaTools } from "./consultas.js";
+import { registerSeatTools } from "./seats.js";
 import { registerMarksTools } from "./marks.js";
 import { registerProposalTools } from "./proposals.js";
 import { registerStageTools } from "./stage-docs.js";
@@ -1246,6 +1247,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   registerHeartbeatTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerThreadTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerConsultaTools(server, { db, identity, actor, request_id, run, write });
+  // PLA-I71-3: the PO proposes a seat; the owner decides it on the screen.
+  registerSeatTools(server, { db, identity, actor, request_id, run, write });
   registerMarksTools(server, { db, identity, actor, request_id, run, write });
   registerProposalTools(server, { db, identity, writeCtx, actor, request_id, run, write });
   // AUDIT-8: deliver_stage, an idea stage as data with content checks (src/mcp/stage-docs.ts).

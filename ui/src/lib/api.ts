@@ -315,6 +315,14 @@ export const api = {
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
   addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
+  // PLA-I71-3: Equipo's seat changes (only the owner's session reaches them).
+  equipo: (slug: string) => request<EquipoRead>("GET", `/company/projects/${encodeURIComponent(slug)}/equipo`),
+  seatBelow: (slug: string, agent: string) => request<{ below: string[] }>("GET", `${seatPath(slug, agent)}/below`),
+  moveSeat: (slug: string, agent: string, reportsTo: string | null) => request<{ ok: true }>("PUT", `${seatPath(slug, agent)}/manager`, { reports_to: reportsTo }),
+  pauseSeat: (slug: string, agent: string, paused: boolean) => request<{ paused: boolean }>("PUT", `${seatPath(slug, agent)}/pause`, { paused }),
+  retireSeat: (slug: string, agent: string) => request<{ moved: string[] }>("POST", `${seatPath(slug, agent)}/retire`, {}),
+  createPuesto: (input: { title: string; line: string; base: string }) => request<PuestoView>("POST", "/company/puestos", input),
+  decideProposal: (slug: string, id: string, accept: boolean) => request<{ state: string; agent: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(id)}/decide`, { accept }),
   // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
@@ -596,10 +604,15 @@ export type OrgMember = {
   name?: string;
   reports_to?: string | null;
   lessons?: { active: number; proposed: number };
-  // PLA-I71-3: when the owner paused this seat (null: it works).
+  // PLA-I71-3: when the owner paused this seat (null: it works), and a role of the owner's own's title.
   paused_at?: string | null;
+  puesto?: string | null;
 };
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
+// PLA-I71-3: the role catalog (factory and the owner's own) and a PO's open seat proposals.
+export type PuestoView = { slug: string; title: string; line: string; origin: "factory" | "owner"; base: string; taken: boolean };
+export type SeatProposalView = { id: string; role: string; title: string; reason: string; proposed_by: string; state: string; at: string };
+export type EquipoRead = { puestos: PuestoView[]; proposals: SeatProposalView[] };
 // A part null clears it (the seat inherits again); the whole patch null clears both.
 export type MotorPatch = { model?: string | null; effort?: string | null };
 // PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the

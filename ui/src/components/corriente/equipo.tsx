@@ -2,119 +2,71 @@
 // of the project (components/corriente/organigrama.tsx) with one status dot per seat, and beside it the selected
 // seat's card. What a seat works on, its queue, its last delivery and the levers on that work (Detener, Reanudar
 // corrida, Dile algo, Que empiece ya) live on the work pages: the step's page and the Motores queue.
-// Sumar: role, packs and motor, the building's form (GET /company/projects/:slug for the free roles, GET
-// /company/packs, POST …/team).
-import { useState } from "react";
+// PLA-I71-3: Sumar is its own page (components/corriente/sumar.tsx); a PO's proposal shows on the chart as an amber
+// dashed card.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
-import { ApiError, api, type MotorPatch, type OrgMember, type OrgProject } from "@/lib/api";
+import { ApiError, api, type OrgMember, type OrgProject, type SeatProposalView } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
-import { MODELS, motorLine, type ModelId } from "@/lib/motores";
-import { firstFree, hireLabel, roleChoices, suggestedPacks } from "@/lib/sumar";
+import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
 import { words } from "@/lib/i18n";
 import { EQUIPO_WORDS } from "@/lib/equipo-words";
 import { ORGANIGRAMA_WORDS } from "@/lib/organigrama-words";
 import { Btn, Label } from "./parts";
 import { ROLE_LINE } from "./equipo-roles";
 import { Legend, Organigrama } from "./organigrama";
+import { SumarPage } from "./sumar";
 import { AgentePanel, bossOf, type FichaTab } from "./agente";
 
 export { ROLE_LINE };
 
-const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { model: string | null; effort: string | null }; focus: boolean }) => {
-  const w = words(EQUIPO_WORDS);
-  const client = useQueryClient();
-  const detail = useQuery({ queryKey: ["company-project", p.slug], queryFn: () => api.companyProject(p.slug) });
-  const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs() });
-  const choices = roleChoices(detail.data?.hire ?? []);
-  const free = [...choices.main, ...choices.otros].filter((c) => c.state === "free");
-  const [picked, setPicked] = useState<string | null>(null);
-  const role = picked && free.some((c) => c.slug === picked) ? picked : firstFree(choices);
-  const [chosen, setChosen] = useState<{ role: string | null; packs: string[] } | null>(null);
-  const pk = chosen && chosen.role === role ? chosen.packs : suggestedPacks(role, packs.data?.packs ?? []);
-  const [model, setModel] = useState<ModelId | null>(null);
-  const [added, setAdded] = useState<string | null>(null);
-  const add = useMutation({
-    mutationFn: (v: { template: string; packs: string[]; motor?: MotorPatch }) => api.addToTeam(p.slug, v.template, v.packs, v.motor),
-    onSuccess: (_r, v) => {
-      setAdded(hireLabel(v.template));
-      void client.invalidateQueries({ queryKey: ["company"] });
-      void client.invalidateQueries({ queryKey: ["company-project", p.slug] });
-    },
-  });
-  if (p.team.length >= 8) return null;
-  return (
-    <aside className={`cor-card cor-sumar ${focus ? "focus" : ""}`} aria-label={w.addSomeone} data-sumar>
-      <Label>{w.addSomeone}</Label>
-      {detail.isPending ? (
-        // PLA-82 (F-5): an empty grey box for ~2 s read as broken; it says what it is doing.
-        <p className="cor-text cor-muted" style={{ minHeight: 160 }} role="status" aria-busy="true" data-sumar-loading>
-          {w.lookingSeats}
-        </p>
-      ) : free.length === 0 ? (
-        <p className="cor-text">{w.allSeatsTaken}</p>
-      ) : (
-        <>
-          <h3 className="cor-h3">{role ? w.emptySeat(hireLabel(role)) : w.pickSeat}</h3>
-          {role && ROLE_LINE[role] && <p className="cor-text">{ROLE_LINE[role]}.</p>}
-          <label className="cor-label" htmlFor="sumar-rol">
-            {w.seatTemplate}
-          </label>
-          <select id="sumar-rol" className="cor-select" value={role ?? ""} onChange={(e) => setPicked(e.target.value)} data-control="sumar-plantilla">
-            {free.map((c) => (
-              <option key={c.slug} value={c.slug}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <details className="cor-sumar-more">
-            <summary className="cor-btn link">{w.packs(pk.length)}</summary>
-            {packs.isError ? (
-              <p className="cor-cap">{w.packsFailed}</p>
-            ) : (
-              <ul>
-                {(packs.data?.packs ?? []).map((x) => (
-                  <li key={x.slug}>
-                    <label className="cor-check" data-inline-ok>
-                      <input type="checkbox" checked={pk.includes(x.slug)} onChange={() => setChosen({ role, packs: pk.includes(x.slug) ? pk.filter((s) => s !== x.slug) : [...pk, x.slug] })} data-pack={x.slug} />
-                      <span>{x.name}</span>
-                    </label>
-                  </li>
-                ))}
-                {(packs.data?.packs ?? []).length === 0 && <li className="cor-cap">{w.noPacks}</li>}
-              </ul>
-            )}
-          </details>
-          <label className="cor-label" htmlFor="sumar-motor">
-            {w.motor}
-          </label>
-          <select id="sumar-motor" className="cor-select" value={model ?? ""} onChange={(e) => setModel((e.target.value || null) as ModelId | null)} data-control="sumar-modelo">
-            <option value="">{w.companyMotor(motorLine(motorDefault?.model ?? null, motorDefault?.effort ?? null))}</option>
-            {MODELS.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-          <Btn kind="secondary" disabled={!role || add.isPending} onClick={() => role && add.mutate({ template: role, packs: pk, motor: model ? { model } : undefined })} data-control="sumar-rol">
-            {add.isPending ? w.adding : w.addToTeam}
-          </Btn>
-          {add.isError && <p className="cor-state bad">{add.error instanceof ApiError ? w.addFailed(add.error.code) : w.notNow}</p>}
-          {added && (
-            <p className="cor-state ok" role="status">
-              ✓ {w.joins(added)}
-            </p>
-          )}
-          <p className="cor-cap">{w.sumarHint}</p>
-        </>
-      )}
-    </aside>
-  );
-};
-
 /** «Reporta a» (PLA-I71-1); the panel owns it now. */
 export const bossName = bossOf;
 export const reportsOf = (m: OrgMember, team: OrgMember[]) => team.filter((x) => x.reports_to === m.agent);
+
+/** PLA-I71-3: a PO's open proposal drawn on the chart under the PO, as an amber dashed card. */
+export const PROPOSAL = "propuesta:";
+export function proposalSeats(team: OrgMember[], proposals: SeatProposalView[]): OrgMember[] {
+  const po = team.find((m) => m.template === "product-owner")?.agent ?? null;
+  return proposals.map((pr) => ({ agent: `${PROPOSAL}${pr.id}`, role: pr.role, template: pr.role, state: "idle", now: null, last: null, produced: null, waiting: null, reports_to: po, name: pr.title }));
+}
+
+const ProposalSide = ({ p, pr, back }: { p: OrgProject; pr: SeatProposalView; back: string }) => {
+  const w = words(SUMAR_PAGE_WORDS);
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const decide = useMutation({
+    mutationFn: (accept: boolean) => api.decideProposal(p.slug, pr.id, accept),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["equipo", p.slug] });
+      void client.invalidateQueries({ queryKey: ["company"] });
+      navigate(back, { replace: true });
+    },
+  });
+  const title = seatName(pr.role) === pr.role ? pr.title : seatName(pr.role);
+  return (
+    <aside className="cor-card eq-side eq-side-prop" aria-label={w.proposes(title)} data-proposal={pr.id}>
+      <Label as="h3" tone="amber">
+        {w.proposalLine}
+      </Label>
+      <b className="eq-side-name">{w.proposes(title)}</b>
+      <p className="cor-text">{w.quoted(pr.reason)}</p>
+      <p className="cor-cap">
+        {w.proposalNote} {w.arrivesPaused}
+      </p>
+      <div className="eq-side-foot">
+        <Btn kind="primary" disabled={decide.isPending || p.team.length >= 8} onClick={() => decide.mutate(true)} data-control="propuesta-si">
+          {w.yes(title)}
+        </Btn>
+        <Btn kind="secondary" disabled={decide.isPending} onClick={() => decide.mutate(false)} data-control="propuesta-no">
+          {w.notNow}
+        </Btn>
+      </div>
+      {decide.isError && <p className="cor-state bad">{w.failed(decide.error instanceof ApiError ? decide.error.code : "NETWORK")}</p>}
+      {p.team.length >= 8 && <p className="cor-cap">{w.full}</p>}
+    </aside>
+  );
+};
 
 export type EquipoLinks = { member: (agent: string) => string; equipo: string; motor: string; sumar: string; tab: (agent: string, t: FichaTab) => string; work: string; store?: string };
 
@@ -137,7 +89,13 @@ export const Equipo = ({ p, companyPaused, focus, tab = "perfil", links, motorDe
   const navigate = useNavigate();
   const w = words(ORGANIGRAMA_WORDS);
   const we = words(EQUIPO_WORDS);
+  const eq = useQuery({ queryKey: ["equipo", p.slug], queryFn: () => api.equipo(p.slug), staleTime: 15_000 });
+  const proposals = eq.data?.proposals ?? [];
+  const chartTeam = [...p.team, ...proposalSeats(p.team, proposals)];
+  const proposal = focus?.startsWith(PROPOSAL) ? (proposals.find((x) => `${PROPOSAL}${x.id}` === focus) ?? null) : null;
   const selected = focus && focus !== "sumar" ? (p.team.find((m) => m.agent === focus) ?? null) : null;
+  // PLA-I71-3: Sumar is its own page inside Equipo (board Sumar).
+  if (focus === "sumar") return <SumarPage p={p} back={links.equipo} />;
   return (
     <div className={`eq ${selected ? "has-panel" : ""}`} data-equipo={p.team.length}>
       <div className="eq-main">
@@ -159,11 +117,11 @@ export const Equipo = ({ p, companyPaused, focus, tab = "perfil", links, motorDe
             </p>
           </div>
         ) : (
-          <Organigrama team={p.team} project={p.title} paused={paused} selected={selected?.agent ?? null} onPick={(agent) => navigate(agent === selected?.agent ? links.equipo : links.member(agent), { replace: true })} />
+          <Organigrama team={chartTeam} project={p.title} paused={paused} selected={selected?.agent ?? (proposal ? focus : null)} onPick={(agent) => navigate(agent === selected?.agent ? links.equipo : links.member(agent), { replace: true })} />
         )}
       </div>
-      {focus === "sumar" ? (
-        <Sumar p={p} motorDefault={motorDefault} focus />
+      {proposal ? (
+        <ProposalSide p={p} pr={proposal} back={links.equipo} />
       ) : selected ? (
         <AgentePanel
           key={selected.agent}

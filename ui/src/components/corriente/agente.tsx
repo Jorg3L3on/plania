@@ -6,7 +6,7 @@
 // a trial) widens the panel over the chart; Esc narrows it first, then closes the panel. It replaces the separate
 // agent page (PLA-I67-1), whose panels it reuses.
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgMember, type OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
@@ -28,6 +28,7 @@ import { BudgetBar, HistoryPanel, LessonsPanel, ProposalCard, Reading, TeachBar 
 import { refsApi } from "@/lib/references-api";
 import { RefCard, RefPanel, useRefUpload } from "./oficio-refs";
 import { cardLine } from "./organigrama";
+import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
 
 export const FICHA_TABS = ["perfil", "motor", "habilidades", "aprendizaje"] as const;
 export type FichaTab = (typeof FICHA_TABS)[number];
@@ -181,6 +182,105 @@ const MotorTab = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
   );
 };
 
+// ---- PLA-I71-3: move, pause, retire (Perfil). Runs never do these; only the owner's session reaches the routes.
+const MoveRow = ({ p, m }: { p: OrgProject; m: OrgMember }) => {
+  const w = words(SUMAR_PAGE_WORDS);
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState<string>("");
+  const below = useQuery({ queryKey: ["below", p.slug, m.agent], queryFn: () => api.seatBelow(p.slug, m.agent), enabled: open });
+  const move = useMutation({
+    mutationFn: () => api.moveSeat(p.slug, m.agent, to === "__owner" ? null : to),
+    onSuccess: () => {
+      setOpen(false);
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["below", p.slug] });
+    },
+  });
+  const blocked = new Set(below.data?.below ?? [m.agent]);
+  const current = m.reports_to && p.team.some((x) => x.agent === m.reports_to) ? m.reports_to : "__owner";
+  return (
+    <>
+      <div>
+        <dt>{words(AGENTE_WORDS).reportsTo}</dt>
+        <dd>
+          {bossOf(m, p.team)}{" "}
+          <Btn kind="link" aria-expanded={open} onClick={() => (setOpen(!open), setTo(current))} data-control="mover">
+            {w.move}
+          </Btn>
+        </dd>
+      </div>
+      {open && (
+        <div className="agt-move" data-move>
+          <label className="sr-only" htmlFor="agt-move-to">
+            {w.moveTo}
+          </label>
+          <select id="agt-move-to" className="cor-select" value={to} onChange={(e) => setTo(e.target.value)} data-control="mover-a">
+            <option value="__owner">{words(SUMAR_PAGE_WORDS).you}</option>
+            {p.team.map((x) => (
+              <option key={x.agent} value={x.agent} disabled={blocked.has(x.agent)}>
+                {x.puesto ?? seatName(x.role)}
+              </option>
+            ))}
+          </select>
+          <Btn kind="secondary" disabled={move.isPending || to === current} onClick={() => move.mutate()} data-control="mover-guardar">
+            {w.moveSave}
+          </Btn>
+          <Btn kind="quiet" onClick={() => setOpen(false)}>
+            {w.moveCancel}
+          </Btn>
+          <span className="cor-cap" role="status">
+            {move.error instanceof ApiError ? (move.error.code === "MANAGER_LOOP" ? w.moveLoop : w.failed(move.error.code)) : w.moveNotOwn}
+          </span>
+        </div>
+      )}
+    </>
+  );
+};
+
+const SeatActions = ({ p, m, onGone }: { p: OrgProject; m: OrgMember; onGone: () => void }) => {
+  const w = words(SUMAR_PAGE_WORDS);
+  const client = useQueryClient();
+  const [asking, setAsking] = useState(false);
+  const paused = !!m.paused_at;
+  const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
+  const pause = useMutation({ mutationFn: () => api.pauseSeat(p.slug, m.agent, !paused), onSuccess: refresh });
+  const retire = useMutation({
+    mutationFn: () => api.retireSeat(p.slug, m.agent),
+    onSuccess: () => {
+      refresh();
+      onGone();
+    },
+  });
+  const po = m.template === "product-owner";
+  return (
+    <div className="agt-seat" data-seat-actions>
+      {paused && <p className="cor-cap cor-state warn">{w.pausedLine}</p>}
+      {asking ? (
+        <div className="agt-retire" role="group" aria-label={w.retire}>
+          <p className="cor-text">{w.retireAsk(m.puesto ?? seatName(m.role))}</p>
+          <Btn kind="secondary" disabled={retire.isPending} onClick={() => retire.mutate()} data-control="retirar-si">
+            {w.retireYes}
+          </Btn>
+          <Btn kind="quiet" onClick={() => setAsking(false)} data-control="retirar-no">
+            {w.retireNo}
+          </Btn>
+        </div>
+      ) : (
+        <div className="agt-seat-row">
+          <Btn kind="secondary" disabled={pause.isPending} onClick={() => pause.mutate()} data-control={paused ? "reanudar-puesto" : "pausar-puesto"}>
+            {paused ? w.resume : w.pause}
+          </Btn>
+          <Btn kind="quiet" disabled={po} title={po ? w.retirePo : undefined} onClick={() => setAsking(true)} data-control="retirar">
+            {w.retire}
+          </Btn>
+        </div>
+      )}
+      {(pause.error || retire.error) && <p className="cor-state bad">{w.failed((pause.error ?? retire.error) instanceof ApiError ? ((pause.error ?? retire.error) as ApiError).code : "NETWORK")}</p>}
+    </div>
+  );
+};
+
 // ---- the wide state: the post (read only) beside your manner; or a skill, a version, a reference, a trial.
 const PuestoWide = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: string; motorLink: string; onClose: () => void }) => {
   const w = words(AGENTE_WORDS);
@@ -204,7 +304,8 @@ const PuestoWide = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: string; 
 export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, children }: { p: OrgProject; m: OrgMember; paused: boolean; tab: FichaTab; links: AgenteLinks; onTab: (t: FichaTab) => void; motorLink: string; children?: React.ReactNode }) => {
   const w = words(AGENTE_WORDS);
   const wo = words(ORGANIGRAMA_WORDS);
-  const seat = seatName(m.role);
+  const navigate = useNavigate();
+  const seat = m.puesto ?? seatName(m.role);
   const q = useQuery({ queryKey: ["oficio", p.slug, m.agent], queryFn: () => api.oficio(p.slug, m.agent), refetchInterval: 30_000 });
   const lq = useQuery({ queryKey: ["lessons", p.slug, m.agent], queryFn: () => api.lessons(p.slug, m.agent), refetchInterval: 30_000 });
   const refsQ = useQuery({ queryKey: ["refs", p.slug, m.agent], queryFn: () => refsApi.list(p.slug, m.agent) });
@@ -331,10 +432,7 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, childr
             {tab === "perfil" && (
               <>
                 <dl className="eq-kv">
-                  <div>
-                    <dt>{w.reportsTo}</dt>
-                    <dd>{bossOf(m, p.team)}</dd>
-                  </div>
+                  <MoveRow p={p} m={m} />
                   {children}
                   <div>
                     <dt>{w.inCharge}</dt>
@@ -365,6 +463,7 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, childr
                     </dd>
                   </div>
                 </dl>
+                <SeatActions p={p} m={m} onGone={() => navigate(links.equipo, { replace: true })} />
               </>
             )}
             {tab === "motor" && <MotorTab p={p} m={m} />}

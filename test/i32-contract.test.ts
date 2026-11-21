@@ -32,7 +32,7 @@ const LIGHTS = ["ok", "needs_owner", "failed", "blocked", "late", "quiet", "paus
 // PLA-I46-5: used is input + output; the four parts travel with it.
 const USAGE = ["cache_create", "cache_read", "input", "output", "used"];
 // PLA-I59-2 added consulta_motor, motor and used_week. PLA-I67-1 added skills_on (the «Oficio» door's count).
-const MEMBER = ["agent", "consulta_motor", "last", "lessons", "motor", "name", "next_start", "now", "packs", "produced", "queue", "reports_to", "role", "skills_on", "state", "template", "used_week", "waiting"];
+const MEMBER = ["agent", "consulta_motor", "last", "lessons", "motor", "name", "next_start", "now", "packs", "paused_at", "produced", "puesto", "queue", "reports_to", "role", "skills_on", "state", "template", "used_week", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
@@ -141,7 +141,8 @@ test("I32-6 #2: POST team creates the agent with project_id and role_template an
   assert.equal(res.status, 201);
   const out = (await res.json()) as Json;
   assert.deepEqual(keys(out), ["agent", "team"]);
-  assert.deepEqual([out.agent.agent, out.agent.template, out.agent.role, out.agent.state], ["qa-mianovia", "qa", "qa", "idle"]);
+  // PLA-I71-3: a new seat arrives paused (the owner resumes it from its panel).
+  assert.deepEqual([out.agent.agent, out.agent.template, out.agent.role, out.agent.state], ["qa-mianovia", "qa", "qa", "paused"]);
   assert.deepEqual(out.team.map((m: Json) => m.agent), ["po-mianovia", "research-mianovia", "artist-mianovia", "taller-mianovia", "qa-mianovia"]);
   const row = (await raw.query(`select a.role_template, a.adapter, p.slug as project, b.slug as boss from agents a join projects p on p.id = a.project_id join agents b on b.id = a.reports_to where a.slug = 'qa-mianovia'`)).rows[0];
   assert.deepEqual(row, { role_template: "qa", adapter: "claude_code", project: "mianovia", boss: "po-mianovia" });

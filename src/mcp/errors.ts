@@ -67,7 +67,11 @@ export const ERRORS = {
   TEXT_HAS_DATE: [400, "decision text starts with a date: the server stamps dates"],
   TOO_LARGE: [400, "a text field exceeds its limit (detail: field, max)"],
   VERSION_REQUIRED: [400, "set_task changes fields without the version you read"],
+  // PLA-I71-3: seats.
+  PUESTO_INVALID: [400, "a role of the owner's own needs a title (1-60 characters), a line (up to 200) and a base role from the catalog (detail: field)"],
+  MANAGER_NOT_ON_TEAM: [400, "a seat can report only to the owner or to a seat of the same project's team"],
   // 403: only the owner may do this.
+  SEAT_PROPOSAL_NOT_PO: [403, "propose_seat: only the project's product owner proposes a seat; runs never create, change or retire seats"],
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   HUMAN_ONLY: [403, "Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
   THREAD_FORBIDDEN: [403, "thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent)"],
@@ -78,6 +82,7 @@ export const ERRORS = {
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
   LESSON_OWNER_ONLY: [403, "only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson)"],
   // 404: something named does not exist.
+  PROPOSAL_NOT_FOUND: [404, "no seat proposal with that id in this project"],
   MARKS_NOT_FOUND: [404, "deliver_marks on an id that is not an open marks request of this project (detail: id)"],
   CONSULTA_NOT_FOUND: [404, "answer_consulta on an id that is not a question of this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
@@ -96,6 +101,11 @@ export const ERRORS = {
   TASK_NOT_FOUND: [404, "unknown key in this project (also an unknown parent_key or task_key)"],
   AGENT_NOT_FOUND: [404, "unknown roster slug (owner_agent or reports_to)"],
   // 409: the state changed or is held by someone else; re-read, then decide.
+  MANAGER_LOOP: [409, "the new manager reports, directly or not, to the seat being moved (detail: chain)"],
+  TEAM_FULL: [409, "a project's team holds at most eight seats"],
+  SEAT_REQUIRED: [409, "the product owner cannot be retired: every project keeps one"],
+  SEAT_TAKEN: [409, "that role already has a seat on this team, or a role of the owner's own with that name exists"],
+  PROPOSAL_DECIDED: [409, "the seat proposal was already accepted or declined"],
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
   BLOCKER_NOT_WITHDRAWABLE: [409, "set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason)"],
   BRANCH_IN_USE: [409, "the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it"],

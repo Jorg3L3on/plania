@@ -18,7 +18,8 @@ import { defineWords, say } from "../words.js";
 export const ADMIT_LOCK = 7_600_017;
 export const LIVE = ["starting", "running"] as const;
 
-export type HeldCode = "project_cap" | "agent_cap" | "ceiling" | "machine" | "start_rate" | "plan" | "rest" | "lock" | "areas";
+// PLA-I71-3: seat_paused, the owner paused the seat (agents.paused_at); its runs wait until it is resumed.
+export type HeldCode = "project_cap" | "agent_cap" | "ceiling" | "machine" | "start_rate" | "plan" | "rest" | "lock" | "areas" | "seat_paused";
 
 export type Limits = { maxConcurrent: number; consultaSlots: number; maxPerAgent: number; serializeAreas: boolean };
 
@@ -180,6 +181,7 @@ export const HELD_WORDS = defineWords<HeldWords>({
     rest: "Descansa entre corridas",
     lock: "Espera a que termine el trabajo en la misma rama o ticket",
     areas: "Espera: otro trabajo toca los mismos archivos",
+    seat_paused: "En pausa: lo reanudas desde su ficha en Equipo",
   },
   en: {
     project_cap: "Waiting for room in the project",
@@ -191,6 +193,7 @@ export const HELD_WORDS = defineWords<HeldWords>({
     rest: "Resting between runs",
     lock: "Waiting for the work on the same branch or ticket to finish",
     areas: "Waiting: other work touches the same files",
+    seat_paused: "Paused: resume it from its panel in Equipo",
   },
 });
 export const heldText = (code: HeldCode): string | null => say(HELD_WORDS)[code] ?? null;

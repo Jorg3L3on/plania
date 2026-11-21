@@ -887,6 +887,11 @@ export const agents = pgTable(
     // PLA-I67-2 (0068): «tu manera», the owner's instruction for this agent, appended after the role prompt.
     manner: text("manner"),
     mannerUpdatedAt: timestamp("manner_updated_at", { withTimezone: true }),
+    // PLA-I71-3 (0075): the owner paused this seat (it starts no run), its order on the chart, and the team template it
+    // was adopted from (PLA-I71-6).
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    position: integer("position"),
+    fromTeam: text("from_team"),
     ...timestamps,
   },
   (t) => [
@@ -2103,3 +2108,36 @@ export const caminoHistory = pgTable(
   },
   (t) => [index("camino_history_project_at").on(t.projectId, t.at), check("camino_history_dest_check", sql`${t.dest} in ('plania', 'proveedor', 'github', 'pr', 'llavero')`)],
 );
+
+// PLA-I71-3 (0075): the role catalog as data (factory roles seeded from src/runner/team.ts, and the owner's own), and a
+// PO's proposal of a seat, which only the owner's screen decides.
+export const puestos = pgTable("puestos", {
+  slug: text("slug").primaryKey(),
+  title: text("title").notNull(),
+  line: text("line").notNull().default(""),
+  origin: text("origin").$type<"factory" | "owner">().notNull().default("owner"),
+  defaultSkills: text("default_skills").array().notNull().default(sql`'{}'::text[]`),
+  defaultMotor: jsonb("default_motor").$type<{ model: string | null; effort: string | null }>(),
+  promptRef: text("prompt_ref").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PuestoRow = typeof puestos.$inferSelect;
+export const seatProposals = pgTable(
+  "seat_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    reason: text("reason").notNull(),
+    proposedBy: text("proposed_by").notNull(),
+    state: text("state").$type<"proposed" | "accepted" | "declined">().notNull().default("proposed"),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("seat_proposals_project_idx").on(t.projectId, t.state)],
+);
+export type SeatProposal = typeof seatProposals.$inferSelect;

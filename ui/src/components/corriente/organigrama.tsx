@@ -10,6 +10,7 @@ import { motorLine } from "@/lib/motores";
 import { LIST_BELOW, dotOf, layoutOf, moveFrom, treeOf, walkOrder, type Dot, type OrgNode } from "@/lib/organigrama";
 import { ORGANIGRAMA_WORDS } from "@/lib/organigrama-words";
 import { ROLE_LINE } from "./equipo-roles";
+import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
 
 const DotMark = ({ d }: { d: Dot }) => <i className={`org-dot ${d}`} aria-hidden />;
 
@@ -29,13 +30,14 @@ export const cardLine = (m: OrgMember) => ROLE_LINE[m.template ?? m.role] ?? m.n
 
 const Card = ({ m, paused, selected, focusable, loose, onPick, style }: { m: OrgMember; paused: boolean; selected: boolean; focusable: boolean; loose?: boolean; onPick: (agent: string) => void; style?: React.CSSProperties }) => {
   const w = words(ORGANIGRAMA_WORDS);
-  const d = dotOf(m, paused);
-  const name = seatName(m.role);
-  const line = cardLine(m);
+  const proposal = m.agent.startsWith("propuesta:");
+  const d = proposal ? "espera" : dotOf(m, paused);
+  const name = m.puesto ?? (proposal && seatName(m.role) === m.role ? (m.name ?? m.role) : seatName(m.role));
+  const line = proposal ? words(SUMAR_PAGE_WORDS).proposalLine : cardLine(m);
   return (
     <button
       type="button"
-      className={`org-card ${selected ? "sel" : ""} ${loose ? "loose" : ""} ${d}`}
+      className={`org-card ${selected ? "sel" : ""} ${loose ? "loose" : ""} ${proposal ? "proposal" : ""} ${d}`}
       style={style}
       aria-pressed={selected}
       tabIndex={focusable ? 0 : -1}
@@ -55,7 +57,7 @@ const Card = ({ m, paused, selected, focusable, loose, onPick, style }: { m: Org
         <span className="sr-only">{w.dot[d]}</span>
       </span>
       <span className="org-tags">
-        {tagsOf(m).map((t) => (
+        {(proposal ? [] : tagsOf(m)).map((t) => (
           <span key={t.t} className={`org-tag ${t.tone ?? ""}`}>
             {t.t}
           </span>

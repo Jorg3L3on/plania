@@ -445,7 +445,7 @@ test("each stage owner is told to deliver with deliver_stage, and the protocol n
   assert.match(STAGE_REASON.idea, /^pedido del dueño para darle forma/);
   assert.match(STAGE_REASON.research, /^idea stage research/);
   assert.equal(STAGE_REASON.ready, "");
-  assert.equal(PROTOCOL_VERSION, "2.24");
+  assert.equal(PROTOCOL_VERSION, "2.25");
   assert.match(instructions(false), /deliver_stage/);
   assert.ok(instructions(false).split(/\s+/).length < 900);
 });

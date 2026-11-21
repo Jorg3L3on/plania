@@ -4,7 +4,11 @@
 
 import { personalize } from "../owner.js";
 
-export const PROTOCOL_VERSION = "2.24";
+export const PROTOCOL_VERSION = "2.25";
+
+// 2.25: propose_seat (PLA-I71-3). A PO proposes one more seat with its reason; only the owner's screen accepts or
+// declines it, and an accepted seat arrives paused. Runs never create, move, pause or retire seats. The rules live in
+// the tool's description (the text stays under 900 words). The old spellings of 2.24 are still read on input.
 
 // 2.24: the owner has a name of their own (PLA-I2-14). Stored and wire values are neutral: status Needs owner, actor,
 // origin and author owner, delegated_by_owner, a line that starts with "Owner:", needs_owner and waiting_owner, the

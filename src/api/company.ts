@@ -82,6 +82,7 @@ import { oficioRead } from "./company-oficio.js";
 import { oficioSkillRoutes } from "./company-oficio-skills.js";
 import { oficioTrialRoutes } from "./company-oficio-trials.js";
 import { oficioLessonRoutes } from "./company-oficio-lessons.js";
+import { equipoRoutes } from "./company-equipo.js";
 import { defineWords, say } from "../words.js";
 
 // PLA-I2-10: the company routes' own refusals in the install's language; the Spanish is unchanged.
@@ -673,6 +674,8 @@ companyRoutes.route("/", oficioSkillRoutes);
 companyRoutes.route("/", oficioTrialRoutes);
 // PLA-I67-3: an agent's lessons (src/api/company-oficio-lessons.ts).
 companyRoutes.route("/", oficioLessonRoutes);
+// PLA-I71-3: move, pause, retire and add seats; the owner decides a PO's proposal.
+companyRoutes.route("/", equipoRoutes);
 // PLA-I68: Camino, a project's path from code to people (src/api/company-camino.ts).
 companyRoutes.route("/", caminoRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.

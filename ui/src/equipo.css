@@ -100,10 +100,47 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .agt-post-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agt-pre { margin: 0; flex: 1; min-height: 240px; max-height: calc(100svh - 360px); overflow: auto; padding: 14px; border-radius: 10px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); font-family: var(--cor-mono); font-size: 12.5px; line-height: 1.6; color: var(--cor-body); white-space: pre-wrap; }
 
+/* PLA-I71-3: a PO's proposal on the chart, the seat's actions in Perfil, and Sumar (board Sumar). */
+.org-card.proposal { border-style: dashed; border-color: rgba(255, 180, 84, 0.6); background: rgba(255, 180, 84, 0.04); }
+.org-card.proposal .org-line { color: var(--cor-amber); }
+.org-card.proposal.sel { border-color: var(--cor-amber); }
+.eq-side-prop { border-color: rgba(255, 180, 84, 0.45); }
+.agt-move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--cor-line); }
+.agt-move .cor-select { flex: 1 1 140px; min-height: 44px; }
+.agt-move .cor-cap { flex-basis: 100%; }
+.agt-seat { display: flex; flex-direction: column; gap: 8px; }
+.agt-seat-row, .agt-retire { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.agt-retire .cor-text { flex-basis: 100%; margin: 0; }
+.sum { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.sum-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.sum-hint { margin-left: auto; font-family: var(--cor-sans); font-size: 13px; }
+.sum-prop { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255, 180, 84, 0.45); background: rgba(255, 180, 84, 0.05); }
+.sum-prop-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; color: var(--cor-body); }
+.sum-prop-text b { color: var(--cor-text); font-size: 15px; }
+.sum-prop-yes { border-color: rgba(255, 180, 84, 0.6); color: var(--cor-amber); }
+.sum-body { display: flex; gap: 24px; min-height: 0; }
+.sum-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.sum-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.sum-card { width: 100%; min-height: 104px; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); color: var(--cor-text); font: inherit; text-align: left; cursor: pointer; }
+.sum-card:hover:not(:disabled) { border-color: var(--cor-line-strong); }
+.sum-card.sel { border-color: rgba(167, 139, 250, 0.7); background: rgba(139, 92, 246, 0.08); }
+.sum-card.new { border-style: dashed; }
+.sum-card:disabled { opacity: 0.55; cursor: default; }
+.sum-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sum-card-top b { font-size: 15.5px; font-weight: 600; }
+.sum-card-line { font-size: 13px; line-height: 1.45; color: var(--cor-body); }
+.sum-side { flex: 0 0 360px; }
+.sum-side .agt-kv .cor-select { max-width: 60%; min-height: 44px; }
+.sum-own { display: flex; flex-direction: column; gap: 8px; }
+.sum-brings { flex-wrap: wrap; }
+
 @media (max-width: 1100px) {
   .eq { flex-direction: column; }
   .eq-side, .eq-side.agt, .eq-side.agt.wide { flex: none; width: 100%; max-height: none; box-sizing: border-box; }
   .agt-post { grid-template-columns: 1fr; }
+  .sum-body { flex-direction: column; }
+  .sum-side { flex: none; }
+  .sum-prop { flex-wrap: wrap; }
 }
 /* In the narrow panel the teach bar is one row: «Una habilidad» lives in the Habilidades tab. */
 .agt:not(.wide) .ofi-teach-modes { display: none; }
