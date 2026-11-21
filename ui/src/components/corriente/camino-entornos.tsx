@@ -6,13 +6,13 @@
 // window. Every edit is one staged change of the project's environments.
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api } from "@/lib/api";
-import { caminoWords, catalog } from "@/lib/camino";
-import { entornosWords, KINDS, LISTABLE, MIGRATE_WHEN, newEnv, rollbackOf, rolesSql, varsDiff, whoMigrates } from "@/lib/camino-entornos";
+import { caminoWords, catalog, serviceName } from "@/lib/camino";
+import { entornosWords, envChanges, KINDS, LISTABLE, MIGRATE_WHEN, newEnv, rollbackOf, rolesSql, varsDiff, whoMigrates } from "@/lib/camino-entornos";
 import type { CaminoEnv, CaminoRead, EnvKind, ProviderId } from "@/lib/camino-types";
 import { Btn } from "./parts";
-import { Blk, Ed, type CaminoLinks } from "./camino";
+import { Blk, Ed, Experto, Recom, type CaminoLinks } from "./camino";
 import { Tg } from "./camino-cambios";
 import type { Cambios } from "./camino-store";
 
@@ -32,15 +32,25 @@ export function useSetEnvs(r: CaminoRead, cambios: Cambios) {
     if (JSON.stringify(next) === JSON.stringify(r.config.envs)) return cambios.drop("envs");
     const from = sayEnvs(r.config.envs);
     const to = sayEnvs(next);
-    cambios.stage({ key: "envs", change: { kind: "config", label: w.label(what), patch: { envs: next } }, dest: "plania", from, to: to === from ? `${to} · ${w.edited}` : to });
+    cambios.stage({ key: "envs", change: { kind: "config", label: w.label(what), patch: { envs: next } }, dest: "plania", from, to: to === from ? `${to} · ${w.edited}` : to, lines: envChanges(r.config.envs, next) });
   };
 }
 
-const Picker = ({ r, provider, value, onPick, project, label }: { r: CaminoRead; provider: ProviderId; value: string | null; onPick: (v: string, url?: string | null) => void; project?: string; label: string }) => {
+const Picker = ({ r, provider, value, onPick, project, label, links }: { r: CaminoRead; provider: ProviderId; value: string | null; onPick: (v: string, url?: string | null) => void; project?: string; label: string; links: CaminoLinks }) => {
   const w = entornosWords();
   const q = useQuery({ queryKey: ["camino-list", r.slug, provider, project ?? ""], queryFn: () => api.caminoProviderList(r.slug, provider, project), staleTime: 60_000 });
   if (q.isPending) return <span className="cam-hint">{w.loading}</span>;
   if (!q.data?.connected) return null;
+  // PLA-I70-23: a refused key says so, with the way to fix it.
+  if (q.data.refused)
+    return (
+      <span className="cam-hint bad-t" role="alert" data-llave-rechazada>
+        {w.keyRefused(serviceName(provider))}{" "}
+        <Link className="cor-inline" to={links.hrefOf("conn")}>
+          {w.connect}
+        </Link>
+      </span>
+    );
   if (!q.data.items.length) return <span className="cam-hint">{w.nothingThere}</span>;
   return (
     <label className="cam-field">
@@ -61,8 +71,10 @@ const Picker = ({ r, provider, value, onPick, project, label }: { r: CaminoRead;
 export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cambios; id: string; links: CaminoLinks }) => {
   const w = entornosWords();
   const cw = caminoWords();
+  const xe = cw.expert.env;
   const envs = envsOf(r, cambios);
   const setEnvs = useSetEnvs(r, cambios);
+  const navigate = useNavigate();
   const e = envs.find((x) => x.id === id);
   const orig = r.config.envs.find((x) => x.id === id);
   const g = r.discovery?.github.ok ? r.discovery.github : null;
@@ -96,13 +108,16 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
       <div className="cam-grid3">
         <label className="cam-field">
           <span className="cam-lab">{w.name}</span>
-          <input className="cor-input" defaultValue={e.name} onBlur={(ev) => ev.target.value.trim() && ev.target.value.trim() !== e.name && set({ name: ev.target.value.trim() })} data-campo="nombre-entorno" />
+          <input key={`n-${cambios.epoch}`} className="cor-input" defaultValue={e.name} onBlur={(ev) => ev.target.value.trim() && ev.target.value.trim() !== e.name && set({ name: ev.target.value.trim() })} data-campo="nombre-entorno" />
         </label>
         <div className="cam-field">
           <span className="cam-lab">{w.kind}</span>
           <div className="cam-chips" role="group" aria-label={w.kind}>
             {KINDS.map((k) => (
-              <button key={k} type="button" className="cam-pill" aria-pressed={e.kind === k} onClick={() => set({ kind: k })}>
+              <button key={k} type="button" className="cam-pill" aria-pressed={e.kind === k} onClick={() =>
+                // PLA-I70-18: the migration moment follows the kind: production has no «al llegar a la rama», the others no «dentro del build».
+                set({ kind: k, ...(e.database ? { database: { ...e.database, migrate_when: k === "produccion" && e.database.migrate_when === "llegar" ? "paso" : k !== "produccion" && e.database.migrate_when === "build" ? "llegar" : e.database.migrate_when } } : {}) })
+              }>
                 {w.kinds[k]}
               </button>
             ))}
@@ -110,6 +125,14 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
         </div>
       </div>
 
+      {prod && e.database && (
+        <Recom
+          lines={[xe.sql, xe.approve, xe.backup]}
+          done={e.database.sql_review && e.database.approve_destructive && e.database.backup !== "ninguna"}
+          onUse={() => setDb({ sql_review: true, approve_destructive: true, backup: e.database!.backup === "ninguna" ? "proveedor" : e.database!.backup })}
+        />
+      )}
+      <Experto id={`env-${e.id}`}>
       <Blk cap={w.runs}>
         <div className="cam-grid3">
           <label className="cam-field">
@@ -157,7 +180,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
           {e.runs.kind === "tags" && (
             <label className="cam-field">
               <span className="cam-lab">{w.pattern}</span>
-              <input className="cor-input cor-mono" defaultValue={e.runs.pattern} onBlur={(ev) => set({ runs: { kind: "tags", pattern: ev.target.value.trim() || "v*" } })} />
+              <input key={`p-${cambios.epoch}`} className="cor-input cor-mono" defaultValue={e.runs.pattern} onBlur={(ev) => set({ runs: { kind: "tags", pattern: ev.target.value.trim() || "v*" } })} />
             </label>
           )}
         </div>
@@ -197,7 +220,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
             )}
             {LISTABLE.includes(server.id) &&
               (saved(server.id) || server.id === "github_releases" ? (
-                <Picker r={r} provider={server.id} value={e.server.project} onPick={(v, url) => set({ server: { ...e.server, project: v || null }, ...(url && !e.url ? { url } : {}) })} label={w.project} />
+                <Picker r={r} provider={server.id} value={e.server.project} onPick={(v, url) => set({ server: { ...e.server, project: v || null }, ...(url && !e.url ? { url } : {}) })} label={w.project} links={links} />
               ) : (
                 <p className="cam-hint">
                   {w.connectToPick(server.name)}{" "}
@@ -212,7 +235,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
           <span className="cam-lab">
             {w.url} <i>{w.urlHint}</i>
           </span>
-          <input className="cor-input cor-mono" defaultValue={e.url ?? ""} key={e.url ?? ""} onBlur={(ev) => (ev.target.value.trim() || null) !== e.url && set({ url: ev.target.value.trim() || null })} placeholder="https://" data-campo="url-entorno" />
+          <input className="cor-input cor-mono" defaultValue={e.url ?? ""} key={`${e.url ?? ""}-${cambios.epoch}`} onBlur={(ev) => (ev.target.value.trim() || null) !== e.url && set({ url: ev.target.value.trim() || null })} placeholder="https://" data-campo="url-entorno" />
         </label>
       </Blk>
 
@@ -256,7 +279,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
                 </label>
               )}
               {e.database.provider === "neon" &&
-                (saved("neon") ? <Picker r={r} provider="neon" value={e.database.name} onPick={(v) => setDb({ name: v || null })} label={w.project} /> : <p className="cam-hint">{w.connectToPick("Neon")}</p>)}
+                (saved("neon") ? <Picker r={r} provider="neon" value={e.database.name} onPick={(v) => setDb({ name: v || null })} label={w.project} links={links} /> : <p className="cam-hint">{w.connectToPick("Neon")}</p>)}
               <div className="cam-field">
                 <span className="cam-lab">{w.data}</span>
                 <div className="cam-chips" role="group" aria-label={w.data}>
@@ -371,7 +394,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
             <span className="cam-lab">
               {w.healthUrl} <i>{w.healthHint}</i>
             </span>
-            <input className="cor-input cor-mono" defaultValue={e.health.url ?? ""} onBlur={(ev) => (ev.target.value.trim() || null) !== e.health.url && set({ health: { ...e.health, url: ev.target.value.trim() || null } })} placeholder="/api/salud" data-campo="salud" />
+            <input key={`h-${cambios.epoch}`} className="cor-input cor-mono" defaultValue={e.health.url ?? ""} onBlur={(ev) => (ev.target.value.trim() || null) !== e.health.url && set({ health: { ...e.health, url: ev.target.value.trim() || null } })} placeholder="/api/salud" data-campo="salud" />
           </label>
           <div className="cam-field">
             <span className="cam-lab">
@@ -392,12 +415,17 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
       <Blk cap={w.whoPublishes}>
         <p className="cam-line">{w.onlyYou}</p>
         <div className="cam-acts">
-          <Btn kind="quiet" small onClick={() => setEnvs(envs.filter((x) => x.id !== id), e.name)} data-control="quitar-entorno">
+          <Btn kind="quiet" small onClick={() => {
+              setEnvs(envs.filter((x) => x.id !== id), e.name);
+              // PLA-I70-39: the page this URL named is gone; go to Resumen.
+              navigate(links.hrefOf("resumen"));
+            }} data-control="quitar-entorno">
             {w.remove}
           </Btn>
           <span className="cam-hint">{w.removeNote}</span>
         </div>
       </Blk>
+      </Experto>
     </Ed>
   );
 };
@@ -409,6 +437,11 @@ export const AddEnv = ({ r, cambios, onAdded }: { r: CaminoRead; cambios: Cambio
   const [name, setName] = useState("");
   const [kind, setKind] = useState<EnvKind>("permanente");
   const setEnvs = useSetEnvs(r, cambios);
+  useEffect(() => {
+    const on = () => setOpen(true);
+    window.addEventListener("camino:add-env", on);
+    return () => window.removeEventListener("camino:add-env", on);
+  }, []);
   if (!open)
     return (
       <button type="button" className="cam-sec cam-add-env" onClick={() => setOpen(true)} data-control="agregar-entorno">
@@ -420,6 +453,14 @@ export const AddEnv = ({ r, cambios, onAdded }: { r: CaminoRead; cambios: Cambio
     <form
       className="cam-add-form"
       aria-label={w.addTitle}
+      onKeyDown={(ev) => {
+        // PLA-I70-36: Esc closes the form.
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          setOpen(false);
+          setName("");
+        }
+      }}
       onSubmit={(ev) => {
         ev.preventDefault();
         if (!name.trim()) return;
@@ -431,7 +472,7 @@ export const AddEnv = ({ r, cambios, onAdded }: { r: CaminoRead; cambios: Cambio
         onAdded(e.id);
       }}
     >
-      <input className="cor-input" value={name} onChange={(ev) => setName(ev.target.value)} placeholder={w.addName} aria-label={w.addName} data-campo="nuevo-entorno" />
+      <input className="cor-input" value={name} onChange={(ev) => setName(ev.target.value)} placeholder={w.addName} aria-label={w.addName} autoFocus data-campo="nuevo-entorno" />
       <select className="cor-input" value={kind} onChange={(ev) => setKind(ev.target.value as EnvKind)} aria-label={w.kind}>
         {KINDS.map((k) => (
           <option key={k} value={k}>
@@ -441,6 +482,9 @@ export const AddEnv = ({ r, cambios, onAdded }: { r: CaminoRead; cambios: Cambio
       </select>
       <Btn kind="secondary" small type="submit" disabled={!name.trim()} data-control="crear-entorno">
         {w.addCreate}
+      </Btn>
+      <Btn kind="quiet" small onClick={() => (setOpen(false), setName(""))} data-control="cancelar-entorno">
+        {w.addCancel}
       </Btn>
     </form>
   );

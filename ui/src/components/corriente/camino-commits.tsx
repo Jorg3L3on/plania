@@ -5,10 +5,10 @@
 import { useState } from "react";
 import { ALL_TYPES, followShare, historyMix, instructions, preview, prTitleWorkflow, sampleOf, STYLE_KEYS, subjectOf } from "@/lib/camino-commits";
 import { commitsPageWords } from "@/lib/camino-commits-words";
-import { caminoWords } from "@/lib/camino";
+import { baseBranch, caminoWords } from "@/lib/camino";
 import { codigoWords } from "@/lib/camino-codigo";
 import type { CaminoRead, CommitSettings, ConventionId } from "@/lib/camino-types";
-import { Blk, Ed } from "./camino";
+import { Blk, Ed, Experto, Recom } from "./camino";
 import { Tg } from "./camino-cambios";
 import { Why } from "./camino-codigo";
 import type { Cambios } from "./camino-store";
@@ -44,7 +44,7 @@ export const Commits = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
     const yml = next.enforce === "ci" && next.convention ? prTitleWorkflow(next.convention, next) : null;
     const existing = g?.workflow_files.find((f) => f.path === PR_TITLE_FILE)?.text ?? "";
     if (yml && yml !== existing) {
-      const base = r.config.branches.integration ?? r.config.branches.published;
+      const base = baseBranch(r);
       cambios.stage({
         key: `file:${PR_TITLE_FILE}`,
         change: { kind: "file_pr", label: w.ciLabel, path: PR_TITLE_FILE, content: yml, base, title: w.ciTitle(next.convention), body: w.ciBody },
@@ -56,11 +56,20 @@ export const Commits = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
     } else cambios.drop(`file:${PR_TITLE_FILE}`);
   };
   const conv = st.convention;
+  const ex = caminoWords().expert.commits;
+  // The recommendation: what the project already writes most, else Conventional Commits.
+  const proposed = mix.propose ?? "conventional";
   const follow = conv ? followShare(mix, conv) : null;
   const [customText, setCustomText] = useState(st.custom_regex ?? "");
   const bars: [string, number][] = STYLE_KEYS.map((k) => [w.styles[k], mix.share[k]]);
   return (
     <Ed id="commits" title={caminoWords().sections.commits} lead={w.lead}>
+      <Recom
+        lines={[ex.conv(w.conventions[proposed].name), ex.ai]}
+        done={conv === proposed && !st.ai}
+        onUse={() => set({ convention: proposed, ai: false })}
+      />
+      <Experto id="commits">
       <Blk cap={w.history} hint={g ? w.historyHint(mix.n, g.repo.full_name) : undefined} data-mezcla={mix.dominant ?? ""}>
         {mix.n === 0 ? (
           <p className="cam-hint">{w.noHistory}</p>
@@ -196,15 +205,22 @@ export const Commits = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
             <div className="cam-grid2">
               <div className="cam-field">
                 <span className="cam-lab">{w.preview}</span>
-                <pre className="cam-preview" data-vista-previa>
-                  {preview(conv, st, sample)}
-                </pre>
+                {/* PLA-I70-44: a sample made for another shape would fail the owner's own pattern; for «Propio» none is shown. */}
+                {conv === "custom" ? (
+                  <p className="cam-hint" data-vista-previa="propio">
+                    {w.previewCustom}
+                  </p>
+                ) : (
+                  <pre className="cam-preview" data-vista-previa>
+                    {preview(conv, st, sample)}
+                  </pre>
+                )}
               </div>
               <label className="cam-field">
                 <span className="cam-lab">
                   {w.examples} <i>{w.examplesHint}</i>
                 </span>
-                <textarea className="cor-input cor-mono cam-ta" defaultValue={st.examples} onBlur={(e) => e.target.value !== st.examples && set({ examples: e.target.value })} data-campo="ejemplos" />
+                <textarea key={`ex-${cambios.epoch}`} className="cor-input cor-mono cam-ta" defaultValue={st.examples} onBlur={(e) => e.target.value !== st.examples && set({ examples: e.target.value })} data-campo="ejemplos" />
               </label>
             </div>
           </Blk>
@@ -229,6 +245,7 @@ export const Commits = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
           </Blk>
         </>
       )}
+      </Experto>
     </Ed>
   );
 };

@@ -4,13 +4,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
-import { cambiosWords, counts, groups, toSend, whyStopped, type Dest, type Staged } from "@/lib/camino-cambios";
+import { cambiosWords, counts, groups, toSend, whyDetail, whyStopped, type Dest, type Staged } from "@/lib/camino-cambios";
 import type { CaminoRead } from "@/lib/camino-types";
 import { Btn } from "./parts";
 import { caminoKey } from "./camino-query";
 import type { Cambios } from "./camino-store";
 import { lostRequired, requiredIn } from "@/lib/camino-ci";
 import { requiredNames } from "./camino-pruebas";
+import { baseBranch } from "@/lib/camino";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
@@ -90,7 +91,7 @@ export const CambiosBar = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) 
   );
 };
 
-type Outcome = { ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string } | "skipped";
+type Outcome = { ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string; pr?: { number: number; url: string } } | "skipped";
 
 const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onClose: () => void }) => {
   const w = cambiosWords();
@@ -113,20 +114,50 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
       const m = new Map<string, Outcome>();
       order.forEach((s, i) => {
         const res = out.results.find((x) => x.index === i);
-        m.set(s.key, res ? { ok: res.ok, error: res.error, detail: res.detail, note: res.note } : "skipped");
+        m.set(s.key, res ? { ok: res.ok, error: res.error, detail: res.detail, note: res.note, pr: res.pr } : "skipped");
         if (res?.ok) cambios.drop(s.key);
       });
       setOutcome(m);
       setSummary(out.stopped ? w.stopped(out.applied, whyStopped(out.stopped.error ?? "", out.stopped.detail)) : w.done(out.applied));
       client.setQueryData(caminoKey(r.slug), out.read);
     },
-    onError: (e) => setSummary(e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : whyStopped(e instanceof ApiError ? e.code : "network")),
+    onError: (e) => {
+      const stale = e instanceof ApiError && e.code === "STALE_VERSION";
+      setStaleSet(stale);
+      setSummary(stale ? w.stale : whyStopped(e instanceof ApiError ? e.code : "network"));
+    },
+  });
+  // PLA-I70-12: a second tab's change leaves a way forward: read again and keep what is staged.
+  const [staleSet, setStaleSet] = useState(false);
+  const reread = useMutation({
+    mutationFn: () => api.camino(r.slug),
+    onSuccess: (read) => {
+      client.setQueryData(caminoKey(r.slug), read);
+      setStaleSet(false);
+      setSent(null);
+      setSummary(w.kept);
+    },
   });
   useEffect(() => {
-    box.current?.querySelector<HTMLElement>("button")?.focus();
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && !apply.isPending && onClose();
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
+    // PLA-I70-36: focus lands on the dialog itself (not on ✕) and Tab stays inside it.
+    if (!box.current?.contains(document.activeElement)) box.current?.focus();
+    const keys = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !apply.isPending) return onClose();
+      if (e.key !== "Tab" || !box.current) return;
+      const f = [...box.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], summary, [tabindex="0"]')];
+      if (!f.length) return;
+      const first = f[0]!;
+      const last = f[f.length - 1]!;
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
   }, [apply.isPending, onClose]);
   const done = !!summary && !apply.isPending;
   // PLA-I68-5: what must be said before a set with workflow changes applies; some of it holds the set back.
@@ -148,10 +179,10 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
   }
   const held = warns.some((x) => x.blocks);
   const byDest = (["plania", "proveedor", "github", "pr"] as Dest[]).map((dest) => ({ dest, items: list.filter((x) => x.dest === dest) })).filter((g) => g.items.length);
-  const pub = r.config.branches.integration ?? r.config.branches.published;
+  const pub = baseBranch(r);
   return (
     <div className="cam-review" onMouseDown={(e) => e.target === e.currentTarget && !apply.isPending && onClose()}>
-      <div className="cam-rv" role="dialog" aria-modal="true" aria-labelledby="cam-rv-h" ref={box} data-revision>
+      <div className="cam-rv" role="dialog" aria-modal="true" aria-labelledby="cam-rv-h" ref={box} tabIndex={-1} data-revision>
         <div className="cam-rv-h">
           <div>
             <h3 id="cam-rv-h">{w.reviewTitle(list.length)}</h3>
@@ -187,9 +218,30 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
                           {w.discard}
                         </Btn>
                       )}
-                      <span className="cam-d">
+                      {s.lines?.length && st !== "fail" && st !== "skip" && !(st === "done" && o !== "skipped" && o?.note) ? (
+                        <ul className="cam-d cam-lines" data-lineas>
+                          {s.lines.map((l) => (
+                            <li key={l}>{l}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <span className={cls("cam-d", !!s.lines?.length && st !== "fail" && st !== "skip" && !(st === "done" && o !== "skipped" && o?.note) && "sr-only")}>
                         {st === "fail" && o !== "skipped" && o ? whyStopped(o.error ?? "", o.detail) : st === "skip" ? w.skipped : st === "done" && o !== "skipped" && o?.note ? o.note : w.beforeAfter(s.from, s.to)}
+                        {st === "done" && o !== "skipped" && o?.pr && (
+                          <>
+                            {" "}
+                            <a className="cor-inline" href={o.pr.url} target="_blank" rel="noreferrer" data-pr-abierta>
+                              {w.prOpened(o.pr.number)}
+                            </a>
+                          </>
+                        )}
                       </span>
+                      {st === "fail" && o !== "skipped" && o && whyDetail(o.error ?? "", o.detail) && (
+                        <details className="cam-why">
+                          <summary>{w.why.detail}</summary>
+                          <p className="cam-hint">{whyDetail(o.error ?? "", o.detail)}</p>
+                        </details>
+                      )}
                       {s.diff && <Diff before={s.diff.before} after={s.diff.after} />}
                     </li>
                   );
@@ -203,6 +255,11 @@ const Review = ({ r, cambios, onClose }: { r: CaminoRead; cambios: Cambios; onCl
             <span className={cls("cam-hint", apply.data?.stopped || apply.isError ? "bad-t" : "ok-t")} role="status" data-resultado>
               {summary}
             </span>
+          )}
+          {staleSet && (
+            <Btn kind="secondary" small onClick={() => reread.mutate()} disabled={reread.isPending} data-control="camino-volver-a-leer">
+              {w.keepMine}
+            </Btn>
           )}
           {done ? (
             <Btn kind="primary" small onClick={onClose} data-control="camino-listo">
