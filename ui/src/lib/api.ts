@@ -317,6 +317,8 @@ export const api = {
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
   // PLA-I71-3: Equipo's seat changes (only the owner's session reaches them).
   equipo: (slug: string) => request<EquipoRead>("GET", `/company/projects/${encodeURIComponent(slug)}/equipo`),
+  // PLA-I71-4: the skill store.
+  tienda: (slug: string) => request<import("./tienda").Tienda>("GET", `/company/projects/${encodeURIComponent(slug)}/tienda`),
   seatBelow: (slug: string, agent: string) => request<{ below: string[] }>("GET", `${seatPath(slug, agent)}/below`),
   moveSeat: (slug: string, agent: string, reportsTo: string | null) => request<{ ok: true }>("PUT", `${seatPath(slug, agent)}/manager`, { reports_to: reportsTo }),
   pauseSeat: (slug: string, agent: string, paused: boolean) => request<{ paused: boolean }>("PUT", `${seatPath(slug, agent)}/pause`, { paused }),

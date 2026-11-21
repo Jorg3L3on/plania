@@ -301,7 +301,7 @@ const PuestoWide = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: string; 
   );
 };
 
-export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, children }: { p: OrgProject; m: OrgMember; paused: boolean; tab: FichaTab; links: AgenteLinks; onTab: (t: FichaTab) => void; motorLink: string; children?: React.ReactNode }) => {
+export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSkill = null, children }: { p: OrgProject; m: OrgMember; paused: boolean; tab: FichaTab; links: AgenteLinks; onTab: (t: FichaTab) => void; motorLink: string; openSkill?: string | null; children?: React.ReactNode }) => {
   const w = words(AGENTE_WORDS);
   const wo = words(ORGANIGRAMA_WORDS);
   const navigate = useNavigate();
@@ -310,11 +310,12 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, childr
   const lq = useQuery({ queryKey: ["lessons", p.slug, m.agent], queryFn: () => api.lessons(p.slug, m.agent), refetchInterval: 30_000 });
   const refsQ = useQuery({ queryKey: ["refs", p.slug, m.agent], queryFn: () => refsApi.list(p.slug, m.agent) });
   const puesto = useQuery({ queryKey: ["puesto", p.slug, m.agent], queryFn: () => api.puesto(p.slug, m.agent) });
-  const [wide, setWide] = useState<Wide | null>(null);
+  // PLA-I71-4: «Probarla» from the store opens that skill's card here, wide (&skill=<slug>).
+  const [wide, setWide] = useState<Wide | null>(openSkill ? { kind: "skill", slug: openSkill } : null);
   const upload = useRefUpload(p.slug, m.agent, (r) => setWide({ kind: "ref", id: r.id }));
   const trialSlug = wide?.kind === "trial" ? wide.slug : null;
   const trialCard = useQuery({ queryKey: ["skill", p.slug, m.agent, trialSlug], queryFn: () => api.skillCard(p.slug, m.agent, trialSlug!), enabled: !!trialSlug });
-  useEffect(() => setWide(null), [m.agent]);
+  useEffect(() => setWide(openSkill ? { kind: "skill", slug: openSkill } : null), [m.agent, openSkill]);
   // Esc narrows the wide panel before the page's Esc closes the panel.
   useEffect(() => {
     if (!wide) return;

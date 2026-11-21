@@ -21,6 +21,7 @@ import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo, EquipoNav, type EquipoLinks } from "@/components/corriente/equipo";
 import { fichaTabOf } from "@/components/corriente/agente";
+import { TiendaPage } from "@/components/corriente/tienda";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
 import type { FichaLinks } from "@/components/corriente/ficha";
@@ -253,6 +254,7 @@ export const CorrientePage = () => {
     // PLA-I71-2: the seat's panel keeps its tab in the address (&ficha=motor); Perfil has none.
     tab: (agent, t) => hrefOf({ slug, ver: { kind: "miembro", agent }, extra: t === "perfil" ? {} : { ficha: t } }),
     work: linkTo({ slug, tab: "todo" }),
+    store: linkTo({ slug, ver: { kind: "tienda", skill: null } }),
   });
 
   const pendLinks: PendLinks = {
@@ -413,6 +415,19 @@ export const CorrientePage = () => {
         />
       );
     }
+    // PLA-I71-4: the skill store, inside Equipo.
+    if (at.ver?.kind === "tienda")
+      return (
+        <TiendaPage
+          p={p}
+          selected={at.ver.skill}
+          nav={<EquipoNav links={equipoLinks(p.slug)} at="store" />}
+          links={{
+            pick: (skill) => linkTo({ slug: p.slug, ver: { kind: "tienda", skill } }),
+            tryIn: (agent, skill) => hrefOf({ slug: p.slug, ver: { kind: "miembro", agent }, extra: { ficha: "habilidades", skill } }),
+          }}
+        />
+      );
     if (at.tab === "equipo")
       return (
         <Equipo
@@ -420,6 +435,7 @@ export const CorrientePage = () => {
           companyPaused={paused}
           focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
           tab={fichaTabOf(new URLSearchParams(location.search).get("ficha"))}
+          openSkill={new URLSearchParams(location.search).get("skill")}
           links={equipoLinks(p.slug)}
           motorDefault={company?.motor_default}
         />

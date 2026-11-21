@@ -134,6 +134,34 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .sum-own { display: flex; flex-direction: column; gap: 8px; }
 .sum-brings { flex-wrap: wrap; }
 
+/* PLA-I71-4: the skill store (board Habilidades): filters, a grid that scrolls inside itself, the skill beside it. */
+.tda { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.tda-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tda-search { width: 240px; min-height: 44px; }
+.tda-body { display: flex; gap: 20px; min-height: 0; height: calc(100svh - 230px); }
+.tda-filters { flex: 0 0 190px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.tda-filters ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tda-filter { width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--cor-body); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.tda-filter:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.03); }
+.tda-filter[aria-pressed="true"] { color: var(--cor-text); background: rgba(255, 255, 255, 0.06); }
+.tda-grid-box { flex: 1 1 auto; min-width: 0; overflow: auto; padding-right: 4px; }
+.tda-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.tda-card { display: flex; flex-direction: column; gap: 8px; min-height: 120px; height: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); color: var(--cor-text); }
+.tda-card:hover { border-color: var(--cor-line-strong); }
+.tda-card.sel { border-color: rgba(167, 139, 250, 0.7); background: rgba(139, 92, 246, 0.08); }
+.tda-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tda-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tda-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tda-who { display: flex; gap: 3px; }
+.tda-seat { display: inline-grid; place-items: center; width: 24px; height: 22px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); text-transform: uppercase; }
+.tda-seat.on { background: rgba(139, 92, 246, 0.25); color: var(--cor-violet-4); }
+.tda-side { overflow: auto; max-height: 100%; }
+.tda-text { min-height: 100px; max-height: 160px; }
+.tda-foot .cor-cap { white-space: nowrap; }
+.tda-seats { list-style: none; margin: 0; padding: 0; }
+.tda-seats li { border-bottom: 1px solid var(--cor-line); }
+.org-tag.ok { background: rgba(110, 231, 160, 0.12); color: var(--cor-green); }
+
 @media (max-width: 1100px) {
   .eq { flex-direction: column; }
   .eq-side, .eq-side.agt, .eq-side.agt.wide { flex: none; width: 100%; max-height: none; box-sizing: border-box; }
@@ -141,6 +169,9 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
   .sum-body { flex-direction: column; }
   .sum-side { flex: none; }
   .sum-prop { flex-wrap: wrap; }
+  .tda-body { flex-direction: column; height: auto; }
+  .tda-filters { flex: none; }
+  .tda-filters ul { flex-direction: row; flex-wrap: wrap; }
 }
 /* In the narrow panel the teach bar is one row: «Una habilidad» lives in the Habilidades tab. */
 .agt:not(.wide) .ofi-teach-modes { display: none; }

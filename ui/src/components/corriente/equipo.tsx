@@ -68,15 +68,25 @@ const ProposalSide = ({ p, pr, back }: { p: OrgProject; pr: SeatProposalView; ba
   );
 };
 
-export type EquipoLinks = { member: (agent: string) => string; equipo: string; motor: string; sumar: string; tab: (agent: string, t: FichaTab) => string; work: string; store?: string };
+export type EquipoLinks = { member: (agent: string) => string; equipo: string; motor: string; sumar: string; tab: (agent: string, t: FichaTab) => string; work: string; store?: string; teams?: string };
 
-export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: string }; at: "chart" | "motores" }) => {
+export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: string; store?: string; teams?: string }; at: "chart" | "motores" | "store" | "teams" }) => {
   const w = words(ORGANIGRAMA_WORDS);
   return (
     <nav className="eq-places" aria-label={w.places}>
       <Link to={links.equipo} aria-current={at === "chart" ? "page" : undefined} data-control="lugar-organigrama">
         {w.chart}
       </Link>
+      {links.store && (
+        <Link to={links.store} aria-current={at === "store" ? "page" : undefined} data-control="lugar-habilidades">
+          {w.store}
+        </Link>
+      )}
+      {links.teams && (
+        <Link to={links.teams} aria-current={at === "teams" ? "page" : undefined} data-control="lugar-equipos">
+          {w.teams}
+        </Link>
+      )}
       <Link to={links.motor} aria-current={at === "motores" ? "page" : undefined} data-control="lugar-motores">
         {w.motors}
       </Link>
@@ -84,7 +94,7 @@ export const EquipoNav = ({ links, at }: { links: { equipo: string; motor: strin
   );
 };
 
-export const Equipo = ({ p, companyPaused, focus, tab = "perfil", links, motorDefault }: { p: OrgProject; companyPaused: boolean; focus: string | null; tab?: FichaTab; links: EquipoLinks; motorDefault?: { model: string | null; effort: string | null } }) => {
+export const Equipo = ({ p, companyPaused, focus, tab = "perfil", openSkill = null, links }: { p: OrgProject; companyPaused: boolean; focus: string | null; tab?: FichaTab; openSkill?: string | null; links: EquipoLinks; motorDefault?: { model: string | null; effort: string | null } }) => {
   const paused = companyPaused || p.paused;
   const navigate = useNavigate();
   const w = words(ORGANIGRAMA_WORDS);
@@ -129,6 +139,7 @@ export const Equipo = ({ p, companyPaused, focus, tab = "perfil", links, motorDe
           m={selected}
           paused={paused}
           tab={tab}
+          openSkill={openSkill}
           motorLink={links.motor}
           links={{ equipo: links.equipo, tab: (t) => links.tab(selected.agent, t), work: links.work, store: links.store }}
           onTab={(t) => navigate(links.tab(selected.agent, t), { replace: true })}

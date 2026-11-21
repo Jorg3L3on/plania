@@ -8,12 +8,15 @@
 //   POST /api/company/projects/:slug/team/:agent/retire     {} → {moved: its reports, now under its manager}
 //   POST /api/company/puestos                               {title, line, base} a role of the owner's own → 201
 //   POST /api/company/projects/:slug/proposals/:id/decide   {accept} → {state, agent}
+// PLA-I71-4:
+//   GET  /api/company/projects/:slug/tienda                 the skill store (src/api/company-tienda.ts)
 // Errors: 400 PUESTO_INVALID | MANAGER_NOT_ON_TEAM, 404 AGENT_NOT_FOUND | PROPOSAL_NOT_FOUND, 409 MANAGER_LOOP |
 // TEAM_FULL | SEAT_REQUIRED | SEAT_TAKEN | PROPOSAL_DECIDED.
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
+import { tiendaRead } from "./company-tienda.js";
 import { belowOf, catalog, createPuesto, decideProposal, moveSeat, pauseSeat, proposalsOf, retireSeat } from "../runner/puestos.js";
 
 export const equipoRoutes = new Hono();
@@ -71,3 +74,5 @@ equipoRoutes.post("/projects/:slug/proposals/:id/decide", async (c) => {
   if (!/^[0-9a-f-]{36}$/i.test(c.req.param("id"))) return c.json({ error: "PROPOSAL_NOT_FOUND" }, 404);
   return act(c, async () => c.json(await withDb((db) => decideProposal(db, c.req.param("slug"), c.req.param("id"), input.accept))));
 });
+
+equipoRoutes.get("/projects/:slug/tienda", (c) => act(c, async () => c.json(await withDb((db) => tiendaRead(db, c.req.param("slug"))))));
