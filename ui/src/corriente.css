@@ -299,7 +299,24 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-topbar-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-3); box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.7); }
 .cor-topbar-state.off i { background: rgba(255, 255, 255, 0.28); box-shadow: none; }
 @media (max-width: 1360px) { .cor-topbar { gap: 0 16px; } .cor-topbar .cor-doors { gap: 0 16px; } }
-@media (max-width: 900px) { .cor-topbar { height: auto; flex-wrap: wrap; padding: 6px 16px; } .cor-topbar .cor-door { min-height: 44px; } }
+/* PLA-134: from 900 to 1279 px the bar stays one row. The doors keep their width and the project's name gives way
+   (it ends in «…», never under 7 letters); the doors' small counts leave first, still read as part of each door's
+   name. Camino keeps its coloured dot; below 1100 px its word goes too. Below 1024 px the margins tighten. */
+@media (min-width: 900px) {
+  .cor-topbar .cor-doors { flex: none; }
+  .cor-topbar .cor-switch-btn .cor-ellipsis { min-width: 7ch; }
+}
+@media (min-width: 900px) and (max-width: 1279px) {
+  .cor-topbar .cor-door .n:not(.cam-door-n) { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+}
+@media (min-width: 900px) and (max-width: 1099px) {
+  .cor-topbar .cor-door .cam-door-n { font-size: 0; letter-spacing: 0; gap: 0; }
+}
+@media (min-width: 900px) and (max-width: 1023px) {
+  .cor-topbar { gap: 0 12px; padding: 0 20px; }
+  .cor-topbar .cor-doors { gap: 0 12px; margin-left: 4px; }
+}
+@media (max-width: 899px) { .cor-topbar { height: auto; flex-wrap: wrap; padding: 6px 16px; } .cor-topbar .cor-door { min-height: 44px; } }
 .cor-strip-back { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 0; font-size: 13.5px; color: var(--cor-body); flex: none; }
 .cor-strip-back:hover { color: #fff; }
 .cor-chip { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-height: 44px; min-width: 0; padding: 7px 12px; border-radius: 10px; border: 1px solid transparent; }
@@ -1102,7 +1119,7 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 /* PLA-I64-7: the bar's doors. */
 .cor-doors { margin-left: auto; display: flex; align-items: center; gap: 0 22px; }
 .cor-door .n { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); letter-spacing: 0.04em; }
-@media (max-width: 900px) { .cor-doors { margin-left: 0; flex-wrap: wrap; } }
+@media (max-width: 899px) { .cor-doors { margin-left: 0; flex-wrap: wrap; } }
 .cor-cabeza-l { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .cor-nudge { display: flex; align-items: center; gap: 10px; }
 .cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }
