@@ -22,3 +22,12 @@ export function appTheme(style: { brand: string; brandTie: "sigue" | "fijo" } | 
   if (style) return style.brandTie === "sigue" ? (logoTheme(l) ?? style.brand.toLowerCase()) : style.brand.toLowerCase();
   return logoTheme(l);
 }
+
+/** PLA-131: the colour the icons carry and are judged by: the app's colour as the repo already has it. Once Plania keeps
+ * a style and the repo's CSS has a brand colour, that one leads: a colour tried in Estilo stays a draft until Estilo's own
+ * request writes it (CSS and manifest together), so trying colours or going back to the repo's never makes the manifest
+ * and the share image read old. Without a CSS brand, the rule before (appTheme). */
+export function appColor(style: { brand: string; brandTie: "sigue" | "fijo" } | null, l: ThemeSource | null | undefined, repoBrand: string | null | undefined): string | null {
+  if (style && repoBrand && HEX.test(repoBrand)) return repoBrand.toLowerCase();
+  return appTheme(style, l);
+}
