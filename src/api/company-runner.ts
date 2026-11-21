@@ -32,7 +32,7 @@ export type RunnerView = {
   limits: { max_concurrent: number; consulta_slots: number; max_per_agent: number; serialize_areas: boolean };
   live: { work: number; consulta: number };
   ceiling: { max: number; live: number; live_other_projects: number; reserved: number; capacity: number };
-  plan: { pct: number | null; guard: number; state: string; override: boolean; est_pct: number; live_weight: number };
+  plan: { pct: number | null; read_at: string | null; guard: number; state: string; override: boolean; est_pct: number; live_weight: number };
   queue: RunnerQueued[];
   seats: RunnerSeat[];
 };
@@ -93,7 +93,7 @@ export async function runnerView(db: Db, p: Pick<Project, "id" | "settings">, no
     limits: { max_concurrent: limits.maxConcurrent, consulta_slots: limits.consultaSlots, max_per_agent: limits.maxPerAgent, serialize_areas: limits.serializeAreas },
     live: { work: liveRows.filter((r) => r.run.lane === "work" && r.agentProject).length, consulta: liveRows.filter((r) => r.run.lane === "consulta").length },
     ceiling: { max: settings.maxConcurrent, live: all?.n ?? 0, live_other_projects: (all?.n ?? 0) - (all?.here ?? 0), reserved: res?.n ?? 0, capacity: workerCapacity() },
-    plan: { pct: view.five_hour_pct, guard: view.guard_pct, state: view.state, override: view.override, est_pct: settings.estPctPerRun, live_weight: Math.round(liveWeight * 100) / 100 },
+    plan: { pct: view.five_hour_pct, read_at: view.read_at, guard: view.guard_pct, state: view.state, override: view.override, est_pct: settings.estPctPerRun, live_weight: Math.round(liveWeight * 100) / 100 },
     queue: rows
       .filter((r) => r.run.status === "queued")
       .map((r) => ({
