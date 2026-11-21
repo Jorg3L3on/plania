@@ -118,8 +118,9 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
         );
       case "publicar":
         return link(w.publish, links.publicar, "publicar");
-      case "ajustes":
-        return link(a.label, `${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-${a.seccion}`, "ir-ajustes");
+      case "camino":
+        // PLA-132: who migrates production is set in Despliegue.
+        return link(a.label, linkTo({ slug: p.slug, tab: "camino", ...(a.sec === "resumen" ? {} : { ver: { kind: "camino", sec: a.sec } }) }), "ir-despliegue");
       case "detener":
         return btn(w.stop, () => acts.stopRun(a.run), "detener", w.stopping, "secondary");
       case "primero":

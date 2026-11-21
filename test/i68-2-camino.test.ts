@@ -272,7 +272,7 @@ describe("discovery", () => {
   test("older settings are read into the config: release → integration branch and production, capture → the test copy", () => {
     const c = effectiveConfig({ release: { from: "sandbox", into: "main", env: "prod", prod_migrations: "deploy" }, capture: { database: { env_var: "DATABASE_URL" } } as never, vercel: { project_id: "prj_1" } }, {}, null);
     assert.equal(c.model, "integ");
-    assert.deepEqual(c.branches, { published: "main", integration: "sandbox", work_pattern: "jl/<clave>" });
+    assert.deepEqual(c.branches, { published: "main", integration: "sandbox", work_pattern: "plania/<clave>" });
     assert.deepEqual(c.envs.map((e) => [e.id, e.kind, e.server.provider, e.database?.migrate_when ?? null]), [["copia", "permanente", "mac_service", "llegar"], ["prod", "produccion", "vercel", "build"]]);
     const owned = effectiveConfig({}, { model: "trunk", branches: { published: "trunk" } }, { default_branch: "main", merge: null });
     assert.equal(owned.branches.published, "trunk");
@@ -285,7 +285,7 @@ const base = (over: Json = {}): any => ({
   slug: "zigzag",
   title: "Zigzag",
   version: 1,
-  config: { model: "integ", branches: { published: "main", integration: "sandbox", work_pattern: "jl/<clave>" }, rules: {}, merge: {}, required_checks: {}, commits: { convention: null, ai: false }, deps: {}, envs: [], connections: {}, source: { model: "settings", branches: "settings", merge: "default", envs: "settings" }, ...(over.config ?? {}) },
+  config: { model: "integ", branches: { published: "main", integration: "sandbox", work_pattern: "plania/<clave>" }, rules: {}, merge: {}, required_checks: {}, commits: { convention: null, ai: false }, deps: {}, envs: [], connections: {}, source: { model: "settings", branches: "settings", merge: "default", envs: "settings" }, ...(over.config ?? {}) },
   settings: { repo: REPO, folder: "/x", no_code: false, release: { from: "sandbox", into: "main", env: "prod", prod_migrations: null }, capture: false, vercel: false, ...(over.settings ?? {}) },
   discovery: over.discovery === undefined ? { checked_at: "2026-11-20T00:00:00Z", took_ms: 1, github: gh(), mac: { folder: { path: "/x", exists: true, clone: true, remote: "r", matches: true, clones: [] }, postgres: null, env_example: null, scripts: null, folders: null, migrations: null } } : over.discovery,
   checked_at: "2026-11-20T00:00:00Z",
@@ -321,7 +321,18 @@ describe("findings", () => {
     assert.deepEqual(ids(F).filter((i) => !["public-repo", "all-good"].includes(i)), ["unprotected:main", "nothing-required:main", "no-convention", "prod-unset"]);
     assert.equal(F[0]!.sev, "warn");
     assert.equal(F[0]!.title, "main no está protegida");
-    assert.deepEqual(F.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", ajustes: "lanzamiento" });
+    // PLA-132: no production environment to open yet, so no fix button; never a link to Ajustes.
+    assert.equal(F.find((f) => f.id === "prod-unset")!.fix, null);
+  });
+
+  test("PLA-132: who migrates production is fixed in its environment, and a saved environment that says it clears the finding", () => {
+    const env = { id: "prod", name: "Producción", kind: "produccion", record: "prod", runs: { kind: "branch", branch: "main" }, url: null, server: { provider: null, project: null, note: null }, database: { provider: null, name: null, data: "real", roles_split: false, migrate_when: "mano", lock: false, sql_review: false, approve_destructive: true, backup: "ninguna" }, vars: [], health: { url: null, pages: [] }, publisher: "owner", freeze: false };
+    const derived = cam.findings(base({ config: { envs: [env] } }), NOW, "es");
+    assert.deepEqual(derived.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", go: "env:prod" });
+    const saved = { ...env, database: { ...env.database, provider: "neon" } };
+    const F = cam.findings(base({ config: { envs: [saved], source: { model: "settings", branches: "settings", merge: "default", envs: "camino" } } }), NOW, "es");
+    assert.ok(!ids(F).includes("prod-unset"), "Despliegue already says who migrates");
+    for (const f of F) assert.equal((f.fix as { ajustes?: string } | null)?.ajustes, undefined, f.id);
   });
 
   test("a ruleset that protects main and requires a check that nobody produces", () => {

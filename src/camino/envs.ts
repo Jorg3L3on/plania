@@ -23,7 +23,7 @@ type Adapter = {
 
 const json = async (fetch: HttpFetch, url: string, key: string): Promise<any> => {
   const r = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "User-Agent": "plania" } });
-  if (r.status < 200 || r.status >= 300) throw new Error(`status ${r.status}`);
+  if (r.status < 200 || r.status >= 300) throw Object.assign(new Error(`status ${r.status}`), { status: r.status });
   return r.json();
 };
 
@@ -62,20 +62,31 @@ export const ADAPTERS: Partial<Record<ProviderId, Adapter>> = {
 /** The services Camino can list from (with a saved key, or GitHub's own connection for Releases). */
 export const LISTABLE = Object.keys(ADAPTERS) as ProviderId[];
 
-export async function listFor(p: Project, provider: ProviderId, fetch: HttpFetch, opts: { project?: string; gh?: GhApi | null }): Promise<{ items: ListItem[]; connected: boolean }> {
+/** PLA-I70-23: the service said no to the key (401/403): that is not «the key opens nothing». */
+const refusedBy = (e: unknown): boolean => [401, 403].includes((e as { status?: number } | null)?.status ?? 0);
+
+export async function listFor(p: Project, provider: ProviderId, fetch: HttpFetch, opts: { project?: string; gh?: GhApi | null }): Promise<{ items: ListItem[]; connected: boolean; refused?: boolean }> {
   const a = ADAPTERS[provider];
   if (!a?.list) return { items: [], connected: false };
   if (provider === "github_releases") return { items: await a.list("", fetch, { gh: opts.gh ?? null, repo: p.settings.github?.repo ?? null }).catch(() => []), connected: !!opts.gh };
   const key = await caminoKeys().get(p.slug, provider);
   if (!key) return { items: [], connected: false };
-  return { items: await a.list(key, fetch, { project: opts.project }).catch(() => []), connected: true };
+  try {
+    return { items: await a.list(key, fetch, { project: opts.project }), connected: true };
+  } catch (e) {
+    return refusedBy(e) ? { items: [], connected: true, refused: true } : { items: [], connected: true };
+  }
 }
 
-export async function varsFor(p: Project, provider: ProviderId, fetch: HttpFetch, project: string, target: string | null): Promise<{ names: string[]; connected: boolean }> {
+export async function varsFor(p: Project, provider: ProviderId, fetch: HttpFetch, project: string, target: string | null): Promise<{ names: string[]; connected: boolean; refused?: boolean }> {
   const a = ADAPTERS[provider];
   const key = a?.vars ? await caminoKeys().get(p.slug, provider) : null;
   if (!a?.vars || !key) return { names: [], connected: false };
-  return { names: await a.vars(key, fetch, project, target).catch(() => []), connected: true };
+  try {
+    return { names: await a.vars(key, fetch, project, target), connected: true };
+  } catch (e) {
+    return refusedBy(e) ? { names: [], connected: true, refused: true } : { names: [], connected: true };
+  }
 }
 
 export { destructive, frozen, prodEnvOf, prodMigrationsFromEnv, sha256 } from "./prod.js";

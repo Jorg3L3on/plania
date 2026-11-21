@@ -22,6 +22,7 @@ import { startBranchOf } from "../runner/start-branch.js";
 import { startCommit } from "./logos.js";
 import { LogoError } from "./upload.js";
 import { TERMINAL } from "../mcp/lifecycle.js";
+import { keepCurrent, record } from "./versions.js";
 // A request that is over: accepted, released, done or dropped.
 const CLOSED = ["Merged", "Released", ...TERMINAL] as const;
 import { STYLE_WORDS } from "./words.js";
@@ -32,9 +33,8 @@ export type Style = {
   head: string; body: string; mono: string; base: number; ratio: number; wHead: number; lh: number;
   radius: number; pill: boolean; shadow: "plana" | "suave" | "marcada"; border: 0 | 1 | 2; density: "compacto" | "comodo" | "amplio";
   lib: string; stroke: number; fill: boolean; motion: "ninguno" | "calmo" | "normal" | "vivo";
-  img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
-type StyleFile = { current: number; versions: { v: number; at: string; style: Style }[] };
+type StyleFile = { current: number; versions: { v: number; at: string; from?: string; keep?: boolean; style: Style }[] };
 
 /** The fonts the screen offers: open licences (OFL), with ñ, accents and ¿¡. Any other name can still be typed. */
 export const FONTS = ["Geist", "Inter", "DM Sans", "Manrope", "Plus Jakarta Sans", "Nunito Sans", "IBM Plex Sans", "Atkinson Hyperlegible", "Outfit", "Sora", "Space Grotesk", "Bricolage Grotesque", "Nunito", "Fraunces", "Playfair Display", "Lora", "Source Serif 4", "Instrument Serif", "JetBrains Mono"];
@@ -98,9 +98,6 @@ export function sound(input: Partial<Style>, base: Style): Style {
     stroke: clamp(input.stroke, 1, 3, base.stroke),
     fill: typeof input.fill === "boolean" ? input.fill : base.fill,
     motion: pick(input.motion, ["ninguno", "calmo", "normal", "vivo"] as const, base.motion),
-    img: pick(input.img, ["linea", "plano", "degradado"] as const, base.img),
-    people: typeof input.people === "boolean" ? input.people : base.people,
-    imgBrand: typeof input.imgBrand === "boolean" ? input.imgBrand : base.imgBrand,
   };
 }
 
@@ -201,8 +198,13 @@ export function tokens(s: Style): Tokens {
   // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
   const [bL, bC] = toLch(s.brand);
   const [dL, dC, dH] = toLch(darkBrand);
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
-  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
+  // PLA-130: the brand as text (links, the current tab): itself when it reads at 4.5 : 1, else the nearest darker
+  // step of its own scale (lighter on dark), so a light brand colour never makes unreadable links.
+  const firstReadable = (steps: string[], ...on: string[]) => steps.find((c) => on.every((bg) => contrast(c, bg) >= 4.5)) ?? steps[steps.length - 1]!;
+  const brandText = firstReadable([s.brand, ...sc.slice(5)], N(0.985), "#ffffff");
+  const darkBrandText = firstReadable([darkBrand, sc[3]!, sc[2]!, sc[1]!, sc[0]!], darkBg, N(0.215));
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), "brand-text": brandText, tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#166534", warning: "#92400e", danger: "#b91c1c" }; // PLA-130: success and warning text reach 4.5 : 1 on their own tint
+  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), "brand-text": darkBrandText, tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
   const duration = { ninguno: 0, calmo: 320, normal: 200, vivo: 140 }[s.motion];
@@ -216,7 +218,8 @@ export function tokens(s: Style): Tokens {
 const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
 /** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
  * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
-export type CssOpts = { next?: boolean; shadcn?: boolean };
+// PLA-130: dark false = the repo has no dark mode; Plania writes none, so the app's themes stay as they are.
+export type CssOpts = { next?: boolean; shadcn?: boolean; dark?: boolean };
 export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 /** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
 export function brandCss(s: Style, o: CssOpts = {}): string {
@@ -226,7 +229,7 @@ export function brandCss(s: Style, o: CssOpts = {}): string {
   const side = (x: Record<string, string>): Record<string, string> =>
     o.shadcn
       ? {
-          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
+          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, "brand-text": x["brand-text"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
           background: x.background!, foreground: x.foreground!, card: x.card!, "card-foreground": x.foreground!, popover: x.card!, "popover-foreground": x.foreground!,
           border: x.border!, input: x.input!, "muted-foreground": x.muted!, destructive: x.danger!,
           "sidebar-primary": x.brand!, "sidebar-primary-foreground": x["on-brand"]!, "sidebar-ring": x.brand!, "sidebar-accent": x.tint!, "sidebar-accent-foreground": x["on-tint"]!,
@@ -259,11 +262,11 @@ ${vars(side(t.light))}
   --icon-stroke: ${s.stroke};
 }
 
-.dark {
+${o.dark === false ? "" : `.dark {
 ${vars(side(t.dark))}
 }
 
-svg.lucide { stroke-width: var(--icon-stroke); }
+`}svg.lucide { stroke-width: var(--icon-stroke); }
 
 @layer base {
   h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
@@ -275,12 +278,12 @@ svg.lucide { stroke-width: var(--icon-stroke); }
 `;
 }
 /** The same values in the W3C design-token format (2025.10). */
-export function tokensJson(s: Style): string {
+export function tokensJson(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
   const c = (v: string) => ({ $type: "color", $value: v });
   return `${JSON.stringify(
     {
-      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950][i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) },
+      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${[50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950][i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), ...(o.dark === false ? {} : { dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) }) },
       font: { heading: { $type: "fontFamily", $value: [s.head, "sans-serif"] }, body: { $type: "fontFamily", $value: [s.body, "sans-serif"] }, mono: { $type: "fontFamily", $value: [s.mono, "monospace"] } },
       dimension: { radius: { $type: "dimension", $value: { value: t.radius, unit: "px" } }, "text-base": { $type: "dimension", $value: { value: s.base, unit: "px" } } },
       duration: { base: { $type: "duration", $value: { value: t.duration, unit: "ms" } } },
@@ -303,10 +306,12 @@ export function changesOf(s: Style, repo: RepoStyle, logo: { theme: string | nul
   return out;
 }
 
-const REQ = /<!-- plania:marca-estilo set=([0-9a-f]{16}) -->/;
 export type StyleRead = {
   style: Style | null;
   base: Style;
+  /** PLA-130: where the style starts before anyone touches it (the repo's values, then Plania's defaults), to tell
+   * what changed in the parts the repo cannot say (spacing, motion, icon stroke…). */
+  start: Style;
   repo: RepoStyle;
   changes: StyleChange[];
   old: { path: string; n: number; colors: string[] }[];
@@ -328,7 +333,6 @@ export function startStyle(repo: RepoStyle, logo: { colors: string[]; theme: str
     brand, brandTie: repo.brand ? "fijo" : "sigue", accent, neutral: "neutro",
     head: repo.head ?? repo.body ?? SYSTEM, body: repo.body ?? SYSTEM, mono: "JetBrains Mono", base: 16, ratio: 1.2, wHead: 700, lh: 1.5,
     radius: repo.radius ?? 8, pill: false, shadow: "suave", border: 1, density: "comodo", lib: "Lucide", stroke: 2, fill: false, motion: "normal",
-    img: "plano", people: false, imgBrand: true,
   };
 }
 
@@ -390,8 +394,9 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
     olds.set(okey, old);
   }
   const c = { read: { repo, old, framework: part.framework, root: part.root } };
-  const base = current ?? startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
-  const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn };
+  const start = startStyle(c.read.repo, active ? { colors: active.colors, theme } : null);
+  const base = current ?? start;
+  const cssOpts: CssOpts = { next: c.read.framework === "next-app", shadcn: !!c.read.repo.shadcn, dark: !!c.read.repo.dark };
   // A brand that follows the logo takes the logo's colour as it changes.
   const eff = base.brandTie === "sigue" && theme ? { ...base, brand: theme } : base;
   const [open] = await db
@@ -402,29 +407,28 @@ export async function styleRead(db: Db, slug: string, deps: LogoDeps = {}): Prom
   return {
     style: current,
     base: eff,
+    start,
     ...c.read,
     changes: current ? changesOf(eff, c.read.repo, { theme }) : [],
     versions: load(slug)?.versions.length ?? 0,
     pedido: open ?? null,
     css: brandCss(eff, cssOpts),
-    json: tokensJson(eff),
+    json: tokensJson(eff, cssOpts),
     logo: { theme, colors: active?.colors ?? [] },
     cssOpts,
   };
 }
 
 /** The owner's change: a new version, made whole and safe. */
-export async function saveStyle(db: Db, slug: string, patch: Partial<Style>): Promise<StyleRead | null> {
+export async function saveStyle(db: Db, slug: string, patch: Partial<Style>, opts: { keep?: boolean } = {}): Promise<StyleRead | null> {
   const r = await styleRead(db, slug);
   if (!r) return null;
   const next = sound(patch, r.base);
   const f = load(slug) ?? { current: 0, versions: [] };
   const last = f.versions.find((v) => v.v === f.current)?.style;
-  if (last && JSON.stringify(last) === JSON.stringify(next)) return r;
-  const v = Math.max(0, ...f.versions.map((x) => x.v)) + 1;
-  f.versions.push({ v, at: new Date().toISOString(), style: next });
-  if (f.versions.length > 60) f.versions = f.versions.slice(-60);
-  f.current = v;
+  if (last && JSON.stringify(last) === JSON.stringify(next) && !opts.keep) return r;
+  // PLA-130: a change right after the last one joins its version (see versions.ts); going back is kept.
+  record(f, (base) => ({ ...base, style: next }), { keep: opts.keep });
   save(slug, f);
   bus.publish({ type: "project", project: slug });
   return styleRead(db, slug);
@@ -435,7 +439,7 @@ export async function goBackStyle(db: Db, slug: string, v: number): Promise<Styl
   const f = load(slug);
   const old = f?.versions.find((x) => x.v === v)?.style;
   if (!f || !old) throw new LogoError("LOGO_NOT_FOUND", 404, "version not found");
-  return saveStyle(db, slug, old);
+  return saveStyle(db, slug, old, { keep: true });
 }
 
 /** Where brand.css goes: next to the global stylesheet (app/ for Next.js, src/ for Vite). */
@@ -483,7 +487,7 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
     `- ${paths.globals ? `\`${paths.globals}\`` : w.globalsUnknown}: ${w.importCss(paths.css)}`,
     ...(paths.layout ? [`- \`${paths.layout}\`: ${w.fontsNext(fonts.map((f) => [f, fontVar(f)] as [string, string]))}`] : [`- ${w.fontsOther(fonts)}`]),
     ...(r.cssOpts.shadcn ? [`- ${w.shadcn(paths.globals ?? w.globalsUnknown)}`] : []),
-    `- ${w.darkClass}`,
+    `- ${r.cssOpts.dark === false ? w.noDark : w.darkClass}`,
     ...(r.repo.theme && distance(r.repo.theme, s.brand) > 0.02 ? [`- ${w.manifest(s.brand)}`] : []),
     ...(r.old.length ? ["", `## ${w.oldTitle}`, ...r.old.map((o) => `- \`${o.path}\`: ${o.colors.join(", ")} (${o.n})`)] : []),
     ...(s.lib !== "Lucide" ? ["", w.libLater(s.lib)] : []),
@@ -506,10 +510,11 @@ export async function requestStyle(db: Db, project: Project, deps: LogoDeps = {}
     } as never,
     { ...webCtx, tool: "screen.marca.estilo" },
   )) as { key: string };
+  // PLA-130: what went to Taller stays in Historial.
+  { const f = load(project.slug); if (f) save(project.slug, keepCurrent(f)); }
   forgetStyle(project.slug);
   return { key: made.key, dir };
 }
-export const STYLE_MARKER = REQ;
 
 /** PLA-I69-6: every version with its values, newest first, for Marca → Historial. */
 export const styleHistory = (slug: string): { v: number; at: string; current: boolean; style: Style }[] => {

@@ -109,13 +109,18 @@ export async function discoverMac(folder: string | null, repo: string | null, de
     }
   }
   const databases = await deps.listDatabases().catch(() => null);
+  // PLA-I70-25: a folder that is a clone of ANOTHER repo (or no clone at all, when a repo is set) feeds nothing: its scripts,
+  // package manager, .env.example names, folders and migrations belong to a different project. They read «—» (null).
+  const matches = remote && repo ? repoOfRemote(remote)?.toLowerCase() === repo.toLowerCase() : null;
+  const foreign = !!repo && exists && matches === false;
+  const trusted = exists && !foreign;
   return {
-    folder: folder ? { path: folder, exists, clone: !!remote, remote, matches: remote && repo ? repoOfRemote(remote)?.toLowerCase() === repo.toLowerCase() : null, clones } : null,
+    folder: folder ? { path: folder, exists, clone: !!remote, remote, matches, clones } : null,
     postgres: databases ? { ok: true, databases } : { ok: false, databases: [] },
-    env_example: envText ? envNames(envText) : null,
-    scripts: pkg?.scripts ? Object.keys(pkg.scripts) : null,
-    folders,
-    migrations: exists ? migrationsOf(folder!, pkg) : null,
-    pm: !exists || !pkg ? null : existsSync(path.join(folder!, "pnpm-lock.yaml")) ? "pnpm" : existsSync(path.join(folder!, "yarn.lock")) ? "yarn" : "npm",
+    env_example: trusted && envText ? envNames(envText) : null,
+    scripts: trusted && pkg?.scripts ? Object.keys(pkg.scripts) : null,
+    folders: trusted ? folders : null,
+    migrations: trusted ? migrationsOf(folder!, pkg) : null,
+    pm: !trusted || !pkg ? null : existsSync(path.join(folder!, "pnpm-lock.yaml")) ? "pnpm" : existsSync(path.join(folder!, "yarn.lock")) ? "yarn" : "npm",
   };
 }

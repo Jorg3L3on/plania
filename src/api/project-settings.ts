@@ -18,7 +18,7 @@ import type { Db } from "../db/client.js";
 import { docs, type ProjectSettings } from "../db/schema.js";
 import { attachDoc } from "../mcp/docs.js";
 import { setProject } from "../mcp/project.js";
-import { ENV_NAME, looksSecret, stringsIn } from "../mcp/settings-registry.js";
+import { looksSecret, stringsIn } from "../mcp/settings-registry.js";
 import { AVANZADO, avanzadoRead, captureForm, captureFrom, type AvanzadoField, type AvanzadoRead, type CaptureForm } from "./settings-avanzado.js";
 import { findProject } from "../mcp/queries.js";
 import { WEB_ACTOR, type Ctx } from "../mcp/tx.js";
@@ -192,18 +192,14 @@ export async function setAdvanced(db: Db, slug: string, input: { version: number
   const p = await findProject(db, slug);
   const s = p.settings;
   const bad: SettingsRefusal = { error: "INVALID_BODY", status: 400, field };
-  const notName: SettingsRefusal = { error: "NOT_A_VARIABLE_NAME", status: 400, field };
   const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
   let patch: Record<string, unknown>;
   switch (field) {
-    case "start_branch":
     case "branch_pattern":
-    case "release_target":
       if (value !== null && (typeof value !== "string" || !value.trim())) return bad;
       patch = { [field]: typeof value === "string" ? value.trim() : null };
       break;
     case "claim_from":
-    case "release_on":
       if (value !== null && !AVANZADO[field].options!.includes(String(value))) return bad;
       patch = { [field]: value };
       break;
@@ -218,18 +214,6 @@ export async function setAdvanced(db: Db, slug: string, input: { version: number
     case "identity":
       if (value !== null && !Number.isInteger(value)) return bad;
       patch = { identity: value === null ? null : { ...(s.identity ?? {}), order: value } };
-      break;
-    case "github_token_env": {
-      if (value !== null && (typeof value !== "string" || !ENV_NAME.test(value))) return notName;
-      if (!s.github?.repo) return { ...bad, hint: "set the GitHub repository first" };
-      const { token_env: _old, ...github } = s.github;
-      patch = { github: value === null ? github : { ...github, token_env: value } };
-      break;
-    }
-    case "vercel":
-      if (value !== null && !isObj(value)) return bad;
-      if (isObj(value) && value.token_env !== undefined && (typeof value.token_env !== "string" || !ENV_NAME.test(value.token_env))) return notName;
-      patch = { vercel: value };
       break;
     case "resources":
     case "quotas":

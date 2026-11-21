@@ -156,7 +156,8 @@ test("PLA-I2-6 check 2: every key has a control and a sentence; every advanced k
     assert.ok(d.control, `${k} has a control`);
     assert.ok(d.frase.trim() && d.default.trim(), `${k} has a sentence and a default`);
     if (d.tier === "advanced") {
-      assert.equal(d.control, "ajustes.avanzado", `${k}: an advanced key lives in «Avanzado»`);
+      // PLA-133: the release and branch ones live in Despliegue instead.
+      assert.ok(d.control === "ajustes.avanzado" || d.control.startsWith("camino."), `${k}: an advanced key lives in «Avanzado» or Despliegue`);
       assert.ok(d.reason?.trim(), `${k}: an advanced key says why it can be left alone`);
       assert.ok(d.defecto?.trim(), `${k}: an advanced key says its default in Spanish`);
     }
@@ -184,10 +185,8 @@ test("PLA-I2-6 check 3: no control takes a secret: token fields take a variable'
   s = await read();
   const before = await stored();
   const refusals: [string, unknown, string][] = [
-    ["github_token_env", "ghp_abcdefghijklmnopqrstuvwxyz0123456789", "SECRET_VALUE"],
-    ["github_token_env", "my token", "NOT_A_VARIABLE_NAME"],
-    ["vercel", { project_id: "prj_1", token_env: "abc123secret" }, "NOT_A_VARIABLE_NAME"],
-    ["vercel", { project_id: "prj_1", note: "sk-ant-abcdefghijklmnopqrstuvwxyz" }, "SECRET_VALUE"],
+    // PLA-133: the GitHub key's variable and vercel are edited in Despliegue (test/pla-133-avanzado-despliegue.test.ts).
+    ["quotas", { "quota:omdb": { note: "sk-ant-abcdefghijklmnopqrstuvwxyz" } }, "SECRET_VALUE"],
     ["maquinas", { migrate: "psql postgres://app:hunter2@db.example.com/app -f m.sql" }, "SECRET_VALUE"],
   ];
   for (const [field, value, code] of refusals) {
@@ -200,10 +199,8 @@ test("PLA-I2-6 check 3: no control takes a secret: token fields take a variable'
   assert.equal((await stored()).version, before.version, "nothing was written");
   // set_project itself refuses a token_env that is not a variable's name.
   await assert.rejects(setProject(db, { project: SLUG, version: before.version, settings: { github: { repo: "o/cocina", token_env: "ghp_x" } } }, ctx), /INVALID_FILTER/);
-  // A name is taken, and the screen shows it back.
-  res = await put("/advanced", { version: s.version, field: "github_token_env", value: "COCINA_GITHUB_TOKEN" });
-  assert.equal(res.status, 200, await res.clone().text());
-  assert.deepEqual((await stored()).settings.github, { repo: "o/cocina", token_env: "COCINA_GITHUB_TOKEN" });
+  // PLA-133: «Avanzado» no longer takes the fields Despliegue edits.
+  for (const field of ["github_token_env", "vercel", "start_branch", "release_target", "release_on"]) assert.equal((await put("/advanced", { version: s.version, field, value: null })).status, 400, field);
   assert.equal(av.avanzadoValor("env", "ghp_abc").ok, false);
   assert.match(aj.ajustesError("SECRET_VALUE"), /nunca va su valor/);
 });
@@ -242,12 +239,6 @@ test("PLA-I2-6: «Avanzado» fields save through set_project, and empty puts the
     s = (await res.json()) as SettingsRead;
   };
   await save("claim_from", "ready");
-  // PLA-I2-5's working branch lives here: a name is taken, a protected branch is refused, empty is the default.
-  await save("start_branch", "pruebas");
-  assert.equal((await stored()).settings.start_branch, "pruebas");
-  assert.notEqual((await put("/advanced", { version: s.version, field: "start_branch", value: "main" })).status, 200);
-  await save("start_branch", null);
-  assert.equal((await stored()).settings.start_branch, undefined);
   await save("team", 30);
   await save("auto_done", false);
   // QA's other switches keep the verify list.
@@ -330,10 +321,10 @@ test("PLA-I2-6: the per-run limits have controls with the route's bounds and the
 // installer's and the machine check's (PLA-I2-1, PLA-I2-12).
 const NOT_IN_AJUSTES = (id: string) => id.startsWith("prompt.") || id === "runner_token" || id === "claude_bin";
 
-test("PLA-I2-6 check 1: every readiness item is set from Ajustes or needs no setting; none says to edit .env", () => {
+test("PLA-I2-6 check 1: every readiness item is set from Ajustes or Despliegue (PLA-132) or needs no setting; none says to edit .env", () => {
   for (const id of READINESS_IDS) {
     if (NOT_IN_AJUSTES(id)) continue;
-    assert.ok(listo.listoAjuste(id), `${id} links to its control in Ajustes`);
+    assert.ok(listo.listoIrA(id), `${id} links to its control in Ajustes or Despliegue`);
   }
   for (const id of READINESS_IDS) {
     const t = listo.listoLinea({ id, state: "missing", blocks: true }).texto;

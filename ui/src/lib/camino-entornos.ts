@@ -94,7 +94,13 @@ export const ENTORNOS_WORDS = defineWords({
     connect: "Conectar",
     loading: "Leyendo…",
     nothingThere: "La llave no abre ningún proyecto.",
+    keyRefused: (s: string) => `${s} rechazó la llave guardada: no es que no tengas proyectos. Cámbiala en Conexiones y llaves.`,
     rollback: "Volver atrás",
+    manualTitle: "Cómo se hace a mano",
+    manualLead: "Escribe cómo se despliega y cómo se vuelve atrás. Plania lo guarda en este entorno y lo muestra; nunca corre estos comandos.",
+    manualDeploy: "Comando que despliega",
+    manualRollback: "Comando que vuelve atrás",
+    manualCheck: "Qué comprobar después (una cosa por línea)",
     window: "Ventana para restaurar",
     dbName: "Base",
     dbNameHint: "de las bases de esta Mac",
@@ -108,8 +114,8 @@ export const ENTORNOS_WORDS = defineWords({
     rolesSub: "Mejor que el dueño de la base. Corres tú el SQL; Plania nunca ve las contraseñas.",
     when: "Cuándo se migra",
     whenOpts: {
-      paso: { name: "Paso propio, antes del tráfico", sub: "Después del build y antes de que el código nuevo reciba visitas. Con copia y candado." },
-      build: { name: "Dentro del build", sub: "Solo si el servicio no tiene paso propio. Con candado y solo cambios que agregan." },
+      paso: { name: "Paso propio, antes del tráfico", sub: "Después de construir la versión y antes de que reciba visitas. Con copia y candado." },
+      build: { name: "Dentro de la construcción de la versión", sub: "Solo si el servicio no tiene paso propio. Con candado y solo cambios que agregan." },
       llegar: { name: "Al llegar a la rama", sub: "Para bases con datos falsos." },
       mano: { name: "A mano", sub: "Alguien la corre. Fácil de olvidar." },
       nunca: { name: "Al arrancar la app", sub: "No: cada reinicio o copia de la app migraría a la vez." },
@@ -117,13 +123,13 @@ export const ENTORNOS_WORDS = defineWords({
     recommended: "recomendado",
     today: "hoy",
     lock: "Candado para que dos builds no migren a la vez",
-    lockSub: "pg_try_advisory_lock antes de migrar.",
+    lockSub: "Un candado de la base evita que dos migren a la vez.",
     sqlReview: "Revisar el SQL antes de migrar",
-    sqlReviewSub: "squawk avisa si una migración borra datos o bloquea tablas. Es gratis.",
+    sqlReviewSub: "Una revisión gratuita avisa si una migración borra datos o bloquea tablas.",
     approve: "Pedir mi aprobación si una migración borra datos",
     approveSub: "Atada a ese archivo: si cambia, se vuelve a pedir. Un agente nunca puede aprobar.",
     backup: "Copia antes de migrar",
-    backupOpts: { proveedor: "La del servicio (rama o punto en el tiempo)", dump: "pg_dump en esta Mac", ninguna: "Ninguna" } as Record<string, string>,
+    backupOpts: { proveedor: "La del servicio (rama o punto en el tiempo)", dump: "Un respaldo completo de la base, hecho en esta Mac", ninguna: "Ninguna" } as Record<string, string>,
     restoreNote: "Restaurar la copia borra lo que la gente guardó después. Si lo roto es el código, se vuelve atrás el código; la base solo si los datos se dañaron.",
     publicar: (who: string) => `Publicar lee esto: ${who}`,
     who: { deploy: "el despliegue migra producción", owner: "tú migras producción a mano", none: "no hay base que migrar" } as Record<string, string>,
@@ -141,14 +147,43 @@ export const ENTORNOS_WORDS = defineWords({
     freezeSub: "Una ventana sin publicaciones.",
     whoPublishes: "Quién",
     onlyYou: "Solo tú publicas aquí. Los agentes piden «desplegar» o «volver atrás» y Plania lo hace con su llave.",
+    // PLA-132: how the release step ships, moved here from Ajustes.
+    merge: "Fusionar desde Plania",
+    mergeSub: "Encendido, publicas con un botón en Bandeja. Apagado, Plania te da el comando para correrlo tú.",
+    mergeOn: "Desde Plania",
+    mergeOff: "Con el comando",
+    // PLA-133: what counts as released and Vercel's deployments, moved here from Ajustes › Avanzado.
+    published: "Qué cuenta como publicado",
+    publishedSub: "Un paso se cierra como publicado cuando pasa esto.",
+    publishedOpts: { auto: "Plania lo decide", env: "El entorno corre el cambio", branch: "La rama publicada lo tiene" } as Record<"auto" | "env" | "branch", string>,
+    target: "El entorno que cuenta",
+    targetDefault: "prod, por defecto",
+    publishedLabel: "Qué cuenta como publicado",
+    vercelRead: "Leer los despliegues de Vercel",
+    vercelReadSub: "Plania mira cada despliegue listo y anota hasta dónde llegó cada cambio.",
+    vercelProject: "Id del proyecto en Vercel",
+    vercelProjectHint: "empieza con prj_; está en Settings del proyecto",
+    vercelTeam: "Id del equipo",
+    vercelTeamHint: "solo si el proyecto es de un equipo",
+    vercelKey: "Variable con la llave",
+    vercelKeyHint: "si la dejas vacía: VERCEL_TOKEN",
+    vercelProd: "Producción de Vercel cuenta como",
+    vercelPreview: "Vista previa de Vercel cuenta como",
+    vercelLabel: "Despliegues de Vercel",
+    vercelOn: "Se leen",
+    vercelOff: "No se leen",
+    vercelNeedsId: "Falta el id del proyecto.",
+    vercelTargetBad: "Va el nombre de un entorno: minúsculas, números, - y _.",
+    varBad: "Va el NOMBRE de la variable (mayúsculas, números y _), nunca la llave.",
     add: "+ Agregar entorno",
     addTitle: "Agregar un entorno",
     addName: "Nombre",
     addCreate: "Agregar",
+    addCancel: "Cancelar",
     remove: "Quitar este entorno",
     removeNote: "Su registro en Plania se queda con su historia.",
     label: (n: string) => `Entornos: ${n}`,
-    record: (r: string) => `registro ${r}`,
+    record: (r: string) => `lo que Plania sabe de ${r}`,
     detected: "detectado",
     edited: "con cambios",
   },
@@ -176,7 +211,13 @@ export const ENTORNOS_WORDS = defineWords({
     connect: "Connect",
     loading: "Reading…",
     nothingThere: "The key opens no project.",
+    keyRefused: (s: string) => `${s} refused the saved key: it is not that you have no projects. Change it in Connections and keys.`,
     rollback: "Rollback",
+    manualTitle: "How it is done by hand",
+    manualLead: "Write how it deploys and how it rolls back. Plania keeps it on this environment and shows it; it never runs these commands.",
+    manualDeploy: "Command that deploys",
+    manualRollback: "Command that rolls back",
+    manualCheck: "What to check afterwards (one per line)",
     window: "Restore window",
     dbName: "Database",
     dbNameHint: "from this Mac's databases",
@@ -223,10 +264,37 @@ export const ENTORNOS_WORDS = defineWords({
     freezeSub: "A window with no releases.",
     whoPublishes: "Who",
     onlyYou: "Only you release here. Agents ask to «deploy» or «roll back» and Plania does it with its key.",
+    merge: "Merge from Plania",
+    mergeSub: "On, you release with a button in Inbox. Off, Plania gives you the command to run yourself.",
+    mergeOn: "From Plania",
+    mergeOff: "With the command",
+    published: "What counts as released",
+    publishedSub: "A step closes as released when this happens.",
+    publishedOpts: { auto: "Plania decides", env: "The environment runs the change", branch: "The published branch has it" } as Record<"auto" | "env" | "branch", string>,
+    target: "The environment that counts",
+    targetDefault: "prod, by default",
+    publishedLabel: "What counts as released",
+    vercelRead: "Read Vercel's deployments",
+    vercelReadSub: "Plania looks at each ready deployment and notes how far each change got.",
+    vercelProject: "Vercel project id",
+    vercelProjectHint: "starts with prj_; it is in the project's Settings",
+    vercelTeam: "Team id",
+    vercelTeamHint: "only if the project belongs to a team",
+    vercelKey: "Variable with the key",
+    vercelKeyHint: "left empty: VERCEL_TOKEN",
+    vercelProd: "Vercel production counts as",
+    vercelPreview: "Vercel preview counts as",
+    vercelLabel: "Vercel deployments",
+    vercelOn: "Read",
+    vercelOff: "Not read",
+    vercelNeedsId: "The project id is missing.",
+    vercelTargetBad: "An environment's name goes here: lowercase, digits, - and _.",
+    varBad: "The variable's NAME goes here (capitals, digits and _), never the key.",
     add: "+ Add an environment",
     addTitle: "Add an environment",
     addName: "Name",
     addCreate: "Add",
+    addCancel: "Cancel",
     remove: "Remove this environment",
     removeNote: "Its record in Plania stays with its history.",
     label: (n: string) => `Environments: ${n}`,
@@ -275,3 +343,73 @@ export const ROLLBACK_WORDS = defineWords({
   } as Record<string, { rollback: string; window: string }>,
 });
 export const rollbackOf = (id: ProviderId, language: Language = getLanguage()) => words(ROLLBACK_WORDS, language)[id] ?? null;
+
+// ---- PLA-I70-14: the review says each changed field in plain words, one line per change.
+export const ENV_CHANGE_WORDS = defineWords({
+  es: {
+    added: (n: string) => `Nuevo entorno «${n}»`,
+    removed: (n: string) => `Se quita el entorno «${n}»`,
+    field: (env: string, what: string, from: string, to: string) => `${env}: ${what} pasa de ${from} a ${to}`,
+    what: { name: "el nombre", kind: "el tipo", runs: "lo que corre", url: "la dirección", server: "el servidor", project: "el proyecto del servicio", db: "la base de datos", dbName: "el nombre de la base", data: "los datos", when: "cuándo se migra", lock: "el candado de migración", sql: "la revisión del SQL", approve: "pedir tu aprobación si se borran datos", backup: "la copia antes de migrar", roles: "los tres usuarios", health: "la dirección de salud", pages: "las páginas a abrir", deploy: "el comando que despliega", rollback: "el comando que vuelve atrás", check: "lo que se comprueba", freeze: "no publicar viernes tarde", vars: "las variables marcadas" },
+    yes: "sí",
+    no: "no",
+    nothing: "nada",
+    runs: (r: CaminoEnv["runs"]) => (r.kind === "branch" ? `la rama ${r.branch}` : r.kind === "pr" ? "cada propuesta" : r.kind === "promote" ? `el build de ${r.from || "otro entorno"}` : r.kind === "tags" ? `las etiquetas ${r.pattern}` : "nada todavía"),
+  },
+  en: {
+    added: (n: string) => `New environment «${n}»`,
+    removed: (n: string) => `Environment «${n}» is removed`,
+    field: (env: string, what: string, from: string, to: string) => `${env}: ${what} goes from ${from} to ${to}`,
+    what: { name: "the name", kind: "the type", runs: "what runs", url: "the address", server: "the server", project: "the service project", db: "the database", dbName: "the database name", data: "the data", when: "when it migrates", lock: "the migration lock", sql: "the SQL review", approve: "asking for your approval when data is deleted", backup: "the backup before migrating", roles: "the three users", health: "the health address", pages: "the pages to open", deploy: "the deploy command", rollback: "the rollback command", check: "what is checked", freeze: "no Friday-evening releases", vars: "the ticked variables" },
+    yes: "yes",
+    no: "no",
+    nothing: "nothing",
+    runs: (r: CaminoEnv["runs"]) => (r.kind === "branch" ? `branch ${r.branch}` : r.kind === "pr" ? "each PR" : r.kind === "promote" ? `the build of ${r.from || "another environment"}` : r.kind === "tags" ? `tags ${r.pattern}` : "nothing yet"),
+  },
+});
+
+/** One plain line per changed field between the environments as read and as staged. */
+/** nameOf turns a service id into its name (the screen passes serviceName; ids are never shown). */
+export function envChanges(before: CaminoEnv[], after: CaminoEnv[], language: Language = getLanguage(), nameOf: (id: string) => string = (id) => id): string[] {
+  const w = words(ENV_CHANGE_WORDS, language);
+  const e = words(ENTORNOS_WORDS, language);
+  const out: string[] = [];
+  for (const b of before) if (!after.some((a) => a.id === b.id)) out.push(w.removed(b.name));
+  for (const a of after) {
+    const b = before.find((x) => x.id === a.id);
+    if (!b) {
+      out.push(w.added(a.name));
+      continue;
+    }
+    const yn = (v: boolean) => (v ? w.yes : w.no);
+    const nz = (v: string | null | undefined) => v || w.nothing;
+    const line = (what: string, from: string, to: string) => from !== to && out.push(w.field(a.name, what, from, to));
+    line(w.what.name, b.name, a.name);
+    line(w.what.kind, e.kinds[b.kind], e.kinds[a.kind]);
+    line(w.what.runs, w.runs(b.runs), w.runs(a.runs));
+    line(w.what.url, nz(b.url), nz(a.url));
+    line(w.what.server, b.server.provider ? nameOf(b.server.provider) : w.nothing, a.server.provider ? nameOf(a.server.provider) : w.nothing);
+    line(w.what.project, nz(b.server.project), nz(a.server.project));
+    line(w.what.deploy, nz(b.server.manual?.deploy), nz(a.server.manual?.deploy));
+    line(w.what.rollback, nz(b.server.manual?.rollback), nz(a.server.manual?.rollback));
+    line(w.what.check, b.server.manual?.check.join(", ") || w.nothing, a.server.manual?.check.join(", ") || w.nothing);
+    const d0 = b.database;
+    const d1 = a.database;
+    line(w.what.db, d0?.provider ? nameOf(d0.provider) : w.nothing, d1?.provider ? nameOf(d1.provider) : w.nothing);
+    if (d1) {
+      line(w.what.dbName, nz(d0?.name), nz(d1.name));
+      line(w.what.data, d0 ? e.dataOpts[d0.data]! : w.nothing, e.dataOpts[d1.data]!);
+      line(w.what.when, d0 ? e.whenOpts[d0.migrate_when].name : w.nothing, e.whenOpts[d1.migrate_when].name);
+      line(w.what.lock, yn(!!d0?.lock), yn(d1.lock));
+      line(w.what.sql, yn(!!d0?.sql_review), yn(d1.sql_review));
+      line(w.what.approve, yn(!!d0?.approve_destructive), yn(d1.approve_destructive));
+      line(w.what.backup, d0 ? e.backupOpts[d0.backup]! : w.nothing, e.backupOpts[d1.backup]!);
+      line(w.what.roles, yn(!!d0?.roles_split), yn(d1.roles_split));
+    }
+    line(w.what.health, nz(b.health.url), nz(a.health.url));
+    line(w.what.pages, b.health.pages.join(", ") || w.nothing, a.health.pages.join(", ") || w.nothing);
+    line(w.what.freeze, yn(b.freeze), yn(a.freeze));
+    line(w.what.vars, b.vars.join(", ") || w.nothing, a.vars.join(", ") || w.nothing);
+  }
+  return out;
+}

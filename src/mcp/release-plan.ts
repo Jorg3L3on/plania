@@ -162,7 +162,9 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
   // PLA-I68-6: Camino's production environment: who migrates it, its freeze window, its SQL review and approval.
   const [cam] = await db.select({ config: camino.config }).from(camino).where(eq(camino.projectId, p.id)).limit(1);
   const prodEnv = prodEnvOf(cam?.config ?? {}, r);
-  const prodMig = r.prod_migrations ?? prodMigrationsFromEnv(prodEnv);
+  // PLA-132: once the owner has saved Camino's environments, its production environment is the one place that says
+  // who migrates; the older settings.release.prod_migrations only answers while Camino has said nothing.
+  const prodMig = (cam?.config?.envs ? prodMigrationsFromEnv(prodEnv) : null) ?? r.prod_migrations ?? null;
   const mode = r.mode ?? "command";
   const merged = fromHead ? await mergedFromScreen(db, p.id, fromHead) : null;
   const open_checks = checksOpen?.n ?? 0;

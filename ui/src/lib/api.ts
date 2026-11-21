@@ -237,6 +237,7 @@ export const api = {
   marcaNative: (slug: string, on: boolean) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/native`, { on }),
   // PLA-I66-5: Artist's marks.
   marcaMarks: (slug: string) => request<{ request: MarksRequest | null }>("GET", `/company/projects/${encodeURIComponent(slug)}/logo/marks`),
+  marcaCancelMarks: (slug: string, id: string) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${encodeURIComponent(id)}/cancel`),
   marcaAskMarks: (slug: string, hints: { about: string; feel: string[]; avoid: string[]; colors: string[]; images: string[]; like?: string | null; change?: string | null; surface?: Surface | null }) => request<{ request: MarksRequest }>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks`, hints),
   marcaUseMark: (slug: string, id: string, mark: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/marks/${id}/${mark}`),
   marcaKeep: (slug: string, sha: string) => request<MarcaRead>("POST", `/company/projects/${encodeURIComponent(slug)}/logo/keep`, { sha }),
@@ -261,7 +262,6 @@ export const api = {
   marcaVozBack: (slug: string, v: number) => request<VoiceRead>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/back`, { v }),
   // PLA-I69-6: Marca → Historial.
   marcaHistorial: (slug: string) => request<Historial>("GET", `/company/projects/${encodeURIComponent(slug)}/marca/historial`),
-  marcaVozPedido: (slug: string) => request<VoiceRead & { key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/marca/voz/pedido`),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
@@ -279,19 +279,21 @@ export const api = {
   caminoTestKey: (slug: string, provider: string) =>
     request<{ provider: string; ok: boolean; status: number | null; message: string; account: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}/test`, {}),
   caminoApply: (slug: string, input: { version: number; changes: { kind: string; label: string; [k: string]: unknown }[] }) =>
-    request<{ results: { index: number; kind: string; dest: string; ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string }[]; stopped: { index: number; error?: string; detail?: Record<string, unknown> } | null; applied: number; skipped: number; read: CaminoRead }>(
+    request<{ results: { index: number; kind: string; dest: string; ok: boolean; error?: string; detail?: Record<string, unknown>; note?: string; pr?: { number: number; url: string } }[]; stopped: { index: number; error?: string; detail?: Record<string, unknown> } | null; applied: number; skipped: number; read: CaminoRead }>(
       "POST",
       `/company/projects/${encodeURIComponent(slug)}/camino/apply`,
       input,
     ),
+  caminoRepoCheck: (slug: string, repo: string) =>
+    request<{ ok: boolean; reason?: "no_token" | "not_found" | "refused" | "network"; repo?: string; private?: boolean; default_branch?: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/repo-check`, { repo }),
   caminoLint: (slug: string, path: string, content: string) =>
     request<{ available: boolean; errors: { line: number; column: number; message: string; kind: string }[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/lint`, { path, content }),
   caminoPins: (slug: string, uses: string[]) => request<Record<string, string>>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/pins`, { uses }),
   caminoRerun: (slug: string, id: number) => request<{ rerun: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/runs/${id}/rerun`, {}),
   caminoProviderList: (slug: string, provider: string, project?: string) =>
-    request<{ items: { id: string; name: string; url?: string | null; note?: string | null }[]; connected: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/list`, project ? { project } : {}),
+    request<{ items: { id: string; name: string; url?: string | null; note?: string | null }[]; connected: boolean; refused?: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/list`, project ? { project } : {}),
   caminoProviderVars: (slug: string, provider: string, project: string, target: string | null) =>
-    request<{ names: string[]; connected: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/vars`, { project, target }),
+    request<{ names: string[]; connected: boolean; refused?: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/providers/${encodeURIComponent(provider)}/vars`, { project, target }),
   caminoApprove: (slug: string, path: string, sha256: string) => request<{ approved: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/approve`, { path, sha256 }),
   caminoMigrations: (slug: string, database: string, tool: string) => request<{ ok: boolean; count: number | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/camino/migrations`, { database, tool }),
   caminoRemoveKey: (slug: string, provider: string) => request<{ removed: true }>("DELETE", `/company/projects/${encodeURIComponent(slug)}/camino/keys/${encodeURIComponent(provider)}`),

@@ -2,11 +2,12 @@
    palette (corriente.css): near black, violet for what is selected, amber for what waits, red for what blocks, green for
    what is fine. Sections on the left, the open one on the right; one column on a phone. */
 .cor-camino { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 1240px; }
-.cam-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
-.cam-head .cor-text { max-width: 76ch; }
-.cam-head-r { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.cam-ready { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 1px solid var(--cor-line-strong); border-radius: 999px; background: var(--cor-surface); font-size: 14px; }
-.cam-checked { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--cor-muted); }
+.cam-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: nowrap; align-items: center; min-width: 0; }
+.cam-ready { flex: none; white-space: nowrap; }
+.cam-ready { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 1px solid var(--cor-line-strong); border-radius: 10px; background: var(--cor-surface); font-size: 14px; }
+.cam-checked { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--cor-muted); min-width: 0; flex: 0 1 auto; }
+.cam-checked > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-checked .cor-btn { flex: none; white-space: nowrap; }
 .cam-checked .cor-btn { min-height: 44px; padding: 0 6px; font-size: 12.5px; }
 
 .cam-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--cor-green); box-shadow: 0 0 8px rgba(110, 231, 160, 0.55); }
@@ -18,6 +19,14 @@
 .cam-door-n.bad { color: var(--cor-red); }
 .cam-door-n.ok { color: var(--cor-green); }
 
+.cam-rec { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--cor-line-strong); border-radius: 10px; background: var(--cor-surface); }
+.cam-rec .cam-verbs { margin: 6px 0 0; }
+.cam-expert { border: 1px solid var(--cor-line); border-radius: 10px; }
+.cam-expert > summary { cursor: pointer; padding: 0 14px; min-height: 44px; display: flex; align-items: center; gap: 10px; list-style: none; }
+.cam-expert > summary::-webkit-details-marker { display: none; }
+.cam-expert > summary::before { content: "▸"; color: var(--cor-muted); }
+.cam-expert[open] > summary::before { content: "▾"; }
+.cam-expert-b { display: flex; flex-direction: column; gap: 16px; padding: 0 14px 14px; }
 .cam-cfg { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 16px; align-items: start; }
 .cam-secs { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
 .cam-sec { display: grid; grid-template-columns: 10px 1fr; gap: 3px 10px; align-items: center; padding: 9px 12px; border-radius: 10px; border: 1px solid transparent; color: var(--cor-text); text-decoration: none; min-height: 44px; }
@@ -32,7 +41,10 @@
 .cam-main { min-width: 0; }
 .cam-ed { border: 1px solid var(--cor-line-strong); border-radius: 14px; background: var(--cor-surface); padding: 18px 20px 22px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .cam-ed-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-.cam-ed-h h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+/* PLA-I70-36: the page title is gone, so a section title is the h2 and its blocks are h3 (axe heading-order). */
+.cam-ed-h h2 { margin: 0; }
+.cam-blk-h h3 { margin: 0; }
+.cam-ed-h h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
 .cam-ed-h p { margin-top: 4px; font-size: 14px; max-width: 72ch; }
 .cam-blk { border-top: 1px solid var(--cor-line); padding-top: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cam-blk-h { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
@@ -87,7 +99,8 @@
 .cam-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cam-lab { font-size: 13px; color: var(--cor-body); }
 .cam-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.cam-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--cor-line-strong); font: 12px var(--cor-mono); color: var(--cor-body); background: var(--cor-raised); white-space: nowrap; }
+.cam-chip:not(.btn):not(.ok):not(.warn):not(.bad):not(.live):not(.dim) { border-style: dashed; cursor: default; }
+.cam-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 10px; border: 1px solid var(--cor-line-strong); font: 12px var(--cor-mono); color: var(--cor-body); background: var(--cor-raised); white-space: nowrap; }
 .cam-chip.btn { cursor: pointer; min-height: 44px; padding: 0 12px; }
 .cam-chip.btn:hover, .cam-chip.btn[aria-pressed="true"] { border-color: var(--cor-violet-3); color: var(--cor-text); }
 .cam-chip.ok { border-color: rgba(110, 231, 160, 0.4); color: var(--cor-green); }
@@ -117,7 +130,7 @@
 .cam-tg { display: flex; gap: 12px; align-items: flex-start; text-align: left; border: 1px solid var(--cor-line); border-radius: 10px; padding: 10px 12px; background: #09090d; width: 100%; min-height: 44px; color: var(--cor-text); font: inherit; cursor: pointer; }
 .cam-tg:hover:not(:disabled) { border-color: var(--cor-line-strong); }
 .cam-tg:disabled { opacity: 0.5; cursor: not-allowed; }
-.cam-sw { flex: none; width: 32px; height: 19px; border-radius: 999px; background: var(--cor-line-strong); position: relative; margin-top: 2px; transition: background 0.2s; }
+.cam-sw { flex: none; width: 32px; height: 19px; border-radius: 10px; background: var(--cor-line-strong); position: relative; margin-top: 2px; transition: background 0.2s; }
 .cam-sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: left 0.2s; }
 .cam-tg[aria-pressed="true"] .cam-sw { background: var(--cor-violet); }
 .cam-tg[aria-pressed="true"] .cam-sw::after { left: 16px; }
@@ -142,7 +155,7 @@
 
 .cam-pbar { position: sticky; bottom: 12px; z-index: 20; display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap; padding: 8px 12px 8px 16px; border: 1px solid rgba(221, 214, 254, 0.45); border-radius: 14px; background: rgba(21, 20, 29, 0.97); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6); }
 .cam-pbar-c { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
-.cam-wtag { font: 11px var(--cor-mono); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--cor-line-strong); color: var(--cor-body); }
+.cam-wtag { font: 11px var(--cor-mono); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--cor-line-strong); color: var(--cor-body); }
 .cam-wtag.plania { border-color: rgba(196, 181, 253, 0.5); color: var(--cor-violet-4); }
 .cam-wtag.github { border-color: rgba(94, 200, 255, 0.5); color: #bfe8ff; }
 .cam-wtag.proveedor { border-color: rgba(255, 180, 84, 0.5); color: var(--cor-amber); }
@@ -172,7 +185,7 @@
 .cam-bar { display: grid; grid-template-columns: 150px 1fr 44px; gap: 10px; align-items: center; font-size: 12.5px; }
 .cam-bar-tr { height: 8px; border-radius: 4px; background: var(--cor-line); overflow: hidden; }
 .cam-bar-fl { display: block; height: 8px; border-radius: 4px; background: var(--cor-violet-3); }
-.cam-pill { border: 1px solid var(--cor-line-strong); background: transparent; border-radius: 999px; padding: 0 14px; min-height: 44px; font-size: 12.5px; color: var(--cor-body); cursor: pointer; font-family: var(--cor-mono); }
+.cam-pill { border: 1px solid var(--cor-line-strong); background: transparent; border-radius: 10px; padding: 0 14px; min-height: 44px; font-size: 12.5px; color: var(--cor-body); cursor: pointer; font-family: var(--cor-mono); }
 .cam-pill[aria-pressed="true"] { background: var(--cor-violet-4); color: #1a1033; border-color: var(--cor-violet-4); font-weight: 600; }
 .cam-preview, .cam-instr { margin: 0; border: 1px solid var(--cor-line); border-radius: 10px; background: #08080c; padding: 12px 14px; font: 13px/1.6 var(--cor-mono); color: var(--cor-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .cam-instr { border-color: rgba(196, 181, 253, 0.3); background: rgba(139, 92, 246, 0.06); font-size: 12.5px; color: var(--cor-body); max-height: 300px; overflow-y: auto; }
@@ -218,7 +231,17 @@
   .cam-cards { grid-template-columns: 1fr; }
 }
 @media (max-width: 639px) {
-  .cam-head-r { align-items: flex-start; }
+  /* PLA-I70-31: phone. Steps stack their buttons under the text, the strip stacks, paths wrap, the section list is one scrolling row. */
+  .cam-step { grid-template-columns: 22px minmax(0, 1fr); padding: 6px 8px; }
+  .cam-step-a { grid-column: 1 / -1; flex-wrap: wrap; }
+  .cam-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow-x: visible; }
+  .cam-strip-cell { min-width: 0; }
+  .cam-strip-cell .cam-node { width: 100%; }
+  .cam-arw, .cam-node-s { display: none; }
+  .cam-card, .cam-find, .cam-blk, .cam-ed { overflow-wrap: anywhere; min-width: 0; }
+  .cam-secs { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  .cam-secs .cam-sec { flex: none; }
+  .cam-secs .cam-sec small, .cam-secs .cam-sep, .cam-secs .cam-cap { display: none; }
   .cam-ed { padding: 14px; }
   .cam-find { grid-template-columns: 10px minmax(0, 1fr); }
   .cam-find-a { grid-row: auto; grid-column: 2; }

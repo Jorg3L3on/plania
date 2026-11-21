@@ -149,9 +149,10 @@ test("NEWPROJ-6: only GitHub drops the folder, keeps the token's variable name, 
   assert.equal(db.settings.local, undefined);
   assert.deepEqual(db.settings.github, { repo: "o/recetario-2", token_env: "RECETARIO_GH_TOKEN" });
   s = (await res.json()) as SettingsRead;
-  // PLA-I2-6: the token's variable NAME is an «Avanzado» field now (never a value); the code section carries none.
+  // PLA-I2-6: the code section carries no token field. PLA-133: the variable's NAME is edited on Despliegue's GitHub
+  // card now, not in «Avanzado».
   assert.equal(JSON.stringify(s.code).includes("token"), false, "the code section never carries a token field");
-  assert.equal(s.avanzado.find((f) => f.field === "github_token_env")?.value, "RECETARIO_GH_TOKEN");
+  assert.equal(s.avanzado.some((f) => (f.field as string) === "github_token_env"), false);
   assert.equal((await put("/code", { version: s.version, no_code: true })).status, 200);
   db = await stored();
   assert.deepEqual(db.settings.local, { no_code: true });
@@ -290,23 +291,11 @@ test("NEWPROJ-6: the view's refusals are plain Spanish, never the code", () => {
   assert.match(aj.ajustesError(null), /No se guardó/);
 });
 
-test("NEWPROJ-6: the release form, the verify lines and the code choice are checked before sending", () => {
-  assert.deepEqual(aj.lanzamientoBody({ from: " sandbox ", into: "main", env: "prod", merge: false }), { from: "sandbox", into: "main", env: "prod" });
-  assert.deepEqual(aj.lanzamientoBody({ from: "sandbox", into: "main", env: "prod", merge: true }), { from: "sandbox", into: "main", env: "prod", mode: "merge" });
-  assert.equal(aj.lanzamientoBody({ from: "main", into: "main", env: "prod", merge: false }), null);
-  assert.equal(aj.lanzamientoBody({ from: "sandbox", into: "main", env: "Prod", merge: false }), null);
-  assert.equal(aj.lanzamientoBody({ from: "", into: "main", env: "prod", merge: false }), null);
+test("NEWPROJ-6: the verify lines are checked before sending", () => {
   assert.deepEqual(aj.comandos("pnpm test\n\n  pnpm lint \n"), ["pnpm test", "pnpm lint"]);
   assert.equal(aj.comandosAviso(aj.comandos("a\nb\nc\nd\ne\nf\ng\nh\ni")), "Caben 8 comandos como máximo.");
   assert.equal(aj.comandosAviso(["x".repeat(301)]), "Cada comando cabe en 300 caracteres.");
   assert.equal(aj.comandosAviso(["pnpm test"]), null);
-  assert.equal(aj.vistaPreviaOk("https://a.example.com"), true);
-  assert.equal(aj.vistaPreviaOk("ftp://a"), false);
-  assert.equal(aj.vistaPreviaOk(""), true, "empty clears it");
-  assert.deepEqual(aj.codigoDe({ repo_path: "/a", github_repo: "o/r", no_code: false }), "carpeta");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: "o/r", no_code: false }), "github");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: null, no_code: true }), "ninguno");
-  assert.deepEqual(aj.codigoDe({ repo_path: null, github_repo: null, no_code: false }), null);
 });
 
 test("NEWPROJ-6: each context doc and the readiness items it fixes have their words", () => {

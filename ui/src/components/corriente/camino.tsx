@@ -14,6 +14,8 @@ import {
   cards,
   catalog,
   findings,
+  githubConnected,
+  githubRefused,
   isSetup,
   proposalGroups,
   readyLine,
@@ -32,7 +34,7 @@ import type { CaminoRead } from "@/lib/camino-types";
 import { LOCALE } from "@/lib/locale";
 import { Btn, ReadError } from "./parts";
 import { caminoKey, useCamino } from "./camino-query";
-import { useCambios } from "./camino-store";
+import { useCambios, type Cambios } from "./camino-store";
 import { CambiosBar } from "./camino-cambios";
 import { Codigo } from "./camino-codigo";
 import { Commits } from "./camino-commits";
@@ -49,7 +51,7 @@ export const Ed = ({ title, lead, right, children, id }: { title: string; lead: 
   <section className="cam-ed" aria-labelledby={`cam-h-${id}`} data-camino-sec={id}>
     <header className="cam-ed-h">
       <div>
-        <h3 id={`cam-h-${id}`}>{title}</h3>
+        <h2 id={`cam-h-${id}`}>{title}</h2>
         <p className="cor-text">{lead}</p>
       </div>
       {right}
@@ -61,12 +63,48 @@ export const Ed = ({ title, lead, right, children, id }: { title: string; lead: 
 export const Blk = ({ cap, hint, children, ...rest }: { cap: string; hint?: ReactNode; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) => (
   <div className="cam-blk" {...rest}>
     <div className="cam-blk-h">
-      <h4 className="cam-cap">{cap}</h4>
+      <h3 className="cam-cap">{cap}</h3>
       {hint && <span className="cam-hint">{hint}</span>}
     </div>
     {children}
   </div>
 );
+
+/** PLA-I70-47: the section's recommendation, one button. `lines` are the things it does; `done` when the project already is that way. */
+export const Recom = ({ lines, done, onUse, disabled }: { lines: string[]; done: boolean; onUse: () => void; disabled?: boolean }) => {
+  const w = caminoWords().expert;
+  return (
+    <div className="cam-rec" data-recomendado={done ? "hecho" : "falta"}>
+      <div>
+        <b className="cam-cap">{w.recTitle}</b>
+        <ul className="cam-verbs">
+          {lines.map((l) => (
+            <li key={l}>
+              <span className={done ? "ok-t" : "warn-t"} aria-hidden>{done ? "✓" : "○"}</span>
+              {l}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <Btn kind={done ? "quiet" : "primary"} small disabled={done || disabled} onClick={onUse} data-control="usar-recomendado">
+        {done ? w.done : w.use}
+      </Btn>
+    </div>
+  );
+};
+
+/** PLA-I70-47: everything beyond the recommendation, closed until the owner asks for it. */
+export const Experto = ({ id, children, open, onToggle }: { id: string; children: ReactNode; open?: boolean; onToggle?: (open: boolean) => void }) => {
+  const w = caminoWords().expert;
+  return (
+    <details className="cam-expert" data-experto={id} {...(open !== undefined ? { open } : {})} onToggle={(e) => onToggle?.((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>
+        <b>{w.title}</b> <span className="cam-hint">{w.hint}</span>
+      </summary>
+      <div className="cam-expert-b">{children}</div>
+    </details>
+  );
+};
 
 const FixButton = ({ fix, links, onRecheck, busy }: { fix: Fix; links: CaminoLinks; onRecheck: () => void; busy: boolean }) => {
   if (fix.go) return <Link className="cor-btn secondary small cam-fix" to={links.hrefOf(fix.go)} data-fix={fix.go}>{fix.label}</Link>;
@@ -95,7 +133,9 @@ const FindingRow = ({ f, links, onRecheck, busy }: { f: Finding; links: CaminoLi
 const Resumen = ({ r, F, links, onRecheck, busy }: { r: CaminoRead; F: Finding[]; links: CaminoLinks; onRecheck: () => void; busy: boolean }) => {
   const w = caminoWords();
   const [all, setAll] = useState(false);
-  const top = F.filter((f) => f.sev !== "ok");
+  // PLA-I70-28: «Necesita atención» counts what blocks and what to improve, the same two numbers as the pill and the tab; the rest is «Para saber».
+  const top = F.filter((f) => f.sev === "bad" || f.sev === "warn");
+  const know = F.filter((f) => f.sev === "info");
   const ok = F.filter((f) => f.sev === "ok");
   const nodes = strip(r, F);
   const setup = isSetup(r);
@@ -121,24 +161,6 @@ const Resumen = ({ r, F, links, onRecheck, busy }: { r: CaminoRead; F: Finding[]
           </div>
         ))}
       </div>
-      {setup && (
-        <Blk cap={w.resumen.setup} data-camino-setup>
-          <ul className="cam-list">
-            {setupList(r).map((x) => (
-              <li key={x.title} className="cam-task">
-                <span className={cls("cam-mark", x.mark === "✓" ? "ok" : x.mark === "○" ? "warn" : "")} aria-hidden>
-                  {x.mark}
-                </span>
-                <span>{x.title}</span>
-                <small>{x.sub}</small>
-                <Link className="cor-btn quiet small" to={links.hrefOf(x.go)} aria-label={`${w.resumen.open}: ${x.title}`}>
-                  {w.resumen.open}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Blk>
-      )}
       <Blk cap={w.resumen.attention(top.length)} hint={w.resumen.bySeverity} data-camino-findings={top.length}>
         {top.length === 0 ? (
           <p className="cam-hint">{w.resumen.nothing}</p>
@@ -155,6 +177,39 @@ const Resumen = ({ r, F, links, onRecheck, busy }: { r: CaminoRead; F: Finding[]
           </Btn>
         )}
       </Blk>
+      {setup && (
+        <Blk cap={w.resumen.setup} data-camino-setup>
+          <ul className="cam-list">
+            {setupList(r).map((x) => (
+              <li key={x.title} className="cam-task">
+                <span className={cls("cam-mark", x.mark === "✓" ? "ok" : x.mark === "○" ? "warn" : "")} aria-hidden>
+                  {x.mark}
+                </span>
+                <span>{x.title}</span>
+                <small>{x.sub}</small>
+                {x.addEnv ? (
+                  <Btn kind="quiet" small onClick={() => window.dispatchEvent(new Event("camino:add-env"))} aria-label={`${w.resumen.open}: ${x.title}`} data-control="abrir-agregar-entorno">
+                    {w.resumen.open}
+                  </Btn>
+                ) : (
+                  <Link className="cor-btn quiet small" to={links.hrefOf(x.go)} aria-label={`${w.resumen.open}: ${x.title}`}>
+                    {w.resumen.open}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Blk>
+      )}
+      {know.length > 0 && (
+        <Blk cap={w.resumen.know(know.length)} data-camino-saber={know.length}>
+          <ul className="cam-list">
+            {know.map((f) => (
+              <FindingRow key={f.id} f={f} links={links} onRecheck={onRecheck} busy={busy} />
+            ))}
+          </ul>
+        </Blk>
+      )}
       {ok.length > 0 && (
         <Blk cap={w.resumen.good}>
           <ul className="cam-list">
@@ -173,42 +228,100 @@ const Resumen = ({ r, F, links, onRecheck, busy }: { r: CaminoRead; F: Finding[]
 function keyError(e: unknown): string {
   const w = caminoWords();
   if (!(e instanceof ApiError)) return w.conn.unreachable;
-  if (e.code === "CAMINO_KEY_REJECTED") return w.conn.rejected((e.detail.status as number | null) ?? null, String(e.detail.message ?? ""));
+  if (e.code === "CAMINO_KEY_REJECTED") return w.conn.rejected((e.detail.status as number | null) ?? null);
   if (e.code === "CAMINO_KEY_INVALID") return w.conn.invalid;
   if (e.code === "CAMINO_KEY_STORE") return w.conn.storeFailed;
   return w.conn.unreachable;
 }
 
-const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
+function keyDetail(e: unknown): string | undefined {
+  return e instanceof ApiError && e.code === "CAMINO_KEY_REJECTED" && e.detail.message ? String(e.detail.message) : undefined;
+}
+
+/** PLA-133: the variable that holds the GitHub key (settings.github.token_env), moved here from Ajustes › Avanzado.
+ * Staged like every other change; empty removes it. A value that is not a variable's name is never staged. */
+const KeyEnv = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
+  const w = caminoWords();
+  const staged = cambios.staged("github_key_env") as { name: string | null } | undefined;
+  const value = staged ? staged.name : (r.settings.github_token_env ?? null);
+  const [bad, setBad] = useState(false);
+  const read = r.settings.github_token_env ?? null;
+  return (
+    <label className="cam-field" data-llave-variable>
+      <span className="cam-lab">
+        {w.conn.keyEnv}
+      </span>
+      <input
+        key={`kenv-${cambios.epoch}`}
+        className="cor-input cor-mono"
+        defaultValue={value ?? ""}
+        placeholder="GITHUB_TOKEN"
+        onBlur={(e) => {
+          const next = e.target.value.trim() || null;
+          if (next && !/^[A-Z][A-Z0-9_]{0,63}$/.test(next)) return setBad(true);
+          setBad(false);
+          if (next === read) return cambios.drop("github_key_env");
+          cambios.stage({ key: "github_key_env", change: { kind: "github_key_env", label: w.conn.keyEnvLabel, name: next }, dest: "plania", from: read ?? w.conn.keyEnvNone, to: next ?? w.conn.keyEnvNone });
+        }}
+        autoComplete="off"
+        spellCheck={false}
+        aria-invalid={bad || undefined}
+        data-campo="llave-variable-github"
+      />
+      <span className={cls("cam-hint", bad && "bad-t")} role={bad ? "alert" : undefined}>
+        {bad ? w.conn.keyEnvBad : w.conn.keyEnvHint}
+      </span>
+    </label>
+  );
+};
+
+const CardView = ({ r, c, now, cambios }: { r: CaminoRead; c: Card; now: Date; cambios?: Cambios }) => {
   const w = caminoWords();
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [tested, setTested] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tested, setTested] = useState<{ ok: boolean; text: string; detail?: string } | null>(null);
   const refresh = () => void client.invalidateQueries({ queryKey: caminoKey(r.slug) });
   const save = useMutation({
     mutationFn: () => api.caminoSaveKey(r.slug, c.id, value),
     onSuccess: () => {
       setOpen(false);
       setValue("");
+      setTested(null);
       refresh();
     },
   });
   const test = useMutation({
     mutationFn: () => api.caminoTestKey(r.slug, c.id),
     onSuccess: (t) => {
-      setTested({ ok: t.ok, text: t.ok ? `✓ ${w.conn.works}${t.account ? ` · ${t.account}` : ""}` : w.conn.rejected(t.status, t.message).replace(/ No se guardó\.| Not saved\./, "") });
+      setTested({ ok: t.ok, text: t.ok ? `✓ ${w.conn.works}${t.account ? ` · ${t.account}` : ""}` : w.conn.rejected(t.status).replace(/ No se guardó\.| Not saved\./, ""), detail: t.ok ? undefined : t.message });
       refresh();
     },
-    onError: (e) => setTested({ ok: false, text: keyError(e) }),
+    onError: (e) => setTested({ ok: false, text: keyError(e), detail: keyDetail(e) }),
   });
-  const remove = useMutation({ mutationFn: () => api.caminoRemoveKey(r.slug, c.id), onSuccess: refresh });
+  const remove = useMutation({
+    mutationFn: () => api.caminoRemoveKey(r.slug, c.id),
+    onSuccess: () => {
+      setConfirm(false);
+      setTested(null);
+      refresh();
+    },
+  });
+  // PLA-I70-9: «Quitar» asks first, inside the card, naming what uses the key.
+  const [confirm, setConfirm] = useState(false);
   const meta = r.config.connections[c.id] ?? null;
   const g = r.discovery?.github.ok ? r.discovery.github : null;
   const info = catalog().find((s) => s.id === c.id);
   const name = serviceName(c.id);
-  const on = c.saved || (c.id === "github" && !!g) || c.via === "detected" || c.via === "mac";
-  const how = meta
+  const ghOn = githubConnected(r);
+  const refused = c.id === "github" ? githubRefused(r) : !!meta?.test && !meta.test.ok;
+  const on = c.saved || (c.id === "github" && ghOn) || (c.id === "github_releases" && ghOn) || c.via === "detected" || c.via === "mac" || (c.id === "github" && refused);
+  const ghSrc = r.discovery && !r.discovery.github.ok ? r.discovery.github.source : null;
+  const how = c.id === "github" && refused
+    ? w.conn.ghRefused(meta ? (meta.store === "keychain" ? w.conn.keychain(meta.last4) : w.conn.file(meta.last4)) : (ghSrc ? w.conn.ghEnv(ghSrc) : w.conn.notConnected))
+    : c.id === "github_releases"
+    ? w.conn.releasesHow
+    : meta
     ? meta.store === "keychain"
       ? w.conn.keychain(meta.last4)
       : w.conn.file(meta.last4)
@@ -224,13 +337,23 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
               ? w.conn.macHow
               : null;
   const scopes = c.id === "github" ? (g?.token.scopes ?? meta?.test?.scopes ?? null) : null;
-  const can = c.id === "github" ? (scopes ? (scopes.includes("repo") ? w.conn.allRepos(scopes.join(", ")) : scopes.join(", ") || w.conn.onlyProject) : w.conn.onlyProject) : c.id === "local_postgres" ? w.conn.localDbs(r.discovery?.mac.postgres?.databases.length ?? 0) : (meta?.test?.account ?? w.conn.onlyProject);
+  const can = c.id === "github" ? (scopes ? (scopes.includes("repo") ? w.conn.allRepos(scopes.join(", ")) : scopes.join(", ") || w.conn.onlyProject) : w.conn.onlyProject) : c.id === "local_postgres" ? w.conn.localDbs(r.discovery?.mac.postgres?.databases.length ?? 0) : w.conn.onlyProject;
+  // PLA-I70-34: «Puede» says what the key can do; the account it belongs to is its own line, and a service with no key has no «Puede».
+  const account = c.id === "github" ? null : (meta?.test?.account ?? null);
+  const hasKey = c.via === "key" || c.id === "github" || c.id === "local_postgres";
   const exp = meta?.expires_at ?? (c.id === "github" ? (g?.token.expires_at ?? null) : null);
   const lastUse = meta?.last_used_at ?? (c.id === "github" && g ? r.checked_at : null);
   const works = c.id === "github" ? w.conn.ghWorks : on ? (info?.does ?? []) : [];
   const more = c.id === "github" ? (g ? [g.repo.admin ? null : w.conn.ghNeedsAdmin].filter((x): x is string => !!x) : []) : !on && info?.badge === "native" ? [w.conn.providerMore] : [];
   const keyable = c.id === "github" || !!info?.keyed;
   const busy = save.isPending || test.isPending || remove.isPending;
+  const days = exp ? Math.ceil((new Date(exp).getTime() - now.getTime()) / 86_400_000) : null;
+  // PLA-I70-8: the chip says what the last test and the expiry say, not only that a key exists.
+  const chip: { k: "ok" | "warn" | "bad"; t: string } = refused ? { k: "bad", t: w.conn.rejectedChip } : days != null && days <= 0 ? { k: "bad", t: w.conn.expiredChip } : days != null && days <= 14 ? { k: "warn", t: w.conn.expiresIn(days) } : on ? { k: "ok", t: w.conn.connected } : { k: "warn", t: w.conn.notConnected };
+  const usedBy = [
+    ...(c.id === "github" ? [w.conn.usedGithub] : []),
+    ...r.config.envs.filter((e) => e.server.provider === c.id || e.database?.provider === c.id).map((e) => e.name),
+  ];
   return (
     <div className="cam-card" data-conn={c.id} data-conectado={on ? "si" : "no"}>
       <div className="cam-card-h">
@@ -239,14 +362,24 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
           <span className={cls("cam-bdg", c.badge)}>{w.conn.badge[c.badge]}</span>
           {info?.paid && <span className="cam-bdg paid">{w.conn.paid}</span>}
         </span>
-        <span className={cls("cam-chip", on ? "ok" : "warn")}>{on ? w.conn.connected : w.conn.notConnected}</span>
+        <span className={cls("cam-chip", chip.k)} data-chip={chip.k}>{chip.t}</span>
       </div>
       {on && (
         <dl className="cam-kv">
           <dt>{w.conn.how}</dt>
           <dd>{how}</dd>
-          <dt>{w.conn.can}</dt>
-          <dd>{can}</dd>
+          {hasKey && (
+            <>
+              <dt>{w.conn.can}</dt>
+              <dd>{can}</dd>
+            </>
+          )}
+          {account && (
+            <>
+              <dt>{w.conn.account}</dt>
+              <dd>{account}</dd>
+            </>
+          )}
           {keyable && (
             <>
               <dt>{w.conn.expires}</dt>
@@ -285,7 +418,7 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
           <label className="cam-field">
             <span className="cam-lab">{info?.token ?? w.conn.paste}</span>
             <span className="cam-acts">
-              <input className="cor-input cor-mono" type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder={w.conn.paste} autoComplete="off" spellCheck={false} data-campo={`llave-${c.id}`} />
+              <input className="cor-input cor-mono" type="password" autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder={w.conn.paste} autoComplete="off" spellCheck={false} data-campo={`llave-${c.id}`} />
               <Btn kind="primary" small type="submit" disabled={!value.trim() || save.isPending} data-control={`guardar-llave-${c.id}`}>
                 {save.isPending ? w.conn.saving : w.conn.save}
               </Btn>
@@ -294,12 +427,32 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
           {save.isError ? (
             <p className="cam-hint bad-t" role="alert" data-llave-error>
               {keyError(save.error)}
+              {keyDetail(save.error) && (
+                <details className="cam-why">
+                  <summary>{w.conn.detail}</summary>
+                  {keyDetail(save.error)}
+                </details>
+              )}
             </p>
           ) : (
             <p className="cam-hint">{w.conn.keyNote}</p>
           )}
         </form>
       )}
+      {confirm && (
+        <div className="cam-box warn" role="alertdialog" aria-label={w.conn.remove} data-quitar-confirmar>
+          {usedBy.length ? w.conn.removeAsk(usedBy.join(", ")) : w.conn.removeNone}
+          <div className="cam-acts">
+            <Btn kind="primary" small disabled={remove.isPending} onClick={() => remove.mutate()} data-control={`confirmar-quitar-${c.id}`}>
+              {w.conn.removeYes}
+            </Btn>
+            <Btn kind="quiet" small onClick={() => setConfirm(false)} autoFocus>
+              {w.conn.cancel}
+            </Btn>
+          </div>
+        </div>
+      )}
+      {c.id === "github" && cambios && <KeyEnv r={r} cambios={cambios} />}
       {keyable && (
         <div className="cam-acts">
           {c.saved ? (
@@ -310,7 +463,7 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
               <Btn kind="quiet" small disabled={busy} onClick={() => setOpen((x) => !x)} aria-expanded={open} data-control={`cambiar-${c.id}`}>
                 {w.conn.change}
               </Btn>
-              <Btn kind="quiet" small disabled={busy} onClick={() => remove.mutate()} data-control={`quitar-${c.id}`}>
+              <Btn kind="quiet" small disabled={busy} onClick={() => setConfirm(true)} aria-expanded={confirm} data-control={`quitar-${c.id}`}>
                 {w.conn.remove}
               </Btn>
             </>
@@ -322,6 +475,12 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
           {tested && (
             <span className={cls("cam-hint", tested.ok ? "ok-t" : "bad-t")} role="status" data-prueba={tested.ok ? "ok" : "falla"}>
               {tested.text}
+              {tested.detail && (
+                <details className="cam-why">
+                  <summary>{w.conn.detail}</summary>
+                  {tested.detail}
+                </details>
+              )}
             </span>
           )}
         </div>
@@ -330,7 +489,7 @@ const CardView = ({ r, c, now }: { r: CaminoRead; c: Card; now: Date }) => {
   );
 };
 
-const Conexiones = ({ r, now }: { r: CaminoRead; now: Date }) => {
+const Conexiones = ({ r, now, cambios }: { r: CaminoRead; now: Date; cambios: Cambios }) => {
   const w = caminoWords();
   const list = cards(r);
   const cat = catalog();
@@ -340,7 +499,7 @@ const Conexiones = ({ r, now }: { r: CaminoRead; now: Date }) => {
     <Ed id="conn" title={w.sections.conn} lead={r.plania.keys_store === "file" ? w.conn.leadFile : w.conn.lead}>
       <div className="cam-cards">
         {[...list, ...extra].map((c) => (
-          <CardView key={c.id} r={r} c={c} now={now} />
+          <CardView key={c.id} r={r} c={c} now={now} cambios={cambios} />
         ))}
       </div>
       <Blk cap={w.conn.addTitle} hint={w.conn.addHint}>
@@ -464,6 +623,8 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
   const F = findings(r, now);
   const S = sections(r, F);
   const ready = readyLine(F);
+  // PLA-I70-41: before the first GitHub read lands there is no verdict to give.
+  if (!r.discovery) Object.assign(ready, { dot: "off", text: w.checking, more: null });
   const all = [...S.main, ...S.envs, S.hist];
   const current = all.find((s) => s.id === sec) ?? S.main[0]!;
   const checking = recheck.isPending || r.checking;
@@ -474,7 +635,7 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
       case "resumen":
         return <Resumen r={r} F={F} links={links} onRecheck={onRecheck} busy={checking} />;
       case "conn":
-        return <Conexiones r={r} now={now} />;
+        return <Conexiones r={r} now={now} cambios={cambios} />;
       case "propuestas":
         return <Propuestas r={r} links={links} />;
       case "hist":
@@ -499,22 +660,16 @@ export const Camino = ({ p, sec, hrefOf, prHref, ajustesHref }: { p: Pick<OrgPro
   return (
     <div className="cor-camino" data-camino-de={r.slug}>
       <header className="cam-head">
-        <div>
-          <h2 className="cor-door-h">{w.title(r.title)}</h2>
-          <p className="cor-text">{w.lead}</p>
+        <div className="cam-ready" data-ready={ready.dot}>
+          <Dot sev={ready.dot} />
+          <b>{ready.text}</b>
+          {ready.more && <span className="warn-t">{ready.more}</span>}
         </div>
-        <div className="cam-head-r">
-          <div className="cam-ready" data-ready={ready.dot}>
-            <Dot sev={ready.dot} />
-            <b>{ready.text}</b>
-            {ready.more && <span className="warn-t">{ready.more}</span>}
-          </div>
-          <div className="cam-checked" role="status">
-            <span>{checking ? w.checking : ago ? w.checkedAgo(ago) : w.neverChecked}</span>
-            <Btn kind="link" disabled={checking} onClick={onRecheck} data-control="camino-recheck">
-              {w.recheck}
-            </Btn>
-          </div>
+        <div className="cam-checked" role="status">
+          <span>{checking ? w.checking : ago ? w.checkedAgo(ago) : w.neverChecked}</span>
+          <Btn kind="link" disabled={checking} onClick={onRecheck} data-control="camino-recheck">
+            {w.recheck}
+          </Btn>
         </div>
       </header>
       <div className="cam-cfg">

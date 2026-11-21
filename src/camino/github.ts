@@ -92,6 +92,9 @@ type RepoJson = {
   allow_update_branch?: boolean;
 };
 
+/** PLA-I70-20: how many branches get ahead/behind (a branch with no count never offers «Borrar»); role branches first. */
+const COMPARE_MAX = 60;
+
 /** Everything Camino reads from GitHub for one repo. roles: the branches whose rules and checks matter first. */
 export async function discoverGithub(api: GhApi, repo: string, roles: string[], now: Date): Promise<DiscoveryGithub> {
   const R = `/repos/${enc(repo)}`;
@@ -125,7 +128,7 @@ export async function discoverGithub(api: GhApi, repo: string, roles: string[], 
   const order = [...raw].sort((a, b) => Number(roles.includes(b.name)) - Number(roles.includes(a.name)));
   const compared = await limited(
     6,
-    order.slice(0, 20).map((b) => async () => {
+    order.slice(0, COMPARE_MAX).map((b) => async () => {
       if (b.name === def) return { name: b.name, ahead: 0, behind: 0 };
       const c = await getJson<{ ahead_by: number; behind_by: number }>(api, `${R}/compare/${encodeURIComponent(def)}...${encodeURIComponent(b.name)}`);
       return { name: b.name, ahead: c.data?.ahead_by ?? null, behind: c.data?.behind_by ?? null };

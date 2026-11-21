@@ -10,13 +10,15 @@ export type Style = {
   head: string; body: string; mono: string; base: number; ratio: number; wHead: number; lh: number;
   radius: number; pill: boolean; shadow: "plana" | "suave" | "marcada"; border: 0 | 1 | 2; density: "compacto" | "comodo" | "amplio";
   lib: string; stroke: number; fill: boolean; motion: "ninguno" | "calmo" | "normal" | "vivo";
-  img: "linea" | "plano" | "degradado"; people: boolean; imgBrand: boolean;
 };
 export type RepoStyle = { brand?: string; accent?: string; head?: string; body?: string; radius?: number; theme?: string; dark?: boolean; shadcn?: boolean; files: string[] };
-export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string };
+// PLA-130: fields, the settings of a part that reach the files and differ from where the style started.
+// base "start": the repo does not set this value, so it is compared with where the style started (PLA-130).
+export type StyleChange = { part: "color" | "letra" | "forma" | "espacio" | "iconos" | "mov"; from: string; to: string; fields?: (keyof Style)[]; base?: "start" };
 export type StyleRead = {
   style: Style | null;
   base: Style;
+  start?: Style;
   repo: RepoStyle;
   changes: StyleChange[];
   old: { path: string; n: number; colors: string[] }[];
@@ -43,7 +45,8 @@ export const FONT_CAT: Record<string, FontCat> = {
 };
 export const PAIRS: [string, string, string][] = [["moderna", "Geist", "Geist"], ["caracter", "Bricolage Grotesque", "Geist"], ["editorial", "Fraunces", "Inter"], ["amable", "Nunito", "Nunito Sans"], ["tecnica", "Space Grotesk", "IBM Plex Sans"], ["legible", "Atkinson Hyperlegible", "Atkinson Hyperlegible"]];
 export const RATIOS = [1.125, 1.2, 1.25, 1.333] as const;
-export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov", "img", "logo"] as const;
+// PLA-130: Imágenes and Logo left Estilo: neither reached the repo or an agent (the logo is changed in Caras).
+export const SECS = ["color", "letra", "forma", "espacio", "iconos", "mov", "trato"] as const;
 export type Sec = (typeof SECS)[number];
 export const LIBS = ["Lucide", "Phosphor", "Tabler", "Heroicons", "Material Symbols"] as const;
 
@@ -64,8 +67,13 @@ export function tokens(s: Style): Tokens {
   // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
   const [bL, bC] = toLch(s.brand);
   const [dL, dC, dH] = toLch(darkBrand);
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#15803d", warning: "#b45309", danger: "#b91c1c" };
-  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
+  // PLA-130: the brand as text (links, the current tab): itself when it reads at 4.5 : 1, else the nearest darker
+  // step of its own scale (lighter on dark), so a light brand colour never makes unreadable links.
+  const firstReadable = (steps: string[], ...on: string[]) => steps.find((c) => on.every((bg) => contrast(c, bg) >= 4.5)) ?? steps[steps.length - 1]!;
+  const brandText = firstReadable([s.brand, ...sc.slice(5)], N(0.985), "#ffffff");
+  const darkBrandText = firstReadable([darkBrand, sc[3]!, sc[2]!, sc[1]!, sc[0]!], darkBg, N(0.215));
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), "brand-text": brandText, tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#166534", warning: "#92400e", danger: "#b91c1c" }; // PLA-130: success and warning text reach 4.5 : 1 on their own tint
+  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), "brand-text": darkBrandText, tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
   const duration = { ninguno: 0, calmo: 320, normal: 200, vivo: 140 }[s.motion];
@@ -79,7 +87,8 @@ export function tokens(s: Style): Tokens {
 const STEP = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
 /** How the repo wires its CSS: next/font gives each family a variable (the family name itself is hashed), and
  * shadcn/ui owns --primary, --accent and --muted with its own meanings. */
-export type CssOpts = { next?: boolean; shadcn?: boolean };
+// PLA-130: dark false = the repo has no dark mode; Plania writes none, so the app's themes stay as they are.
+export type CssOpts = { next?: boolean; shadcn?: boolean; dark?: boolean };
 export const fontVar = (f: string) => `--font-${f.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 /** brand.css: Tailwind 4 @theme for the utilities, and the same values as variables for light and dark. */
 export function brandCss(s: Style, o: CssOpts = {}): string {
@@ -89,7 +98,7 @@ export function brandCss(s: Style, o: CssOpts = {}): string {
   const side = (x: Record<string, string>): Record<string, string> =>
     o.shadcn
       ? {
-          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
+          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, "brand-text": x["brand-text"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
           background: x.background!, foreground: x.foreground!, card: x.card!, "card-foreground": x.foreground!, popover: x.card!, "popover-foreground": x.foreground!,
           border: x.border!, input: x.input!, "muted-foreground": x.muted!, destructive: x.danger!,
           "sidebar-primary": x.brand!, "sidebar-primary-foreground": x["on-brand"]!, "sidebar-ring": x.brand!, "sidebar-accent": x.tint!, "sidebar-accent-foreground": x["on-tint"]!,
@@ -122,11 +131,11 @@ ${vars(side(t.light))}
   --icon-stroke: ${s.stroke};
 }
 
-.dark {
+${o.dark === false ? "" : `.dark {
 ${vars(side(t.dark))}
 }
 
-svg.lucide { stroke-width: var(--icon-stroke); }
+`}svg.lucide { stroke-width: var(--icon-stroke); }
 
 @layer base {
   h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--heading-weight); }
@@ -137,12 +146,12 @@ svg.lucide { stroke-width: var(--icon-stroke); }
 }
 `;
 }
-export function tokensJson(s: Style): string {
+export function tokensJson(s: Style, o: CssOpts = {}): string {
   const t = tokens(s);
   const c = (v: string) => ({ $type: "color", $value: v });
   return `${JSON.stringify(
     {
-      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${STEP[i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) },
+      color: { brand: c(s.brand), accent: c(s.accent), ...Object.fromEntries(t.scale.map((v, i) => [`brand-${STEP[i]}`, c(v)])), light: Object.fromEntries(Object.entries(t.light).map(([k, v]) => [k, c(v)])), ...(o.dark === false ? {} : { dark: Object.fromEntries(Object.entries(t.dark).map(([k, v]) => [k, c(v)])) }) },
       font: { heading: { $type: "fontFamily", $value: [s.head, "sans-serif"] }, body: { $type: "fontFamily", $value: [s.body, "sans-serif"] }, mono: { $type: "fontFamily", $value: [s.mono, "monospace"] } },
       dimension: { radius: { $type: "dimension", $value: { value: t.radius, unit: "px" } }, "text-base": { $type: "dimension", $value: { value: s.base, unit: "px" } } },
       duration: { base: { $type: "duration", $value: { value: t.duration, unit: "ms" } } },
@@ -152,7 +161,7 @@ export function tokensJson(s: Style): string {
   )}\n`;
 }
 export type CodeFmt = "tailwind" | "shadcn" | "w3c";
-export const codeOf = (s: Style, f: CodeFmt, o: CssOpts = {}) => (f === "w3c" ? tokensJson(s) : f === "shadcn" ? brandCss(s, { ...o, shadcn: true }) : brandCss(s, o));
+export const codeOf = (s: Style, f: CodeFmt, o: CssOpts = {}) => (f === "w3c" ? tokensJson(s, o) : f === "shadcn" ? brandCss(s, { ...o, shadcn: true }) : brandCss(s, o));
 
 /** An expert's code, read back: brand, accent, radius and the fonts Plania knows. What is not recognised is left. */
 export function fromCode(txt: string, s: Style, fonts: string[]): { next: Style; n: number } {
@@ -186,71 +195,96 @@ export function repoAsStyle(repo: RepoStyle, base: Style): Style {
 }
 
 /** What differs from the repo, part by part (the server's changesOf, plus the parts the repo cannot say). */
-export function changesOf(s: Style, repo: RepoStyle): StyleChange[] {
+export function changesOf(s: Style, repo: RepoStyle, start?: Style): StyleChange[] {
   const out: StyleChange[] = [];
   const rb = repo.brand ?? repo.theme;
-  if (!rb || distance(rb, s.brand) > 0.02 || (repo.accent && distance(repo.accent, s.accent) > 0.02)) out.push({ part: "color", from: rb ?? "—", to: s.brand });
+  // PLA-130: a value the repo does not set is compared with where the style started, so undoing it clears the tag.
+  if (!rb && start) { if (distance(start.brand, s.brand) > 0.02) out.push({ part: "color", from: start.brand, to: s.brand, base: "start" }); }
+  else if (!rb || distance(rb, s.brand) > 0.02 || (repo.accent && distance(repo.accent, s.accent) > 0.02)) out.push({ part: "color", from: rb ?? "—", to: s.brand });
   if ((repo.body ?? SYSTEM) !== s.body || (repo.head ?? repo.body ?? SYSTEM) !== s.head) out.push({ part: "letra", from: repo.head ?? repo.body ?? SYSTEM, to: s.head === s.body ? s.head : `${s.head} + ${s.body}` });
-  if ((repo.radius ?? -1) !== s.radius) out.push({ part: "forma", from: repo.radius === undefined ? "—" : `${repo.radius} px`, to: `${s.radius} px` });
+  if (repo.radius === undefined && start) { if (start.radius !== s.radius) out.push({ part: "forma", from: `${start.radius} px`, to: `${s.radius} px`, base: "start" }); }
+  else if ((repo.radius ?? -1) !== s.radius) out.push({ part: "forma", from: repo.radius === undefined ? "—" : `${repo.radius} px`, to: `${s.radius} px` });
+  if (!start) return out;
+  // PLA-130: the settings the repo cannot say, against where the style started; only those that reach brand.css,
+  // tokens.json or Taller's note (borders, icon fill and images only change the preview).
+  const extra: Record<StyleChange["part"], (keyof Style)[]> = {
+    color: ["neutral", ...(repo.accent ? [] : (["accent"] as (keyof Style)[]))],
+    letra: ["base", "ratio", "wHead", "lh", "mono"],
+    forma: ["pill", "shadow"],
+    espacio: ["density"],
+    iconos: ["lib", "stroke"],
+    mov: ["motion"],
+  };
+  for (const part of Object.keys(extra) as StyleChange["part"][]) {
+    const fields = extra[part].filter((k) => s[k] !== start[k]);
+    if (!fields.length) continue;
+    const had = out.find((c) => c.part === part);
+    if (had) had.fields = fields;
+    else out.push({ part, from: "", to: "", fields });
+  }
   return out;
-}
-
-/** Three directions from the logo: its own colours, a sober one and a lively one. */
-export function directions(logo: { theme: string | null; colors: string[] }, cur: Style): { k: "logo" | "sobria" | "viva"; s: Partial<Style> }[] {
-  const brand = logo.theme ?? logo.colors.find((c) => HEX.test(c)) ?? cur.brand;
-  const [, C, H] = toLch(brand);
-  const second = logo.colors.find((c) => HEX.test(c) && distance(c, brand) > 0.1) ?? fromLch(0.84, 0.12, (H + 180) % 360);
-  return [
-    { k: "logo", s: { brand, brandTie: "sigue", accent: second, neutral: "frio", head: "Bricolage Grotesque", body: "Geist", radius: 12, density: "comodo", shadow: "suave", motion: "normal", img: "plano" } },
-    { k: "sobria", s: { brand: fromLch(0.38, Math.min(C, 0.12), H), brandTie: "fijo", accent: fromLch(0.82, 0.11, 85), neutral: "calido", head: "Fraunces", body: "Inter", radius: 6, density: "comodo", shadow: "suave", motion: "calmo", img: "linea" } },
-    { k: "viva", s: { brand: fromLch(0.58, Math.max(C, 0.15), H), brandTie: "fijo", accent: fromLch(0.7, 0.18, (H + 150) % 360), neutral: "neutro", head: "Outfit", body: "DM Sans", radius: 20, density: "amplio", shadow: "marcada", motion: "vivo", img: "plano" } },
-  ];
-}
-/** A direction applied to one scope: everything, colours only, or type only. */
-export function applyDirection(cur: Style, d: Partial<Style>, scope: "todo" | "color" | "letra"): Style {
-  const pick = (keys: (keyof Style)[]) => Object.fromEntries(keys.filter((k) => k in d).map((k) => [k, d[k]]));
-  const colors = pick(["brand", "brandTie", "accent", "neutral"]);
-  const type = pick(["head", "body"]);
-  const rest = pick(["radius", "density", "shadow", "motion", "img"]);
-  return { ...cur, ...(scope !== "letra" ? colors : {}), ...(scope !== "color" ? type : {}), ...(scope === "todo" ? { ...rest, pill: false } : {}) } as Style;
 }
 
 export const ESTILO_WORDS = defineWords({
   es: {
-    doors: { caras: "Caras", estilo: "Estilo", voz: "Voz y nombre", historial: "Historial" },
+    doors: { caras: "Logo", estilo: "Estilo", historial: "Historial" }, // PLA-130: the first tab is «Logo» (it was «Caras»)
     doorsLabel: "Partes de la marca",
+    doorState: { files: (n: number) => (n === 1 ? "1 por llevar" : `${n} por llevar`), changes: (n: number) => (n === 1 ? "1 cambio" : `${n} cambios`), way: "en camino", ok: "al día" },
     loading: "Leyendo el estilo del repo…",
     readError: "el estilo",
-    start: "Empieza por una dirección",
-    scope: { todo: "Todo", color: "Solo colores", letra: "Solo letra" },
-    dirs: { logo: ["Del logo", "sus propios colores"], sobria: ["Sobria", "de confianza, clásica"], viva: ["Viva", "alegre, cercana"] } as Record<string, [string, string]>,
-    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", img: "Imágenes", logo: "Logo" } as Record<string, string>,
+    secs: { color: "Color", letra: "Letra", forma: "Forma", espacio: "Espacio", iconos: "Íconos", mov: "Movimiento", trato: "Trato" } as Record<string, string>,
     rail: "Partes del estilo",
     differs: "Distinto del repo",
+    previewOnly: "Solo para la vista previa: no se escribe en el repo.",
+    // PLA-130: «Cómo trata a la gente» moved here when Voz y nombre left Marca.
+    tratoNote: "Taller, Artist y el bot del producto escriben los textos de la app con este trato. Se aplica al guardar: no hace falta pedido.",
+    tratoSaved: "Guardado: los agentes ya tratan así a la gente.",
+    // PLA-130: a «cambia» tag instead of a dot, what it changes from and to, and undoing one part.
+    tag: "cambia",
+    diff: (from: string, to: string) => `Hoy en el repo: ${from} → con este estilo: ${to}`,
+    diffStart: (from: string, to: string) => `El repo no lo define; Plania empieza en ${from} → con este estilo: ${to}`,
+    unset: "no lo define",
+    undo: "Volver a lo del repo",
+    undoStart: (v: string) => `Volver a ${v}`,
+    undoNone: "El repo no lo define: Plania lo agrega.",
+    fields: { neutral: "grises", accent: "color secundario", base: "tamaño del texto", ratio: "escala de títulos", wHead: "grosor de títulos", lh: "interlineado", mono: "letra de código", pill: "botones píldora", shadow: "sombras", density: "aire", lib: "librería", stroke: "trazo", motion: "movimiento" } as Record<string, string>,
+    fieldsLine: (list: string) => `Cambia: ${list}`,
+    yes: "sí",
+    no: "no",
+    undoAll: {
+      button: "Deshacer cambios",
+      title: "¿Volver todo a lo del repo?",
+      lead: "Cada parte vuelve a lo que hay hoy en el repo. El estilo de ahora queda en Historial, por si lo quieres de vuelta.",
+      back: (now: string, repo: string) => `${now} → ${repo}`,
+      stays: "se queda: el repo no lo define",
+      go: "Sí, volver a lo del repo",
+      done: "Volvió a lo del repo. El estilo anterior está en Historial.",
+    },
     sum: {
       follows: "sigue al logo",
       chosen: "elegido",
       pill: "píldora",
       shadow: (s: string) => `sombra ${s}`,
       stroke: (n: number) => `trazo ${n}`,
-      people: "con personas",
-      versions: (n: number) => (n === 1 ? "1 versión" : `${n} versiones`),
     },
     color: {
-      brand: "Color de marca",
+      // PLA-130: Material UI's words (primary, secondary); «ideas» are only suggestions for the main colour.
+      brand: "Color principal",
       follows: "sigue al logo",
       followAgain: "Volver a seguir al logo",
-      brandLabel: "Color de marca",
+      brandLabel: "Color principal",
       hexLabel: "Código del color",
+      hexBad: "Escribe el código así: #RRGGBB",
       fromLogo: "del logo",
-      ideas: "ideas",
-      scale: "La escala, sacada de tu color",
-      accent: "Acento",
-      accentLabel: "Color de acento",
+      ideas: "Otras opciones",
+      scale: "La escala del color principal",
+      accent: "Color secundario",
+      accentNote: "acento",
+      accentLabel: "Color secundario",
       greys: "Grises",
       neutral: { frio: "Fríos", neutro: "Neutros", calido: "Cálidos" } as Record<string, string>,
       contrast: "Contraste (WCAG 2.2 AA)",
-      checks: ["Texto en el botón", "Marca como texto sobre el fondo", "Marca sobre fondo oscuro", "Acento como texto"],
+      checks: ["Texto en el botón", "Principal como texto sobre el fondo", "Principal sobre fondo oscuro", "Secundario como texto"],
       onlyBig: "· solo grande",
       onlyBg: "· solo fondos",
       more: "Más: estados, gráficas y modo oscuro",
@@ -309,9 +343,10 @@ export const ESTILO_WORDS = defineWords({
       libNote: "Cambiar de biblioteca toca muchos archivos: Taller solo cambia donde ya se importan íconos y deja una nota si es mucho.",
       stroke: "Trazo",
       strokes: ["Fino", "Normal", "Grueso"],
+      noStroke: "Material Symbols viene en un solo grosor: el trazo no le cambia nada.",
       style: "Estilo",
       fill: ["Contorno", "Relleno"],
-      note: "Muestra dibujada con las formas de Lucide; el trazo cambia en toda la app con una regla.",
+      note: (lib: string) => `Muestra dibujada con los íconos de ${lib}; el trazo cambia en toda la app con una regla.`,
     },
     mov: {
       how: "Cómo se mueve",
@@ -319,19 +354,6 @@ export const ESTILO_WORDS = defineWords({
       play: "Ver el aviso",
       says: { ninguno: "sin animación", calmo: "320 ms, suave", normal: "200 ms", vivo: "140 ms, con rebote" } as Record<string, string>,
       note: "Si el teléfono pide «reducir movimiento», la app no anima nada, elijas lo que elijas.",
-    },
-    img: {
-      style: "Estilo de ilustración",
-      styles: { linea: "Línea", plano: "Plano", degradado: "Degradado" } as Record<string, string>,
-      people: "Con personas",
-      brandOnly: "Solo con los colores de la marca",
-      note: "Artist usa esto en la imagen para compartir, las pantallas vacías y las capturas de tienda. Se guarda en Plania; no es un archivo del repo.",
-    },
-    logo: {
-      title: "El logo con tu letra",
-      kinds: ["OSCURO", "CLARO", "SOBRE MARCA"],
-      note: "El nombre junto al logo usa tu letra de títulos. Deja libre medio ícono alrededor; tamaño mínimo 24 px.",
-      none: "El proyecto todavía no tiene logo: elígelo en Caras.",
     },
     spec: {
       nav: ["Inicio", "Buscar", "Ajustes"],
@@ -349,21 +371,25 @@ export const ESTILO_WORDS = defineWords({
       toast: "Guardado",
     },
     bar: {
-      pending: (n: number) => (n === 1 ? "1 cambio de estilo por llevar" : `${n} cambios de estilo por llevar`),
-      files: (n: number) => `${n} archivos`,
+      // PLA-130: the parts by name (the ones with a dot), not a count that reads like the file count.
+      pending: (parts: string[]) => `Por llevar: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} y ${parts[parts.length - 1]}` : parts[0]}`,
+      files: (n: number) => `en ${n} archivos`,
       same: "Igual que el repo",
-      send: (n: number) => `Llevar ${n} al repo`,
       sendNone: "Llevar al repo",
       way: (k: string) => `En camino · ${k}`,
       saving: "Guardando…",
       saved: "Guardado en Plania",
     },
     caps: {
-      light: "▲ ASÍ QUEDARÍA · CLARO",
-      dark: "▲ OSCURO",
-      repo: (s: string) => `▼ HOY EN EL REPO · ${s}`,
-      repoDark: "▼ HOY EN EL REPO · modo oscuro",
-      noDark: "El repo no tiene modo oscuro. Plania lo agrega con estos colores.",
+      // PLA-130: say it is a sample screen drawn in the style, not the project's own app.
+      light: "▲ PANTALLA DE EJEMPLO CON ESTE ESTILO · CLARO",
+      dark: "▲ LA MISMA, EN OSCURO",
+      repo: (s: string) => `▼ LA MISMA PANTALLA CON LO QUE HAY HOY EN EL REPO · ${s}`,
+      repoDark: "▼ LA MISMA PANTALLA CON LO QUE HAY HOY EN EL REPO · modo oscuro",
+      noDark: "El repo no tiene modo oscuro.",
+      darkLocked: "▲ MODO OSCURO",
+      lockedDark: "Tu app no tiene modo oscuro",
+      lockedDarkLine: "Plania no lo dibuja ni lo agrega: el pedido solo cambia el modo claro.",
       unknown: "Plania no reconoció colores ni letra en el repo: se muestra lo que usaría el navegador.",
       sys: "letra del sistema",
       corners: (n: number) => `esquinas ${n} px`,
@@ -372,6 +398,7 @@ export const ESTILO_WORDS = defineWords({
       title: (n: number) => `Un pedido para Taller · ${n} archivos`,
       lead: "Taller pone el estilo en el repo y cambia los colores sueltos por variables. Nada cambia en el repo hasta que aceptes.",
       items: [["brand.css", "variables de Tailwind 4, claro y oscuro"], ["tokens.json", "los mismos valores, formato W3C"], ["las letras", "se cargan en el layout"]] as [string, string][],
+      cssLight: "variables de Tailwind 4, solo modo claro",
       old: (n: number) => (n === 1 ? "1 archivo con colores viejos escritos a mano" : `${n} archivos con colores viejos escritos a mano`),
       cancel: "Cancelar",
       go: "Pedírselo a Taller",
@@ -398,40 +425,61 @@ export const ESTILO_WORDS = defineWords({
     },
   },
   en: {
-    doors: { caras: "Surfaces", estilo: "Style", voz: "Voice and name", historial: "History" },
+    doors: { caras: "Logo", estilo: "Style", historial: "History" },
     doorsLabel: "Parts of the brand",
+    doorState: { files: (n: number) => (n === 1 ? "1 to bring" : `${n} to bring`), changes: (n: number) => (n === 1 ? "1 change" : `${n} changes`), way: "on its way", ok: "up to date" },
     loading: "Reading the repo's style…",
     readError: "the style",
-    start: "Start from a direction",
-    scope: { todo: "All", color: "Colours only", letra: "Type only" },
-    dirs: { logo: ["From the logo", "its own colours"], sobria: ["Sober", "trustworthy, classic"], viva: ["Lively", "cheerful, warm"] } as Record<string, [string, string]>,
-    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", img: "Images", logo: "Logo" } as Record<string, string>,
+    secs: { color: "Colour", letra: "Type", forma: "Shape", espacio: "Space", iconos: "Icons", mov: "Motion", trato: "Address" } as Record<string, string>,
     rail: "Parts of the style",
     differs: "Differs from the repo",
+    previewOnly: "Preview only: it is not written into the repo.",
+    tratoNote: "Taller, Artist and the product bot write the app's texts with this form of address. It applies when saved: no request needed.",
+    tratoSaved: "Saved: the agents already address people this way.",
+    tag: "changes",
+    diff: (from: string, to: string) => `In the repo today: ${from} → with this style: ${to}`,
+    diffStart: (from: string, to: string) => `The repo does not set it; Plania starts at ${from} → with this style: ${to}`,
+    unset: "not set",
+    undo: "Back to what the repo has",
+    undoStart: (v: string) => `Back to ${v}`,
+    undoNone: "The repo does not set it: Plania adds it.",
+    fields: { neutral: "greys", accent: "secondary colour", base: "text size", ratio: "heading scale", wHead: "heading weight", lh: "line height", mono: "code font", pill: "pill buttons", shadow: "shadows", density: "spacing", lib: "library", stroke: "stroke", motion: "motion" } as Record<string, string>,
+    fieldsLine: (list: string) => `Changes: ${list}`,
+    yes: "yes",
+    no: "no",
+    undoAll: {
+      button: "Undo changes",
+      title: "Put everything back to what the repo has?",
+      lead: "Each part goes back to what the repo has today. The current style stays in History, in case you want it back.",
+      back: (now: string, repo: string) => `${now} → ${repo}`,
+      stays: "stays: the repo does not set it",
+      go: "Yes, back to the repo",
+      done: "Back to what the repo has. The previous style is in History.",
+    },
     sum: {
       follows: "follows the logo",
       chosen: "chosen",
       pill: "pill",
       shadow: (s: string) => `${s} shadow`,
       stroke: (n: number) => `stroke ${n}`,
-      people: "with people",
-      versions: (n: number) => (n === 1 ? "1 version" : `${n} versions`),
     },
     color: {
-      brand: "Brand colour",
+      brand: "Primary colour",
       follows: "follows the logo",
       followAgain: "Follow the logo again",
-      brandLabel: "Brand colour",
+      brandLabel: "Primary colour",
       hexLabel: "Colour code",
+      hexBad: "Write the code like this: #RRGGBB",
       fromLogo: "from the logo",
-      ideas: "ideas",
-      scale: "The scale, made from your colour",
-      accent: "Accent",
-      accentLabel: "Accent colour",
+      ideas: "Other options",
+      scale: "The primary colour's scale",
+      accent: "Secondary colour",
+      accentNote: "accent",
+      accentLabel: "Secondary colour",
       greys: "Greys",
       neutral: { frio: "Cool", neutro: "Neutral", calido: "Warm" } as Record<string, string>,
       contrast: "Contrast (WCAG 2.2 AA)",
-      checks: ["Text on the button", "Brand as text on the background", "Brand on a dark background", "Accent as text"],
+      checks: ["Text on the button", "Primary as text on the background", "Primary on a dark background", "Secondary as text"],
       onlyBig: "· large only",
       onlyBg: "· backgrounds only",
       more: "More: states, charts and dark mode",
@@ -490,9 +538,10 @@ export const ESTILO_WORDS = defineWords({
       libNote: "Changing library touches many files: Taller only switches where icons are already imported and leaves a note if it is a lot.",
       stroke: "Stroke",
       strokes: ["Thin", "Normal", "Thick"],
+      noStroke: "Material Symbols comes in one weight: the stroke changes nothing for it.",
       style: "Style",
       fill: ["Outline", "Filled"],
-      note: "Sample drawn with Lucide's shapes; the stroke changes across the app with one rule.",
+      note: (lib: string) => `Sample drawn with ${lib}'s shapes; the stroke changes across the app with one rule.`,
     },
     mov: {
       how: "How it moves",
@@ -500,19 +549,6 @@ export const ESTILO_WORDS = defineWords({
       play: "Play the notice",
       says: { ninguno: "no animation", calmo: "320 ms, smooth", normal: "200 ms", vivo: "140 ms, with a bounce" } as Record<string, string>,
       note: "If the phone asks to reduce motion, the app animates nothing, whatever you pick.",
-    },
-    img: {
-      style: "Illustration style",
-      styles: { linea: "Line", plano: "Flat", degradado: "Gradient" } as Record<string, string>,
-      people: "With people",
-      brandOnly: "Brand colours only",
-      note: "Artist uses this for the share image, empty screens and store screenshots. It is kept in Plania; it is not a repo file.",
-    },
-    logo: {
-      title: "The logo with your type",
-      kinds: ["DARK", "LIGHT", "ON BRAND"],
-      note: "The name next to the logo uses your heading font. Leave half an icon of room around it; 24 px minimum.",
-      none: "The project has no logo yet: choose it in Surfaces.",
     },
     spec: {
       nav: ["Home", "Search", "Settings"],
@@ -530,21 +566,23 @@ export const ESTILO_WORDS = defineWords({
       toast: "Saved",
     },
     bar: {
-      pending: (n: number) => (n === 1 ? "1 style change to bring" : `${n} style changes to bring`),
-      files: (n: number) => `${n} files`,
+      pending: (parts: string[]) => `To bring: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}`,
+      files: (n: number) => `in ${n} files`,
       same: "Same as the repo",
-      send: (n: number) => `Bring ${n} to the repo`,
       sendNone: "Bring to the repo",
       way: (k: string) => `On its way · ${k}`,
       saving: "Saving…",
       saved: "Saved in Plania",
     },
     caps: {
-      light: "▲ HOW IT WOULD LOOK · LIGHT",
-      dark: "▲ DARK",
-      repo: (s: string) => `▼ IN THE REPO TODAY · ${s}`,
-      repoDark: "▼ IN THE REPO TODAY · dark mode",
-      noDark: "The repo has no dark mode. Plania adds it with these colours.",
+      light: "▲ A SAMPLE SCREEN IN THIS STYLE · LIGHT",
+      dark: "▲ THE SAME, DARK",
+      repo: (s: string) => `▼ THE SAME SCREEN WITH WHAT THE REPO HAS TODAY · ${s}`,
+      repoDark: "▼ THE SAME SCREEN WITH WHAT THE REPO HAS TODAY · dark mode",
+      noDark: "The repo has no dark mode.",
+      darkLocked: "▲ DARK MODE",
+      lockedDark: "Your app has no dark mode",
+      lockedDarkLine: "Plania neither draws nor adds it: the request only changes light mode.",
       unknown: "Plania found no colours or fonts in the repo: this is what the browser would use.",
       sys: "system font",
       corners: (n: number) => `corners ${n} px`,
@@ -553,6 +591,7 @@ export const ESTILO_WORDS = defineWords({
       title: (n: number) => `A request for Taller · ${n} files`,
       lead: "Taller puts the style in the repo and swaps loose colours for variables. Nothing changes in the repo until you accept.",
       items: [["brand.css", "Tailwind 4 variables, light and dark"], ["tokens.json", "the same values, W3C format"], ["the fonts", "loaded in the layout"]] as [string, string][],
+      cssLight: "Tailwind 4 variables, light mode only",
       old: (n: number) => (n === 1 ? "1 file with old colours written by hand" : `${n} files with old colours written by hand`),
       cancel: "Cancel",
       go: "Ask Taller",

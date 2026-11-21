@@ -15,8 +15,8 @@ import { looksSame } from "./same.js";
 import { isVariant, knotOf, surfacesOf } from "./surfaces.js";
 import { staleRows } from "./pedido.js";
 import { and, desc, gte, ilike, notInArray, or } from "drizzle-orm";
-import { appTheme, logoTheme, sameColor } from "./theme.js";
-import { styleOf } from "./style.js";
+import { appColor, logoTheme, sameColor } from "./theme.js";
+import { readRepoStyle, styleOf } from "./style.js";
 import { latestStills } from "../captures/store.js";
 import { tasks } from "../db/schema.js";
 
@@ -43,6 +43,8 @@ export type MarcaRead = {
   stills: { narrow: number; wide: number };
   /** PLA-I66-4: the open ticket that brings icon files, and the rows it carries. */
   pedido: { key: string; status: string; rows: string[] } | null;
+  /** PLA-131: the app's colour the icons carry (the repo's CSS brand once there is a style; src/brand/theme.ts appColor). */
+  appColor: string | null;
   /** PLA-I66-4: the repo shows another logo while the owner's choice leads. */
   drift: { path: string; sha: string } | null;
   checkedAt: string;
@@ -54,8 +56,6 @@ export type MarcaRead = {
   trip: Trip | null;
 };
 
-// PLA-I69-1: the stations of an icons request, in order. step is the one it waits at (6: every station passed).
-export const TRIP_STATIONS = ["armado", "pr", "qa", "aceptas", "rama", "visto"] as const;
 // PLA-I69-2: how a surface follows the logo, and whether its own picture predates the logo (knot: it asks).
 export type SurfaceRead = { mode: "variante" | "propia"; file: string | null; bg: string | null; scale: number; at: string; logoV: number | null; knot: boolean };
 export type Trip = { key: string; status: string; step: number; cancelled: boolean; pr: string | null; rows: string[]; at: string; movedAt: string | null };
@@ -64,7 +64,7 @@ type BaseRead = Omit<MarcaRead, "logo" | "pedido" | "surfaces" | "trip" | "reque
 // PLA-I69-2: the repo part (git tree, the checklist, candidates) is kept per commit; the judgement on top of it (which
 // files are from an older logo or colour, the drift question) is kept per logo, surfaces and colour, so changing how a
 // surface follows the logo re-judges in a moment instead of reading the repo again.
-type Part = { pre: BaseRead; read: ((f: string) => Promise<Buffer | null>) | null; best: { path: string; bytes: Buffer } | null };
+type Part = { pre: BaseRead; read: ((f: string) => Promise<Buffer | null>) | null; best: { path: string; bytes: Buffer } | null; repoBrand?: string | null };
 type Cached = { commit: string | null; at: number; files: Set<string>; part: Part; judged: { key: string; read: BaseRead } | null; judging?: { key: string; p: Promise<BaseRead> } };
 
 // PLA-I66-4: the open ticket bringing icon files (its marker: src/brand/pedido.ts). Kept here so the read needs no cycle.
@@ -141,7 +141,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const git = deps.git ?? realGit;
   const now = (deps.now ?? Date.now)();
   const branch = startBranchOf(p.settings);
-  const base = { slug: p.slug, folder: repoPathOf(p.slug, p.settings, deps.env), native: !!p.settings?.marca?.native, extras: p.settings?.marca?.extras ?? {}, stills: await stillCount(db, p.slug), branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
+  const base = { slug: p.slug, folder: repoPathOf(p.slug, p.settings, deps.env), native: !!p.settings?.marca?.native, extras: p.settings?.marca?.extras ?? {}, stills: await stillCount(db, p.slug), branch, root: "", candidates: [] as MarcaCandidate[], splash: null as string | null, appColor: null as string | null, drift: null as MarcaRead["drift"], checkedAt: new Date(now).toISOString() };
   const scan = await scanProjectLogo(db, p, deps);
   const hasOriginal = !!(await activeLogo(db, p.id));
   if (scan.status === "no_repo" || !scan.commit) {
@@ -157,6 +157,8 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
   const { candidates } = detectLogo(await filesAt(git, repo, commit, p.slug, tree), p.slug);
   const files = new Set<string>([...check.rows.map((r) => r.path).filter((x): x is string => !!x && tree.has(x)), ...candidates.map((c) => c.path)]);
   // Launch screens are a folder: the first image stands for them on the card.
+  // PLA-131: the brand colour the repo's CSS has, read once per commit (the app colour once there is a style).
+  const repoBrand = check.framework ? (await readRepoStyle(view, check.root)).brand ?? null : null;
   const splash = [...tree.keys()].find((f) => /apple-splash|startup|launch/i.test(f) && f.endsWith(".png") && f.startsWith(`${check.root}public/`));
   if (splash) files.add(splash);
   return {
@@ -178,6 +180,7 @@ async function readRepo(db: Db, p: Project, deps: LogoDeps): Promise<Cached> {
         candidates: candidates.slice(0, 6).map((c) => ({ path: c.path, variant: c.variant, mime: c.mime, inUse: current?.source === "repo" && current.sourcePath === c.path })),
       },
       read: view.read,
+      repoBrand,
       best: candidates[0] ? { path: candidates[0].path, bytes: candidates[0].bytes } : null,
     },
   };
@@ -188,12 +191,13 @@ async function judge(p: Project, part: Part, current: Awaited<ReturnType<typeof 
   const pre = part.pre;
   if (pre.repo !== "ok" || !part.read) return pre;
   let rows = pre.rows;
+  const want = appColor(styleOf(p.slug), current, part.repoBrand);
   // PLA-128: a sound icon made from an older logo reads «viejo» («del logo anterior»), so the door offers to redo it.
   if (current && pre.framework) {
-    const old = await staleRows({ slug: p.slug, title: p.title, rows, framework: pre.framework, root: pre.root, native: pre.native, logo: current, read: part.read });
+    const old = await staleRows({ slug: p.slug, title: p.title, rows, framework: pre.framework, root: pre.root, native: pre.native, logo: current, theme: want, read: part.read });
     if (old.length) rows = rows.map((r) => (old.includes(r.id) ? { ...r, state: "viejo" as const, checks: [...r.checks, { k: "old_logo", ok: false }] } : r));
-    // PLA-I69-1: the manifest's colour follows a logo the owner chose; one still on another colour reads old.
-    const want = appTheme(styleOf(p.slug), current);
+    // PLA-I69-1: the manifest's colour follows the app's colour; one still on another colour reads old. PLA-131: that
+    // colour is the repo's own once there is a style, so a colour only tried in Estilo never flips it.
     rows = rows.map((r) => {
       if (r.id !== "man" || r.state !== "ok" || !want) return r;
       const have = r.checks.find((c) => c.k === "man_colors")?.v?.theme;
@@ -209,7 +213,7 @@ async function judge(p: Project, part: Part, current: Awaited<ReturnType<typeof 
     const mine = readLogoFile(p.slug, current.file);
     if (sha !== current.adjust?.keptOver && mine && !(await looksSame(mine, best.bytes))) drift = { path: best.path, sha };
   }
-  return { ...pre, rows, drift };
+  return { ...pre, rows, appColor: want, drift };
 }
 const surfacesStamp = (slug: string): string => JSON.stringify(surfacesOf(slug));
 

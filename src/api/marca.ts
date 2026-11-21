@@ -28,13 +28,13 @@ import { setProject } from "../mcp/project.js";
 import { ToolError } from "../mcp/errors.js";
 import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
-import { buildSet, keepOver, madeFile, originalOf, requestIcons, zipOf } from "../brand/pedido.js";
-import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
-import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
-import { activeLogo, readLogoFile } from "../brand/logos.js";
+import { buildSet, keepOver, madeFile, requestIcons, zipOf } from "../brand/pedido.js";
+import { cancelMarks, latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
+import { clearSurface, isSurface, keepSurface, setSurface, setVariant, startSurface } from "../brand/surfaces.js";
+import { activeLogo } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
 import { historialOf } from "../brand/historial.js";
-import { goBackVoice, requestNames, saveVoice, voiceRead, voiceVersions } from "../brand/voz.js";
+import { goBackVoice, saveVoice, voiceRead, voiceVersions } from "../brand/voz.js";
 import { FONTS, goBackStyle, requestStyle, saveStyle, styleRead, styleVersions } from "../brand/style.js";
 
 export const marcaRoutes = new Hono();
@@ -297,24 +297,6 @@ marcaRoutes.get("/projects/:slug/marca/made/:key", async (c) => {
   return c.body(new Uint8Array(f.bytes), 200, { "Content-Type": f.mime, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
 });
 
-marcaRoutes.get(`${BASE}/surface/:s`, async (c) => {
-  const s = c.req.param("s")!;
-  const slug = c.req.param("slug")!;
-  const entry = isSurface(s) ? surfacesOf(slug)[s] : undefined;
-  if (isSurface(s) && isVariant(entry)) {
-    const p = await projectOf(c);
-    const l = p ? await withDb((db) => activeLogo(db, p.id)) : null;
-    const o = p && l ? originalOf(p.slug, l) : null;
-    const t = o ? (await surfaceOriginals(slug, { bytes: o.bytes, mime: o.mime, raw: l?.adjust?.raw ?? null }))[s] : undefined;
-    if (!t) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
-    return c.body(new Uint8Array(t.bytes), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" });
-  }
-  const own = entry && !isVariant(entry) ? entry : undefined;
-  const b = own ? readLogoFile(slug, own.file) : null;
-  if (!b) return c.json({ error: "LOGO_SURFACE_NONE" }, 404);
-  return c.body(new Uint8Array(b), 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
-});
-
 // PLA-I66-5: logo marks from Artist.
 //   GET  /api/company/projects/:slug/logo/marks               the newest request (drawing, ready or failed)
 //   POST /api/company/projects/:slug/logo/marks               {about, feel, avoid, colors, images, like?}: queue Artist
@@ -356,6 +338,14 @@ marcaRoutes.get(`${BASE}/marks/:id/:file`, async (c) => {
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
   });
+});
+
+// PLA-130: stop a request that is still drawing. Before /marks/:id/:mark, which would take «cancel» as a mark.
+marcaRoutes.post(`${BASE}/marks/:id/cancel`, async (c) => {
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const r = cancelMarks(p.slug, c.req.param("id")!);
+  return r ? c.json({ request: r }) : c.json({ error: "LOGO_MARK_NOT_FOUND" }, 404);
 });
 
 marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
@@ -455,7 +445,7 @@ marcaRoutes.post(`${STYLE}/pedido`, async (c) => {
   }
 });
 
-// PLA-I69-5: Voz y nombre. The voice rides in the project's runs; the name and texts go to the repo through Taller.
+// PLA-I69-5, PLA-130: the form of address (Estilo → Trato); it rides in the project's runs. Voz y nombre left Marca.
 const VOZ = "/projects/:slug/marca/voz";
 marcaRoutes.use(VOZ, guard);
 marcaRoutes.use(`${VOZ}/*`, guard);
@@ -463,20 +453,13 @@ const voiceOut = async (slug: string, r: Awaited<ReturnType<typeof voiceRead>>) 
 marcaRoutes.get(VOZ, async (c) => {
   try {
     const slug = c.req.param("slug")!;
-    const r = await voiceOut(slug, await withDb((db) => voiceRead(db, slug, { fresh: c.req.query("fresh") === "1" })));
+    const r = await voiceOut(slug, await withDb((db) => voiceRead(db, slug)));
     return r ? c.json(r) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
   } catch (e) {
     return fail(c, e);
   }
 });
-const VoiceBody = z
-  .object({
-    cerca: z.number(), humor: z.number(), breve: z.number(), sencillo: z.number(), trato: z.enum(["tu", "usted", "vos"]),
-    yes: z.array(z.string().max(60)).max(30), no: z.array(z.string().max(60)).max(30), guide: z.string().max(3000).nullable(),
-    name: z.string().max(200), short: z.string().max(100), desc: z.string().max(600), tag: z.string().max(200),
-  })
-  .partial()
-  .strict();
+const VoiceBody = z.object({ trato: z.enum(["tu", "usted", "vos"]) }).partial().strict();
 marcaRoutes.post(VOZ, async (c) => {
   try {
     const body = await json(c, VoiceBody);
@@ -499,17 +482,6 @@ marcaRoutes.post(`${VOZ}/back`, async (c) => {
     return fail(c, e);
   }
 });
-marcaRoutes.post(`${VOZ}/pedido`, async (c) => {
-  try {
-    const p = await projectOf(c);
-    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
-    const made = await withDb((db) => requestNames(db, p));
-    return c.json({ key: made.key, ...(await voiceOut(p.slug, await withDb((db) => voiceRead(db, p.slug)))) });
-  } catch (e) {
-    return fail(c, e);
-  }
-});
-
 // PLA-I69-6: Marca → Historial.
 marcaRoutes.use("/projects/:slug/marca/historial", guard);
 marcaRoutes.get("/projects/:slug/marca/historial", async (c) => {

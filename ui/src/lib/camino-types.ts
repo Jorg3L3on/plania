@@ -14,7 +14,7 @@ export type CaminoConfigRead = {
   deps: DepsSettings;
   envs: CaminoEnv[];
   connections: Partial<Record<ProviderId, ConnMeta>>;
-  source: Record<"model" | "branches" | "merge" | "envs", "camino" | "settings" | "github" | "default">;
+  source: Record<"model" | "branches" | "merge" | "envs" | "commits", "camino" | "settings" | "github" | "default">;
 };
 
 export type CaminoProposal = { number: number; title: string; url: string; state: string; base_branch: string | null; head_branch: string | null; ci_state: string | null; task_key: string | null; merged_at: string | null; updated_at: string };
@@ -25,7 +25,10 @@ export type CaminoRead = {
   title: string;
   version: number;
   config: CaminoConfigRead;
-  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; prod_migrations: string | null } | null; capture: boolean; capture_pages?: string[]; vercel: boolean };
+  settings: { repo: string | null; folder: string | null; no_code: boolean; release: { from: string; into: string; env: string; mode?: "command" | "merge"; prod_migrations: string | null } | null; capture: boolean; capture_pages?: string[]; vercel: boolean;
+    // PLA-133: moved here from Ajustes › Avanzado (src/camino/store.ts caminoRead); null: the default holds.
+    start_branch?: string | null; start_default?: string; github_token_env?: string | null; release_on?: "env" | "branch" | null; release_target?: string | null;
+    vercel_config?: { project_id: string; team_id: string | null; token_env: string | null; targets: Record<string, string> | null } | null };
   discovery: Discovery | null;
   checked_at: string | null;
   checking: boolean;

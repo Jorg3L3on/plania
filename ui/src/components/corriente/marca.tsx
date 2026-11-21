@@ -2,11 +2,11 @@
 // it with the repo's real files (browser, iPhone, Android, install, sharing, Compañía) joined to it by threads (lit:
 // the file is there and passes; dotted: missing; red: wrong), and the list of files on the right; a card or a row
 // opens its sheet with the path and every check. Words and logic: @/lib/marca. Styles: corriente.css («Marca»).
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { logoUrl } from "@/lib/logos";
-import { FACES, RING, SURFACE_OF, surfaceUrl, type Surface, counts, pending, pendingSay, doorCount, faceState, fileUrl, has, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaRow, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
+import { RING, type Surface, counts, pending, pendingSay, doorCount, fileUrl, markUrl, marcaWords, onItsWay, passesAll, sentence, sortedRows, startAdjust, testLines, versionUrl, zipUrl, type Face, type MarcaRead, type MarcaWords, type PixelTests, type Plan, type Staged, type MarksRequest } from "@/lib/marca";
 import { ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Logo, ReadError, Switch } from "./parts";
@@ -15,11 +15,9 @@ import { Cajon, MasCaras, Orilla } from "./marca-orilla";
 import { linkTo } from "@/lib/corriente";
 import { useSearchParams } from "react-router";
 import { Estilo } from "./marca-estilo";
-import { Voz } from "./marca-voz";
 import { Historial } from "./marca-historial";
-import { estiloWords } from "@/lib/estilo";
+import { changesOf, estiloWords } from "@/lib/estilo";
 
-type Shape = "circle" | "squircle" | "drop";
 
 export const useMarca = (slug: string) => useQuery({ queryKey: ["marca", slug], queryFn: () => api.marca(slug), staleTime: 30_000, refetchInterval: 60_000 });
 
@@ -33,7 +31,9 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   const client = useQueryClient();
   // PLA-I69-4: Marca's own doors (Caras · Estilo · Voz y nombre · Historial), kept in the address as ?m=.
   const [params, setParams] = useSearchParams();
-  const door: Door = DOORS.includes(params.get("m") as Door) ? (params.get("m") as Door) : "caras";
+  // An old link to Voz y nombre opens Estilo, where «Cómo trata a la gente» is now.
+  const asked = params.get("m") === "voz" ? "estilo" : params.get("m");
+  const door: Door = DOORS.includes(asked as Door) ? (asked as Door) : "caras";
   const goDoor = (d: Door) => {
     const next = new URLSearchParams(params);
     if (d === "caras") next.delete("m");
@@ -42,7 +42,10 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   };
   const [sel, setSel] = useState<Face | null>(null);
   const [hover, setHover] = useState<Face | null>(null);
-  const [rereading, setRereading] = useState(false);
+  // PLA-130: «Revisar el repo ahora» says it is reading, then that it finished (or failed), instead of only greying out.
+  const [reread_, setReread] = useState<"idle" | "busy" | "done">("idle");
+  const rereadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (rereadTimer.current) clearTimeout(rereadTimer.current); }, []);
   // PLA-I66-3: the aside shows the repo's candidates or the versions instead of the files; the upload takes the door.
   const [panel, setPanel] = useState<"repo" | "versiones" | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -57,11 +60,21 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
     void client.invalidateQueries({ queryKey: ["marca-versions", p.slug] });
   };
   const reread = async () => {
-    setRereading(true);
+    if (rereadTimer.current) clearTimeout(rereadTimer.current);
+    setReread("busy");
+    const t0 = Date.now();
     try {
-      client.setQueryData(["marca", p.slug], await api.marca(p.slug, true));
-    } finally {
-      setRereading(false);
+      const next = await api.marca(p.slug, true);
+      // A read from the cache answers in a blink; hold the working state long enough to be seen.
+      await new Promise((ok) => setTimeout(ok, Math.max(0, 700 - (Date.now() - t0))));
+      client.setQueryData(["marca", p.slug], next);
+      const c = counts(next.rows);
+      toast.success(w.rereadToast(c.ok, c.missing + c.wrong + c.old));
+      setReread("done");
+      rereadTimer.current = setTimeout(() => setReread("idle"), 4000);
+    } catch (e) {
+      setReread("idle");
+      toast.error(w.rereadFailed(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)));
     }
   };
   if (q.isError && !q.data) return <ReadError what={w.readError} onRetry={() => void q.refetch()} />;
@@ -90,18 +103,13 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
         }}
       />
     );
-  const doors = <MarcaDoors door={door} onGo={goDoor} />;
+  const doors = <MarcaDoors door={door} onGo={goDoor} r={r} slug={p.slug} />;
   if (door !== "caras")
     return (
       <div className="mk" data-marca={p.slug} data-door={door}>
-        <header className="mk-head">
-          <div className="mk-head-l">
-            <h2 className="cor-door-h">{w.title(p.title)}</h2>
-            {doors}
-          </div>
-        </header>
+        {/* PLA-130: the tabs are Marca's first level; each page brings its own bar under them. */}
+        {doors}
         {door === "estilo" && <Estilo slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
-        {door === "voz" && <Voz slug={p.slug} title={p.title} logo={r.logo ? logoUrl(p.slug, r.logo) : null} />}
         {door === "historial" && <Historial slug={p.slug} title={p.title} />}
       </div>
     );
@@ -119,56 +127,72 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
   };
   return (
     <div className={`mk${lit ? " hl" : ""}`} data-marca={p.slug}>
-      <header className="mk-head">
+      {doors}
+      {/* PLA-130: Caras' own bar, under the tabs: what the repo holds on the left, Caras' actions on the right. */}
+      <header className="mk-head mk-toolbar" aria-label={w.toolbar}>
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{w.title(p.title)}</h2>
-          {doors}
-          <p className="cor-text">
-            {r.repo === "ok" ? (
-              w.lead
-            ) : r.repo === "none" && r.folder ? (
-              <>
-                {/* PLA-120: a folder Plania cannot read is not a project with no code. */}
-                {w.noRepoFound(r.folder)}{" "}
-                <Link className="cor-btn link small" to={linkTo({ slug: p.slug, tab: "ajustes" })} data-control="marca-elegir-carpeta">
-                  {w.noRepoLink}
-                </Link>
-              </>
-            ) : (
-              w.noRepo
-            )}
-          </p>
-        </div>
-        <div className="mk-head-r">
-          <p className="mk-sum" data-sum>
-            {c.ok > 0 && (
-              <span>
-                <b>{c.ok}</b> {w.count.ok}
-              </span>
-            )}
-            {c.missing > 0 && (
-              <span>
-                <b>{c.missing}</b> {w.count.missing(c.missing)}
-              </span>
-            )}
-            {c.wrong > 0 && (
-              <span>
-                <b className="r">{c.wrong}</b> {w.count.wrong}
-              </span>
-            )}
-            {c.old > 0 && (
-              <span>
-                <b className="a">{c.old}</b> {w.count.old}
-              </span>
-            )}
-          </p>
           {r.repo === "ok" && (
-            <button type="button" className="cor-btn secondary small" onClick={() => void reread()} disabled={rereading} data-control="marca-revisar">
-              {w.reread}
-            </button>
+            <p className="mk-sum" data-sum>
+              <span className="mk-sum-l">{w.repoFiles}</span>
+              {c.ok > 0 && (
+                <span>
+                  <b>{c.ok}</b> {w.count.ok}
+                </span>
+              )}
+              {c.missing > 0 && (
+                <span>
+                  <b>{c.missing}</b> {w.count.missing(c.missing)}
+                </span>
+              )}
+              {c.wrong > 0 && (
+                <span>
+                  <b className="r">{c.wrong}</b> {w.count.wrong}
+                </span>
+              )}
+              {c.old > 0 && (
+                <span>
+                  <b className="a">{c.old}</b> {w.count.old}
+                </span>
+              )}
+            </p>
+          )}
+          {/* PLA-130: the lead sentence is gone; only a repo Plania cannot read still says so here. */}
+          {r.repo !== "ok" && (
+            <p className="cor-text">
+              {r.repo === "none" && r.folder ? (
+                <>
+                  {/* PLA-120: a folder Plania cannot read is not a project with no code. */}
+                  {w.noRepoFound(r.folder)}{" "}
+                  <Link className="cor-btn link small" to={linkTo({ slug: p.slug, tab: "ajustes" })} data-control="marca-elegir-carpeta">
+                    {w.noRepoLink}
+                  </Link>
+                </>
+              ) : (
+                w.noRepo
+              )}
+            </p>
           )}
         </div>
+        <div className="mk-head-r">
+          {r.repo === "ok" && (
+            <button
+              type="button"
+              className={`cor-btn secondary small mk-reread ${reread_}`}
+              onClick={() => void reread()}
+              disabled={reread_ === "busy"}
+              aria-busy={reread_ === "busy"}
+              data-control="marca-revisar"
+              data-reread={reread_}
+            >
+              {reread_ === "busy" ? <i className="mk-spin" aria-hidden /> : reread_ === "done" ? <i className="mk-tick" aria-hidden>✓</i> : null}
+              {reread_ === "busy" ? w.rereadBusy : reread_ === "done" ? w.rereadDone : w.reread}
+            </button>
+          )}
+          {/* PLA-130: the request's buttons, once at the bottom of Caras, live here now. */}
+          {r.repo === "ok" && <TripActions r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
+        </div>
       </header>
+      {reread_ === "busy" && <div className="mk-reread-line" role="progressbar" aria-label={w.rereadBusy} />}
 
       {r.drift && (
         <div className="mk-drift" role="status" data-drift={r.drift.path}>
@@ -198,7 +222,7 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
       {/* PLA-I69-2: the waterline. Each surface as Plania would make it, its reflection from the repo, and a drawer. */}
       <div className={`mk-world${sel || panel ? " open" : ""}`}>
         <Orilla r={r} w={w} title={p.title} sel={sel} core={<Core r={r} w={w} title={p.title} actions={actions} />} onPick={(f) => { setPanel(null); setSel((cur) => (cur === f ? null : f)); }} />
-        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} />}
+        {sel && sel !== "cia" && sel !== "more" && <Cajon key={sel} r={r} w={w} face={sel} onClose={() => setSel(null)} took={took} onOwn={(s) => setSoloFor(s)} onGo={(f) => setSel(f)} onStyle={() => goDoor("estilo")} />}
         {sel === "more" && !panel && (
           <section className="mk-drawer list" role="dialog" aria-modal="false" aria-label={w.extras.title}>
             <button type="button" className="mk-x" onClick={() => setSel(null)} aria-label={w.cajon.close}>×</button>
@@ -217,86 +241,109 @@ export function Marca({ p }: { p: { slug: string; title: string } }) {
             )}
           </section>
         )}
-        {/* PLA-I69-1: what waits for the repo and why, and where the last request is on its way. */}
-        {r.repo === "ok" && <TripBar r={r} w={w} slug={p.slug} onSend={() => setSheet(true)} />}
       </div>
     </div>
   );
 }
 
-const DOORS = ["caras", "estilo", "voz", "historial"] as const;
+// PLA-130: Voz y nombre left Marca; its form of address lives in Estilo.
+const DOORS = ["caras", "estilo", "historial"] as const;
 type Door = (typeof DOORS)[number];
 /** PLA-I69-4: Marca's doors, as tabs under the title. */
-function MarcaDoors({ door, onGo }: { door: Door; onGo: (d: Door) => void }) {
+/** PLA-130: Marca's first level, a tab bar across the page; each tab says in a word where its part stands (what
+ * waits for the repo, a request on its way, or up to date), from the reads its page makes anyway (cached). */
+function MarcaDoors({ door, onGo, r, slug }: { door: Door; onGo: (d: Door) => void; r: MarcaRead; slug: string }) {
   const w = estiloWords();
+  const est = useQuery({ queryKey: ["estilo", slug], queryFn: () => api.marcaEstilo(slug), staleTime: 30_000 });
+  const state = (d: Door): { k: "todo" | "way" | "ok"; n?: number } | null => {
+    if (d === "caras") return r.pedido ? { k: "way" } : r.repo !== "ok" ? null : pending(r).files ? { k: "todo", n: pending(r).files } : { k: "ok" };
+    if (d === "estilo") { const e = est.data; if (!e) return null; const n = changesOf(e.base, e.repo, e.start).length; return e.pedido ? { k: "way" } : n ? { k: "todo", n } : { k: "ok" }; }
+    return null;
+  };
   return (
     <nav className="mk-doors" role="tablist" aria-label={w.doorsLabel}>
-      {DOORS.map((d) => (
-        <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
-          {w.doors[d]}
-        </button>
-      ))}
+      {DOORS.map((d) => {
+        const st = state(d);
+        const say = st ? (st.k === "todo" ? w.doorState[d === "estilo" ? "changes" : "files"](st.n!) : w.doorState[st.k]) : null;
+        return (
+          <button key={d} type="button" role="tab" aria-selected={door === d} onClick={() => onGo(d)} data-control={`marca-puerta-${d}`}>
+            <span>{w.doors[d]}</span>
+            {say && <small className={`mk-door-st ${st!.k}`}>{say}</small>}
+          </button>
+        );
+      })}
     </nav>
   );
 }
 
-/** PLA-I69-1: the trip bar. What is pending and why (one sentence), the one button that brings it all, and the
- * stations of the request in flight or the last one: built, PR, QA, your acceptance, start branch, seen by Plania. */
-function TripBar({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
+/** PLA-130: the request's buttons in the head (the bar under the cards is gone): the last request's PR, the .zip, and
+ * the one button that brings what is pending, or the request on its way, its step as the button's title. */
+function TripActions({ r, w, slug, onSend }: { r: MarcaRead; w: MarcaWords; slug: string; onSend: () => void }) {
   const p = pending(r);
   const t = r.trip && !r.trip.cancelled ? r.trip : null;
   const open = !!r.pedido;
-  const state = open ? "go" : p.files ? "wait" : "ok";
   const step = t ? t.step : -1;
-  const head = open ? w.trip.open : p.files ? w.trip.pending(p.faces.length, p.files) : w.trip.allOk;
-  const why = open
-    ? `${w.trip.waiting[Math.min(step, 5)] ?? ""}${p.files ? ` ${w.trip.after(p.files)}` : ""}`
-    : p.files
-      ? pendingSay(p, w) || (r.trip ? "" : w.trip.notAsked)
-      : t && step >= 6 ? w.trip.seenWhy(t.rows.length) : w.trip.allOkWhy;
+  const why = p.files ? pendingSay(p, w) : "";
   return (
-    <section className={`mk-trip ${state}`} data-trip={state} aria-label={head}>
-      <p className="mk-trip-say" role="status">
-        <i className="mk-trip-dot" aria-hidden />
-        <b>{head}</b>
-        {why && <span>{why}</span>}
-      </p>
-      <div className="mk-trip-act">
-        {t?.pr && (
-          <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
-            {w.trip.pr}
-          </a>
-        )}
-        {r.logo && (
-          <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
-            {w.sheet.zip}
-          </a>
-        )}
-        {open ? (
-          <span className="cor-btn secondary small" aria-disabled="true" data-pedido={r.pedido!.key}>
-            {w.trip.onWay}
-          </span>
-        ) : (
-          p.files > 0 &&
-          r.logo && (
-            <button type="button" className="cor-btn primary small" onClick={onSend} data-control="marca-al-repo">
-              {w.trip.send(p.files)}
-            </button>
-          )
-        )}
-      </div>
-      {t && (
-        <ol className="mk-rail" aria-label={open ? w.trip.open : w.trip.last}>
-          <li className="lbl" aria-hidden>{open ? w.trip.open : w.trip.last}</li>
-          {w.trip.stations.map((s, i) => (
-            <li key={s} className={i < step ? "done" : i === step ? (i === 3 ? "you" : "now") : ""} aria-current={i === step ? "step" : undefined}>
-              <i aria-hidden />
-              {s}
-            </li>
-          ))}
-        </ol>
+    <>
+      {t?.pr && (
+        <a className="cor-btn secondary small" href={t.pr} target="_blank" rel="noreferrer" data-control="marca-ver-pr">
+          {w.trip.pr}
+        </a>
       )}
-    </section>
+      {r.logo && (
+        <a className="cor-btn secondary small" href={zipUrl(slug)} download data-control="marca-zip">
+          {w.sheet.zip}
+        </a>
+      )}
+      {open ? (
+        <TripSteps w={w} step={step} pedido={r.pedido!.key} />
+      ) : (
+        p.files > 0 &&
+        r.logo && (
+          <button type="button" className="cor-btn primary small" onClick={onSend} title={why || undefined} data-control="marca-al-repo">
+            {w.trip.send(p.files)}
+          </button>
+        )
+      )}
+    </>
+  );
+}
+
+/** PLA-130: «En camino» opens the request's six steps (the rail that lived in the bottom bar), the current one lit. */
+function TripSteps({ w, step, pedido }: { w: MarcaWords; step: number; pedido: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const out = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    window.addEventListener("keydown", esc);
+    window.addEventListener("mousedown", out);
+    return () => { window.removeEventListener("keydown", esc); window.removeEventListener("mousedown", out); };
+  }, [open]);
+  const now = Math.min(Math.max(step, 0), 5);
+  return (
+    <div className="mk-steps-box" ref={box}>
+      <button type="button" className="cor-btn secondary small mk-onway" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)} data-pedido={pedido} data-control="marca-en-camino">
+        <i className="mk-trip-dot" aria-hidden />
+        {w.trip.onWay}
+      </button>
+      {open && (
+        <div className="mk-steps" role="dialog" aria-label={w.trip.open}>
+          <b>{w.trip.open}</b>
+          <ol>
+            {w.trip.stations.map((st, i) => (
+              <li key={st} className={i < now ? "done" : i === now ? (i === 3 ? "you" : "now") : ""} aria-current={i === now ? "step" : undefined}>
+                <i aria-hidden />
+                {st}
+              </li>
+            ))}
+          </ol>
+          <p>{w.trip.waiting[now]}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -306,6 +353,15 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
   const l = r.logo;
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  // PLA-130: the menu opens upward when the window has no room for it under the button.
+  const menu = useRef<HTMLDivElement>(null);
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    if (!open || !box.current || !menu.current) return setUp(false);
+    const b = box.current.getBoundingClientRect();
+    const h = menu.current.offsetHeight + 12;
+    setUp(window.innerHeight - b.bottom < h && b.top > h);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const off = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
@@ -330,7 +386,7 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
           {w.source[l.source]}
           {l.path && <code>{l.path}</code>}
           <span>
-            {w.variant[l.variant]} · {r.branch}
+            {w.variant[l.variant]}
           </span>
         </div>
       ) : (
@@ -341,7 +397,8 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
       )}
       {l && l.colors.length > 0 && (
         <div className="mk-colors">
-          {l.colors.map((c) => (
+          {/* PLA-130: the logo's theme colour can also be in its palette; one swatch each. */}
+          {[...new Set(l.colors.map((c) => c.toLowerCase()))].map((c) => (
             <i key={c} style={{ background: c }} title={c} />
           ))}
           <span>{w.colors}</span>
@@ -352,7 +409,7 @@ function Core({ r, w, title, actions }: { r: MarcaRead; w: MarcaWords; title: st
           {w.change}
         </button>
         {open && (
-          <div className="mk-menu" role="menu">
+          <div className={`mk-menu${up ? " up" : ""}`} role="menu" ref={menu}>
             <button type="button" role="menuitem" onClick={pick(actions.upload)} data-control="marca-subir">
               <b>{w.menu.upload}</b>
               <span>{w.menu.uploadHint}</span>
@@ -394,7 +451,7 @@ function RepoPanel({ r, w, onBack, onUse }: { r: MarcaRead; w: MarcaWords; onBac
         {w.back}
       </button>
       <h3>{w.repoTitle}</h3>
-      <p>{w.repoLead(r.branch)}</p>
+      <p>{w.repoLead}</p>
       <ul className="mk-picks">
         {r.candidates.map((c) => (
           <li key={c.path} data-candidate={c.path}>
@@ -528,7 +585,8 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
     <div className="mk mk-up" data-marca-subir={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{surface ? w.solo.title(w.solo.name[surface], p.title) : w.up.title(p.title)}</h2>
+          {/* PLA-130: a small line, like the rest of Marca's heads, not the old big title. */}
+          <h2 className="mk-screen-h">{surface ? w.solo.title(w.solo.name[surface], p.title) : w.up.title(p.title)}</h2>
           <p className="cor-text">{surface ? w.solo.lead(w.solo.name[surface]) : w.up.lead}</p>
         </div>
         <div className="mk-head-r">
@@ -641,7 +699,7 @@ function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords
       <header className="mk-list-h">
         <span className="mk-list-t">{w.files}</span>
         <span className="mk-list-n">{r.rows.length}</span>
-        <span className="mk-list-f">{w.checked(clock(r.checkedAt), r.branch)}</span>
+        <span className="mk-list-f">{w.checked(clock(r.checkedAt))}</span>
       </header>
       <ul className="mk-rows">
         {sortedRows(r.rows).map((x) => {
@@ -665,39 +723,6 @@ function Rows({ r, w, onPick, onHover, onNative }: { r: MarcaRead; w: MarcaWords
         <Switch on={r.native} label={w.native} disabled={busy} onChange={async (on) => { setBusy(true); try { await onNative(on); } finally { setBusy(false); } }} data-control="marca-nativo" />
       </footer>
     </>
-  );
-}
-
-function Ficha({ r, face, w, onBack }: { r: MarcaRead; face: Face; w: MarcaWords; onBack: () => void }) {
-  const rows = r.rows.filter((x) => x.face === face);
-  return (
-    <div className="mk-ficha" data-ficha={face}>
-      <button type="button" className="mk-back" onClick={onBack} data-control="marca-volver">
-        {w.back}
-      </button>
-      <h3>{w.face[face].name}</h3>
-      <p>{w.face[face].what}</p>
-      <ul>
-        {rows.map((x) => (
-          <li key={x.id} data-st={x.state}>
-            <div className="mk-fi-h">
-              <StIcon st={x.optional && x.state === "falta" ? "opt" : x.state} />
-              <b>{w.row[x.id].name}</b>
-              <span className={`mk-fi-st ${x.state}`}>{x.optional && x.state === "falta" ? w.optional : (x.id === "pl" ? w.plState : w.state)[x.state]}</span>
-            </div>
-            {x.path && <code>{x.path}</code>}
-            {x.note && <p>{sentence(w.note, x.note)}</p>}
-            <ul className="mk-fi-ck">
-              {x.checks.map((ck, i) => (
-                <li key={i} className={ck.ok ? "y" : "n"}>
-                  {sentence(w.check, ck)}
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
@@ -829,6 +854,7 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
     queryFn: () => api.marcaMarks(p.slug),
     refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 4000 : false),
   });
+  const client = useQueryClient();
   // PLA-I69-3: a request made for one surface belongs to that surface's drawer, not to the logo's marks.
   const req: MarksRequest | null = q.data?.request && !q.data.request.hints.surface ? q.data.request : null;
   const [about, setAbout] = useState("");
@@ -910,12 +936,19 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
       />
     </div>
   );
-  const status = req?.status === "drawing" ? <span className="mk-live"><i aria-hidden />{w.gen.drawing}</span> : req?.status === "ready" ? <span className="mk-status">{w.gen.passed(marks.filter((m) => passesAll(m.tests)).length, marks.length)}</span> : null;
+  // PLA-130: a request that keeps drawing can be stopped, and says when it takes longer than usual.
+  const slow = req?.status === "drawing" && Date.now() - Date.parse(req.at) > 5 * 60_000;
+  const cancel = async () => {
+    if (!req) return;
+    try { const back = await api.marcaCancelMarks(p.slug, req.id); client.setQueryData(["marca-marks", p.slug], back); toast(w.gen.cancelled); }
+    catch (e) { toast.error(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)); }
+  };
+  const status = req?.status === "drawing" ? <><span className="mk-live"><i aria-hidden />{slow ? w.gen.slow : w.gen.drawing}</span><button type="button" className="cor-btn secondary small" onClick={() => void cancel()} data-control="marca-artist-cancelar">{w.gen.cancel}</button></> : req?.status === "ready" ? <span className="mk-status">{w.gen.passed(marks.filter((m) => passesAll(m.tests)).length, marks.length)}</span> : null;
   return (
     <div className="mk mk-gen" data-marca-artist={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{w.gen.title(p.title)}</h2>
+          <h2 className="mk-screen-h">{w.gen.title(p.title)}</h2>
           <p className="cor-text">{w.gen.lead}</p>
         </div>
         <div className="mk-head-r">

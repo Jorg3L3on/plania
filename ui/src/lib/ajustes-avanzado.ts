@@ -28,16 +28,11 @@ export const AVANZADO_WORDS = defineWords({
     },
     /** The label for each «Avanzado» field. A field the server sends with no label here shows its key. */
     etiquetas: {
-      start_branch: "Rama de trabajo",
       branch_pattern: "Forma de los nombres de rama",
       claim_from: "De dónde toman trabajo los agentes",
-      release_target: "Entorno de producción",
-      release_on: "Qué cuenta como publicado",
       auto_done: "Cerrar solo lo publicado",
       team: "Minutos para «atorado»",
       identity: "Orden en las listas",
-      github_token_env: "Variable con la llave de GitHub",
-      vercel: "Vercel",
       resources: "Recursos por turnos",
       quotas: "Límites diarios",
       maquinas: "Comandos de la base de la app",
@@ -63,7 +58,6 @@ export const AVANZADO_WORDS = defineWords({
     secreto: "No se guardó: eso parece una llave o una contraseña. Aquí nunca va su valor; guárdala en una variable y escribe su nombre.",
     noVariable: "No se guardó: va el nombre de la variable (mayúsculas, números y _), nunca la llave.",
     capturaMala: "No se guardó: revisa el comando, el puerto y las páginas (cada dirección empieza con /).",
-    sinRepo: "No se guardó: primero guarda el repositorio de GitHub.",
   },
   en: {
     arranque: {
@@ -81,16 +75,11 @@ export const AVANZADO_WORDS = defineWords({
       texto: "What almost never needs touching. Each setting says what happens if you leave it as it is.",
     },
     etiquetas: {
-      start_branch: "Working branch",
       branch_pattern: "Shape of branch names",
       claim_from: "Where agents take work from",
-      release_target: "Production environment",
-      release_on: "What counts as published",
       auto_done: "Close only what is published",
       team: "Minutes until «stuck»",
       identity: "Order in the lists",
-      github_token_env: "Variable with the GitHub key",
-      vercel: "Vercel",
       resources: "Resources by turns",
       quotas: "Daily limits",
       maquinas: "Commands for the app's database",
@@ -116,7 +105,6 @@ export const AVANZADO_WORDS = defineWords({
     secreto: "Not saved: that looks like a key or a password. Its value never goes here; keep it in a variable and write its name.",
     noVariable: "Not saved: it takes the variable's name (capitals, numbers and _), never the key.",
     capturaMala: "Not saved: check the command, the port and the pages (each address starts with /).",
-    sinRepo: "Not saved: save the GitHub repository first.",
   },
 });
 
@@ -211,6 +199,5 @@ export function avanzadoError(code: string | null, detail: Record<string, unknow
   if (code === "SECRET_VALUE") return w.secreto;
   if (code === "NOT_A_VARIABLE_NAME") return w.noVariable;
   if (code === "INVALID_FILTER" && typeof detail.field === "string" && detail.field.startsWith("settings.capture")) return w.capturaMala;
-  if (code === "INVALID_BODY" && detail.field === "github_token_env") return w.sinRepo;
   return null;
 }

@@ -170,7 +170,7 @@ export const ERRORS = {
   CAMINO_KEY_INVALID: [400, "camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved"],
   CAMINO_KEY_REJECTED: [400, "camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words)"],
   CAMINO_KEY_MISSING: [404, "camino: no key is saved for that service on this project"],
-  CAMINO_CHANGE_INVALID: [400, "camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch"],
+  CAMINO_CHANGE_INVALID: [400, "camino: a change in the set does not fit (detail: field, reason): an unknown config key, an integration branch equal to the published one, a folder that is not a clone of the repo, deleting a role branch, a protected or malformed start branch"],
   CAMINO_NO_GITHUB: [409, "camino: the change needs GitHub and the project has no repository or no token (detail: repo, token)"],
   CAMINO_GITHUB_REFUSED: [409, "camino: GitHub refused a change; the ones before it stay applied and the rest did not run (detail: step, status, message)"],
   CAMINO_ACTIONLINT: [400, "camino: actionlint found errors in a workflow Camino would propose; no PR was opened (detail: errors [{line, column, message, kind}])"],

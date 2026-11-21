@@ -4,6 +4,7 @@
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
 // Summaries never carry paths, env values, tokens or money.
 import { commitHooks, commitInstructions } from "../camino/commits.js";
+import { workPatternOf } from "../camino/store.js";
 import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
@@ -347,7 +348,7 @@ async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, o
   if (task) {
     // PLA-I2-5: the project's start branch is the only base (settings.start_branch, never a protected one).
     const start = startBranchOf(project.settings);
-    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null, start);
+    const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key, await workPatternOf(db, project.id)), ctx.taskRow?.base ?? null, start);
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
@@ -719,7 +720,7 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
       const limits = projectLimits(ctx.project?.settings?.runner);
       const team = !!agent.projectId;
       const project = ctx.project!;
-      const branch = task ? ctx.taskRow?.branch?.trim() || branchFor(task.key) : null;
+      const branch = task ? ctx.taskRow?.branch?.trim() || branchFor(task.key, await workPatternOf(db, project.id)) : null;
       const trialId = trialIdOfRun(run);
       const cwd = run.lane === "consulta" ? null : trialId ? safePath(() => trialPathFor(root, project.slug, trialId)) : task ? safePath(() => worktreePathFor(root, project.slug, task.key)) : scratchPathFor(root, project.slug, agent.slug);
       const keys = lockKeysOf({ projectId: project.id, taskKey: run.taskKey, branch: run.lane === "consulta" ? null : branch, cwd });
@@ -1211,7 +1212,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     worktree = target;
   } else if (ctx.task) {
     const repo = repoPathOf(project.slug, project.settings, env);
-    const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
+    const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key, await workPatternOf(db, project.id));
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
     const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
@@ -1374,8 +1375,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I67-5: within what the always-on budget leaves after the role prompt, «tu manera» and the skill list.
   const carriedLessons = consulta || qa || asks ? [] : await lessonsForRun(db, ctx.agent, lessonRoomOf(await fixedWords(db, ctx.agent, carried, env))).catch(() => []);
   const lessonText = lessonBlock(carriedLessons);
-  // PLA-I69-5: the project's voice (Marca → Voz y nombre) rides in every run that writes for the app.
-  const voiceText = consulta || qa ? "" : voiceBlock(project.slug, project.title);
+  // PLA-I69-5, PLA-130: how the app addresses people (Marca → Estilo → Trato) rides in every run that writes for it.
+  const voiceText = consulta || qa ? "" : voiceBlock(project.slug);
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
   const motor = resolveMotor({
     qaModel: qa?.model ?? null,

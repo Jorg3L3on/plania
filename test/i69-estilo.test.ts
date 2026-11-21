@@ -70,6 +70,8 @@ beforeEach(async () => {
   project.settings ??= {};
 });
 
+// PLA-130: these tests save one change at a time, as if minutes apart (merging is tested in pla-130-versions).
+{ let t = Date.parse("2026-11-20T09:00:00Z"); (await import("../src/brand/versions.js")).setVersionClock(() => (t += 3 * 60_000)); }
 test("#1 the colour math: the server and the screen agree, contrast is WCAG's, scales keep their hue", () => {
   for (const c of ["#8c2f39", "#0f766e", "#4f46e5", "#ffffff", "#000000", "#e5b80b"]) {
     assert.deepEqual(uiColor.toLch(c), color.toLch(c), c);
@@ -169,7 +171,7 @@ test("#6 the request: files written as the repo will hold them, old colours list
   await assert.rejects(style.requestStyle(db, project, { git }), /Taller ya trabaja en el estilo/);
 });
 
-test("#7 the screen makes the same files as the server, reads an expert's code back, and directions keep their scope", async () => {
+test("#7 the screen makes the same files as the server, reads an expert's code back, and knows every font", async () => {
   const ui = await import("../ui/src/lib/estilo.js");
   for (const over of [{}, { brand: "#0f766e", neutral: "calido", pill: true, motion: "vivo", head: "Fraunces" }, { brand: "#f2c14e", density: "compacto", shadow: "plana", radius: 0 }] as const) {
     const s = { ...style.startStyle({ files: [] }, null), ...over } as import("../src/brand/style.js").Style;
@@ -182,13 +184,6 @@ test("#7 the screen makes the same files as the server, reads an expert's code b
   assert.equal(back.next.radius, 12);
   assert.equal(back.next.head, "Lora");
   assert.equal(back.next.brandTie, "fijo");
-  const [logo] = ui.directions({ theme: "#1f2b5c", colors: ["#1f2b5c", "#ffd36e"] }, s);
-  const colorsOnly = ui.applyDirection(s, logo!.s, "color");
-  assert.equal(colorsOnly.brand, "#1f2b5c");
-  assert.equal(colorsOnly.head, s.head, "colours only leaves the type");
-  const typeOnly = ui.applyDirection(s, logo!.s, "letra");
-  assert.equal(typeOnly.brand, s.brand);
-  assert.equal(typeOnly.head, "Bricolage Grotesque");
   assert.deepEqual(Object.keys(ui.FONT_CAT).sort(), [...style.FONTS].sort(), "the screen knows every font the server offers");
 });
 
@@ -247,4 +242,73 @@ test("#10 one app colour: the chosen logo's until a style is set, then the style
   assert.equal(appTheme({ brand: "#5d314f", brandTie: "sigue" }, logo), "#4a1f3d");
   assert.equal(appTheme({ brand: "#5d314f", brandTie: "sigue" }, { ...logo, chosen: false }), "#5d314f", "a logo only found in the repo does not lead");
   assert.equal(appTheme(null, { ...logo, chosen: false }), null);
+});
+
+test("PLA-130: a repo with no dark mode gets none: no .dark block, no dark tokens, and the screen's copy agrees", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const s = style.startStyle({ files: [] }, null);
+  const css = style.brandCss(s, { dark: false });
+  assert.doesNotMatch(css, /\.dark\s*\{/, "no dark block for an app with no dark mode");
+  assert.match(style.brandCss(s), /\.dark\s*\{/, "the default still carries it");
+  assert.match(style.brandCss(s, { dark: true }), /\.dark\s*\{/);
+  const j = JSON.parse(style.tokensJson(s, { dark: false }));
+  assert.equal(j.color.dark, undefined);
+  assert.ok(j.color.light, "light stays");
+  assert.equal(ui.brandCss(s, { dark: false }), css);
+  assert.equal(ui.tokensJson(s, { dark: false }), style.tokensJson(s, { dark: false }));
+});
+
+test("PLA-130: a setting the repo cannot say (spacing, motion, stroke, greys…) counts as a change against where the style started", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const repo = { brand: "#1f2b5c", head: "Inter", body: "Inter", radius: 8, files: [] };
+  const start = style.startStyle(repo, null);
+  assert.deepEqual(ui.changesOf(start, repo, start), [], "untouched: nothing to bring");
+  const roomy = ui.changesOf({ ...start, density: "amplio" }, repo, start);
+  assert.deepEqual(roomy.map((c) => [c.part, c.fields]), [["espacio", ["density"]]]);
+  const many = ui.changesOf({ ...start, motion: "vivo", stroke: 1.5, neutral: "calido", base: 18, shadow: "marcada" }, repo, start);
+  assert.deepEqual(many.map((c) => c.part).sort(), ["color", "forma", "iconos", "letra", "mov"]);
+  const preview = ui.changesOf({ ...start, border: 2, fill: true }, repo, start);
+  assert.deepEqual(preview, [], "borders and icon fill never reach the files");
+  const both = ui.changesOf({ ...start, radius: 12, pill: true }, repo, start).find((c) => c.part === "forma")!;
+  assert.equal(both.from, "8 px");
+  assert.deepEqual(both.fields, ["pill"], "the repo's value and Plania's own settings in one part");
+  assert.equal(ui.changesOf({ ...start, density: "amplio" }, repo).length, 0, "without a start only what the repo says is compared");
+});
+
+test("PLA-130: every icon library Estilo offers draws the preview's eleven icons, outline and filled, shapes only", async () => {
+  const { ICON_LIBS } = await import("../ui/src/lib/icon-sets.js");
+  const { LIBS } = await import("../ui/src/lib/estilo.js");
+  const keys = ["bell", "search", "heart", "plus", "cal", "home", "user", "check", "alert", "star", "gear"];
+  assert.deepEqual(Object.keys(ICON_LIBS).sort(), LIBS.filter((l) => l !== "Lucide").sort(), "each choice but Lucide (built in) has its shapes");
+  for (const [name, lib] of Object.entries(ICON_LIBS)) {
+    const sets = [lib.solid, ...(lib.weights ? [lib.weights.light, lib.weights.regular, lib.weights.bold] : [lib.outline!])];
+    for (const set of sets) {
+      assert.deepEqual(Object.keys(set).sort(), [...keys].sort(), `${name} has all eleven`);
+      for (const svg of Object.values(set)) assert.match(svg, /^(<(path|circle|rect|line|polyline|polygon)\b[^<]*\/>)+$/, `${name}: drawing tags only`);
+    }
+  }
+});
+
+test("PLA-130: the brand as text always reads at 4.5:1, light or dark; a dark brand stays itself", async () => {
+  for (const brand of ["#f2c14e", "#5eead4", "#ffd36e", "#1f2b5c", "#7c3aed"]) {
+    const t = style.tokens({ ...style.startStyle({ files: [] }, null), brand });
+    assert.ok(color.contrast(t.light["brand-text"]!, t.light.background!) >= 4.5, `${brand} as text on the light background`);
+    assert.ok(color.contrast(t.light["brand-text"]!, "#ffffff") >= 4.5, `${brand} as text on a white card`);
+    assert.ok(color.contrast(t.dark["brand-text"]!, t.dark.card!) >= 4.5, `${brand} as text on a dark card`);
+  }
+  assert.equal(style.tokens({ ...style.startStyle({ files: [] }, null), brand: "#1f2b5c" }).light["brand-text"], "#1f2b5c", "a brand that reads is used as it is");
+  assert.match(style.brandCss(style.startStyle({ files: [] }, null)), /--brand-text: /);
+});
+
+test("PLA-130: a value the repo does not set compares with where the style started, so undoing it clears the change", async () => {
+  const ui = await import("../ui/src/lib/estilo.js");
+  const repo = { theme: "#f2c14e", files: [] };
+  const start = style.startStyle(repo, null);
+  assert.equal(ui.changesOf(start, repo, start).find((c) => c.part === "forma"), undefined, "untouched corners: no change, though the repo sets none");
+  const f = ui.changesOf({ ...start, radius: 20 }, repo, start).find((c) => c.part === "forma")!;
+  assert.deepEqual([f.from, f.to, f.base], [`${start.radius} px`, "20 px", "start"]);
+  assert.ok(ui.changesOf({ ...start, radius: 20 }, repo).some((c) => c.part === "forma"), "without a start, an unset repo value still counts as a change");
+  const noColour = { files: [] };
+  const s0 = style.startStyle(noColour, null);
+  assert.equal(ui.changesOf(s0, noColour, s0).find((c) => c.part === "color"), undefined, "a repo with no colour and an untouched one: no change");
 });

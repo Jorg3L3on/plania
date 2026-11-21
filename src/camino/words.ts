@@ -2,20 +2,34 @@
 // and the history's lines. In the install's language (src/words.ts say).
 import { defineWords, say } from "../words.js";
 
+/** PLA-I70-32: the home folder as ~ (never /Users/name in what the owner reads). */
+const NAMES: Record<string, string> = { github: "GitHub", vercel: "Vercel", netlify: "Netlify", render: "Render", railway: "Railway", fly: "Fly.io", cloudflare: "Cloudflare", neon: "Neon", supabase: "Supabase", planetscale: "PlanetScale" };
+/** PLA-I70-34: a service by its name, never its lowercase id. */
+const nameOf = (id: string): string => NAMES[id] ?? id;
+const tidy = (p: string): string => p.replace(/^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/, "~");
+
 export const CAMINO_SERVER_WORDS = defineWords({
   es: {
     envCopy: "Copia de prueba",
     envProd: "Producción",
-    keySaved: (provider: string, l4: string) => `Llave de ${provider} guardada y probada (…${l4})`,
-    keyRemoved: (provider: string) => `Llave de ${provider} quitada`,
+    keySaved: (provider: string, l4: string) => `Llave de ${nameOf(provider)} guardada y probada (…${l4})`,
+    keyRemoved: (provider: string) => `Llave de ${nameOf(provider)} quitada`,
     undoKey: "Quitar la llave en Conexiones y llaves",
     undoConfig: "Volver a cambiarlo en Camino",
-    undoRoles: "Elegir los papeles anteriores en Código y ramas",
-    undoRepo: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Código y ramas` : "Quitar el repositorio en Ajustes"),
-    undoFolder: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Código y ramas` : "Elegir otra carpeta en Código y ramas"),
-    undoRule: (b: string) => `Apagar la regla de ${b} en Código y ramas (o borrar «plania-${b}» en GitHub)`,
-    undoRuleOff: (b: string) => `Volver a proteger ${b} en Código y ramas`,
-    undoMerge: "Cambiar cómo se fusionan las propuestas en Código y ramas",
+    undoRoles: "Elegir los papeles anteriores en Repositorio y ramas",
+    undoRepo: (prev: string | null) => (prev ? `Volver a elegir ${prev} en Repositorio y ramas` : "Marcar «Todavía no hay código» en Repositorio y ramas"),
+    undoNoCode: "Quitar «Todavía no hay código» en Repositorio y ramas y elegir su repositorio",
+    undoHasCode: "Marcar «Todavía no hay código» en Repositorio y ramas",
+    undoMode: (prev: "command" | "merge"): string => (prev === "merge" ? "Volver a encender «Fusionar desde Plania» en el entorno de producción" : "Apagar «Fusionar desde Plania» en el entorno de producción"),
+    // PLA-133: the four settings moved here from Ajustes › Avanzado.
+    undoStart: (prev: string): string => `Volver a poner ${prev} como rama de trabajo en Repositorio y ramas`,
+    undoKeyEnv: (prev: string | null): string => (prev ? `Volver a poner ${prev} como variable de la llave en la tarjeta de GitHub` : "Quitar la variable de la llave en la tarjeta de GitHub"),
+    undoPublished: "Volver a elegir qué cuenta como publicado en el entorno de producción",
+    undoVercel: (had: boolean): string => (had ? "Volver a escribir los datos de Vercel en su entorno" : "Apagar «Leer los despliegues de Vercel» en su entorno"),
+    undoFolder: (prev: string | null) => (prev ? `Volver a elegir ${tidy(prev)} en Repositorio y ramas` : "Elegir otra carpeta en Repositorio y ramas"),
+    undoRule: (b: string) => `Apagar la regla de ${b} en Repositorio y ramas (o borrar «plania-${b}» en GitHub)`,
+    undoRuleOff: (b: string) => `Volver a proteger ${b} en Repositorio y ramas`,
+    undoMerge: "Cambiar cómo se fusionan las propuestas en Repositorio y ramas",
     undoBranch: (b: string) => `Restaurar ${b} desde su propuesta fusionada en GitHub (botón Restore branch)`,
     undoRuleset: (n: string) => `Crear de nuevo la regla «${n}» en GitHub`,
     undoPr: (n: number) => `Cerrar la propuesta #${n} sin fusionarla`,
@@ -37,16 +51,23 @@ export const CAMINO_SERVER_WORDS = defineWords({
   en: {
     envCopy: "Test copy",
     envProd: "Production",
-    keySaved: (provider: string, l4: string) => `${provider} key saved and tested (…${l4})`,
-    keyRemoved: (provider: string) => `${provider} key removed`,
+    keySaved: (provider: string, l4: string) => `${nameOf(provider)} key saved and tested (…${l4})`,
+    keyRemoved: (provider: string) => `${nameOf(provider)} key removed`,
     undoKey: "Remove the key in Connections and keys",
     undoConfig: "Change it again in Camino",
-    undoRoles: "Pick the previous roles in Code and branches",
-    undoRepo: (prev: string | null) => (prev ? `Pick ${prev} again in Code and branches` : "Remove the repository in Settings"),
-    undoFolder: (prev: string | null) => (prev ? `Pick ${prev} again in Code and branches` : "Pick another folder in Code and branches"),
-    undoRule: (b: string) => `Turn off ${b}'s rule in Code and branches (or delete «plania-${b}» on GitHub)`,
-    undoRuleOff: (b: string) => `Protect ${b} again in Code and branches`,
-    undoMerge: "Change how PRs merge in Code and branches",
+    undoRoles: "Pick the previous roles in Repository and branches",
+    undoRepo: (prev: string | null) => (prev ? `Pick ${prev} again in Repository and branches` : "Turn on «There is no code yet» in Repository and branches"),
+    undoNoCode: "Turn off «There is no code yet» in Repository and branches and pick its repository",
+    undoHasCode: "Turn on «There is no code yet» in Repository and branches",
+    undoMode: (prev: "command" | "merge") => (prev === "merge" ? "Turn «Merge from Plania» back on in the production environment" : "Turn «Merge from Plania» off in the production environment"),
+    undoStart: (prev: string) => `Put ${prev} back as the working branch in Repository and branches`,
+    undoKeyEnv: (prev: string | null) => (prev ? `Put ${prev} back as the key's variable on the GitHub card` : "Remove the key's variable on the GitHub card"),
+    undoPublished: "Pick again what counts as released in the production environment",
+    undoVercel: (had: boolean) => (had ? "Write the Vercel details back in its environment" : "Turn «Read Vercel's deployments» off in its environment"),
+    undoFolder: (prev: string | null) => (prev ? `Pick ${tidy(prev)} again in Repository and branches` : "Pick another folder in Repository and branches"),
+    undoRule: (b: string) => `Turn off ${b}'s rule in Repository and branches (or delete «plania-${b}» on GitHub)`,
+    undoRuleOff: (b: string) => `Protect ${b} again in Repository and branches`,
+    undoMerge: "Change how PRs merge in Repository and branches",
     undoBranch: (b: string) => `Restore ${b} from its merged PR on GitHub (Restore branch button)`,
     undoRuleset: (n: string) => `Create the rule «${n}» again on GitHub`,
     undoPr: (n: number) => `Close PR #${n} without merging it`,

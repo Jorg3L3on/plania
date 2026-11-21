@@ -257,7 +257,8 @@ test("Publicar espera: migrations and no production path turn the row's lever in
   const waits = cosasOf({ p, decisions: [rel(null)], ficha: { ideas: [], promoted: [] } }, "es").grupos[0].cosas.find((x: any) => x.key === "publicar");
   assert.equal(waits.title, "Publicar espera");
   assert.equal(waits.espera, "Lleva cambios a la base y nadie dijo quién migra producción.");
-  assert.deepEqual(waits.palanca, { kind: "ajustes", seccion: "lanzamiento", label: "Decir quién migra" });
+  // PLA-132: the setting is Despliegue's production environment.
+  assert.deepEqual(waits.palanca, { kind: "camino", sec: "resumen", label: "Decir quién migra" });
   const ok = cosasOf({ p, decisions: [rel("deploy")], ficha: { ideas: [], promoted: [] } }, "es").grupos[0].cosas.find((x: any) => x.key === "publicar");
   assert.equal(ok.title, "Publicar MiCasa");
   assert.deepEqual(ok.palanca, { kind: "publicar" });

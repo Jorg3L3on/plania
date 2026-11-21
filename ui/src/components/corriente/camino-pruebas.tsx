@@ -8,11 +8,11 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AUTO_PATCH_YML, dependabotYml, edits, fixEdit, flaky, minutesOf, newWorkflow, readWorkflow, requiredIn, runOf, UNSAFE_SCRIPT, warnings, type DepsForm, type Workflow } from "@/lib/camino-ci";
 import { pruebasWords } from "@/lib/camino-pruebas-words";
-import { agoText, caminoWords } from "@/lib/camino";
+import { agoText, baseBranch, baseBranches, caminoWords, githubStale, openProposalFor, protectedOn } from "@/lib/camino";
 import type { Staged } from "@/lib/camino-cambios";
 import type { BranchRule, CaminoRead } from "@/lib/camino-types";
 import { Btn } from "./parts";
-import { Blk, Ed } from "./camino";
+import { Blk, Ed, Experto, Recom } from "./camino";
 import { Diff, Tg } from "./camino-cambios";
 import type { Cambios } from "./camino-store";
 
@@ -30,11 +30,45 @@ export function requiredNames(r: CaminoRead): string[] {
 export const Pruebas = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const w = pruebasWords();
   const [tab, setTab] = useState<Tab>("flujos");
+  const [open, setOpen] = useState(false);
+  const g = r.discovery?.github.ok ? r.discovery.github : null;
+  const nw = useNewWorkflow(r, cambios);
+  const ex = caminoWords().expert.ci;
+  const nWf = g?.workflows.length ?? 0;
+  const base = baseBranch(r);
+  const required = requiredNames(r);
   return (
     <Ed id="ci" title={caminoWords().sections.ci} lead={w.lead}>
-      <div className="cam-subtabs" role="tablist" aria-label={caminoWords().sections.ci}>
+      {/* PLA-I70-47: the recommendation first; the tabs wait behind «Modo experto». */}
+      <Recom
+        lines={nWf ? [ex.have(nWf), ...(required.length ? [] : [ex.require(g?.checks[0]?.name ?? "ci-ok", base)])] : [ex.none]}
+        done={!!g && nWf > 0 && required.length > 0}
+        disabled={githubStale(r) || nw.making}
+        onUse={() => {
+          if (!nWf) void nw.make();
+          else {
+            setTab("exigir");
+            setOpen(true);
+          }
+        }}
+      />
+      <Experto id="ci" open={open} onToggle={setOpen}>
+      {/* PLA-I70-36: the tabs pattern: one tab stop, arrows (and Home/End) move between them. */}
+      <div
+        className="cam-subtabs"
+        role="tablist"
+        aria-label={caminoWords().sections.ci}
+        onKeyDown={(e) => {
+          const i = TABS.indexOf(tab);
+          const next = e.key === "ArrowRight" ? (i + 1) % TABS.length : e.key === "ArrowLeft" ? (i + TABS.length - 1) % TABS.length : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : -1;
+          if (next < 0) return;
+          e.preventDefault();
+          setTab(TABS[next]!);
+          requestAnimationFrame(() => e.currentTarget.querySelector<HTMLElement>(`[data-subtab="${TABS[next]}"]`)?.focus());
+        }}
+      >
         {TABS.map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} className="cam-subtab" onClick={() => setTab(t)} data-subtab={t}>
+          <button key={t} type="button" role="tab" tabIndex={tab === t ? 0 : -1} aria-selected={tab === t} className="cam-subtab" onClick={() => setTab(t)} data-subtab={t}>
             {w.tabs[t]}
           </button>
         ))}
@@ -45,6 +79,7 @@ export const Pruebas = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
         {tab === "corridas" && <Corridas r={r} />}
         {tab === "deps" && <Deps r={r} cambios={cambios} />}
       </div>
+      </Experto>
     </Ed>
   );
 };
@@ -52,7 +87,7 @@ export const Pruebas = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => 
 // ---- Flujos
 function useStageFile(r: CaminoRead, cambios: Cambios) {
   const w = pruebasWords();
-  const base = r.config.branches.integration ?? r.config.branches.published;
+  const base = baseBranch(r);
   return (path: string, before: string, after: string | null, label: string) => {
     const key = `file:${path}`;
     if (after !== null && after === before) return cambios.drop(key);
@@ -75,6 +110,31 @@ function useStageFile(r: CaminoRead, cambios: Cambios) {
   };
 }
 
+/** PLA-I70-24: a new workflow from the project's scripts, pinned to commits at once so it passes Plania's own pin check. */
+function useNewWorkflow(r: CaminoRead, cambios: Cambios) {
+  const stage = useStageFile(r, cambios);
+  const g = r.discovery?.github.ok ? r.discovery.github : null;
+  const mac = r.discovery?.mac;
+  const pm = mac?.pm ?? "npm";
+  const files = g?.workflow_files ?? [];
+  const newPath = files.some((f) => f.path === ".github/workflows/ci.yml") ? ".github/workflows/ci-plania.yml" : ".github/workflows/ci.yml";
+  const [making, setMaking] = useState(false);
+  const make = async () => {
+    setMaking(true);
+    let text = newWorkflow(mac?.scripts ?? [], pm, baseBranches(r));
+    try {
+      const uses = [...text.matchAll(/uses: ([^\s@]+@[^\s]+)/g)].map((m) => m[1]!).filter((u) => !/@[0-9a-f]{40}$/.test(u));
+      const shas = uses.length ? await api.caminoPins(r.slug, uses) : {};
+      if (Object.keys(shas).length) text = edits.pin(text, shas);
+    } catch {
+      /* left unpinned: the card then offers «Fijar» */
+    }
+    setMaking(false);
+    stage(newPath, "", text, pruebasWords().label.add(newPath));
+  };
+  return { make, making, newPath };
+}
+
 const Flujos = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const w = pruebasWords();
   const g = r.discovery?.github.ok ? r.discovery.github : null;
@@ -82,23 +142,32 @@ const Flujos = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const stage = useStageFile(r, cambios);
   const files = g?.workflow_files ?? [];
   const pm = mac?.pm ?? "npm";
-  const branches = [...new Set([r.config.branches.integration, r.config.branches.published].filter((b): b is string => !!b))];
-  const newPath = files.some((f) => f.path === ".github/workflows/ci.yml") ? ".github/workflows/ci-plania.yml" : ".github/workflows/ci.yml";
+  const branches = baseBranches(r);
+  const stale = githubStale(r);
+  const nw = useNewWorkflow(r, cambios);
+  const newPath = nw.newPath;
   const stagedNew = cambios.staged(`file:${newPath}`) as { content: string } | undefined;
   return (
     <div className="cam-wfs">
-      {files.length === 0 && !stagedNew && <p className="cam-hint">{w.noWorkflows}</p>}
+      {stale && <p className="cam-hint" data-obsoleto>{w.staleRead}</p>}
+      {files.length === 0 && !stagedNew && !stale && <p className="cam-hint">{w.noWorkflows}</p>}
       {files.map((f) => (
         <WorkflowCard key={f.path} r={r} cambios={cambios} path={f.path} original={f.text} stage={stage} />
       ))}
       {stagedNew && <WorkflowCard r={r} cambios={cambios} path={newPath} original="" stage={stage} />}
       <div className="cam-acts">
-        {!stagedNew && (
-          <Btn kind={files.length ? "secondary" : "primary"} small onClick={() => stage(newPath, "", newWorkflow(mac?.scripts ?? [], pm, branches), w.label.add(newPath))} data-control="nuevo-flujo">
+        {!stagedNew && !stale && (
+          <Btn
+            kind={files.length ? "secondary" : "primary"}
+            small
+            disabled={nw.making}
+            onClick={() => void nw.make()}
+            data-control="nuevo-flujo"
+          >
             {files.length ? w.newWfMore : w.newWf}
           </Btn>
         )}
-        <span className="cam-hint">{stagedNew ? w.newWfNote(r.config.branches.integration ?? r.config.branches.published) : w.prNote}</span>
+        <span className="cam-hint">{stagedNew ? w.newWfNote(baseBranch(r)) : w.prNote}</span>
       </div>
     </div>
   );
@@ -124,7 +193,9 @@ const WorkflowCard = ({ r, cambios, path, original, stage }: { r: CaminoRead; ca
   const quietDays = lastCommit ? Math.floor((Date.now() - new Date(lastCommit).getTime()) / 86_400_000) : null;
   const warns = warnings(wf, { required, publicRepo: !!g && !g.repo.private, quietDays });
   const pm = mac?.pm ?? "npm";
-  const set = (next: string) => stage(path, original, next, original ? w.label.edit(path) : w.label.add(path));
+  // PLA-I70-26: while a proposal for this file is open, a second edit would open a conflicting one.
+  const open = openProposalFor(r, path);
+  const set = (next: string) => (open ? undefined : stage(path, original, next, original ? w.label.edit(path) : w.label.add(path)));
   const pins = useMutation({
     mutationFn: () => api.caminoPins(r.slug, wf.actions.filter((a) => !a.pinned).map((a) => a.uses)),
     onSuccess: (shas) => {
@@ -143,6 +214,11 @@ const WorkflowCard = ({ r, cambios, path, original, stage }: { r: CaminoRead; ca
           <span className="cor-mono cam-hint">{path}</span>
           {original && <span className="cam-src">{w.fromRepo}</span>}
           {changed && <span className="cam-chip warn">{w.unapplied}</span>}
+          {open && (
+            <a className="cam-chip live" href={open.url} target="_blank" rel="noreferrer" data-propuesta-abierta={open.number}>
+              {w.openPr(open.number)}
+            </a>
+          )}
         </span>
         {ghWf && (
           <Tg
@@ -157,6 +233,11 @@ const WorkflowCard = ({ r, cambios, path, original, stage }: { r: CaminoRead; ca
           />
         )}
       </div>
+      {open && (
+        <p className="cam-hint warn-t" data-propuesta-nota>
+          {w.openPrNote(open.number)}
+        </p>
+      )}
       {confirmOff && ghWf && (
         <div className="cam-box warn" role="alertdialog" aria-label={w.offTitle(wf.name)} data-impacto={needed.length ? "bloquea" : "nada"}>
           <b>{w.offTitle(wf.name)}.</b> {needed.length ? w.offRequired(w.quoted(needed)) : w.offFree} {w.offApply}
@@ -280,10 +361,10 @@ const WorkflowCard = ({ r, cambios, path, original, stage }: { r: CaminoRead; ca
             {changed ? <Diff before={original} after={text} /> : <pre className="cam-diff">{original}</pre>}
             <p className="cam-hint">{w.keepsComments}</p>
           </details>
-          {original && (
+          {original && !githubStale(r) && !open && (
             <div className="cam-acts">
               <Btn kind="quiet" small onClick={() => (deleted ? cambios.drop(`file:${path}`) : stage(path, original, null, w.label.del(path)))} data-control={`borrar-flujo-${path}`}>
-                {deleted ? caminoWords().conn.change : w.deleteWf}
+                {deleted ? w.undoDeleteWf : w.deleteWf}
               </Btn>
             </div>
           )}
@@ -303,16 +384,25 @@ const Exigir = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const fromRules = (b: string) => g?.rules.list.filter((x) => x.enforcement === "active" && x.branches.includes(b)).flatMap((x) => x.required_checks) ?? [];
   const current = (b: string) => req[b] ?? fromRules(b);
   const priv = !!g && !g.rules.available;
+  const noAdmin = !!g && !g.repo.admin && !priv;
   const okPending = !g?.checks.some((c) => c.name === "ci-ok") && (cambios.items.some((x) => x.change.kind === "file_pr" && String((x.change as { content?: string }).content ?? "").includes("ci-ok:")) || g?.workflow_files.some((f) => /\n\s{2}ci-ok:/.test(f.text)));
+  // PLA-I70-13: what is staged is computed from the original read, so ticking and unticking leaves nothing behind.
+  const orig = (b: string) => r.config.required_checks[b] ?? fromRules(b);
+  const same = (x: string[], y: string[]) => x.length === y.length && x.every((n) => y.includes(n));
   const toggle = (b: string, name: string, on: boolean) => {
     const list = current(b);
     const nextList = on ? [...new Set([...list, name])] : list.filter((x) => x !== name);
     const next = { ...req, [b]: nextList };
     const label = pruebasWords().label.required(b);
-    cambios.stage({ key: "required", change: { kind: "config", label, patch: { required_checks: next } }, dest: "plania", from: Object.entries(r.config.required_checks).map(([k, v]) => `${k}: ${v.join(", ") || "—"}`).join(" · ") || "—", to: Object.entries(next).map(([k, v]) => `${k}: ${v.join(", ") || "—"}`).join(" · ") });
+    if (Object.keys(next).every((k) => same(next[k]!, orig(k)))) cambios.drop("required");
+    else cambios.stage({ key: "required", change: { kind: "config", label, patch: { required_checks: next } }, dest: "plania", from: Object.entries(r.config.required_checks).map(([k, v]) => `${k}: ${v.join(", ") || "—"}`).join(" · ") || "—", to: Object.entries(next).map(([k, v]) => `${k}: ${v.join(", ") || "—"}`).join(" · ") });
     // On a repo with rules, the branch's ruleset carries the checks (applied after the record, in the set's order).
+    if (priv) return;
+    if (same(nextList, orig(b))) return cambios.drop(`rule:${b}`);
     const rule = (cambios.staged(`rule:${b}`) as { rule: BranchRule } | undefined)?.rule ?? r.config.rules[b] ?? DEFAULT_RULE;
-    if (!priv) cambios.stage({ key: `rule:${b}`, change: { kind: "ruleset", label: pruebasWords().label.rule(b), branch: b, rule: { ...rule, on: true } }, dest: "github", from: list.join(", ") || "—", to: nextList.join(", ") || "—" });
+    const protects = !!r.config.rules[b]?.on || protectedOn(r, b);
+    const pw = pruebasWords();
+    cambios.stage({ key: `rule:${b}`, change: { kind: "ruleset", label: protects ? pw.label.rule(b) : pw.label.protectRequire(b, nextList.join(", ") || "—"), branch: b, rule: { ...rule, on: true } }, dest: "github", from: orig(b).join(", ") || "—", to: nextList.join(", ") || "—" });
   };
   return (
     <div className="cam-exigir">
@@ -384,6 +474,8 @@ const Exigir = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
                         kind="secondary"
                         small
                         className={del ? "" : "cam-fix"}
+                        disabled={noAdmin && !del}
+                        title={noAdmin ? pruebasWords().exigir.needAdmin : undefined}
                         onClick={() => (del ? cambios.drop(`delrs:${x.id}`) : cambios.stage({ key: `delrs:${x.id}`, change: { kind: "delete_ruleset", label: pruebasWords().label.delRuleset(x.name), id: x.id, name: x.name }, dest: "github", from: x.name, to: "—" }))}
                         data-control={`borrar-regla-${x.name}`}
                       >
@@ -419,9 +511,14 @@ const Corridas = ({ r }: { r: CaminoRead }) => {
       <p className="cam-line">
         {w.summary(runs.length, runs.filter((x) => x.conclusion === "success").length, runs.filter((x) => x.conclusion === "failure").length, fl.size, minutes)} ·{" "}
         {g?.repo.private ? (
-          <>
-            {w.paid(minutes)} <span className="cam-bdg paid">{w.paidBadge}</span>
-          </>
+          // PLA-I70-34: «de pago» only when the month would pass the free 2,000 minutes (this is a 7-day sample).
+          (minutes / 7) * 30 > 2000 ? (
+            <>
+              {w.paid(minutes)} <span className="cam-bdg paid">{w.paidBadge}</span>
+            </>
+          ) : (
+            w.paidInside(minutes)
+          )
         ) : (
           w.free
         )}
@@ -481,7 +578,7 @@ const Deps = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
   const g = r.discovery?.github.ok ? r.discovery.github : null;
   const stage = useStageFile(r, cambios);
   const existing = g?.dependabot?.text ?? "";
-  const orig: DepsForm = { ...r.config.deps, on: r.config.deps.on || !!existing, target: r.config.deps.target ?? r.config.branches.integration ?? r.config.branches.published };
+  const orig: DepsForm = { ...r.config.deps, on: r.config.deps.on || !!existing, target: r.config.deps.target ?? baseBranch(r) };
   const f = (cambios.staged("deps") as { patch: { deps: DepsForm } } | undefined)?.patch.deps ?? orig;
   const ecosystems = [...(r.discovery?.mac.scripts ? ["npm"] : []), ...(g?.workflows.length ? ["github-actions"] : [])];
   const required = (f.target && r.config.required_checks[f.target]?.length) || g?.rules.list.some((x) => x.enforcement === "active" && x.required_checks.length && f.target && x.branches.includes(f.target));
@@ -495,7 +592,7 @@ const Deps = ({ r, cambios }: { r: CaminoRead; cambios: Cambios }) => {
     if (next.on && next.auto_patch) stage(AUTO_FILE, autoNow, AUTO_PATCH_YML, pw.label.autoMerge);
     else cambios.drop(`file:${AUTO_FILE}`);
   };
-  const branches = [...new Set([r.config.branches.published, r.config.branches.integration].filter((b): b is string => !!b))];
+  const branches = baseBranches(r);
   return (
     <div className="cam-deps">
       <Tg on={f.on} title={w.on} sub={w.onSub} onClick={() => set({ on: !f.on })} data-control="dependabot" />

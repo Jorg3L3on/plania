@@ -44,13 +44,13 @@ describe("PLA-120: Marca after a guided logo test", () => {
     rmSync(path.join(STORE, "_marca", "tienda", "marks"), { recursive: true, force: true });
   });
 
-  test("#1 a folder Plania cannot read names the folder and points to Ajustes; no_code keeps its sentence", async () => {
+  test("#1 a folder Plania cannot read names the folder and points to Despliegue; no_code keeps its sentence", async () => {
     const r = (await marca.marcaRead(db, "tienda", { git: async () => ({ code: 1, stdout: Buffer.alloc(0) }) }))!;
     assert.equal(r.repo, "none");
     assert.equal(r.folder, repoPathOf("tienda", project.settings));
     const w = ui.marcaWords();
     assert.match(w.noRepoFound(r.folder), new RegExp(r.folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(w.noRepoFound(r.folder), /Ajustes/);
+    assert.match(w.noRepoFound(r.folder), /Despliegue/, "PLA-132: the folder is picked in Despliegue");
     assert.match(w.noRepo, /todavía no tiene código/);
     await raw.query(`update projects set settings = '{"local":{"no_code":true}}' where slug = 'tienda'`);
     marca.forgetMarca();

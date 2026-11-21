@@ -3,7 +3,8 @@
 // the reason they can be left alone (`pnpm exec tsx scripts/settings-table.ts` writes that table; test/settings-registry.test.ts checks
 // it). Typed against ProjectSettings: a key added to the type without an entry here does not compile.
 //   tier      basic: a new owner may need it to finish setup. advanced: a default that can be left alone; its control
-//             is in Ajustes' closed «Avanzado» section, and `reason` says why it can wait.
+//             is in Ajustes' closed «Avanzado» section, or (PLA-133) in Despliegue for the release and branch ones,
+//             and `reason` says why it can wait.
 //   control   where the screen sets it. Every key has one; internal ones name the screen action that writes them.
 //   default   what holds while the key is unset (English, for the README).
 //   frase     the plain Spanish sentence the screen shows beside the control; defecto, the default said the same way.
@@ -12,8 +13,9 @@ import { defineWords, say } from "../words.js";
 
 export type SettingTier = "basic" | "advanced";
 export type SettingControl =
-  | "ajustes.codigo"
-  | "ajustes.lanzamiento"
+  // PLA-132: where the code is, the release step and the production address are edited in Despliegue (Camino).
+  | "camino.codigo"
+  | "camino.entornos"
   | "ajustes.pruebas"
   | "ajustes.vista"
   | "ajustes.arranque"
@@ -119,22 +121,22 @@ export const SETTING_WORDS = defineWords<SettingWords>({
 });
 
 export const SETTINGS = {
-  local: { tier: "basic", control: "ajustes.codigo", default: "the folder named after the project under PLANIA_PROJECTS_ROOT", get frase() { return say(SETTING_WORDS).frase.local; } },
+  local: { tier: "basic", control: "camino.codigo", default: "the folder named after the project under PLANIA_PROJECTS_ROOT", get frase() { return say(SETTING_WORDS).frase.local; } },
   github: {
     tier: "basic",
-    control: "ajustes.codigo",
+    control: "camino.codigo",
     default: "none: no pull requests or checks are read",
     get frase() { return say(SETTING_WORDS).frase.github; },
   },
   release: {
     tier: "basic",
-    control: "ajustes.lanzamiento",
+    control: "camino.codigo",
     default: "a project made on the screen ships from the screen (mode merge, start branch → main, env prod); one made by the script or the MCP tool has none, and an older one keeps what it has",
     get frase() { return say(SETTING_WORDS).frase.release; },
   },
   qa: { tier: "basic", control: "ajustes.pruebas", default: "no verify list; the other QA switches off", get frase() { return say(SETTING_WORDS).frase.qa; } },
   capture: { tier: "basic", control: "ajustes.arranque", default: "none until Máquinas guesses it from the dev script", get frase() { return say(SETTING_WORDS).frase.capture; } },
-  preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "ajustes.vista", default: "none", get frase() { return say(SETTING_WORDS).frase.preview_url; } },
+  preview_url: { owner_only: "an agent could point the owner's preview link anywhere", tier: "basic", control: "camino.entornos", default: "none", get frase() { return say(SETTING_WORDS).frase.preview_url; } },
   // PLA-I66-6: the switch on the Marca door.
   marca: { tier: "basic", control: "marca.nativo", default: "off: only the web files are counted", get frase() { return say(SETTING_WORDS).frase.marca; } },
   plan_approval: { owner_only: "off, a PO's plan makes tickets without the owner's «Sí, empiecen»", tier: "basic", control: "ajustes.vista", default: "on for a new project", get frase() { return say(SETTING_WORDS).frase.plan_approval; } },
@@ -146,7 +148,7 @@ export const SETTINGS = {
   start_branch: {
     tier: "advanced",
     get defecto() { return say(SETTING_WORDS).defecto.start_branch!; },
-    control: "ajustes.avanzado",
+    control: "camino.codigo",
     default: "sandbox",
     get frase() { return say(SETTING_WORDS).frase.start_branch; },
     reason: "The default works once the repository has that branch; «Crear la rama de trabajo» makes it.",
@@ -154,7 +156,7 @@ export const SETTINGS = {
   release_target: {
     tier: "advanced",
     get defecto() { return say(SETTING_WORDS).defecto.release_target!; },
-    control: "ajustes.avanzado",
+    control: "camino.entornos",
     default: "prod",
     get frase() { return say(SETTING_WORDS).frase.release_target; },
     reason: "Only matters with more than one deploy target; prod fits a project with one.",
@@ -162,7 +164,7 @@ export const SETTINGS = {
   release_on: {
     tier: "advanced",
     get defecto() { return say(SETTING_WORDS).defecto.release_on!; },
-    control: "ajustes.avanzado",
+    control: "camino.entornos",
     default: "env with Vercel or a recorded commit, else branch",
     get frase() { return say(SETTING_WORDS).frase.release_on; },
     reason: "Plania picks it from what the project has; set it only when the guess is wrong.",
@@ -210,7 +212,7 @@ export const SETTINGS = {
   vercel: {
     tier: "advanced",
     get defecto() { return say(SETTING_WORDS).defecto.vercel!; },
-    control: "ajustes.avanzado",
+    control: "camino.entornos",
     default: "none: deploys are not read",
     get frase() { return say(SETTING_WORDS).frase.vercel; },
     reason: "Only for a project deployed on Vercel.",
