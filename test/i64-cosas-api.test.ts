@@ -92,7 +92,7 @@ test("PLA-62 #4: the ficha carries the time of the newest «Constrúyelo»", asy
   assert.equal(i4.state, "valvula");
 });
 
-test("I64-6 #1 #2 Archivo reads every doc and PR; docs without an owner are the project's own", async () => {
+test("I64-6 #1 #2 the ficha reads every doc and PR; docs without an owner are the project's own", async () => {
   const ACT = '{"agent":"t","session_id":"s"}';
   for (let i = 0; i < 34; i++) await raw.query(`insert into docs (project_id, task_id, title, markdown, actor, updated_at) values ($1, null, $2, 'x', $3::jsonb, now() - make_interval(hours => $4))`, [pid, `Doc ${i}`, ACT, i]);
   for (let i = 1; i <= 23; i++)
@@ -106,11 +106,7 @@ test("I64-6 #1 #2 Archivo reads every doc and PR; docs without an owner are the 
   assert.equal(all.prs.length, 23);
   assert.ok(all.docs.some((d: any) => d.title === "Doc 33" && d.task_key === null), "the oldest doc is there, with no owner");
   assert.ok(all.prs.some((x: any) => x.number === 1), "the oldest PR is there");
-  (globalThis as { React?: unknown }).React = await import("react");
-  const { docGroups } = (await import(new URL("../ui/src/components/corriente/archivo.tsx", import.meta.url).href)) as any;
-  const g = docGroups([...all.docs, { id: "z", title: "Spec", task_key: "TLU-I1", updated_at: "2026-11-01T00:00:00Z" }]);
-  assert.equal(g.own.length, 34);
-  assert.deepEqual(g.things.map((t: any) => t.key), ["TLU-I1"]);
+  // PLA-135: Archivo, which grouped these, is gone; the project's own docs are Ajustes' library (pla135 tests).
 });
 
 test("I64-6 #3 Hecho: the last 14 days by day, closed initiatives with their idea, and a way back", async () => {

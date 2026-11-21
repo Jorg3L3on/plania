@@ -57,7 +57,7 @@ import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.j
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
 import { listConsultas } from "../pedidos/consultas.js";
 import { repoSetupRoutes } from "./repo-setup.js";
-import { CONTEXT_DOC_IDS, putContextDoc, setAdvanced, setCapture, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
+import { CONTEXT_DOC_IDS, putContextDoc, putLibraryDoc, setAdvanced, setCapture, setCodeLocation, setReleaseStep, setVerifyList, settingsRead, type ContextDocId } from "./project-settings.js";
 import { AVANZADO_FIELDS } from "./settings-avanzado.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
@@ -223,6 +223,8 @@ const ReleaseBody = z
   .strict();
 const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
+// PLA-135: a library doc from Ajustes.
+const LibraryBody = z.object({ title: z.string().min(1).max(120), markdown: z.string().max(60_000), version: Version.optional() }).strict();
 
 // PLA-I2-5: preparing the code and the working branch (src/api/repo-setup.ts), behind the same guard.
 companyRoutes.route("/", repoSetupRoutes);
@@ -316,6 +318,17 @@ companyRoutes.put("/projects/:slug/settings/context/:doc", async (c) => {
   if (input instanceof Response) return input;
   try {
     return c.json(await withDb((db) => putContextDoc(db, c.req.param("slug"), doc, input)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-135: a library doc from Ajustes (create by title, or replace with the version read).
+companyRoutes.put("/projects/:slug/settings/docs", async (c) => {
+  const input = await body(c, LibraryBody);
+  if (input instanceof Response) return input;
+  try {
+    return refusalOr(c, await withDb((db) => putLibraryDoc(db, c.req.param("slug"), input)));
   } catch (e) {
     return fail(c, e);
   }

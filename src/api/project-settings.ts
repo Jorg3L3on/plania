@@ -5,6 +5,7 @@
 //   PUT  /api/company/projects/:slug/settings/release {version, release: {from, into, env, mode?} | null}  setProject
 //   PUT  /api/company/projects/:slug/settings/verify  {version, commands: string[]}  setProject (settings.qa.verify)
 //   PUT  /api/company/projects/:slug/settings/context/:doc {markdown, version?}  attachDoc (a stale version is refused)
+//   PUT  /api/company/projects/:slug/settings/docs    {title, markdown, version?}  attachDoc (PLA-135: a library doc)
 //   PUT  /api/company/projects/:slug/settings/capture  {version, capture: {start_command, port, …, pages} | null}  setProject
 //   PUT  /api/company/projects/:slug/settings/advanced {version, field, value}  setProject (the «Avanzado» section)
 // The preview address and plan approval keep their route (PUT …/options, setProjectOptions, also through setProject).
@@ -13,7 +14,7 @@
 // refused (SECRET_VALUE) before anything is written.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { docs, type ProjectSettings } from "../db/schema.js";
 import { attachDoc } from "../mcp/docs.js";
@@ -55,19 +56,40 @@ export type SettingsRead = {
   verify: { name: string; command: string }[];
   preview_url: string | null;
   plan_approval: boolean;
-  context: { id: ContextDocId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string }[];
+  context: { id: ContextDocId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string; updated_at: string | null }[];
+  // PLA-135: the project's library, its own docs other than the three context notes and the kit's prompts and packs,
+  // newest first. The team reads them when a task asks (get_memory); the context notes go into every run.
+  library: LibraryDoc[];
   // PLA-I2-6: how the app starts, as its form edits it, and the «Avanzado» fields.
   capture: CaptureForm | null;
   avanzado: AvanzadoRead[];
 };
 
+export type LibraryDoc = { id: string; title: string; version: number; updated_at: string; first: string };
+
+/** PLA-135: titles the library leaves out: the context notes (their own group) and the kit's prompts and packs. */
+export const notLibrary = (title: string): boolean => (CONTEXT_DOCS as readonly string[]).includes(title) || /^(Prompt|Pack): /.test(title);
+
+/** The first line of text a reader sees: no heading marks, list marks or emphasis, at most 140 characters. */
+export function firstLine(markdown: string): string {
+  for (const raw of markdown.split("\n")) {
+    const line = raw.trim();
+    if (!line || /^#{1,6}\s/.test(line) || /^(---|```)/.test(line)) continue;
+    const text = line.replace(/^([-*+]|\d+\.)\s+/, "").replace(/[*_`]/g, "").trim();
+    if (text) return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+  }
+  return "";
+}
+
 export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> {
   const p = await findProject(db, slug);
   const s: ProjectSettings = p.settings ?? {};
-  const rows = await db
+  const own = await db
     .select()
     .from(docs)
-    .where(and(eq(docs.projectId, p.id), isNull(docs.taskId), inArray(docs.title, [...CONTEXT_DOCS])));
+    .where(and(eq(docs.projectId, p.id), isNull(docs.taskId)))
+    .orderBy(desc(docs.updatedAt), asc(docs.title));
+  const rows = own.filter((d) => (CONTEXT_DOCS as readonly string[]).includes(d.title));
   return {
     slug: p.slug,
     title: p.title,
@@ -79,8 +101,9 @@ export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> 
     plan_approval: !!s.plan_approval,
     context: CONTEXT_DOC_IDS.map((id) => {
       const d = rows.find((r) => r.title === CONTEXT_TITLE[id]);
-      return { id, title: CONTEXT_TITLE[id], doc_id: d?.id ?? null, version: d?.version ?? null, markdown: d?.markdown ?? "", template: contextTemplate(id, p.title) };
+      return { id, title: CONTEXT_TITLE[id], doc_id: d?.id ?? null, version: d?.version ?? null, markdown: d?.markdown ?? "", template: contextTemplate(id, p.title), updated_at: d?.updatedAt.toISOString() ?? null };
     }),
+    library: own.filter((d) => !notLibrary(d.title)).map((d) => ({ id: d.id, title: d.title, version: d.version, updated_at: d.updatedAt.toISOString(), first: firstLine(d.markdown) })),
     capture: captureForm(s.capture),
     avanzado: avanzadoRead(s),
   };
@@ -172,6 +195,15 @@ export async function setVerifyList(db: Db, slug: string, input: { version: numb
  * and a version that moved is STALE_VERSION. */
 export async function putContextDoc(db: Db, slug: string, id: ContextDocId, input: { markdown: string; version?: number }): Promise<SettingsRead> {
   await attachDoc(db, { project: slug, title: CONTEXT_TITLE[id], markdown: input.markdown, ...(input.version !== undefined ? { version: input.version } : {}) }, settingsCtx);
+  return settingsRead(db, slug);
+}
+
+/** PLA-135: a library doc. Without version it is created (DOC_EXISTS when the title is taken); with the version read
+ * it is replaced, and a version that moved is STALE_VERSION. A context note, a prompt or a pack is not a library doc. */
+export async function putLibraryDoc(db: Db, slug: string, input: { title: string; markdown: string; version?: number }): Promise<SettingsRead | SettingsRefusal> {
+  const title = input.title.trim();
+  if (!title || title.length > 120 || notLibrary(title)) return { error: "INVALID_BODY", status: 400, field: "title" };
+  await attachDoc(db, { project: slug, title, markdown: input.markdown, ...(input.version !== undefined ? { version: input.version } : {}) }, settingsCtx);
   return settingsRead(db, slug);
 }
 

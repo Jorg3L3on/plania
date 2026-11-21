@@ -5,7 +5,7 @@ import { LOCALE } from "./locale.js";
 // readers; the screen reads tabName() and modesOf().
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
-//   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas, ajustes)
+//   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (hecho, equipo, motores, maquinas, ajustes)
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
 //   &paso=<K>                 PLA-I3-5: the step open in the side panel beside the list (the list stays); never with ver
 // The stream is the first screen; inside a project it shrinks to a strip on top.
@@ -18,12 +18,14 @@ export type View = (typeof VIEWS)[number];
 // NEWPROJ-6: Ajustes, the project's settings (where the code is, the release step, QA's list, the context notes).
 // PLA-I66-2: Marca, the project's logo and its icon files, before Ajustes.
 // PLA-I68-2: Camino, how the project's code reaches people (configuration only), before Ajustes; PRs live there now.
-export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "marca", "camino", "ajustes"] as const;
+// PLA-135: Archivo is gone (the owner saw no use in a second list of the work: that is Todo). A thing's papers open
+// from its ficha over Todo; the project's own docs live in Ajustes («Docs del proyecto»).
+export const TABS = ["todo", "hecho", "equipo", "motores", "maquinas", "marca", "camino", "ajustes"] as const;
 export type Tab = (typeof TABS)[number];
-export const DOORS = ["archivo", "equipo", "maquinas", "marca", "camino", "ajustes"] as const;
+export const DOORS = ["equipo", "maquinas", "marca", "camino", "ajustes"] as const;
 export const CORRIENTE_LIB_WORDS = defineWords({
   es: {
-    tab: { todo: "Todo", archivo: "Archivo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Despliegue", ajustes: "Ajustes" } as Record<Tab, string>,
+    tab: { todo: "Todo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Despliegue", ajustes: "Ajustes" } as Record<Tab, string>,
     // The ask box's three modes (the same words as the building's).
     modes: {
       forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
@@ -52,7 +54,7 @@ export const CORRIENTE_LIB_WORDS = defineWords({
     oneFem: "Una",
   },
   en: {
-    tab: { todo: "All", archivo: "Archive", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", camino: "Deploy", ajustes: "Settings" },
+    tab: { todo: "All", hecho: "Done", equipo: "Team", motores: "Engines", maquinas: "Machines", marca: "Brand", camino: "Deploy", ajustes: "Settings" },
     modes: {
       forma: { name: "Shape it", line: "It comes in as an idea. The PO understands it, asks and moves it forward. Nobody writes code until you say “Build it”." },
       ya: { name: "Do it now", line: "A small, clear change. It goes straight to the board." },
@@ -82,8 +84,9 @@ export const CORRIENTE_LIB_WORDS = defineWords({
 /** The Spanish names, kept for their readers; the screen reads tabName(). */
 export const TAB_NAME: Record<Tab, string> = CORRIENTE_LIB_WORDS.es.tab;
 export const tabName = (tab: Tab, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).tab[tab];
-/** The retired tabs (PLA-I62) and where each one lives now. */
-export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "camino", docs: "archivo" };
+/** The retired tabs (PLA-I62) and where each one lives now. PLA-135: Archivo's address lands on the list, the old
+ *  Docs tab on Ajustes (the project's docs). */
+export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "todo", prs: "camino", docs: "ajustes", archivo: "todo" };
 export const tabOf = (raw: string | null | undefined): Tab | null => (!raw ? null : (TABS as readonly string[]).includes(raw) ? (raw as Tab) : (OLD_TAB[raw] ?? null));
 
 /** What a tab has open beside or over its list. */
@@ -157,15 +160,14 @@ export function verParam(v: Ver): string {
   }
 }
 
-/** The tab a Ver lives in (PLA-I64-7: a thing of the project opens over the list, a doc or PR in Archivo). */
+/** The tab a Ver lives in (PLA-I64-7: a thing of the project opens over the list). PLA-135: a doc opens over the list
+ *  too, unless its address names Ajustes (a doc opened from «Docs del proyecto» goes back there). */
 export function tabOfVer(v: Ver): Tab {
   switch (v.kind) {
-    // PLA-I68-2: a PR opens from Camino's Propuestas; a doc from Archivo.
+    // PLA-I68-2: a PR opens from Camino's Propuestas.
     case "pr":
     case "camino":
       return "camino";
-    case "doc":
-      return "archivo";
     case "miembro":
     case "oficio":
     case "sumar":
@@ -212,7 +214,7 @@ export const pasoAt = (slug: string, k: string | null): Partial<At> => (k ? { sl
 export const HOME = "/ceo";
 export const hrefOf = (at: Partial<At> & { extra?: Record<string, string> }) => `${HOME}${searchOf(at)}`;
 
-/** PLA-113 (guided test PLA-86, F-2): the old project page (/p/<slug>) is reached on purpose only, from Archivo
+/** PLA-113 (guided test PLA-86, F-2): the old project page (/p/<slug>) is reached on purpose only, from Ajustes
  * («Abrir la página del proyecto», with ?pagina). Every other link to it (Inicio, Bandeja, Máquina, the brief, a
  * thread) opens the project in La corriente, and ?task=KEY opens that step, idea or initiative there. Null: stay. */
 export function oldProjectHref(slug: string, search: string): string | null {
@@ -267,7 +269,6 @@ export function legacyHref(at: Partial<At>): string {
   }
   const tab = at.tab ?? "todo";
   if (tab === "maquinas") return `/ceo?${piso}&nivel=maquinas`;
-  if (tab === "archivo") return `/ceo?${piso}&f=${encodeURIComponent("tab:docs")}`;
   if (tab === "motores") return `/ceo?${piso}&f=${encodeURIComponent("tab:motores")}`;
   return `/ceo?${piso}`;
 }
@@ -377,7 +378,7 @@ export function slashFocuses(e: { key: string; meta?: boolean; ctrl?: boolean; a
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card
 //   in Te toca · ?piso=<slug> → the project (with ?nivel=maquinas → Máquinas) · ?f=<ficha ref> → its tab and what it
 //   opens · ?m=<slug>:<agent> → the teammate · ?plan=<slug> → the board · ?add=<slug> → Sumar. ?doc=<id> stays (a sheet).
-const FICHA_TAB: Record<string, Tab> = { resumen: "todo", pedido: "todo", ideas: "todo", diseno: "archivo", prs: "camino", docs: "archivo", motores: "motores" };
+const FICHA_TAB: Record<string, Tab> = { resumen: "todo", pedido: "todo", ideas: "todo", diseno: "todo", prs: "camino", docs: "ajustes", motores: "motores" };
 export function fromBuilding(search: string, ref: { kind: string; [k: string]: unknown } | null, refSlug: string | null): string | null {
   const q = new URLSearchParams(search);
   const legacy = ["edificio", "asistente", "nuevo", "decision", "piso", "f", "m", "plan", "add", "nivel"].some((k) => q.has(k));
@@ -412,7 +413,8 @@ export function fromBuilding(search: string, ref: { kind: string; [k: string]: u
     case "doc":
       return searchOf({ slug, ver: { kind: "doc", id: s(ref.id) }, extra: keep });
     case "lienzo":
-      return searchOf({ slug, tab: "archivo", extra: keep });
+      // PLA-135: a design lives on its idea's Diseño stop.
+      return ref.key ? searchOf({ slug, ver: { kind: "idea", key: s(ref.key) }, extra: keep }) : searchOf({ slug, extra: keep });
     case "sumar":
       return searchOf({ slug, ver: { kind: "sumar" }, extra: keep });
     case "app":

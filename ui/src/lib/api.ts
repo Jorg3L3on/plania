@@ -309,6 +309,8 @@ export const api = {
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
   // PLA-I2-6: how the app starts, and one «Avanzado» field.
+  // PLA-135: a library doc (create by title, or replace with the version read).
+  ajustesDoc: (slug: string, input: { title: string; markdown: string; version?: number }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/docs`, input),
   ajustesArranque: (slug: string, input: { version: number; capture: ArranqueRead | null }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/capture`, input),
   ajustesAvanzado: (slug: string, input: { version: number; field: string; value: unknown }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/advanced`, input),
   // PLA-I64-3: steps done per day, last 14 days.

@@ -41,9 +41,9 @@ test("I64-2/7: the list is the project's entry; t=todo still opens it", () => {
   assert.deepEqual(lib.atOf("?proyecto=filmia"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
   assert.equal(lib.searchOf({ slug: "filmia", tab: "todo", ver: { kind: "idea", key: "FIL-IDEA1" } }), "?proyecto=filmia&ver=idea%3AFIL-IDEA1");
   // PLA-I66-2: Marca joins the doors, before Ajustes.
-  // PLA-I68-2: Camino, before Ajustes.
-  assert.deepEqual([...lib.TABS], ["todo", "archivo", "hecho", "equipo", "motores", "maquinas", "marca", "camino", "ajustes"]);
-  assert.deepEqual([...lib.DOORS], ["archivo", "equipo", "maquinas", "marca", "camino", "ajustes"]);
+  // PLA-I68-2: Camino, before Ajustes. PLA-135: Archivo is gone.
+  assert.deepEqual([...lib.TABS], ["todo", "hecho", "equipo", "motores", "maquinas", "marca", "camino", "ajustes"]);
+  assert.deepEqual([...lib.DOORS], ["equipo", "maquinas", "marca", "camino", "ajustes"]);
 });
 
 test("I64-7 #2: every old address lands on its new place", () => {
@@ -56,10 +56,15 @@ test("I64-7 #2: every old address lands on its new place", () => {
     ["?proyecto=f&t=pedidos", "?proyecto=f"],
     ["?proyecto=f&t=tablero", "?proyecto=f"],
     ["?proyecto=f&t=ideas", "?proyecto=f"],
-    ["?proyecto=f&t=diseno", "?proyecto=f&t=archivo"],
+    // PLA-135: Archivo is gone: its address and Diseño's land on the list, the old Docs tab on Ajustes (the
+    // project's docs), and a doc opens over the list.
+    ["?proyecto=f&t=diseno", "?proyecto=f"],
+    ["?proyecto=f&t=archivo", "?proyecto=f"],
+    ["?proyecto=f&t=archivo&ver=doc:abc", "?proyecto=f&ver=doc%3Aabc"],
+    ["?proyecto=f&t=ajustes&ver=doc:abc", "?proyecto=f&t=ajustes&ver=doc%3Aabc"],
     // PLA-I68-2: PRs live in Camino's Propuestas.
     ["?proyecto=f&t=prs", "?proyecto=f&t=camino"],
-    ["?proyecto=f&t=docs", "?proyecto=f&t=archivo"],
+    ["?proyecto=f&t=docs", "?proyecto=f&t=ajustes"],
     ["?proyecto=f&t=motores", "?proyecto=f&t=motores"],
     ["?proyecto=f&t=equipo", "?proyecto=f&t=equipo"],
     ["?proyecto=f&t=maquinas", "?proyecto=f&t=maquinas"],
@@ -72,7 +77,7 @@ test("I64-7 #2: every old address lands on its new place", () => {
     ["?proyecto=f&t=ideas&ver=idea:F-IDEA1", "?proyecto=f&ver=idea%3AF-IDEA1"],
     ["?proyecto=f&t=diseno&ver=lienzo:F-IDEA1", "?proyecto=f&ver=idea%3AF-IDEA1"],
     ["?proyecto=f&t=prs&ver=pr:12", "?proyecto=f&t=camino&ver=pr%3A12"],
-    ["?proyecto=f&t=docs&ver=doc:abc", "?proyecto=f&t=archivo&ver=doc%3Aabc"],
+    ["?proyecto=f&t=docs&ver=doc:abc", "?proyecto=f&ver=doc%3Aabc"],
     ["?proyecto=f&t=tablero&ver=pr:12", "?proyecto=f&t=camino&ver=pr%3A12"],
     ["?proyecto=f&t=equipo&ver=miembro:taller-f", "?proyecto=f&t=equipo&ver=miembro%3Ataller-f"],
     ["?proyecto=f&ver=maq:base", "?proyecto=f&t=maquinas&ver=maq%3Abase"],

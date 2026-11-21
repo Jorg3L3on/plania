@@ -59,7 +59,7 @@ test("I3-5 #1: a link with the step in the address opens the list with that pane
   assert.equal(lib.linkTo(lib.pasoAt("filmia", null)), "/ceo?proyecto=filmia");
   assert.deepEqual(lib.atOf("?proyecto=filmia"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
   // Only on the list: a door or an opened view wins and the panel is not there.
-  assert.equal(lib.atOf("?proyecto=filmia&t=archivo&paso=FIL-2").paso, undefined);
+  assert.equal(lib.atOf("?proyecto=filmia&t=equipo&paso=FIL-2").paso, undefined);
   assert.equal(lib.atOf("?proyecto=filmia&ver=paso:FIL-2&paso=FIL-3").paso, undefined);
   assert.equal(lib.atOf("?paso=FIL-2").paso, undefined);
   assert.equal(lib.searchOf({ slug: "filmia", tab: "equipo", paso: "FIL-2" }), "?proyecto=filmia&t=equipo");

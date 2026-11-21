@@ -1,4 +1,4 @@
-// PLA-I2-10: the words of Archivo and Hecho (ui/src/components/corriente/archivo.tsx).
+// PLA-I2-10: the words of Hecho (ui/src/components/corriente/hecho.tsx). PLA-135: Archivo's words left with its door.
 import { defineWords } from "./i18n.js";
 
 const NUM_ES = ["Cero", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
@@ -8,30 +8,8 @@ const numEn = (n: number) => (n <= 10 ? NUM_EN[n]! : String(n));
 
 export type HechoSummary = { total: number; today: boolean; from: string; to: string; initiatives: number; fromPedido: number };
 
-export const ARCHIVO_WORDS = defineWords({
+export const HECHO_WORDS = defineWords({
   es: {
-    // ---- Archivo
-    readWhat: "el archivo",
-    reading: "Leyendo el archivo",
-    title: (project: string) => `Archivo de ${project}`,
-    lead: "Lo que se escribió, se dibujó y se fusionó. Cada papel vive dentro de su cosa; aquí están todos juntos.",
-    openPage: "Abrir la página del proyecto ↗",
-    own: (n: number) => `Del proyecto · ${n}`,
-    showLess: "Ver menos",
-    showOthers: (n: number) => `Ver los otros ${n}`,
-    showOthersThings: (n: number) => `Ver las otras ${n}`,
-    noOwnDocs: "El proyecto no tiene docs propios todavía.",
-    perThing: (docs: number, things: number) => `De cada cosa · ${docs} en ${things} ${things === 1 ? "cosa" : "cosas"}`,
-    designs: "Diseños",
-    designsCount: (n: number) => `Diseños · ${n}`,
-    noDesigns: "Ningún diseño todavía: Artist dibuja cuando una idea llega a Diseño.",
-    frames: (n: number, unseen: number) => `${n} ${n === 1 ? "MARCO" : "MARCOS"} DE ARTIST${unseen ? ` · ${unseen} SIN VER` : ""}`,
-    canvasOnClaude: "LIENZO EN CLAUDE.AI",
-    openPrs: (n: number) => (n ? `${n} ${n === 1 ? "abierto" : "abiertos"}` : "Ninguno abierto"),
-    noPrs: "Ningún PR todavía.",
-    prOpen: "ABIERTO",
-    prClosed: "CERRADO",
-    // ---- Hecho
     readDone: "lo hecho",
     readingDone: "Leyendo lo hecho",
     doneTitle: (project: string) => `Lo que pasó en ${project}`,
@@ -61,26 +39,6 @@ export const ARCHIVO_WORDS = defineWords({
     backToLatest: "Volver a los últimos 14 días",
   },
   en: {
-    readWhat: "the archive",
-    reading: "Reading the archive",
-    title: (project: string) => `${project} archive`,
-    lead: "What was written, drawn and merged. Each paper lives inside its thing; here they are all together.",
-    openPage: "Open the project's page ↗",
-    own: (n: number) => `The project's · ${n}`,
-    showLess: "Show less",
-    showOthers: (n: number) => `Show the other ${n}`,
-    showOthersThings: (n: number) => `Show the other ${n}`,
-    noOwnDocs: "The project has no docs of its own yet.",
-    perThing: (docs: number, things: number) => `Per thing · ${docs} in ${things} ${things === 1 ? "thing" : "things"}`,
-    designs: "Designs",
-    designsCount: (n: number) => `Designs · ${n}`,
-    noDesigns: "No designs yet: Artist draws when an idea reaches Design.",
-    frames: (n: number, unseen: number) => `${n} ARTIST ${n === 1 ? "FRAME" : "FRAMES"}${unseen ? ` · ${unseen} UNSEEN` : ""}`,
-    canvasOnClaude: "CANVAS ON CLAUDE.AI",
-    openPrs: (n: number) => (n ? `${n} open` : "None open"),
-    noPrs: "No PRs yet.",
-    prOpen: "OPEN",
-    prClosed: "CLOSED",
     readDone: "what was done",
     readingDone: "Reading what was done",
     doneTitle: (project: string) => `What happened in ${project}`,
