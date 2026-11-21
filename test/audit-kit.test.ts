@@ -325,6 +325,34 @@ test("AUDIT-9: the project's context docs ride with the role prompt, in a fixed 
   assert.equal(long.split("\n").length, 4 + 200 + 1);
 });
 
+test("PLA-147: the project's pinned live decisions ride with the role prompt; retired and superseded ones do not", async () => {
+  const micasa = await projectId("micasa");
+  const actor = JSON.stringify({ agent: "test", session_id: "s" });
+  const ins = async (line: string, pinned = true, retired = false) =>
+    (await raw.query(`insert into decisions (project_id, line, pinned, retired_at, actor) values ($1, $2, $3, ${retired ? "now()" : "null"}, $4) returning id`, [micasa, line, pinned, actor])).rows[0].id as string;
+  await ins("Everything runs locally: no hosting.");
+  await ins("Not pinned, stays out.", false);
+  await ins("Retired rule.", true, true);
+  const old = await ins("Old rule, reversed.");
+  const fresh = await ins("New rule that reverses it.");
+  await raw.query(`insert into decision_supersessions (decision_id, supersedes_id) values ($1, $2)`, [fresh, old]);
+  const block = (await runner.pinnedDecisionsBlock(db, micasa))!;
+  assert.match(block, /^# Pinned decisions\n/);
+  assert.match(block, /- Everything runs locally: no hosting\./);
+  assert.match(block, /- New rule that reverses it\./);
+  for (const gone of ["Not pinned", "Retired rule", "Old rule, reversed"]) assert.ok(!block.includes(gone), gone);
+  assert.equal(await runner.pinnedDecisionsBlock(db, "00000000-0000-0000-0000-000000000000"), null, "no pinned decisions: no block");
+
+  await ready("KIT-P");
+  const f = fakes();
+  await wake("research", f.deps, "KIT-P");
+  assert.match(f.spawned[0]!.rolePrompt!, /# Pinned decisions\n[\s\S]*Everything runs locally/);
+  f.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+  await raw.query(`delete from decision_supersessions`);
+  await raw.query(`delete from decisions where project_id = $1`, [micasa]);
+});
+
 test("AUDIT-2: with no prompt doc the repo's role file is used, and the version says so", async () => {
   assert.equal(await runner.promptDoc(db, "qa", process.env), null);
   mkdirSync(path.join(kitDir, "roles"), { recursive: true });

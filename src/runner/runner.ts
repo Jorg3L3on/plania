@@ -1047,6 +1047,26 @@ export async function projectContext(db: Db, projectId: string): Promise<string 
   return `# Project context\n\nKept by the owner in Plania. It holds only what reading the repo does not tell you.\n\n${body.join("\n")}`;
 }
 
+// PLA-147: the owner's pinned rules ride with every role prompt. Idea-stage runs (Research, Artist) never call
+// start, so before this a pinned «everything local» never reached Research, which recommended a hosted store.
+// Live only: retired and superseded decisions are left out. Newest first, capped so the prompt stays short.
+export const PINNED_MAX = 25;
+export async function pinnedDecisionsBlock(db: Db, projectId: string): Promise<string | null> {
+  const rows = await db.execute<{ line: string }>(sql`
+    select d.line from decisions d
+    where d.project_id = ${projectId} and d.pinned and d.retired_at is null
+      and not exists (select 1 from decision_supersessions s where s.supersedes_id = d.id)
+    order by d.created_at desc limit ${PINNED_MAX}`);
+  if (rows.rows.length === 0) return null;
+  return [
+    "# Pinned decisions",
+    "",
+    "The owner's standing rules for this project. Follow them. An option that breaks one is flagged as breaking it and is never your recommendation; if one blocks the work, ask the owner.",
+    "",
+    ...rows.rows.map((r) => `- ${r.line.replace(/\s+/g, " ").trim()}`),
+  ].join("\n");
+}
+
 // AUDIT-7: resume the session, or start clean with a handoff? A session that failed, whose delivery QA sent back, or
 // that grew past PLANIA_RESUME_MAX_CONTEXT tokens carries its dead ends; a fresh one reads the ticket and git instead.
 // PLANIA_RETRY_FRESH: "1" (default) fresh in those cases, "0" always resume, "ab" fresh for every other such run, so
@@ -1292,7 +1312,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     promptVersion = doc.version;
     // AUDIT-9: the project's own context rides with the role prompt (not for the company's Asistente or a QA review,
     // which judges the change on its own).
-    const base = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
+    const own = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
+    const pinned = role === "asistente" || qa ? null : await pinnedDecisionsBlock(db, project.id).catch(() => null);
+    const base = own && pinned ? `${own}\n\n${pinned}` : (own ?? pinned);
     // PLA-I68-4: the commit rules chosen in Camino, the text the page shows, for the builder.
     const commitsText = role === "taller" ? await commitInstructions(db, project).catch(() => null) : null;
     const context = base && commitsText ? `${base}\n\n${commitsText}` : (base ?? (commitsText ? `# Project context\n\n${commitsText}` : null));
