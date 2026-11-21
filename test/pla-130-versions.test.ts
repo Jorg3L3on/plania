@@ -2,7 +2,7 @@
 // merged into or dropped; the cap drops the oldest unkept first.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_VERSIONS, QUIET_MS, SESSION_MS, keepCurrent, record, type Versioned } from "../src/brand/versions.ts";
+import { MAX_VERSIONS, QUIET_MS, SESSION_MS, keepCurrent, record, type Versioned } from "../src/brand/versions.js";
 
 type V = Versioned & { n: number };
 const T0 = Date.parse("2026-11-20T10:00:00Z");
