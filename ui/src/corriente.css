@@ -2688,3 +2688,5 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .mk-steps li.now { color: var(--cor-violet-3); } .mk-steps li.now i { background: var(--cor-violet-2); border-color: var(--cor-violet-2); }
 .mk-steps li.you { color: var(--cor-amber); } .mk-steps li.you i { background: var(--cor-amber); border-color: var(--cor-amber); }
 .mk-steps p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--cor-body); }
+/* PLA-130: the Upload and Artist screens' title, a small line like the rest of Marca. */
+.mk-screen-h { margin: 0; font-size: 15px; font-weight: 600; color: var(--cor-text); }

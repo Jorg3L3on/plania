@@ -570,7 +570,8 @@ function Upload({ p, r, w, onBack, onUsed, surface }: { p: { slug: string; title
     <div className="mk mk-up" data-marca-subir={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{surface ? w.solo.title(w.solo.name[surface], p.title) : w.up.title(p.title)}</h2>
+          {/* PLA-130: a small line, like the rest of Marca's heads, not the old big title. */}
+          <h2 className="mk-screen-h">{surface ? w.solo.title(w.solo.name[surface], p.title) : w.up.title(p.title)}</h2>
           <p className="cor-text">{surface ? w.solo.lead(w.solo.name[surface]) : w.up.lead}</p>
         </div>
         <div className="mk-head-r">
@@ -871,6 +872,7 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
     queryFn: () => api.marcaMarks(p.slug),
     refetchInterval: (query) => (query.state.data?.request?.status === "drawing" ? 4000 : false),
   });
+  const client = useQueryClient();
   // PLA-I69-3: a request made for one surface belongs to that surface's drawer, not to the logo's marks.
   const req: MarksRequest | null = q.data?.request && !q.data.request.hints.surface ? q.data.request : null;
   const [about, setAbout] = useState("");
@@ -952,12 +954,19 @@ function Generate({ p, w, onBack, onUsed }: { p: { slug: string; title: string }
       />
     </div>
   );
-  const status = req?.status === "drawing" ? <span className="mk-live"><i aria-hidden />{w.gen.drawing}</span> : req?.status === "ready" ? <span className="mk-status">{w.gen.passed(marks.filter((m) => passesAll(m.tests)).length, marks.length)}</span> : null;
+  // PLA-130: a request that keeps drawing can be stopped, and says when it takes longer than usual.
+  const slow = req?.status === "drawing" && Date.now() - Date.parse(req.at) > 5 * 60_000;
+  const cancel = async () => {
+    if (!req) return;
+    try { const back = await api.marcaCancelMarks(p.slug, req.id); client.setQueryData(["marca-marks", p.slug], back); toast(w.gen.cancelled); }
+    catch (e) { toast.error(e instanceof ApiError ? String(e.detail.message ?? e.code) : String(e)); }
+  };
+  const status = req?.status === "drawing" ? <><span className="mk-live"><i aria-hidden />{slow ? w.gen.slow : w.gen.drawing}</span><button type="button" className="cor-btn secondary small" onClick={() => void cancel()} data-control="marca-artist-cancelar">{w.gen.cancel}</button></> : req?.status === "ready" ? <span className="mk-status">{w.gen.passed(marks.filter((m) => passesAll(m.tests)).length, marks.length)}</span> : null;
   return (
     <div className="mk mk-gen" data-marca-artist={p.slug}>
       <header className="mk-head">
         <div className="mk-head-l">
-          <h2 className="cor-door-h">{w.gen.title(p.title)}</h2>
+          <h2 className="mk-screen-h">{w.gen.title(p.title)}</h2>
           <p className="cor-text">{w.gen.lead}</p>
         </div>
         <div className="mk-head-r">

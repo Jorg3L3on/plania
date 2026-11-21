@@ -29,7 +29,7 @@ import { ToolError } from "../mcp/errors.js";
 import { settingsCtx } from "./project-settings.js";
 import { forgetLogoLooks } from "../brand/logos.js";
 import { buildSet, keepOver, madeFile, originalOf, requestIcons, zipOf } from "../brand/pedido.js";
-import { latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
+import { cancelMarks, latestRequest, markFile, requestMarks, settle, useMark, useMarkFor } from "../brand/marks.js";
 import { clearSurface, isSurface, isVariant, keepSurface, setSurface, setVariant, startSurface, surfaceOriginals, surfacesOf } from "../brand/surfaces.js";
 import { activeLogo, readLogoFile } from "../brand/logos.js";
 import type { Surface } from "../brand/generate.js";
@@ -356,6 +356,14 @@ marcaRoutes.get(`${BASE}/marks/:id/:file`, async (c) => {
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
   });
+});
+
+// PLA-130: stop a request that is still drawing. Before /marks/:id/:mark, which would take «cancel» as a mark.
+marcaRoutes.post(`${BASE}/marks/:id/cancel`, async (c) => {
+  const p = await projectOf(c);
+  if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  const r = cancelMarks(p.slug, c.req.param("id")!);
+  return r ? c.json({ request: r }) : c.json({ error: "LOGO_MARK_NOT_FOUND" }, 404);
 });
 
 marcaRoutes.post(`${BASE}/marks/:id/:mark`, async (c) => {
