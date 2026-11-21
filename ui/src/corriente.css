@@ -2403,7 +2403,7 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 .es-sp-bar b { font-family: var(--fh); font-weight: var(--wh); font-size: calc(var(--fs) * 1.1); }
 .es-sp-bar nav { display: flex; gap: 4px; margin-left: 10px; }
 .es-sp-bar nav span { padding: 4px 10px; border-radius: var(--rb); font-size: calc(var(--fs) * .85); color: var(--mu); }
-.es-sp-bar nav span.on { background: color-mix(in srgb, var(--b) 12%, transparent); color: var(--b); font-weight: 600; }
+.es-sp-bar nav span.on { background: color-mix(in srgb, var(--b) 12%, transparent); color: var(--bt); font-weight: 600; }
 .es-sp.dk .es-sp-bar nav span.on { background: color-mix(in srgb, var(--b) 35%, transparent); color: var(--fg); }
 .es-sp-i { margin-left: auto; display: grid; color: var(--mu); }
 .es-sp-av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--a); color: var(--oa); }
@@ -2429,8 +2429,8 @@ select.es-native { width: 100%; padding: 7px 9px; border-radius: 9px; border: 1p
 .es-sp-tog { display: flex; align-items: center; gap: 8px; font-size: var(--sm); }
 .es-sp-tog i { position: relative; width: 30px; height: 18px; border-radius: 9px; background: var(--b); }
 .es-sp-tog i::after { content: ""; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--on); }
-.es-sp-link { font-size: var(--sm); font-weight: 600; color: var(--b); text-decoration: underline; text-underline-offset: 3px; }
-.es-sp.dk .es-sp-link { color: color-mix(in srgb, var(--b) 55%, white); }
+.es-sp-link { font-size: var(--sm); font-weight: 600; color: var(--bt); text-decoration: underline; text-underline-offset: 3px; }
+.es-sp.dk .es-sp-link { color: var(--bt); }
 .es-sp-toast { opacity: 0; position: absolute; left: 0; right: 0; bottom: 12px; margin: auto; width: max-content; display: flex; align-items: center; gap: 7px; padding: calc(var(--p) * 1) calc(var(--p) * 1.6); border-radius: var(--r); background: var(--fg); color: var(--bg); font-size: calc(var(--fs) * .86); font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .es-sp-toast.go { animation: es-sp-in var(--dur) var(--ease) both, es-sp-out .3s ease 1.8s forwards; }
 @keyframes es-sp-in { from { transform: translateY(26px); opacity: 0; } to { opacity: 1; } }
@@ -2719,3 +2719,5 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 .hi-run b { font-weight: 500; color: var(--cor-body); }
 .hi-sub { margin: 2px 0 6px 18px; padding: 0 0 0 10px; list-style: none; border-left: 1px solid var(--cor-line); display: grid; gap: 2px; }
 .hi-when .hi-kept { margin-left: 6px; color: var(--cor-violet-3); background: rgba(139, 92, 246, 0.12); }
+/* PLA-130: Voz word buttons reach the 24 px minimum with room. */
+.vz-word.add { min-height: 28px; }

@@ -288,3 +288,14 @@ test("PLA-130: every icon library Estilo offers draws the preview's eleven icons
     }
   }
 });
+
+test("PLA-130: the brand as text always reads at 4.5:1, light or dark; a dark brand stays itself", async () => {
+  for (const brand of ["#f2c14e", "#5eead4", "#ffd36e", "#1f2b5c", "#7c3aed"]) {
+    const t = style.tokens({ ...style.startStyle({ files: [] }, null), brand });
+    assert.ok(color.contrast(t.light["brand-text"]!, t.light.background!) >= 4.5, `${brand} as text on the light background`);
+    assert.ok(color.contrast(t.light["brand-text"]!, "#ffffff") >= 4.5, `${brand} as text on a white card`);
+    assert.ok(color.contrast(t.dark["brand-text"]!, t.dark.card!) >= 4.5, `${brand} as text on a dark card`);
+  }
+  assert.equal(style.tokens({ ...style.startStyle({ files: [] }, null), brand: "#1f2b5c" }).light["brand-text"], "#1f2b5c", "a brand that reads is used as it is");
+  assert.match(style.brandCss(style.startStyle({ files: [] }, null)), /--brand-text: /);
+});

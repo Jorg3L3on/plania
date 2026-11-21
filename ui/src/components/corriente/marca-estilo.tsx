@@ -101,7 +101,7 @@ export function Spec({ x, dark, logo, title, w, play }: { x: Style; dark: boolea
   const c = dark ? t.dark : t.light;
   const pad = x.density === "compacto" ? 6 : x.density === "amplio" ? 11 : 8;
   const vars = {
-    "--b": c.brand, "--on": c["on-brand"], "--a": c.accent, "--oa": c["on-accent"], "--bg": c.background, "--card": c.card, "--fg": c.foreground, "--mu": c.muted, "--bd": c.border,
+    "--b": c.brand, "--bt": c["brand-text"], "--on": c["on-brand"], "--a": c.accent, "--oa": c["on-accent"], "--bg": c.background, "--card": c.card, "--fg": c.foreground, "--mu": c.muted, "--bd": c.border,
     "--ok": c.success, "--wa": c.warning, "--er": c.danger, "--p": `${pad}px`, "--r": `${t.radius}px`, "--rb": `${t.button}px`, "--sh": t.shadow, "--fh": family(x.head), "--fb": family(x.body),
     "--fs": `${x.base}px`, "--h1": `${Math.min(t.sizes.h1, 40)}px`, "--h3": `${t.sizes.h3}px`, "--sm": `${t.sizes.small}px`, "--wh": x.wHead, "--bw": `${x.border}px`, "--dur": `${t.duration}ms`, "--ease": t.ease, "--lh": x.lh,
   } as React.CSSProperties;

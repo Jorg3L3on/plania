@@ -66,8 +66,13 @@ export function tokens(s: Style): Tokens {
   // A field's border must reach 3:1 against its surface (WCAG 1.4.11); a hover is a step darker (lighter on dark).
   const [bL, bC] = toLch(s.brand);
   const [dL, dC, dH] = toLch(darkBrand);
-  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#166534", warning: "#92400e", danger: "#b91c1c" }; // PLA-130: success and warning text reach 4.5 : 1 on their own tint
-  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
+  // PLA-130: the brand as text (links, the current tab): itself when it reads at 4.5 : 1, else the nearest darker
+  // step of its own scale (lighter on dark), so a light brand colour never makes unreadable links.
+  const firstReadable = (steps: string[], ...on: string[]) => steps.find((c) => on.every((bg) => contrast(c, bg) >= 4.5)) ?? steps[steps.length - 1]!;
+  const brandText = firstReadable([s.brand, ...sc.slice(5)], N(0.985), "#ffffff");
+  const darkBrandText = firstReadable([darkBrand, sc[3]!, sc[2]!, sc[1]!, sc[0]!], darkBg, N(0.215));
+  const light = { background: N(0.985), card: "#ffffff", foreground: N(0.21), muted: N(0.5), border: N(0.91), input: N(0.6), brand: s.brand, "brand-hover": fromLch(Math.max(0.15, bL - 0.07), bC, bh), "on-brand": onColor(s.brand), "brand-text": brandText, tint: sc[1]!, "on-tint": sc[8]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#166534", warning: "#92400e", danger: "#b91c1c" }; // PLA-130: success and warning text reach 4.5 : 1 on their own tint
+  const dark = { background: darkBg, card: N(0.215), foreground: N(0.96), muted: N(0.72), border: N(0.3), input: N(0.52), brand: darkBrand, "brand-hover": fromLch(Math.min(0.95, dL + 0.07), dC, dH), "on-brand": onColor(darkBrand), "brand-text": darkBrandText, tint: sc[9]!, "on-tint": sc[1]!, accent: s.accent, "on-accent": onColor(s.accent), success: "#4ade80", warning: "#fbbf24", danger: "#f87171" };
   const chart = [0, 1, 2, 3, 4].map((i) => fromLch([0.52, 0.72, 0.62, 0.82, 0.45][i]!, 0.13, (bh + i * 72) % 360));
   const sizes = { base: s.base, h1: Math.round(s.base * s.ratio ** 3), h2: Math.round(s.base * s.ratio ** 2), h3: Math.round(s.base * s.ratio), small: Math.round(s.base / s.ratio) };
   const duration = { ninguno: 0, calmo: 320, normal: 200, vivo: 140 }[s.motion];
@@ -92,7 +97,7 @@ export function brandCss(s: Style, o: CssOpts = {}): string {
   const side = (x: Record<string, string>): Record<string, string> =>
     o.shadcn
       ? {
-          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
+          primary: x.brand!, "primary-hover": x["brand-hover"]!, "primary-foreground": x["on-brand"]!, "brand-text": x["brand-text"]!, ring: x.brand!, accent: x.tint!, "accent-foreground": x["on-tint"]!,
           background: x.background!, foreground: x.foreground!, card: x.card!, "card-foreground": x.foreground!, popover: x.card!, "popover-foreground": x.foreground!,
           border: x.border!, input: x.input!, "muted-foreground": x.muted!, destructive: x.danger!,
           "sidebar-primary": x.brand!, "sidebar-primary-foreground": x["on-brand"]!, "sidebar-ring": x.brand!, "sidebar-accent": x.tint!, "sidebar-accent-foreground": x["on-tint"]!,
