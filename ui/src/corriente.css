@@ -2724,4 +2724,4 @@ textarea.vz-in { resize: vertical; line-height: 1.4; }
 /* PLA-130: no text under 11px on Marca's own labels (the mockups keep their real proportions). */
 .mk .mk-core-lbl, .mk .mk-src span, .mk .mk-colors span, .mk .mk-cap, .mk .mk-tie,
 .mk .es-tag, .mk .es-ri > span, .mk .es-h, .mk .es-more, .mk .es-lbl, .mk .es-sub, .mk .es-cap,
-.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span { font-size: 11px; }
+.mk .es-checks b, .mk .es-checks .no, .mk .es-diff, .mk .es-diff span, .mk .es-fromlogo span, .mk .vx-k { font-size: 11px; }
