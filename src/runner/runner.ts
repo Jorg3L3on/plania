@@ -129,6 +129,7 @@ import { personalize } from "../owner.js";
 import { languageLine } from "./owner-language.js";
 import { storedRunnerToken } from "../install-state.js";
 import { defineWords, say } from "../words.js";
+import { ST } from "../state/status.js";
 
 // PLA-I2-10: the stop reason the owner reads when they stop a run, in the install's language; the Spanish is unchanged.
 export const RUNNER_WORDS = defineWords({
@@ -186,7 +187,7 @@ const live = new Map<string, LiveRun>();
 let lastProbeAt = 0;
 const PROBE_EVERY_MS = 5 * 60_000;
 const MINUTE = 60_000;
-const DONE_STATUSES = ["Merged", "Released", "Done", "Won't do"];
+const DONE_STATUSES = [ST.merged, ST.released, ST.done, ST.wontDo];
 export const RUNNER_ADAPTER = "claude_code" as const;
 
 // Serializes the checks and the start so two wakes never both take the last slot.
@@ -938,7 +939,7 @@ export async function ownerChangesOf(db: Db, projectId: string, taskKey: string)
     where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
       and (e.payload ? 'owner_changes' or e.payload->>'text' like ${LEGACY_CHANGES_LIKE})
       and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
-                            and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
+                            and s.type = 'task.status' and s.payload->>'to' = ${ST.inReview}), 0)
     order by e.id desc limit 1`);
   const row = rows.rows[0];
   const text = row?.changes ?? (row?.text ? row.text.replace(LEGACY_CHANGES_PREFIX, "") : null);
@@ -1745,7 +1746,7 @@ export async function handPoCodeToTaller(db: Db, project: Project, key: string, 
     .from(tasks)
     .where(and(eq(tasks.projectId, project.id), eq(tasks.key, key)))
     .limit(1);
-  if (!t || t.kind !== "ticket" || t.status !== "In progress" || !t.owner?.session_id) return false;
+  if (!t || t.kind !== "ticket" || t.status !== ST.inProgress || !t.owner?.session_id) return false;
   const st = await git(["status", "--porcelain"], cwd);
   const changed = st.code === 0 ? st.stdout.split("\n").filter((l) => l.trim()).map((l) => l.slice(3)) : [];
   if (changed.length === 0) return false;
@@ -2061,7 +2062,7 @@ export async function prewarmQueued(db: Db, deps: RunnerDeps = {}, limit = 2): P
     const [project] = await db.select().from(projects).where(eq(projects.id, r.projectId)).limit(1);
     if (!project) continue;
     const [t] = await db.select({ id: tasks.id, key: tasks.key, branch: tasks.branch, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, r.taskKey!))).limit(1);
-    if (!t || t.status !== "Ready") continue;
+    if (!t || t.status !== ST.ready) continue;
     const target = worktreePathFor(root, project.slug, t.key);
     if (existsSync(target)) continue;
     const repo = repoPathOf(project.slug, project.settings, env);

@@ -30,6 +30,7 @@ import type { RunBriefDeps } from "../brief/pipeline.js";
 import { ownerEs, ownerName } from "../owner.js";
 import { screenLocale } from "../locale.js";
 import { defineWords, say } from "../words.js";
+import { ST } from "../state/status.js";
 
 // PLA-I2-10: Asistente's brief, findings, question and acceptance lines, in the install's language; the Spanish is
 // unchanged.
@@ -139,7 +140,7 @@ async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuc
     const rows = await db.execute<{ key: string; last_at: Date | null }>(sql`
       select t.key, (select max(e.created_at) from events e where e.task_id = t.id) as last_at
       from tasks t
-      where t.project_id = ${p.id} and t.kind = 'ticket' and t.status = 'In progress'
+      where t.project_id = ${p.id} and t.kind = 'ticket' and t.status = ${ST.inProgress}
       order by t.key`);
     const old = rows.rows.filter((r) => !r.last_at || now.getTime() - new Date(r.last_at).getTime() > STUCK_HOURS * HOUR);
     if (old.length > 0) {
@@ -335,7 +336,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
   const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`
     select t.id, t.key, t.title, t.version, p.slug as project, p.id as project_id, t.owner_agent as owner
     from tasks t join projects p on p.id = t.project_id
-    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'owner' and t.work_type in ('ops', 'research') and t.owner_agent is not null
+    where t.kind = 'ticket' and t.status = ${ST.inReview} and t.origin = 'owner' and t.work_type in ('ops', 'research') and t.owner_agent is not null
       and t.pr_url is null
       and not exists (select 1 from checks c where c.task_id = t.id and not c.done and c.waived_at is null)
     order by t.key`);
@@ -344,7 +345,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     const [owner] = await db.select().from(agents).where(eq(agents.id, r.owner)).limit(1);
     if (!owner || roleOf(owner) !== "product-owner") continue;
     try {
-      await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: say(ASISTENTE_WORDS).acceptedNote() } as never, actorCtx("jobs.asistente.accept"));
+      await setTask(db, { project: r.project, key: r.key, status: ST.done, version: r.version, note: say(ASISTENTE_WORDS).acceptedNote() } as never, actorCtx("jobs.asistente.accept"));
     } catch {
       continue;
     }
@@ -353,7 +354,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     const at = now.toISOString();
     await db
       .update(threadMessages)
-      .set({ actionState: { action: "aceptar", at, result: { ticket: r.key, status: "Done", by: "asistente" } } })
+      .set({ actionState: { action: "aceptar", at, result: { ticket: r.key, status: ST.done, by: "asistente" } } })
       .where(and(eq(threadMessages.threadId, thread.id), sql`${threadMessages.actionState} is null`, sql`${threadMessages.links} @> ${JSON.stringify([{ kind: "ticket", ref: r.key }])}::jsonb`));
     await postMessage(
       db,
@@ -369,7 +370,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
   return n;
 }
 
-const OPEN_FOR_PO = ["Ready", "In progress", "Needs owner"];
+const OPEN_FOR_PO = [ST.ready, ST.inProgress, ST.needsOwner];
 
 // A PO with a goal and nothing to do (no Ready, In progress or Needs owner ticket of its own, no run going)
 // is woken once a week at most to put 2-3 ideas in its project thread and ask the owner which one.

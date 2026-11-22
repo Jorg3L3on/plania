@@ -14,12 +14,10 @@ import { iso, type Ctx, type Q } from "./tx.js";
 import { summarize } from "./summary.js";
 import { whyChainOf } from "./goals.js";
 import { initiativeState } from "./initiative-state.js";
+import { ST, sqlIn } from "../state/status.js";
+import { claimable } from "../state/workable.js";
 
 export { ToolError };
-
-// Claimable: Backlog or Ready, or In progress whose lease is gone (stale_claim).
-const claimableNow = sql`(${tasks.status} in ('Backlog', 'Ready')
-  or (${tasks.status} = 'In progress' and (${tasks.leaseUntil} is null or ${tasks.leaseUntil} < now())))`;
 
 // P0 first, P3 last, null after everything. Text order of P0..P3 is already correct.
 const byPriority = sql`${tasks.priority} asc nulls last`;
@@ -364,7 +362,7 @@ export { claimShape };
 
 export async function projectCounts(db: Q, projectId: string) {
   const discovered = sql`${tasks.origin} = 'discovered'`;
-  const settled = sql`${tasks.status} in ('In review', 'Done')`;
+  const settled = sqlIn(tasks.status, [ST.inReview, ST.done]);
   const [row] = await db
     .select({
       chartered: sql<number>`count(*) filter (where not coalesce(${discovered}, false))::int`,
@@ -373,7 +371,7 @@ export async function projectCounts(db: Q, projectId: string) {
       foundOpen: sql<number>`count(*) filter (where ${discovered} and not ${settled})::int`,
     })
     .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "ticket"), sql`${tasks.status} <> 'Won''t do'`));
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "ticket"), sql`${tasks.status} <> ${ST.wontDo}`));
   return row ?? { chartered: 0, charteredSettled: 0, found: 0, foundOpen: 0 };
 }
 
@@ -464,17 +462,9 @@ export async function getMemory(db: Q, p: Project, filters: DecisionFilters = {}
 // Read-only. Claimable: ticket in Backlog|Ready whose blockers are all In review|Done.
 export async function nextTask(db: Q, projectId: string, initiativeKey?: string) {
   const [p] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId)).limit(1);
-  const where: SQL[] = [
-    eq(tasks.projectId, projectId),
-    eq(tasks.kind, "ticket"),
-    claimableNow,
-    sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
-  ];
-  // settings.claim_from: "ready" means only Ready tickets (and stale claims) are offered.
-  if (p?.settings.claim_from === "ready") where.push(sql`${tasks.status} <> 'Backlog'`);
-  // PLA-161: a step of an initiative the owner put On hold is postponed on purpose; the screen reads it Pospuesto, so
-  // it is never offered either (a stale claim on it included: whoever held it hands it back, nobody new takes it).
-  where.push(sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`);
+  // PLA-I74-4: the one workable rule (src/state/workable.ts): unblocked, not under an On hold initiative (PLA-161), not
+  // a person's own step. settings.claim_from "ready" means only Ready tickets (and stale claims) are offered.
+  const where: SQL[] = [eq(tasks.projectId, projectId), claimable({ backlog: p?.settings.claim_from !== "ready" })];
   if (initiativeKey !== undefined) {
     const initiative = await findTask(db, projectId, initiativeKey);
     if (!initiative || initiative.kind !== "initiative") throw new ToolError("INITIATIVE_NOT_FOUND");
@@ -501,7 +491,7 @@ export async function nextTask(db: Q, projectId: string, initiativeKey?: string)
       priority: t.priority,
       parent_key: parent?.key ?? null,
       blocked_by: await blockerList(db, t),
-      stale_claim: t.status === "In progress",
+      stale_claim: t.status === ST.inProgress,
       workspace: t.workspace,
       request: t.origin === "owner",
     },

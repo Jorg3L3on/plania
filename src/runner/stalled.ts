@@ -4,6 +4,7 @@ import type { Db } from "../db/client.js";
 import { agents, type Agent } from "../db/schema.js";
 import { enqueueWake, eventWakesEnabled, serviceAgent } from "./events.js";
 import { STAGE_REASON, stageOwner, type IdeaStage } from "./stages.js";
+import { ST } from "../state/status.js";
 
 type Stalled = { id: string; key: string; stage: IdeaStage; project_id: string; slug: string; owner_agent: string | null } & Record<string, unknown>;
 
@@ -14,7 +15,7 @@ export async function sweepStalledIdeas(db: Db, now = new Date(), env: NodeJS.Pr
     select t.id, t.key, t.stage, t.project_id, p.slug, t.owner_agent
     from tasks t
     join projects p on p.id = t.project_id
-    where t.kind = 'idea' and t.status = 'Open' and t.promoted_to is null and t.stage in ('idea', 'research', 'design', 'planning')
+    where t.kind = 'idea' and t.status = ${ST.open} and t.promoted_to is null and t.stage in ('idea', 'research', 'design', 'planning')
       and not p.runs_paused
       and not exists (
         select 1 from agent_runs r
