@@ -144,7 +144,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     release: { from: "sandbox", into: "main", env: "prod", mode: "merge" },
     release_target: "prod",
     capture: { start_command: "node server.mjs {port}", port: 4100 + n * 10, pages: [{ key: "inicio", path: "/", label: "Inicio" }, { key: "clientes", path: "/clientes", label: "Clientes" }] },
-    qa: { enabled: true, verify: [{ name: "tests", command: "node --test test/" }] },
+    qa: { enabled: true, verify: [{ name: "tests", command: "node --test test/*.test.mjs" }] },
     ...(opts.revision === "por_modulo" ? {} : { velocidad: { revision: "por_paso" } }),
   };
   const pid = (await raw.query(`insert into projects (slug, title, key_prefix, settings, runs_paused) values ($1, $2, $3, $4, false) returning id`, [slug, `Canary ${opts.locker} ${n}`, prefix, JSON.stringify(settings)])).rows[0].id as string;
@@ -612,7 +612,7 @@ export const SCRIPTS: Record<string, Script> = {
       key: run.key,
       pr_url: url,
       branch,
-      result: { kind: "test", verdict: "pass", cite: "node --test test/: pass", command: "node --test test/", commit: head(ws.path), branch, check_ns: (t.checks as Json[]).map((c) => c.n) },
+      result: { kind: "test", verdict: "pass", cite: "node --test test/*.test.mjs: pass", command: "node --test test/*.test.mjs", commit: head(ws.path), branch, check_ns: (t.checks as Json[]).map((c) => c.n) },
       muestra: MUESTRA,
     });
     if (out.error) {
@@ -623,7 +623,7 @@ export const SCRIPTS: Record<string, Script> = {
       gitIn(ws.path, "-c", "user.name=taller", "-c", "user.email=taller@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `${run.key}: arreglo la prueba`);
       gitIn(ws.path, "push", "-q", "origin", `HEAD:${branch}`);
       w.github.pushed(branch);
-      await run.call("finish", { project: run.project, key: run.key, pr_url: url, branch, result: { kind: "test", verdict: "pass", cite: "node --test test/: pass", command: "node --test test/", commit: head(ws.path), branch, check_ns: (t.checks as Json[]).map((c) => c.n) }, muestra: MUESTRA });
+      await run.call("finish", { project: run.project, key: run.key, pr_url: url, branch, result: { kind: "test", verdict: "pass", cite: "node --test test/*.test.mjs: pass", command: "node --test test/*.test.mjs", commit: head(ws.path), branch, check_ns: (t.checks as Json[]).map((c) => c.n) }, muestra: MUESTRA });
     }
     await closingLine(run, `Entregué ${run.key}: ${url}`);
   },

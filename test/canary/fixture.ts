@@ -61,7 +61,7 @@ const PACKAGE = (locker: Locker) =>
       private: true,
       version: "0.0.0",
       type: "module",
-      scripts: { dev: "node server.mjs", test: "node --test test/", build: "node -e \"process.exit(0)\"" },
+      scripts: { dev: "node server.mjs", test: "node --test test/*.test.mjs", build: "node -e \"process.exit(0)\"" },
       ...(locker === "pnpm" ? { packageManager: "pnpm@10.4.1" } : {}),
     },
     null,
