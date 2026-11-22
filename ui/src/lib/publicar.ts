@@ -2,6 +2,7 @@
 // PLA-I2-10: its words in both languages.
 // PLA-I68-1: two different databases, said apart. The copy Plania migrates is the local test copy, never production;
 // production is migrated by whoever settings.release.prod_migrations names, and with nobody named Publicar waits.
+import { envFocus } from "./camino-entornos.js";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 
 export type ProdMigrations = "deploy" | "owner" | "none";
@@ -20,6 +21,8 @@ export const PUBLICAR_WORDS = defineWords({
     waitTitle: "Publicar espera",
     waitWhy: "Lleva cambios a la base y nadie dijo quién migra producción.",
     setIt: "Decir quién migra",
+    pickDb: (env: string) => `Elige la base de datos de ${env}`,
+    pickDbWhy: (env: string) => `Falta un dato: la base de datos de ${env}. Con ella, Plania sabe quién migra.`,
     options: {
       deploy: { label: "El despliegue", hint: "El servicio que publica la app corre las migraciones antes de recibir tráfico." },
       owner: { label: "Yo, a mano", hint: "Tú corres las migraciones en producción después de publicar." },
@@ -41,6 +44,8 @@ export const PUBLICAR_WORDS = defineWords({
     waitTitle: "Release waits",
     waitWhy: "It carries database changes and nobody said who migrates production.",
     setIt: "Say who migrates",
+    pickDb: (env: string) => `Pick ${env}'s database`,
+    pickDbWhy: (env: string) => `One thing is missing: ${env}'s database. With it, Plania knows who migrates.`,
     options: {
       deploy: { label: "The deploy", hint: "The service that publishes the app runs the migrations before taking traffic." },
       owner: { label: "Me, by hand", hint: "You run the migrations in production after releasing." },
@@ -56,6 +61,16 @@ export const publicarWords = (language: Language = getLanguage()) => words(PUBLI
 /** The release carries migrations and nobody is named to migrate production: Publicar waits. */
 export const prodWaits = (r: { migrations?: string[]; prod_migrations?: ProdMigrations | null } | null | undefined): boolean =>
   !!r?.migrations?.length && !r.prod_migrations;
+
+/** PLA-158 (F-25): where «Decir quién migra» goes and what it says. With Camino's production environment it opens that
+ * environment on the field that is missing (the database's service), else the older Ajustes setting. */
+export function prodFixLink(r: { prod_fix?: { env: string; name: string; missing: "provider" | null } | null } | null | undefined, language: Language = getLanguage()): { label: string; why: string | null; env: string | null; focus: string | null } {
+  const w = words(PUBLICAR_WORDS, language);
+  const f = r?.prod_fix;
+  if (!f) return { label: w.setIt, why: null, env: null, focus: null };
+  if (f.missing === "provider") return { label: w.pickDb(f.name), why: w.pickDbWhy(f.name), env: f.env, focus: envFocus(f.env, "base") };
+  return { label: w.setIt, why: null, env: f.env, focus: envFocus(f.env, "cuando") };
+}
 
 /** What the sheet says about the database: what the release carries, the local test copy (only when Plania has one),
  * and production, always on its own line of meaning. Never says production is migrated when only the copy is. */

@@ -10,7 +10,7 @@
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
 // Esc and Cancelar close; focus starts inside and returns where it was.
-import { migrationLine, prodWaits, publicarWords } from "@/lib/publicar";
+import { migrationLine, prodFixLink, prodWaits, publicarWords } from "@/lib/publicar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -374,6 +374,7 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
   // PLA-I68-1: migrations with nobody named for production: the sheet offers the setting instead of Publicar.
   const waits = prodWaits(r);
   const pw = publicarWords();
+  const prodFix = prodFixLink(r);
   const done = ship.isSuccess ? ship.data : null;
   return (
     <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose} wide>
@@ -393,6 +394,11 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       {!!r.migrations?.length && (
         <p className="cor-text" data-publish-migrations={r.migrate ?? ""} data-publish-prod={r.prod_migrations ?? "unset"}>
           {migrationLine(r.migrations, r.migrate ?? null, p.title, undefined, r.prod_migrations ?? null)}
+        </p>
+      )}
+      {waits && prodFix.why && (
+        <p className="cor-text" data-publish-prod-fix={prodFix.focus ?? ""}>
+          {prodFix.why}
         </p>
       )}
       {!!r.reel?.length && (
@@ -444,8 +450,9 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
         ) : (
           <>
             {waits ? (
-              <Link className="cor-btn primary" to={`${linkTo({ slug: p.slug, tab: "ajustes" })}#ajustes-lanzamiento`} onClick={onClose} data-control="publicar-ajustes">
-                {pw.setIt}
+              // PLA-158 (F-25): to Camino's production environment, on the field that is missing.
+              <Link className="cor-btn primary" to={prodFix.env ? `${linkTo({ slug: p.slug, tab: "camino", ver: { kind: "camino", sec: `env:${prodFix.env}` } })}#${prodFix.focus}` : `${linkTo({ slug: p.slug, tab: "camino" })}`} onClick={onClose} data-control="publicar-ajustes">
+                {prodFix.label}
               </Link>
             ) : (
               <Btn kind="primary" disabled={ship.isPending || blocked} onClick={() => ship.mutate()} data-control="publicar-si">

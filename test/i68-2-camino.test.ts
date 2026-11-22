@@ -348,7 +348,12 @@ describe("findings", () => {
   test("PLA-132: who migrates production is fixed in its environment, and a saved environment that says it clears the finding", () => {
     const env = { id: "prod", name: "Producción", kind: "produccion", record: "prod", runs: { kind: "branch", branch: "main" }, url: null, server: { provider: null, project: null, note: null }, database: { provider: null, name: null, data: "real", roles_split: false, migrate_when: "mano", lock: false, sql_review: false, approve_destructive: true, backup: "ninguna" }, vars: [], health: { url: null, pages: [] }, publisher: "owner", freeze: false };
     const derived = cam.findings(base({ config: { envs: [env] } }), NOW, "es");
-    assert.deepEqual(derived.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", go: "env:prod" });
+    // PLA-158 (F-25): its database has no service: that one field is named, and the fix lands on it.
+    const unset = derived.find((f) => f.id === "prod-unset")!;
+    assert.equal(unset.title, "Elige la base de datos de Producción");
+    assert.deepEqual(unset.fix, { label: "Elegir la base", go: "env:prod", focus: "env-prod-base" });
+    const notSaved = cam.findings(base({ config: { envs: [{ ...env, database: { ...env.database, provider: "neon" } }] } }), NOW, "es").find((f) => f.id === "prod-unset")!;
+    assert.deepEqual(notSaved.fix, { label: "Decir quién migra", go: "env:prod", focus: "env-prod-cuando" }, "with the service set it lands on «Cuándo se migra»");
     const saved = { ...env, database: { ...env.database, provider: "neon" } };
     const F = cam.findings(base({ config: { envs: [saved], source: { model: "settings", branches: "settings", merge: "default", envs: "camino" } } }), NOW, "es");
     assert.ok(!ids(F).includes("prod-unset"), "Despliegue already says who migrates");

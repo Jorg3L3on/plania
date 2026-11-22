@@ -58,7 +58,9 @@ export type ReleasePlan = {
   // PLA-I68-1: who migrates production (settings.release.prod_migrations, else Camino's production environment).
   prod_migrations: ProdMigrations | null;
   // PLA-I68-6: Camino's production environment, as Publicar uses it (null when Camino names none).
-  prod_env: { id: string; name: string; sql_review: boolean; approve_destructive: boolean; backup: string | null; health: { url: string | null; pages: string[] }; freeze: boolean } | null;
+  // PLA-158 (F-25): db_missing says the environment has a database whose service nobody picked, the one field that
+  // keeps «who migrates» unanswered (prodMigrationsFromEnv), so the screen can name it.
+  prod_env: { id: string; name: string; sql_review: boolean; approve_destructive: boolean; backup: string | null; health: { url: string | null; pages: string[] }; freeze: boolean; db_missing?: "provider" | null } | null;
 };
 
 /** PLA-I68-1: the release adds migrations (reserved numbers or files in the compare) and the project names nobody to
@@ -201,7 +203,7 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     ship: { ready: reason === null, reason },
     prod_migrations: prodMig ?? null,
     prod_env: prodEnv
-      ? { id: prodEnv.id, name: prodEnv.name, sql_review: !!prodEnv.database?.sql_review, approve_destructive: !!prodEnv.database?.approve_destructive, backup: prodEnv.database?.backup ?? null, health: prodEnv.health, freeze: prodEnv.freeze }
+      ? { id: prodEnv.id, name: prodEnv.name, sql_review: !!prodEnv.database?.sql_review, approve_destructive: !!prodEnv.database?.approve_destructive, backup: prodEnv.database?.backup ?? null, health: prodEnv.health, freeze: prodEnv.freeze, db_missing: prodEnv.database && !prodEnv.database.provider ? "provider" : null }
       : null,
   };
 }

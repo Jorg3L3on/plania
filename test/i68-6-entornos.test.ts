@@ -146,6 +146,24 @@ describe("production drives Publicar", () => {
     assert.match(E.rolesSql("tienda"), /CREATE ROLE tienda_migrate LOGIN/);
   });
 
+  test("PLA-158 (F-25): «Usar lo recomendado» also says when production migrates, and names the database when it is missing", () => {
+    const db = prod().database!;
+    const known = E.prodRecommended({ ...db, provider: "neon", migrate_when: "mano", sql_review: false, backup: "ninguna" });
+    assert.deepEqual(known.patch, { sql_review: true, approve_destructive: true, backup: "proveedor", provider: "neon", migrate_when: "paso" });
+    assert.equal(known.missing, null);
+    assert.equal(known.done, false);
+    const after = { ...db, ...known.patch } as never;
+    assert.equal(prodMigrationsFromEnv(prod({ database: after }) as never), "deploy", "after the click Publicar knows who migrates");
+    assert.equal(E.prodRecommended(after).done, true);
+    const unknown = E.prodRecommended({ ...db, provider: null });
+    assert.equal(unknown.missing, "provider");
+    assert.equal("provider" in unknown.patch, false, "the service is never guessed");
+    assert.equal(unknown.done, false);
+    const saved = E.prodRecommended({ ...db, provider: null }, "supabase");
+    assert.deepEqual([saved.missing, saved.patch.provider, saved.patch.migrate_when], [null, "supabase", "paso"], "a database service with a saved key counts as known");
+    assert.equal(E.envFocus("produccion", "base"), "env-produccion-base");
+  });
+
   test("Publicar reads production's migration path from Camino when the release step names none", async () => {
     const p = await findProject(db, "zigzag");
     const env = prod({ database: { ...prod().database!, provider: "neon", migrate_when: "paso", sql_review: true, approve_destructive: true } });
@@ -155,6 +173,13 @@ describe("production drives Publicar", () => {
     const plan = (await releasePlan(db, await findProject(db, "zigzag")))!;
     assert.equal(plan.prod_migrations, "deploy");
     assert.equal(plan.prod_env?.sql_review, true);
+    assert.equal(plan.prod_env?.db_missing, null);
+    // PLA-158 (F-25): a database with no service is the field the screen names.
+    await raw.query(`update camino set config = config || $2::jsonb where project_id = $1`, [p.id, JSON.stringify({ envs: [prod()] })]);
+    const unset = (await releasePlan(db, await findProject(db, "zigzag")))!;
+    assert.equal(unset.prod_migrations, null);
+    assert.equal(unset.prod_env?.db_missing, "provider");
+    await raw.query(`update camino set config = config || $2::jsonb where project_id = $1`, [p.id, JSON.stringify({ envs: [env] })]);
   });
 
   describe("shipping a release with a destructive migration", () => {
