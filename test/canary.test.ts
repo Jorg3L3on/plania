@@ -17,6 +17,9 @@ process.env.PLANIA_EVENT_WAKES = "1";
 process.env.PLANIA_HOME_PROJECT = "micasa";
 process.env.PLANIA_PROMPTS_PROJECT = "micasa";
 process.env.PLANIA_TZ = "America/Mexico_City";
+const scratch = mkdtempSync(path.join(tmpdir(), "plania-canary-"));
+// The stills runCapture records (PNG files) go to the scratch folder, never ~/plania-captures.
+process.env.PLANIA_CAPTURES_DIR = path.join(scratch, "captures");
 const { loadMods, makeWorld } = await import("./canary/harness.js");
 const m = await loadMods();
 
@@ -24,7 +27,8 @@ type World = Awaited<ReturnType<typeof makeWorld>>;
 let raw: pg.Client;
 let db: any;
 let closeDb: (() => Promise<void>) | undefined;
-const scratch = mkdtempSync(path.join(tmpdir(), "plania-canary-"));
+// The screen's own words for the check-up warning next to «Constrúyelo» (ui/src/lib/revision.ts).
+const revisionUi = (await import(new URL("../ui/src/lib/revision.ts", import.meta.url).href)) as { buildWarning: (r: unknown, now: number) => string | null };
 
 before(async () => {
   raw = await resetTestDb();
@@ -55,6 +59,7 @@ async function world(locker: "npm" | "pnpm", opts: Parameters<typeof makeWorld>[
   m.qa.resetQaForTests();
   m.prueba.resetPrueba();
   m.turns.resetTurnWatchForTests();
+  m.revision.resetRevision();
   // Only this world's project runs: the others stay paused, so a tick never wakes an earlier world's agents. An
   // earlier row's project is removed (its agents, runs and events with it): the floor reads stay one project wide.
   await raw.query(`update projects set runs_paused = true`);
@@ -62,6 +67,7 @@ async function world(locker: "npm" | "pnpm", opts: Parameters<typeof makeWorld>[
   await raw.query(`delete from projects where slug like 'canary-%'`);
   const w = await makeWorld(m, raw, db, scratch, { locker, ...opts });
   m.prueba.setPruebaDeps(w.pruebaDeps as never);
+  m.revision.setRevisionDeps(w.revisionDeps as never);
   return w;
 }
 
@@ -87,8 +93,16 @@ async function meGusta(w: World) {
   const r = await w.click("me_gusta", `/api/company/projects/${w.slug}/ideas/${w.ideaKey}/respuesta`, { stop: "diseno", verdict: "ok" });
   assert.equal(r.status, 200, JSON.stringify(r.json));
 }
+/** The line the screen shows next to «Constrúyelo» about the check-up (null: rehearsed and green). */
+async function buildWarning(w: World): Promise<string | null> {
+  const r = await w.read(`/api/projects/${w.slug}/revision`);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  return revisionUi.buildWarning(r.json.revision, Date.now());
+}
+const warnings = new Map<World, string | null>();
 async function construir(w: World) {
   await w.until("the plan at Lista", async () => (await w.task(w.ideaKey!))?.stage === "ready");
+  warnings.set(w, await buildWarning(w));
   const r = await w.click("construir", `/api/company/projects/${w.slug}/pedidos/${w.ideaKey}/construir`);
   assert.equal(r.status, 200, JSON.stringify(r.json));
 }
@@ -187,9 +201,12 @@ describe("PLA-I74-2: the happy path", () => {
         if (process.env.CANARY_DEBUG) console.log(JSON.stringify({ turns: w.turns, installs: w.installs.map((i) => i.command), servers: w.servers.length, shots: w.shots.length, roles: w.spawned.map((r) => `${r.role}:${r.key}`), events: (await w.all(`select type from events where project_id = $1 order by id`, [w.pid])).map((r) => r.type) }, null, 1));
         await settled(w);
         await inOrder(w, KEY_EVENTS);
-        // The test copies installed with the lockfile's own tool, never the other one.
-        assert.ok(w.installs.length > 0, "the delivery copy installed its packages");
+        // The test copies and the check-up installed with the lockfile's own tool, never the other one.
+        assert.ok(w.installs.some((i) => i.by === "copia"), "the delivery copy installed its packages");
+        assert.ok(w.installs.some((i) => i.by === "revision"), "the setup check-up installed its packages");
         assert.deepEqual([...new Set(w.installs.map((i) => i.command))], [w.fx.installCommand]);
+        // Ready means rehearsed: the setup check-up passed, so «Constrúyelo» showed no warning.
+        assert.equal(warnings.get(w), null, "no check-up warning next to «Constrúyelo»");
         // The builder's commit is the one that reached main.
         const main = (await import("./canary/fixture.js")).head(w.fx.origin, "main");
         const env = await w.one(`select commit from env_states where project_id = $1 and env = 'prod'`, [w.pid]);
@@ -309,24 +326,26 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  test("PLA-166/168: the app compiles slowly on its first start; El Probador waits for it and the photos come", todo("PLA-I74-7"), async () => {
+  test("PLA-166/168: the app compiles slowly on its first start; the check-up measures it, El Probador waits that long and the photos come", async () => {
     await row("npm", {}, async (w) => {
-      // Every new copy answers 3 s after its start; the fixed wait is 2 s. Measured waits (twice the cold start) cover it.
-      let since = 0;
-      const spawn = w.pruebaDeps.spawn;
-      w.pruebaDeps.spawn = (command, o) => ((since = Date.now()), spawn(command, o));
-      w.appUp = async () => Date.now() - since > 3_000;
+      // Every new copy answers 200 s after its start (fast clock): longer than the old fixed 180 s wait.
+      w.coldMs = 200_000;
       await walk(w);
       await settled(w);
+      const measured = await w.one(`select (payload->>'cold_start_ms')::bigint ms from events where project_id = $1 and type = 'revision.pass' order by id desc limit 1`, [w.pid]);
+      assert.ok(Number(measured?.ms) >= 200_000, `the setup check-up measured the cold start: ${measured?.ms}`);
       const failed = await w.one(`select count(*)::int n from events where project_id = $1 and type = 'probador.pass' and (payload->>'ok')::boolean is not true`, [w.pid]);
       assert.equal(failed!.n, 0, "no photo pass failed on the slow start");
     });
   });
 
-  test("wrong-page photos: the sample's click lands on another page; the photo is marked wrong and Aceptar waits", todo("PLA-I74-10"), async () => {
+  test("wrong-page photos: the sample's view lands on another page; the photo is marked wrong and Aceptar waits", async () => {
     await row("npm", {}, async (w) => {
-      // The delivery's Clientes view ends on the login page (a session that expired mid-pass).
-      w.landing = (url) => (url.endsWith("/clientes") && !url.includes(`:${4100 + w.n * 10}/`) ? url.replace(/\/clientes$/, "/login") : url);
+      // On the delivery's copy, the Clientes view ends on the login page (a session that expired mid-pass).
+      w.landing = (url) => {
+        const port = m.prueba.entregaRead(w.slug)?.port;
+        return port && url.startsWith(`http://localhost:${port}/clientes`) ? `http://localhost:${port}/login` : url;
+      };
       await pedir(w);
       await asiEs(w);
       await meGusta(w);
@@ -335,7 +354,17 @@ describe("PLA-I74-3: scenario rows", () => {
       for (let i = 0; i < 2; i += 1) await w.tick();
       const card = await deliveryCard(w);
       assert.ok(!card || card.hold, `Aceptar is not offered on a photo of the wrong page: ${JSON.stringify(card)}`);
-      assert.match(JSON.stringify((await w.task(w.stepKey!))!.probador), /login|página|page/i, "the pass names the page it landed on");
+      const probador = (await w.task(w.stepKey!))!.probador;
+      assert.equal(probador.wrong, true);
+      assert.match(probador.error, /\/login/, "the pass names the page it landed on");
+      // The server refuses the accept too, not only the card.
+      if (card) {
+        const r = await w.click("aceptar", `/api/company/decisions/${card.id}`, { action: (card.actions as string[]).includes("fusionar") ? "fusionar" : "aceptar" });
+        assert.notEqual(r.status, 200, JSON.stringify(r.json));
+        assert.match(JSON.stringify(r.json), /PHOTO_WRONG_PAGE/);
+      }
+      assert.notEqual((await w.task(w.stepKey!))!.status, "Merged");
+      assert.deepEqual(w.fakeErrors, []);
     });
   });
 
@@ -483,15 +512,18 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  test("the project's check-up has never passed; «Constrúyelo» says so before the build starts", todo("PLA-I74-6"), async () => {
+  test("the project's check-up is red; «Constrúyelo» says so on the screen before the build starts", async () => {
     await row("npm", {}, async (w) => {
+      w.checkupFails = true;
       await pedir(w);
       await asiEs(w);
       await meGusta(w);
       await w.until("the plan at Lista", async () => (await w.task(w.ideaKey!))?.stage === "ready");
-      const r = await w.click("construir", `/api/company/projects/${w.slug}/pedidos/${w.ideaKey}/construir`);
-      assert.equal(r.status, 200);
-      assert.match(JSON.stringify(r.json), /revisi|check-up|revisar/i, `«Constrúyelo» warns that the project was never rehearsed: ${JSON.stringify(r.json)}`);
+      const last = await w.one(`select (payload->>'ok')::boolean ok from events where project_id = $1 and type = 'revision.pass' order by id desc limit 1`, [w.pid]);
+      assert.equal(last?.ok, false, "the setup check-up ran and is red");
+      const warning = await buildWarning(w);
+      assert.ok(warning, "the screen warns next to «Constrúyelo»");
+      assert.match(warning!, /revisi/i, warning!);
     });
   });
 

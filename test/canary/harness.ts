@@ -46,6 +46,9 @@ export async function loadMods() {
     actions: await import("../../src/api/company-actions.js"),
     queries: await import("../../src/mcp/queries.js"),
     turns: await import("../../src/jobs/turns.js"),
+    capture: await import("../../src/captures/run.js"),
+    revision: await import("../../src/captures/revision.js"),
+    diff: await import("../../src/captures/diff.js"),
     etapa: await import("../../src/api/etapa.js"),
   };
 }
@@ -152,43 +155,103 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   // ---- Fakes at their seams
 
   // The test copies (Encenderla, the delivery copy): real git worktrees; the install and the dev server are fakes.
-  const installs: { command: string; cwd: string }[] = [];
-  const servers: { command: string; cwd: string }[] = [];
+  const installs: { command: string; cwd: string; by: string }[] = [];
+  const servers: { command: string; cwd: string; at: number }[] = [];
+  // The copies' and the check-up's clock (PruebaDeps.now, RevisionDeps.now): a hundred times fast, so a cold start of
+  // minutes is seconds of test. Leases stay on Postgres time; the turn watchdog has its own fast clock (tick).
+  const clockFrom = Date.now();
+  const vnow = () => clockFrom + (Date.now() - clockFrom) * 100;
+  // A dev server answers once its cold start (w.coldMs, on the fast clock) has passed since it was started on that port.
+  const startedOn = new Map<string, number>();
+  const answers = async (url: string) => {
+    const port = /:(\d+)/.exec(url)?.[1] ?? "";
+    const at = startedOn.get(port);
+    return at !== undefined && vnow() - at >= w.coldMs;
+  };
   let devPid = 70_000 + n * 1000;
   const children = new Map<number, EventEmitter>();
   const pruebaDeps = {
     git: realGit,
-    exec: async (command: string, o: { cwd: string }) => (installs.push({ command, cwd: o.cwd }), { code: 0, stdout: "", stderr: "" }),
+    exec: async (command: string, o: { cwd: string }) => (installs.push({ command, cwd: o.cwd, by: "copia" }), { code: 0, stdout: "", stderr: "" }),
     spawn: (command: string, o: { cwd: string }) => {
-      servers.push({ command, cwd: o.cwd });
+      servers.push({ command, cwd: o.cwd, at: vnow() });
+      const port = /(\d{4,5})\s*$/.exec(command)?.[1];
+      if (port) startedOn.set(port, vnow());
       const child = Object.assign(new EventEmitter(), { pid: ++devPid, stdout: new PassThrough(), stderr: new PassThrough() });
       children.set(child.pid, child);
       return child as never;
     },
     kill: (p: number) => children.get(Math.abs(p))?.emit("exit", null, "SIGTERM"),
     alive: (p: number) => children.has(Math.abs(p)),
-    up: async () => w.appUp(),
+    up: answers,
     portBusy: async () => false,
     footprints: false,
     env: { ...process.env, PLANIA_WORKTREES_ROOT: worktrees, HOME: home },
-    readyMs: 2_000,
+    now: vnow,
     pollMs: 5,
     sweep: false,
     signals: false,
   };
 
-  // The browser: El Probador's and QA's photos. Each view lands on the page it names (final_url), unless a scenario
-  // says otherwise.
-  const shots: { side: string; url: string; final_url: string }[] = [];
-  const capture = async (_db: unknown, input: Json) => {
-    const views = (input.views ?? settings.capture.pages) as { key: string; path: string }[];
-    const stills = views.flatMap((v) => ["desktop", "phone"].map((viewport) => {
-      const url = `${input.base_url}${v.path}`;
-      const final_url = w.landing(url);
-      shots.push({ side: input.side ?? "qa", url, final_url });
-      return { page: v.key, viewport, status: "ok", id: `${input.side ?? "qa"}-${v.key}-${viewport}-${shots.length}`, final_url };
-    }));
-    return { run_id: randomUUID(), project: input.project, task_key: input.task_key ?? null, commit: input.commit ?? null, branch: input.branch ?? null, base_url: input.base_url, ok: stills.length, failed: 0, stills };
+  // The browser: El Probador's, QA's and the check-up's photos go through the real runCapture (its waits, its URL check,
+  // the stills it records); only the browser is fake. A tab lands where w.landing says (a scenario sends a view to the
+  // login page) and draws a PNG whose colour is its URL, so before and after differ where the page did.
+  const shots: { url: string; at: string }[] = [];
+  const png = (url: string) => {
+    const h = [...url].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+    const data = Buffer.alloc(16 * 12 * 3);
+    for (let k = 0; k < data.length; k += 3) data.set([h & 255, (h >> 8) & 255, (h >> 16) & 255], k);
+    return m.diff.encodePng({ width: 16, height: 12, channels: 3, data });
+  };
+  const browser = {
+    launch: async () => {
+      let at = "about:blank";
+      return {
+        page: {
+          setViewport: async () => undefined,
+          goto: async (url: string) => {
+            at = w.landing(url);
+            shots.push({ url, at });
+            return { status: 200, url: at };
+          },
+          evaluate: async (expression: string) => {
+            if (expression === "location.href") return at;
+            if (expression === "location.pathname") return new URL(at).pathname;
+            if (expression === m.capture.PAGE_TEXT_SCRIPT) return { overlay: "", body: "Clientes" };
+            return null;
+          },
+          screenshot: async () => png(at),
+          cookies: async () => [],
+        },
+        close: async () => undefined,
+      };
+    },
+    fetch: (async () => new Response("ok", { status: 200 })) as unknown as typeof fetch,
+    exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    loginWaitMs: 50,
+    formWaitMs: 50,
+  };
+  const capture = (cdb: unknown, input: Json) => m.capture.runCapture(cdb as never, input as never, browser as never);
+
+  // «Revisar proyecto» (PLA-I74-6): the check-up the server runs at setup, on a fresh copy, with its outside calls faked.
+  const revisionDeps = {
+    git: realGit,
+    exec: async (command: string, o: { cwd: string }) => {
+      if (/install|npm ci/.test(command)) installs.push({ command, cwd: o.cwd, by: "revision" });
+      if (w.checkupFails && /install|npm ci/.test(command)) return { code: 1, stdout: "", stderr: "ERR! the lockfile is out of date\n" };
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    spawn: pruebaDeps.spawn,
+    kill: pruebaDeps.kill,
+    up: answers,
+    pickPort: async () => 4600 + n,
+    photo: (i: Json) => m.capture.photoCheck(i as never, browser as never),
+    fetch: host.fetch as unknown as typeof fetch,
+    disk: async () => 500 * 2 ** 30,
+    env: { ...process.env, PLANIA_WORKTREES_ROOT: worktrees, HOME: home, VERCEL_TOKEN: "canary-token" },
+    now: vnow,
+    pollMs: 5,
+    footprints: false,
   };
 
   // The claude process: one scripted agent per role.
@@ -351,7 +414,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   let ticks = 0;
   const born = Date.now();
   const qaDeps = () => ({ runner: deps, env: deps.env, worktreeRoot: worktrees, git: realGit, exec: realExec, startApp: async () => ({ ok: true, error: null, stop: async () => undefined }), capture, freePort: async () => 4900 + n, publicUrl: "http://localhost:3738" });
-  const probadorDeps = () => ({ force: true, settleMs: 0, orphanMs: 60_000, capture, waitMs: w.probadorWaitMs, pollMs: 5 });
+  const probadorDeps = () => ({ force: true, settleMs: 0, orphanMs: 60_000, capture, pollMs: 5 });
   async function tick(): Promise<void> {
     ticks += 1;
     if (process.env.CANARY_DEBUG) console.log(`[canary] tick ${ticks}`, JSON.stringify(turns.at(-1) ?? null));
@@ -367,7 +430,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     const p = await m.queries.findProject(db, slug);
     await m.github.pollGithubProject(db, p, { fetch: github.fetch as never, env: { GITHUB_TOKEN: "canary-token" }, now });
     await m.vercel.pollVercelProject(db, p, { fetch: host.fetch as never, env: { VERCEL_TOKEN: "canary-token" }, now });
-    for (const job of m.jobs.JOBS.filter((j: { name: string }) => ["blockers", "leases"].includes(j.name))) await job.runOnce(db, now);
+    for (const job of m.jobs.JOBS.filter((j: { name: string }) => ["blockers", "leases", "revision"].includes(j.name))) await job.runOnce(db, now);
     // PLA-I74-5: the turn watchdog, on the fast clock: one minute per tick, so its two minutes of grace are two ticks.
     const fast = new Date(Math.max(Date.now(), born + ticks * 60_000));
     await m.turns.sweepTurns(db, fast);
@@ -412,9 +475,11 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     /** A scenario's fix when finish refuses the delivery; true when it fixed something worth a second finish. */
     fixOnRefusal: null as null | ((cwd: string, run: Run, out: Json) => boolean),
     refusals: [] as Json[],
-    probadorWaitMs: 2_000,
-    /** The dev server answers (a scenario makes a cold start slow). */
-    appUp: async () => true,
+    revisionDeps,
+    /** The app's cold start on the fast clock (a scenario makes it slower than the old fixed wait). */
+    coldMs: 1_000,
+    /** The check-up's install fails (a red check-up). */
+    checkupFails: false,
     /** Where a browser that opened url ends up (a scenario sends one view to the wrong page). */
     landing: (url: string) => url,
     /** A scenario may keep a run open instead of running its script (returns true to hold). */
