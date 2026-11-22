@@ -20,6 +20,11 @@ export const ARRANQUE_WORDS = defineWords({
         por: "Faltan las instrucciones de este puesto",
         arregla: "Carga las instrucciones de los puestos en Plania y vuelve a intentarlo.",
       },
+      // PLA-158 (F-31)
+      "no taller database": {
+        por: "No pudo preparar la copia de la base con la que trabaja el constructor",
+        arregla: "Revisa que la base de la app sea local y esté encendida (Máquinas) y vuelve a intentarlo. El constructor nunca trabaja sobre la base de la app.",
+      },
       "base not allowed": {
         por: "La rama de origen no está permitida",
         arregla: "El paso tiene que partir de la copia de prueba, no de la versión publicada: cámbialo en el paso.",
@@ -89,6 +94,10 @@ export const ARRANQUE_WORDS = defineWords({
       "no prompt doc": {
         por: "This seat's instructions are missing",
         arregla: "Load the seats' instructions into Plania and try again.",
+      },
+      "no taller database": {
+        por: "Could not prepare the database copy the builder works on",
+        arregla: "Check that the app's database is local and on (Machines), then try again. The builder never works on the app's own database.",
       },
       "base not allowed": {
         por: "The starting branch is not allowed",

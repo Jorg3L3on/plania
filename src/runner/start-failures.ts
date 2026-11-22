@@ -6,6 +6,8 @@
 export const START_FAILURES = [
   "missing env PLANIA_RUNNER_TOKEN",
   "no prompt doc",
+  // PLA-158 (F-31): a builder run never falls back to the app's own database.
+  "no taller database",
   "base not allowed",
   "bad worktree name",
   "worktree inside the repo",
