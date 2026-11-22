@@ -5,7 +5,7 @@
 // a todo naming the ticket that fixes it, so CI stays green until that lane lands and the row turns into a plain pass.
 // Throwaway test database only; no network, no real claude.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -54,8 +54,11 @@ async function world(locker: "npm" | "pnpm", opts: Parameters<typeof makeWorld>[
   m.runner.resetRunnerForTests();
   m.qa.resetQaForTests();
   m.prueba.resetPrueba();
-  // Only this world's project runs: the others stay paused, so a tick never wakes an earlier world's agents.
+  // Only this world's project runs: the others stay paused, so a tick never wakes an earlier world's agents. An
+  // earlier row's project is removed (its agents, runs and events with it): the floor reads stay one project wide.
   await raw.query(`update projects set runs_paused = true`);
+  await raw.query(`delete from agents where project_id in (select id from projects where slug like 'canary-%')`);
+  await raw.query(`delete from projects where slug like 'canary-%'`);
   const w = await makeWorld(m, raw, db, scratch, { locker, ...opts });
   m.prueba.setPruebaDeps(w.pruebaDeps as never);
   return w;
@@ -142,6 +145,8 @@ async function settled(w: World, decisions = DECISIONS) {
   const env = await w.one(`select commit from env_states where project_id = $1 and env = 'prod'`, [w.pid]);
   assert.ok(env?.commit, "prod records the deployed commit");
   assert.deepEqual(w.github.unknown, [], "every GitHub call Plania made is one the fake knows");
+  // The watchdog (PLA-I74-5) heals nothing on a path that works.
+  assert.equal(Number((await w.one(`select count(*)::int n from events where project_id = $1 and type = 'turn.healed'`, [w.pid]))!.n), 0, "nothing needed healing");
 }
 
 /** The key events, in order (each appears, and after the one before it). */
@@ -180,4 +185,309 @@ describe("PLA-I74-2: the happy path", () => {
       }
     });
   }
+});
+
+// ---- PLA-I74-3: one row per plumbing finding from guided tests 3 and 4. Each walks the same path and asserts the
+// same things as the happy path, plus what its finding broke. A row a lane's fix turns green is { todo: "PLA-I74-<n>" }.
+
+const SCRIPTS = (await import("./canary/harness.js")).SCRIPTS;
+type Run = import("./canary/harness.js").Run;
+const liveRuns = async (w: World) => Number((await w.one(`select count(*)::int n from agent_runs where project_id = $1 and status in ('queued', 'starting', 'running')`, [w.pid]))!.n);
+const runsOn = async (w: World, key: string) => Number((await w.one(`select count(*)::int n from agent_runs where project_id = $1 and task_key = $2`, [w.pid, key]))!.n);
+const healed = async (w: World) => Number((await w.one(`select count(*)::int n from events where project_id = $1 and type = 'turn.healed'`, [w.pid]))!.n);
+/** A row its lane's fix turns green. CANARY_STRICT=1 runs it as a plain test, to see where it stands. */
+const todo = (ticket: string) => (process.env.CANARY_STRICT === "1" ? {} : { todo: ticket });
+const ctx = (agent: string) => ({ actor: { agent, session_id: "canary-setup" } });
+
+/** Runs a row: a fresh world, the walk, and the shared asserts; always restores the seams. */
+async function row(locker: "npm" | "pnpm", opts: Parameters<typeof world>[1], body: (w: World) => Promise<void>) {
+  const w = await world(locker, opts);
+  try {
+    await body(w);
+  } finally {
+    w.restore();
+  }
+}
+
+describe("PLA-I74-3: scenario rows", () => {
+  test("PLA-161/163/165: an On hold initiative with a Ready step sits in the project; nobody starts it, the request still ships", async () => {
+    await row("npm", {}, async (w) => {
+      const writes = await import("../src/mcp/writes.js");
+      const held = (await writes.createTask(db, { project: w.slug, kind: "initiative", title: "Algo para después", base_branch: "sandbox", scope: "s" } as never, ctx("po"))) as { key: string };
+      const step = (await writes.createTask(db, { project: w.slug, parent_key: held.key, phase: 1, title: "Paso en espera", scope: "s", checks: ["c"], work_type: "code", status: "Ready" } as never, ctx("po"))) as { key: string };
+      await raw.query(`update tasks set status = 'On hold' where project_id = $1 and key = $2`, [w.pid, held.key]);
+      await walk(w);
+      await settled(w);
+      assert.equal(await runsOn(w, step.key), 0, "no run ever took the On hold initiative's step");
+      assert.equal((await w.task(step.key))!.status, "Ready");
+      assert.equal(w.spawned.find((r) => r.role === "taller")?.key, w.stepKey, "Taller's first run was on the request's step");
+    });
+  });
+
+  test("PLA-164: «Constrúyelo» while every agent is idle wakes the PO, and the PO's plan wakes Taller, with no other click", async () => {
+    await row("npm", {}, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await w.until("the plan at Lista", async () => (await w.task(w.ideaKey!))?.stage === "ready");
+      await w.until("every agent idle", async () => (await liveRuns(w)) === 0);
+      const r = await w.click("construir", `/api/company/projects/${w.slug}/pedidos/${w.ideaKey}/construir`);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.wake, "queued", "the PO's wake is queued by the click itself");
+      await w.until("Taller on the first step", async () => !!w.stepKey && (await runsOn(w, w.stepKey)) > 0, 4);
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w);
+    });
+  });
+
+  test("PLA-167: a run ends without releasing its step; the owner's note frees it and wakes Taller", async () => {
+    let first = true;
+    const taller = async (run: Run, w: World) => {
+      if (first && run.key) {
+        first = false;
+        // It opens the step and ends: no finish, no release. The lease stays on a run that is over.
+        await run.call("start", { project: run.project, key: run.key, workspace: { worktree_path: run.workspace!.path, branch: run.workspace!.branch } });
+        return "Me quedé sin tiempo.";
+      }
+      return SCRIPTS.taller!(run, w);
+    };
+    await row("npm", { scripts: { taller } }, async (w) => {
+      await walk(w, {
+        construir: async () => {
+          await w.until("the first Taller run over, its step still In progress", async () => !first && (await liveRuns(w)) === 0 && (await w.task(w.stepKey!))?.status === "In progress", 8);
+          const r = await w.click("nota", `/api/company/projects/${w.slug}/tasks/${w.stepKey}/note`, { text: "¿Cómo va? Sigue con el paso, por favor." });
+          assert.equal(r.status, 200, JSON.stringify(r.json));
+        },
+      });
+      await settled(w, ["pedir", "asi_es", "me_gusta", "construir", "nota", "aceptar", "publicar"]);
+      assert.equal(w.spawned.filter((r) => r.role === "taller").length, 2);
+    });
+  });
+
+  test("PLA-167 / watchdog: a run ends without releasing its step; with no note, the step is healed within two ticks", todo("PLA-I74-5"), async () => {
+    let first = true;
+    const taller = async (run: Run, w: World) => {
+      if (first && run.key) {
+        first = false;
+        await run.call("start", { project: run.project, key: run.key, workspace: { worktree_path: run.workspace!.path, branch: run.workspace!.branch } });
+        return "Me quedé sin tiempo.";
+      }
+      return SCRIPTS.taller!(run, w);
+    };
+    await row("npm", { scripts: { taller } }, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the first Taller run over, its step still In progress", async () => !first && (await liveRuns(w)) === 0, 8);
+      // The bar: healed within two minutes. Here: within three ticks, with turn.healed saying why.
+      await w.until("the held step healed", async () => (await healed(w)) >= 1 && (await liveRuns(w)) + (w.spawned.filter((r) => r.role === "taller").length - 1) > 0, 3);
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w);
+    });
+  });
+
+  test("PLA-166/168: the app compiles slowly on its first start; El Probador waits for it and the photos come", todo("PLA-I74-7"), async () => {
+    await row("npm", {}, async (w) => {
+      // Every new copy answers 3 s after its start; the fixed wait is 2 s. Measured waits (twice the cold start) cover it.
+      let since = 0;
+      const spawn = w.pruebaDeps.spawn;
+      w.pruebaDeps.spawn = (command, o) => ((since = Date.now()), spawn(command, o));
+      w.appUp = async () => Date.now() - since > 3_000;
+      await walk(w);
+      await settled(w);
+      const failed = await w.one(`select count(*)::int n from events where project_id = $1 and type = 'probador.pass' and (payload->>'ok')::boolean is not true`, [w.pid]);
+      assert.equal(failed!.n, 0, "no photo pass failed on the slow start");
+    });
+  });
+
+  test("wrong-page photos: the sample's click lands on another page; the photo is marked wrong and Aceptar waits", todo("PLA-I74-10"), async () => {
+    await row("npm", {}, async (w) => {
+      // The delivery's Clientes view ends on the login page (a session that expired mid-pass).
+      w.landing = (url) => (url.endsWith("/clientes") && !url.includes(`:${4100 + w.n * 10}/`) ? url.replace(/\/clientes$/, "/login") : url);
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the photos taken", async () => (await w.task(w.stepKey!))?.probador?.state === "lista", 12);
+      for (let i = 0; i < 2; i += 1) await w.tick();
+      const card = await deliveryCard(w);
+      assert.ok(!card || card.hold, `Aceptar is not offered on a photo of the wrong page: ${JSON.stringify(card)}`);
+      assert.match(JSON.stringify((await w.task(w.stepKey!))!.probador), /login|página|page/i, "the pass names the page it landed on");
+    });
+  });
+
+  test("a project test fails once at finish; Taller fixes it in the same run and the request ships", async () => {
+    await row("npm", {}, async (w) => {
+      let broke = false;
+      w.build = (cwd) => {
+        if (broke) return;
+        broke = true;
+        writeFileSync(path.join(cwd, "test", "lista.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert/strict";\ntest("la lista", () => assert.equal(1, 2));\n`);
+      };
+      w.fixOnRefusal = (cwd, _run, out) => {
+        if (JSON.stringify(out.error) !== '"VERIFY_FAILED"' && !/VERIFY_FAILED/.test(JSON.stringify(out))) return false;
+        writeFileSync(path.join(cwd, "test", "lista.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert/strict";\ntest("la lista", () => assert.equal(2, 2));\n`);
+        return true;
+      };
+      await walk(w);
+      await settled(w);
+      assert.equal(w.refusals.length, 1);
+      assert.match(JSON.stringify(w.refusals[0]), /VERIFY_FAILED/);
+      const lane = await w.one(`select status, verify from qa_lanes where project_id = $1 order by created_at desc limit 1`, [w.pid]);
+      assert.ok((lane!.verify as { ok: boolean }[]).every((v) => v.ok), "QA's own run of the tests passed on the fixed commit");
+    });
+  });
+
+  // A real bug this row found: the redelivery's finish is refused EVIDENCE_STALE against the head the GitHub poller
+  // stored before the push (PLA-169). Not a lane's; filed on its own.
+  test("Pedir ajuste: the owner sends the delivery back with his words; Taller redelivers and the request ships", todo("PLA-169"), async () => {
+    await row("npm", {}, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the delivery's card", async () => !!(await deliveryCard(w)), 30);
+      const card = (await deliveryCard(w))!;
+      assert.ok((card.actions as string[]).includes("cambios"), JSON.stringify(card.actions));
+      const r = await w.click("ajuste", `/api/company/decisions/${card.id}`, { action: "cambios", text: "Falta Beto en la lista." });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w, ["pedir", "asi_es", "me_gusta", "construir", "ajuste", "aceptar", "publicar"]);
+      const tallers = w.spawned.filter((x) => x.role === "taller");
+      assert.equal(tallers.length, 2);
+      assert.match(tallers[1]!.prompt, /Falta Beto en la lista/, "the second run carries the owner's words");
+      const { gitIn } = await import("./canary/fixture.js");
+      assert.match(gitIn(w.fx.origin, "show", "main:pages/clientes.html"), /Beto/, "what he asked for reached main");
+    });
+  });
+
+  // PLA-52: the server goes down while `run` is under way: its row is running (with its pid) when it happens.
+  const restartDuring = (w: World, run: Run, done: (swept: number) => void) => setTimeout(() => void w.restart(run).then(done), 50);
+
+  test("PLA-52: Plania restarts in the middle of Taller's run, after it took the step; the step is retried and ships", async () => {
+    let swept = -1;
+    let first = true;
+    const taller = async (run: Run, w: World) => {
+      if (!first) return SCRIPTS.taller!(run, w);
+      first = false;
+      await run.call("start", { project: run.project, key: run.key, workspace: { worktree_path: run.workspace!.path, branch: run.workspace!.branch } });
+      restartDuring(w, run, (n) => (swept = n));
+      return new Promise<string>(() => undefined); // the process dies with the server
+    };
+    await row("npm", { scripts: { taller } }, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the restart's sweep", async () => swept >= 0, 6);
+      assert.equal(swept, 1, "the start-up sweep closed the run the old server left running");
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w);
+      assert.equal(w.spawned.filter((r) => r.role === "taller").length, 2, "one new Taller run took the step after the restart");
+    });
+  });
+
+  test("PLA-52 / watchdog: Plania restarts while Taller's run starts, before it took the step; the step is not left Ready with nobody", todo("PLA-I74-5"), async () => {
+    let swept = -1;
+    let first = true;
+    const taller = async (run: Run, w: World) => {
+      if (!first) return SCRIPTS.taller!(run, w);
+      first = false;
+      restartDuring(w, run, (n) => (swept = n));
+      return new Promise<string>(() => undefined);
+    };
+    await row("npm", { scripts: { taller } }, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the restart's sweep", async () => swept >= 0, 6);
+      await w.until("a Taller run on the step again", async () => w.spawned.filter((r) => r.role === "taller").length >= 2, 3);
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w);
+    });
+  });
+
+  test("the host answers ERROR after Publicar; the owner gets a red card and the step is not «En producción»", todo("PLA-I74-8"), async () => {
+    await row("npm", {}, async (w) => {
+      w.host.outcome = "ERROR";
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await aceptar(w);
+      await publicar(w);
+      await w.until("a card about the failed deploy", async () => (await w.cards()).some((c) => /despliegue|deploy|publicar|arreglo/i.test(JSON.stringify(c))), 4);
+      assert.ok(!["Released", "Done"].includes((await w.task(w.stepKey!))!.status), "a failed deploy is not «En producción»");
+      assert.equal((await w.turn()).who, "owner");
+    });
+  });
+
+  test("an agent asks the owner a question; his answer on the screen reaches the agent and the request goes on", async () => {
+    let asked = false;
+    const po = async (run: Run, w: World) => {
+      const t = await run.call("get_task", { project: run.project, key: run.key });
+      if (!asked && t.kind === "idea" && (t.stage ?? "idea") === "idea") {
+        asked = true;
+        await run.call("ask", { project: run.project, key: run.key, question: "¿La lista muestra también el teléfono?", options: ["Sí", "No"] });
+        return "Pregunté al dueño.";
+      }
+      return SCRIPTS["product-owner"]!(run, w);
+    };
+    await row("npm", { scripts: { "product-owner": po } }, async (w) => {
+      await pedir(w);
+      await w.until("the question on the owner's screen", async () => !!(await w.one(`select id from questions where project_id = $1 and answered_at is null`, [w.pid])), 6);
+      // Asistente reads it first (PLA-I32-5) and leaves a product question to the owner.
+      await w.until("the owner's turn on the question", async () => (await w.turn()).who === "owner", 4);
+      const q = (await w.one(`select id from questions where project_id = $1 and answered_at is null`, [w.pid]))!;
+      const r = await w.click("responder", `/api/projects/${w.slug}/questions/${q.id}/answer`, { answer: "Sí" });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await aceptar(w);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w, ["pedir", "responder", "asi_es", "me_gusta", "construir", "aceptar", "publicar"]);
+      const pos = w.spawned.filter((x) => x.role === "product-owner" && x.key === w.ideaKey);
+      assert.ok(pos.length >= 2 && /answer|respond|respuesta/i.test(pos[1]!.reason), `the PO woke on the answer: ${pos.map((x) => x.reason).join(" | ")}`);
+    });
+  });
+
+  test("the project's check-up has never passed; «Constrúyelo» says so before the build starts", todo("PLA-I74-6"), async () => {
+    await row("npm", {}, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await w.until("the plan at Lista", async () => (await w.task(w.ideaKey!))?.stage === "ready");
+      const r = await w.click("construir", `/api/company/projects/${w.slug}/pedidos/${w.ideaKey}/construir`);
+      assert.equal(r.status, 200);
+      assert.match(JSON.stringify(r.json), /revisi|check-up|revisar/i, `«Constrúyelo» warns that the project was never rehearsed: ${JSON.stringify(r.json)}`);
+    });
+  });
+
+  test("default review (one per module): Plania accepts the step on its photos; the owner reviews at Publicar", async () => {
+    await row("pnpm", { revision: "por_modulo" }, async (w) => {
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await w.until("the step accepted by Plania", async () => (await w.task(w.stepKey!))?.status === "Merged", 30);
+      await publicar(w);
+      await enProduccion(w);
+      await settled(w, ["pedir", "asi_es", "me_gusta", "construir", "publicar"]);
+      assert.ok(await w.one(`select 1 as x from events where project_id = $1 and type = 'pr.merged' and payload->>'by' = 'auto'`, [w.pid]), "the merge was Plania's");
+    });
+  });
 });

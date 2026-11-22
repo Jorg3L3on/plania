@@ -86,6 +86,7 @@ class FakeChild extends EventEmitter {
 
 /** What a run learns from its prompt and its MCP config, as a real claude reads them. */
 export type Run = {
+  pid: number;
   role: string;
   agent: string; // the roster slug (read from the run's row)
   project: string;
@@ -225,7 +226,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
       const headers = Object.fromEntries(Object.entries(config.headers ?? {}).map(([k, v]) => [k, String(v).replace(/\$\{(\w+)\}/g, (_x, name) => (deps.env as Json)[name] ?? "")])) as Record<string, string>;
       setImmediate(async () => {
         try {
-          const run = await parseRun(prompt, headers);
+          const run = await parseRun(prompt, headers, child.pid);
           spawned.push(run);
           const script = opts.scripts?.[run.role] ?? SCRIPTS[run.role];
           if (!script) throw new Error(`no scripted agent for role ${run.role}`);
@@ -246,7 +247,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   };
   const runs = new Map<number, FakeChild>();
 
-  async function parseRun(prompt: string, headers: Record<string, string>): Promise<Run> {
+  async function parseRun(prompt: string, headers: Record<string, string>, pid: number): Promise<Run> {
     const session = /actor session_id (run-[0-9a-f]+)/.exec(prompt)?.[1] ?? headers["X-Plania-Run"] ?? "";
     const row = (await raw.query(`select a.slug, r.role from agent_runs r join agents a on a.id = r.agent_id where replace(r.id::text, '-', '') like $1 order by r.queued_at desc limit 1`, [`${session.slice(4)}%`])).rows[0];
     // A builder's prompt names its ticket on «Ticket:»; QA's review prompt on «the delivery of KEY:».
@@ -255,6 +256,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     const role = row?.role ?? /^You are \S+ \(([a-z-]+)\)/m.exec(prompt)?.[1] ?? "?";
     const call = mcpCall(headers, session, row?.slug ?? "agent");
     return {
+      pid,
       role,
       agent: row?.slug ?? "?",
       project: /for project ([a-z0-9-]+) \(/.exec(prompt)?.[1] ?? slug,
@@ -330,6 +332,12 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     if (open!.n) return { who: "owner", why: "a question waits for the owner" };
     const c = await cards();
     if (c.length) return { who: "owner", why: `card: ${c.map((x) => x.kind).join(", ")}` };
+    // A step that reached In review since its last QA lane: the next heartbeat's sweep opens the lane (queued QA).
+    const awaitingQa = await one(
+      `select count(*)::int n from tasks t where t.project_id = $1 and t.status = 'In review' and not exists (select 1 from qa_lanes l where l.task_id = t.id and l.created_at >= t.status_changed_at)`,
+      [pid],
+    );
+    if (awaitingQa!.n) return { who: "agent", why: "QA lane opens on the next sweep" };
     if (steps.some((s) => s.status === "Merged") && !(await one(`select 1 as x from events where project_id = $1 and type = 'release.merged'`, [pid]))) return { who: "owner", why: "Publicar waits" };
     if (steps.some((s) => s.status === "Merged")) return { who: "outside", why: "waiting for the deploy" };
     return { who: "nobody", why: `steps ${steps.map((s) => `${s.key} ${s.status}`).join(", ")}` };
@@ -343,6 +351,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   const probadorDeps = () => ({ force: true, settleMs: 0, orphanMs: 60_000, capture, waitMs: w.probadorWaitMs, pollMs: 5 });
   async function tick(): Promise<void> {
     ticks += 1;
+    if (process.env.CANARY_DEBUG) console.log(`[canary] tick ${ticks}`, JSON.stringify(turns.at(-1) ?? null));
     const now = new Date();
     await m.actions.waitForAskWakes();
     // The QA lane's checks first, with their fakes: the heartbeat's own sweep then only drives the review run.
@@ -402,6 +411,17 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     /** A scenario may keep a run open instead of running its script (returns true to hold). */
     hold: null as null | ((run: Run) => boolean),
     runs,
+    /** Plania restarts while `held` runs (PLA-52): the server forgets its live runs, QA checks and copies; the start-up
+     * sweep closes the run it left running; then the old process is gone. */
+    restart: async (held: Run) => {
+      m.runner.resetRunnerForTests();
+      m.qa.resetQaForTests();
+      m.prueba.resetPrueba();
+      m.prueba.setPruebaDeps(pruebaDeps as never);
+      const swept = await m.runner.sweepOrphans(db, { ...deps, probePid: async () => false, graceMs: 1 } as never);
+      runs.get(held.pid)?.kill();
+      return swept;
+    },
     read,
     click,
     cards,
@@ -497,9 +517,13 @@ export const SCRIPTS: Record<string, Script> = {
     const branch = ws.branch ?? gitIn(ws.path, "rev-parse", "--abbrev-ref", "HEAD");
     // The change: the list on the Clientes page, and its test. A real commit, pushed to origin.
     w.build?.(ws.path, run);
-    writeFileSync(path.join(ws.path, "pages", "clientes.html"), `<!doctype html><title>Clientes</title><h1>Clientes</h1><ul id="clientes"><li>Ana</li><li>Luis</li></ul>\n`);
+    // A delivery the owner sent back carries his words in the prompt (PLA-71): the builder does what they say.
+    const changes = /Their words: «([^»]*)»/.exec(run.prompt)?.[1];
+    const names = changes ? ["Ana", "Beto", "Luis"] : ["Ana", "Luis"];
+    writeFileSync(path.join(ws.path, "pages", "clientes.html"), `<!doctype html><title>Clientes</title><h1>Clientes</h1><ul id="clientes">${names.map((x) => `<li>${x}</li>`).join("")}</ul>\n`);
     gitIn(ws.path, "add", "-A");
-    gitIn(ws.path, "-c", "user.name=taller", "-c", "user.email=taller@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `${run.key}: la lista de clientes`);
+    // Woken again with nothing to change (the photos failed on Plania's side): no new commit, the same head delivered.
+    if (gitIn(ws.path, "status", "--porcelain")) gitIn(ws.path, "-c", "user.name=taller", "-c", "user.email=taller@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `${run.key}: la lista de clientes`);
     gitIn(ws.path, "push", "-q", "-u", "origin", `HEAD:${branch}`);
     w.github.pushed(branch);
     const pr = await w.github.gh(["pr", "create", "--repo", w.github.repo, "--base", "sandbox", "--head", branch, "--title", `${run.key}: la lista de clientes`, "--body", `Plania: ${run.key}`]);
@@ -525,6 +549,8 @@ export const SCRIPTS: Record<string, Script> = {
     }
     await closingLine(run, `Entregué ${run.key}: ${url}`);
   },
+  // Asistente answers what Plania already says; a PO's product question is the owner's, so it leaves it.
+  asistente: async () => "La pregunta es del dueño.",
   // QA's review run: its report is the run's final text, a qa-report block over the PO's checks.
   qa: async (run) => {
     const t = await run.call("get_task", { project: run.project, key: run.key });
