@@ -232,7 +232,16 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   const open = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Ready", "Needs owner"])))
+    // PLA-163: a step of an initiative the owner put On hold is postponed on purpose (as get_next, PLA-161): it joins
+    // nobody's queue, so the board never offers «Arrancar» / «Que empiece ya» for it.
+    .where(
+      and(
+        eq(tasks.projectId, p.id),
+        eq(tasks.kind, "ticket"),
+        inArray(tasks.status, ["Ready", "Needs owner"]),
+        sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`,
+      ),
+    )
     .orderBy(asc(tasks.phase), asc(tasks.createdAt));
   if (open.length === 0) return { next: null, ready: [], queued: [] };
   const parents = new Map<string, string>();
