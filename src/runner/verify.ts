@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { checkoutEnv, shellExec, type Exec } from "../captures/run.js";
 import type { Project, Task } from "../db/schema.js";
+import { verifyListOf, type ReadFile } from "./build-step.js";
 
 export const VERIFY_WORK = new Set(["code", "bug", "debt"]);
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
@@ -41,9 +42,11 @@ export type VerifyPlan = { run: true; cwd: string; items: VerifyItem[] } | { run
 
 // Whether finish runs the checks for this ticket, and where. It does when the ticket is code-like, the project has a
 // verify list and has not turned this off, the caller holds the ticket, and its workspace is a folder on this machine.
-export function verifyPlan(p: Pick<Project, "settings">, t: Pick<Task, "kind" | "workType" | "workspace" | "owner">, sessionId: string, exists: (path: string) => boolean = existsSync): VerifyPlan {
+// PLA-I74-9: the list includes the host's production build, read from the workspace (src/runner/build-step.ts).
+export function verifyPlan(p: Pick<Project, "settings">, t: Pick<Task, "kind" | "workType" | "workspace" | "owner">, sessionId: string, exists: (path: string) => boolean = existsSync, read?: ReadFile): VerifyPlan {
   const qa = p.settings?.qa;
-  const items = qa?.verify ?? [];
+  const ws0 = t.workspace?.worktree_path && exists(t.workspace.worktree_path) ? t.workspace.worktree_path : null;
+  const items = verifyListOf(p, ws0, read);
   if (t.kind !== "ticket" || !VERIFY_WORK.has(t.workType ?? "code") || items.length === 0 || qa?.verify_on_finish === false) return { run: false };
   if (!t.owner || t.owner.session_id !== sessionId) return { run: false };
   const ws = t.workspace;

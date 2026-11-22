@@ -155,6 +155,7 @@ const ALLOWED: Record<string, string> = {
   "src/mcp/stage-docs.ts|cuando": "vague answers in both languages",
   "src/runner/packs.ts|cu[aá]ndo": "the When: line of a skill pack, both languages",
   "src/runner/retro.ts|contraseña": "secret redaction words, both languages",
+  "src/mcp/checks.ts|visual(?:es": "PLA-I74-11: which checks are visual, words in both languages; finds no ticket or note",
   "src/captures/vacios.ts|vac[ií]": "PLA-I74-10: tells an empty-state frame by Artist's own words, in both languages; finds no ticket or note",
 };
 

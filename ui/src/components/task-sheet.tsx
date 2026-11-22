@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { waiverLine } from "@/lib/waiver";
 import { ExternalLinkIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -57,7 +58,8 @@ function CheckLine({ slug, taskKey, check }: { slug: string; taskKey: string; ch
           <button type="button" onClick={() => setWaiving(true)} className="text-xs text-muted-foreground underline-offset-4 hover:underline">{w.waiveLink}</button>
         )}
       </div>
-      {check.waived && <span className="pl-6 text-xs text-muted-foreground">{w.waivedWhy(check.waived.reason ?? "")}</span>}
+      {/* PLA-I74-11: who waived it and why. */}
+      {check.waived && <span className="pl-6 text-xs text-muted-foreground" data-waived-by>{waiverLine(check.waived)}</span>}
       {waiving && (
         <form onSubmit={submit} className="flex gap-2 pl-6">
           <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={w.waivePlaceholder} aria-label={w.waiveReason} autoFocus />

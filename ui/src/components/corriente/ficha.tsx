@@ -25,6 +25,7 @@ import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts"
 import { Corriente } from "./rio";
 import { CX0, PX, STOP_IDS, STOP_NAMES, SX, VX, W, rioOf, type Chan, type RioModel } from "./rio-geo";
 import { busyOf, run, useCerrar } from "./tablero";
+import { DeployBar, DeployLog } from "./deploy-card";
 import { firstStop, stopLine, whoName } from "./idea";
 import { LOCALE } from "@/lib/locale";
 import { FICHA_WORDS } from "@/lib/ficha-words";
@@ -57,7 +58,7 @@ const Md = ({ children }: { children: string }) => (
 export const kindWord = (d: Pick<IdeaDetail, "pedido" | "kind" | "built">) => (d.built || d.kind === "initiative" ? say().kindInitiative : d.pedido ? say().kindPedido : say().kindIdea);
 /** The stop the ficha opens on: the building once it is built, else the newest delivery not seen, else where it is. */
 export function selOf(d: Pick<IdeaDetail, "stops" | "stop" | "built">): Sel {
-  if (d.built) return d.built.published_at ? "publicado" : "construccion";
+  if (d.built) return d.built.published_at || d.built.deploy?.state === "error" ? "publicado" : "construccion";
   return firstStop(d);
 }
 /** The recommended option: the one the recommendation names («opción N»), else the first. */
@@ -128,7 +129,7 @@ function tabsOf(d: IdeaDetail, m: RioModel, stuck = false): TabInfo[] {
     gist: b ? (m.per > 1 ? w.channelEvery(m.per) : w.channelPerStep) : null,
     state: m.here > 6 ? "done" : m.here === 6 ? "here" : "todo",
   });
-  out.push({ sel: "publicado", who: b?.published_at ? dayHm(b.published_at, Date.now()) : w.notYet, tone: b?.published_at ? "ok" : "", gist: null, state: m.here === 7 ? "done" : "todo" });
+  out.push({ sel: "publicado", who: b?.published_at ? dayHm(b.published_at, Date.now()) : b?.deploy?.state === "error" ? w.deploy.tab : w.notYet, tone: b?.published_at ? "ok" : b?.deploy?.state === "error" ? "you" : "", gist: null, state: m.here === 7 ? "done" : "todo" });
   return out;
 }
 
@@ -363,6 +364,8 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
     );
   }
   if (ui.sel === "publicado") {
+    // PLA-I74-8: a failed production build shows the host's log here.
+    if (!b?.published_at && b?.deploy?.state === "error") return <DeployLog d={b.deploy} />;
     if (!b?.published_at) return <Empty title={w.notReleased} line={w.notReleasedLine} />;
     return (
       <>
@@ -824,6 +827,8 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
         {w.released} <span>{w.releasedLine}</span>
       </Bar>
     );
+  // PLA-I74-8: a production deploy that failed, builds or waits for its live answer says so before anything else.
+  if (b.deploy) return <DeployBar slug={p.slug} b={{ ...b, deploy: b.deploy }} paso={links.paso} />;
   if (b.can_close)
     return (
       <Bar tone="you" label={w.yourTurn} side={<Btn kind="primary" disabled={cerrar.isPending} onClick={() => cerrar.mutate({ slug: p.slug, key: b.key, version: b.version })} data-control="ficha-cerrar-iniciativa">{cerrar.isPending ? w.closing : w.closeInitiative}</Btn>}>

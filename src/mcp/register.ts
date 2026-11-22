@@ -1043,6 +1043,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done).",
         "The reason is the record at every status, including once the ticket is In review or later. An approval_id is ignored.",
+        "A visual check (how the screen looks, a still, a viewport) is waived only by the QA lane or the owner: anyone else gets WAIVE_VISUAL_FORBIDDEN and proves it with a visual result.",
       ].join(" "),
       inputSchema: z.object({ project, actor, request_id, verbose, key, n: z.number().int(), reason: z.string().min(1) }).loose(),
       annotations: write,
