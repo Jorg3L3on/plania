@@ -2,9 +2,9 @@
 // on is delivered (In review with a branch: src/mcp/blockers.ts chainedReady). Its worktree is cut from that branch,
 // so it builds on code that is not in the start branch yet; its PR still goes to the start branch and shows the step
 // under it too until that one merges. It may only be accepted after the step under it (stackHold).
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import type { Q } from "../mcp/tx.js";
-import { projects, taskBlockers, tasks } from "../db/schema.js";
+import { events, projects, taskBlockers, tasks } from "../db/schema.js";
 import { velocidadOf } from "./velocidad.js";
 
 const LANDED = ["Merged", "Released", "Done"];
@@ -44,4 +44,29 @@ export async function stackedOn(db: Q, blockerId: string): Promise<{ id: string;
     .from(taskBlockers)
     .innerJoin(tasks, eq(tasks.id, taskBlockers.taskId))
     .where(and(eq(taskBlockers.blockerId, blockerId), inArray(tasks.status, ["Ready", "In progress", "In review"])));
+}
+
+// PLA-I73-6: the early skeleton. When an idea's plan is delivered and its first step is the skeleton, Taller builds
+// that step on the idea's own branch before «Constrúyelo» (src/mcp/stage-docs.ts queues it). Step 1's ticket then
+// starts from that branch, as long as the plan it was built for is still the current one.
+export const EARLY_EVENT = "esqueleto.temprano";
+
+export async function earlyBaseOf(db: Q, taskId: string): Promise<{ idea: string; branch: string } | null> {
+  const [t] = await db.select({ projectId: tasks.projectId, parentId: tasks.parentId, phase: tasks.phase }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (!t?.parentId || t.phase !== 1) return null;
+  const [init] = await db.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, t.parentId)).limit(1);
+  if (!init) return null;
+  const [idea] = await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, t.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, init.key))).limit(1);
+  if (!idea) return null;
+  const evs = await db
+    .select({ type: events.type, payload: events.payload })
+    .from(events)
+    .where(and(eq(events.taskId, idea.id), inArray(events.type, [EARLY_EVENT, "stage.delivered"])))
+    .orderBy(desc(events.id));
+  const early = evs.find((e) => e.type === EARLY_EVENT);
+  const plan = evs.find((e) => e.type === "stage.delivered" && (e.payload as { stage?: string }).stage === "planning");
+  if (!early || !plan) return null;
+  if ((early.payload as { doc_version?: number }).doc_version !== (plan.payload as { doc_version?: number }).doc_version) return null;
+  const branch = (early.payload as { branch?: string }).branch;
+  return branch ? { idea: idea.key, branch } : null;
 }

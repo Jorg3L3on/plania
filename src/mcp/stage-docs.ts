@@ -18,12 +18,12 @@ import { z } from "zod";
 import { parseMuestra, type Muestra } from "../captures/muestra.js";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { agentRuns, docs, events } from "../db/schema.js";
+import { agentRuns, docs, events, type ProjectSettings } from "../db/schema.js";
 import { docSummary, putDoc } from "./docs.js";
 import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
-import { writeTx, type Ctx, type Q } from "./tx.js";
+import { writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 import { isOwnerAgent, ownerEs, ownerName } from "../owner.js";
 import { runPrefixOf } from "../runner/run-session.js";
 import { defineWords, say } from "../words.js";
@@ -491,8 +491,10 @@ export async function deliverStage(db: Db, input: DeliverStageInput, ctx: Ctx) {
         warning: `the owner wrote on this idea after your run started (${late.since}); do not move the stage: read get_task, fold his words in and deliver again from the next run. A set_task stage move from this run is refused (IDEA_OWNER_NEWER).`,
       };
     }
+    // PLA-I73-6: a plan that starts with a skeleton starts building it now, before «Constrúyelo».
+    const early = stage === "planning" ? await startEarlySkeleton(tx, emit, p, t, data as PlanningData, d.version) : null;
     const next = t.stage === stage ? STAGES[STAGES.indexOf(stage as Stage) + 1] : undefined;
-    return { key: t.key, stage: t.stage, delivered: stage, doc: docSummary(d), ...(next ? { next: `set_task {key: "${t.key}", stage: "${next}", version: ${t.version}} moves it on` } : {}) };
+    return { key: t.key, stage: t.stage, delivered: stage, doc: docSummary(d), ...(early ? { early_skeleton: early } : {}), ...(next ? { next: `set_task {key: "${t.key}", stage: "${next}", version: ${t.version}} moves it on` } : {}) };
   });
 }
 
@@ -534,3 +536,26 @@ export const registerStageTools = (
       }),
   );
 };
+
+// PLA-I73-6: when the plan's first step is the skeleton and the project builds early (settings.velocidad
+// .esqueleto_temprano, on by default), Taller is woken on the idea itself to build that step on the idea's branch.
+// Step 1's ticket starts from that branch if the plan is still this version (src/runner/stack.ts earlyBaseOf).
+export const EARLY_REASON = (idea: string, branch: string) =>
+  `early skeleton for ${idea}: its plan is delivered and step 1 is the skeleton. Before the owner says «Constrúyelo», build only that step in this workspace (branch ${branch}): read the idea (get_task ${idea}) and its Plan doc, then make the tables and migrations, the names, the sample data and the empty screens it lists. There is no ticket yet: do not call start, claim or finish, and open no PR. Commit and push the branch, run the related tests, and end with your thread line. Step 1's ticket will start from this branch. If the plan changes, a new wake says so: rework the branch for the new plan.`;
+
+async function startEarlySkeleton(tx: Q, emit: Emit, p: { id: string; slug: string; settings: ProjectSettings }, t: { id: string; key: string; promotedTo: string | null }, data: PlanningData, docVersion: number): Promise<string | null> {
+  if (!data.steps[0]?.esqueleto || t.promotedTo) return null;
+  const { velocidadOf } = await import("../runner/velocidad.js");
+  if (!velocidadOf(p.settings).esqueleto_temprano) return null;
+  // Loaded here: the runner's modules import this one.
+  const { queueWake, serviceAgent } = await import("../runner/events.js");
+  const { branchFor } = await import("../runner/worktree.js");
+  const { workPatternOf } = await import("../camino/store.js");
+  const taller = await serviceAgent(tx, "taller", { id: p.id, slug: p.slug });
+  if (!taller) return null;
+  const branch = branchFor(t.key, await workPatternOf(tx as never, p.id));
+  const w = await queueWake(tx, p as never, { id: t.id, key: t.key }, { agent: taller, taskKey: t.key, reason: EARLY_REASON(t.key, branch) }, DELIVERED);
+  if (w.kind !== "queued" && !w.existingRunId) return null;
+  await emit("esqueleto.temprano", { id: t.id, key: t.key }, { doc_version: docVersion, branch });
+  return branch;
+}

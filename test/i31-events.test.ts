@@ -971,3 +971,65 @@ test("PLA-I73-2 #3: a step sent back from review leaves a note on the step stack
   const notes = (await raw.query(`select payload from events where task_key = 'ST-E2' and type = 'note' order by id`)).rows.map((r) => r.payload.text as string);
   assert.ok(notes.some((t) => /volvió a Taller/.test(t) && t.includes("ST-E1")), JSON.stringify(notes));
 });
+
+// ---- PLA-I73-6: the early skeleton and the step's effort.
+const { deliverStage } = await import("../src/mcp/stage-docs.js");
+const { resolveMotor } = await import("../src/runner/motor.js");
+const planData = (esqueleto: boolean) => ({
+  steps: [
+    { title: "El esqueleto del catálogo", done_when: "Las tablas del catálogo existen y las pantallas vacías abren sin error", try_it: "Abre el panel y la ruta del catálogo y mira las pantallas vacías", ...(esqueleto ? { esqueleto: true, effort: "high" } : {}) },
+    { title: "La novia hojea el catálogo", done_when: "La novia ve la revista con fotos grandes desde el enlace de su cita", try_it: "Abre el enlace de una cita de prueba y recorre la revista", depends_on: [0], files: ["src/app/catalogo/**"] },
+  ],
+  risks: ["Las fotos pueden pesar"],
+});
+
+test("PLA-I73-6 #1: a plan whose first step is the skeleton wakes Taller on the idea; step 1 then starts from that branch", async () => {
+  await raw.query(`delete from agent_runs`);
+  const idea = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Catálogo temprano", scope: "s" } as never, ctx)) as { key: string };
+  await raw.query(`update tasks set stage = 'planning' where key = $1`, [idea.key]);
+  const r = (await deliverStage(db, { project: "micasa", key: idea.key, stage: "planning", data: planData(true) } as never, ctx)) as { early_skeleton?: string };
+  assert.ok(r.early_skeleton, JSON.stringify(r));
+  const w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key]), [["taller", idea.key]]);
+  assert.match((await raw.query(`select summary from agent_runs where task_key = $1`, [idea.key])).rows[0].summary, /early skeleton/);
+
+  // «Constrúyelo»: the initiative and its tickets; step 1 adopts the early branch, step 2 gets its blocker and files.
+  const i = await leg("Active");
+  await raw.query(`update tasks set promoted_to = $2 where key = $1`, [idea.key, i]);
+  await backlog("EK-1", { parent_key: i, phase: 1, status: "Ready" });
+  await backlog("EK-2", { parent_key: i, phase: 2 });
+  const s1 = await stack.earlyBaseOf(db, await taskId("EK-1"));
+  assert.equal(s1?.branch, r.early_skeleton);
+  assert.equal(await stack.earlyBaseOf(db, await taskId("EK-2")), null, "only step 1");
+  const two = (await raw.query(`select t.areas, (select array_agg(b.key) from task_blockers tb join tasks b on b.id = tb.blocker_id where tb.task_id = t.id) as blockers from tasks t where key = 'EK-2'`)).rows[0];
+  assert.deepEqual(two.blockers, ["EK-1"], "blocked_by filled from depends_on");
+  assert.deepEqual(two.areas, ["src/app/catalogo/**"], "areas filled from files");
+
+  // A new plan version: the early branch no longer counts.
+  await deliverStage(db, { project: "micasa", key: idea.key, stage: "planning", data: planData(false) } as never, ctx);
+  assert.equal(await stack.earlyBaseOf(db, await taskId("EK-1")), null);
+});
+
+test("PLA-I73-6 #2: no early run when the plan has no skeleton or the project turned it off", async () => {
+  await raw.query(`delete from agent_runs`);
+  const a = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Sin esqueleto", scope: "s" } as never, ctx)) as { key: string };
+  const r = (await deliverStage(db, { project: "micasa", key: a.key, stage: "planning", data: planData(false) } as never, ctx)) as { early_skeleton?: string };
+  assert.equal(r.early_skeleton, undefined);
+  await raw.query(`update projects set settings = settings || '{"velocidad": {"esqueleto_temprano": false}}'::jsonb where slug = 'micasa'`);
+  try {
+    const b = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Apagado", scope: "s" } as never, ctx)) as { key: string };
+    const r2 = (await deliverStage(db, { project: "micasa", key: b.key, stage: "planning", data: planData(true) } as never, ctx)) as { early_skeleton?: string };
+    assert.equal(r2.early_skeleton, undefined);
+    assert.deepEqual(await wakes(), []);
+  } finally {
+    await raw.query(`update projects set settings = settings - 'velocidad' where slug = 'micasa'`);
+  }
+});
+
+test("PLA-I73-6 #3: a step's effort wins over the seat's, never over a question's", () => {
+  const base = { seat: { model: "claude-sonnet-5-5", effort: "medium", consultaEffort: "low" }, company: { model: null, effort: null } };
+  assert.equal(resolveMotor({ ...base, stepEffort: "high" }).effort, "high");
+  assert.equal(resolveMotor({ ...base, stepEffort: "high" }).source.effort, "step");
+  assert.equal(resolveMotor({ ...base, stepEffort: null }).effort, "medium");
+  assert.equal(resolveMotor({ ...base, consulta: true, stepEffort: "high" }).effort, "low");
+});
