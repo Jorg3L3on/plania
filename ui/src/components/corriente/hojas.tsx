@@ -383,9 +383,11 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       </div>
       <ul className="cor-hoja-list" data-publish-list={n}>
         {r.tickets.slice(0, 4).map((x) => (
+          // PLA-158 (F-30): the owner reads what changes, not ticket keys (rule 9): the title only.
           <li key={x.key} className="cor-row">
-            <Key>{x.key}</Key>
-            <span className="cor-ellipsis">{x.title}</span>
+            <span className="cor-ellipsis" title={x.title}>
+              {x.title}
+            </span>
           </li>
         ))}
         {n > 4 && <li className="cor-cap">{w.andMore(n - 4)}</li>}

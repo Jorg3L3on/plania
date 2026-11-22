@@ -10,6 +10,7 @@ import { pending } from "@/lib/v2";
 import { grupoName } from "@/lib/cosas";
 import { getLanguage, words, type Language } from "@/lib/i18n";
 import { TETOCA_WORDS } from "@/lib/tetoca-words";
+import { redactSecrets } from "@/lib/redact";
 import type { CorrienteActs } from "./acts";
 import { Label } from "./parts";
 import { Pendiente, PendienteRow, type PendLinks } from "./pendiente";
@@ -125,8 +126,9 @@ export const TeToca = ({
                 <li key={c.id}>
                   <Link to={links.consulta(p.slug, c.id)} className="cor-qa" style={{ border: 0, padding: 0 }}>
                     <span className="cor-cap">{p.title}</span>
-                    <span>{c.text}</span>
-                    <span className="cor-muted">{c.answer!.short}</span>
+                    {/* PLA-158 (F-11): his old question shown again: a password or key he typed in it is covered. */}
+                    <span>{redactSecrets(c.text)}</span>
+                    <span className="cor-muted">{redactSecrets(c.answer!.short)}</span>
                   </Link>
                 </li>
               ))}
