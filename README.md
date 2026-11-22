@@ -737,6 +737,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `SEAT_PROPOSAL_NOT_PO` | 403 | propose_seat: only the project's product owner proposes a seat; runs never create, change or retire seats |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
+| `WAIVE_VISUAL_FORBIDDEN` | 403 | waive_check: a visual check (how the screen looks, a still, a viewport) is waived only by the QA lane or the owner (detail: n, text); prove it with a visual result or ask the owner |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CAMINO_KEY_MISSING` | 404 | camino: no key is saved for that service on this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |

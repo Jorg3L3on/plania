@@ -329,7 +329,7 @@ export const api = {
   crearRama: (slug: string) => request<{ state: "done" | "already" | "failed"; code: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/rama`, {}),
   ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
-  ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
+  ajustesPruebas: (slug: string, input: { version: number; commands: string[]; no_build?: string | null }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
   // PLA-I2-6: how the app starts, and one «Avanzado» field.
@@ -456,6 +456,7 @@ export const api = {
   // AUDIT-8: his pick on one of the PO's decisions (numbers as the screen shows them, from 1).
   ideaDecision: (slug: string, key: string, input: IdeaDecisionInput) =>
     request<{ key: string; stage: string | null; changed: boolean; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/decision`, input),
+  pedirArreglo: (slug: string, key: string) => request<{ key: string; existing: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/initiatives/${encodeURIComponent(key)}/arreglo`),
   ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
@@ -577,9 +578,12 @@ export type IdeaBuilt = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: an older server sends none.
   tiempo?: Cronometro;
+  // PLA-I74-8: the production deploy its merged steps wait on (src/api/deploy-fix.ts); an older server sends none.
+  deploy?: IdeaDeploy | null;
   // PLA-I74-1: the run report; an older server sends none.
   informe?: RunReport;
 };
+export type IdeaDeploy = { state: "error" | "building" | "checking"; sha: string | null; url: string | null; probe_url: string | null; log: string | null; at: string; fix_key: string | null };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
   mode: "forma";
