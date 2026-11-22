@@ -124,6 +124,8 @@ export const FICHA_WORDS = defineWords({
     notePedido: "Añade algo o pega una imagen…",
     noteIdea: "Añade algo para el equipo…",
     add: "Añadir",
+    // PLA-148 (F-5): after «Añadir» the box empties; this says it went.
+    noteSent: "Enviada: la leen en su siguiente turno.",
     note: "Nota",
     // «Ahora»
     now: (label: string) => `Ahora: ${label}`,
@@ -186,6 +188,10 @@ export const FICHA_WORDS = defineWords({
     askOption: (n: number) => `Pedir la opción ${n}`,
     researchRecommends: (n: number) => `Research recomienda la opción ${n}.`,
     pickAnother: "Elige otra y Research la rehace.",
+    // PLA-148 (F-3, F-5): the soft stops' label, and Investigación's own correction.
+    toReview: "Para revisar",
+    researchWrongLabel: "Qué cambiarías de la investigación",
+    researchCorrectHere: "O corrígela aquí…",
     sendNotes: (n: number) => `Enviar ${n === 1 ? "la nota" : `${n} notas`} a Artist`,
     askChanges: "Pedir cambios",
     like: "Me gusta",
@@ -334,6 +340,7 @@ export const FICHA_WORDS = defineWords({
     notePedido: "Add something or paste an image…",
     noteIdea: "Add something for the team…",
     add: "Add",
+    noteSent: "Sent: they read it on their next turn.",
     note: "Note",
     now: (label: string) => `Now: ${label}`,
     saidOkEntendido: "You told the PO that's right.",
@@ -395,6 +402,9 @@ export const FICHA_WORDS = defineWords({
     askOption: (n: number) => `Ask for option ${n}`,
     researchRecommends: (n: number) => `Research recommends option ${n}.`,
     pickAnother: "Pick another and Research redoes it.",
+    toReview: "To review",
+    researchWrongLabel: "What you would change in the research",
+    researchCorrectHere: "Or correct it here…",
     sendNotes: (n: number) => `Send ${n === 1 ? "the note" : `${n} notes`} to Artist`,
     askChanges: "Ask for changes",
     like: "I like it",

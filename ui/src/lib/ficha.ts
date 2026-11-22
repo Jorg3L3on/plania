@@ -141,3 +141,11 @@ export const isMaq = (ref: FichaRef) => ref.kind === "maq" || ref.kind === "maq-
 export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" ? ref.key : null);
 // PLA-I61: an idea and an owner's request both open La idea abierta (GET …/ideas/:key).
 export const needsIdea = (ref: FichaRef): string | null => (ref.kind === "idea" || ref.kind === "pedido" ? ref.key : null);
+
+// PLA-148 (F-3): the stops that only ask for a look. Entendido, Investigación, Diseño and the plan go on by themselves
+// when the owner says nothing (the PO's reading, the recommended option, the frames as drawn), so their bar reads
+// «Para revisar», not «Te toca»: Todo counts nothing there. «Te toca» is kept for what waits on him (a PO's question,
+// «Constrúyelo», a step to accept, closing an initiative).
+export const SOFT_REVIEW_STOPS = ["entendido", "investigacion", "diseno", "plan"] as const;
+export type StopBar = "review" | "you";
+export const stopBar = (stop: string): StopBar => ((SOFT_REVIEW_STOPS as readonly string[]).includes(stop) ? "review" : "you");

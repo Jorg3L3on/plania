@@ -26,6 +26,8 @@ import { busyOf, run, useCerrar } from "./tablero";
 import { firstStop, stopLine, whoName } from "./idea";
 import { LOCALE } from "@/lib/locale";
 import { FICHA_WORDS } from "@/lib/ficha-words";
+import { ideaName } from "@/lib/nombre";
+import { stopBar } from "@/lib/ficha";
 import { words } from "@/lib/i18n";
 
 export type Sel = PedidoStop | "construccion" | "publicado";
@@ -641,6 +643,13 @@ const Nota = ({ d, ui, set, acts, slug }: { d: IdeaDetail; ui: Ui; set: (p: Part
   const [files, setFiles] = useState<File[]>([]);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const busy = acts.busy === `pedido-${d.key}:note`;
+  // PLA-148 (F-5): after «Añadir» the box empties; say it went (unless the send failed).
+  const [sent, setSent] = useState(false);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy && !acts.failed[`pedido-${d.key}:note`]) setSent(true);
+    wasBusy.current = busy;
+  }, [busy, acts.failed, d.key]);
   return (
     <form
       className="cor-ficha-nota"
@@ -655,12 +664,15 @@ const Nota = ({ d, ui, set, acts, slug }: { d: IdeaDetail; ui: Ui; set: (p: Part
       <label className="cor-label violet" htmlFor={`ficha-nota-${d.key}`}>
         {w.forTeam}
       </label>
-      <textarea id={`ficha-nota-${d.key}`} ref={noteRef} rows={3} className="cor-input" value={ui.note} maxLength={1000} placeholder={d.pedido ? w.notePedido : w.noteIdea} onChange={(e) => set({ note: e.target.value })} />
+      <textarea id={`ficha-nota-${d.key}`} ref={noteRef} rows={3} className="cor-input" value={ui.note} maxLength={1000} placeholder={d.pedido ? w.notePedido : w.noteIdea} onChange={(e) => (set({ note: e.target.value }), setSent(false))} />
       <div className="cor-acts" style={{ marginTop: 0 }}>
         {d.pedido && <Images files={files} onChange={setFiles} textarea={noteRef} disabled={busy} />}
         <Btn kind="secondary" type="submit" disabled={(ui.note.trim().length < 2 && !files.length) || busy} data-control="ficha-nota-enviar">
           {w.add}
         </Btn>
+        <span className="cor-cap" role="status" data-nota-enviada={sent || undefined}>
+          {sent ? w.noteSent : ""}
+        </span>
       </div>
     </form>
   );
@@ -833,6 +845,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
   // The chosen stop's answer, while it is open and delivered.
   const s = STOP_IDS.includes(ui.sel as PedidoStop) ? d.stops.find((x) => x.stop === ui.sel)! : null;
   if (s && ANSWERABLE.includes(s.stop) && s.delivered && isOpen(d)) {
+    // PLA-148 (F-3): these stops go on by themselves; their bar invites a look and does not say «Te toca».
+    const bar: { tone: Tone; label: string } = stopBar(s.stop) === "review" ? { tone: "calm", label: w.toReview } : { tone: "you", label: w.yourTurn };
     if (s.answer)
       return (
         <Bar tone="calm" label={selName(s.stop)} side={s.answer.verdict === "ok" && <Btn kind="secondary" disabled={busy("respuesta")} onClick={() => send(s.stop, { verdict: "deshacer" })} data-control="ficha-deshacer">{w.undo}</Btn>}>
@@ -842,8 +856,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
     if (s.stop === "entendido")
       return (
         <Bar
-          tone="you"
-          label={w.yourTurn}
+          tone={bar.tone}
+          label={bar.label}
           side={
             <form
               className="cor-ficha-answer"
@@ -874,10 +888,20 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
       const pick = ui.pick ?? rec;
       return (
         <Bar
-          tone="you"
-          label={w.yourTurn}
+          tone={bar.tone}
+          label={bar.label}
           side={
-            <>
+            <form
+              className="cor-ficha-answer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                // PLA-148 (F-5): his own words, like Entendido's correction: a note Research reads when it redoes it
+                // (with the option he picked, when it is not the recommended one).
+                const text = ui.text.trim();
+                if (!text || busy("respuesta")) return;
+                send("investigacion", pick === rec ? { verdict: "cambios", text } : { verdict: "opcion", option: pick, text });
+              }}
+            >
               <span className="cor-segbox" role="radiogroup" aria-label={w.optionsLabel}>
                 {d.research.options.map((o) => (
                   <Opt key={o.n} on={pick === o.n} role="radio" aria-checked={pick === o.n} onClick={() => set({ pick: o.n })} title={o.title} data-option={o.n}>
@@ -885,7 +909,12 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
                   </Opt>
                 ))}
               </span>
-              {pick === rec ? (
+              <input className="cor-input" maxLength={1000} value={ui.text} aria-label={w.researchWrongLabel} placeholder={w.researchCorrectHere} onChange={(e) => set({ text: e.target.value })} />
+              {ui.text.trim() ? (
+                <Btn kind="primary" type="submit" disabled={busy("respuesta")} data-control="ficha-corregir">
+                  {w.correct}
+                </Btn>
+              ) : pick === rec ? (
                 <Btn kind="primary" disabled={busy("respuesta")} onClick={() => send("investigacion", { verdict: "ok" })} data-control="ficha-ok">
                   {w.goRecommended}
                 </Btn>
@@ -894,7 +923,7 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
                   {w.askOption(pick)}
                 </Btn>
               )}
-            </>
+            </form>
           }
         >
           {w.researchRecommends(rec)} <span>{w.pickAnother}</span>
@@ -905,8 +934,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
       const ready = ui.pins.filter((x) => x.text.trim());
       return (
         <Bar
-          tone="you"
-          label={w.yourTurn}
+          tone={bar.tone}
+          label={bar.label}
           side={
             <>
               <Btn kind="secondary" disabled={busy("respuesta") || ready.length === 0} onClick={() => send("diseno", { verdict: "cambios", notes: ready })} data-control="ficha-notas">
@@ -924,8 +953,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
     }
     return (
       <Bar
-        tone="you"
-        label={w.yourTurn}
+        tone={bar.tone}
+        label={bar.label}
         side={
           ui.asking ? (
             <form
@@ -1040,9 +1069,10 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, ex
             )}
             {d.unseen > 0 && !d.built && <span className="cor-cap">{w.unseen(d.unseen)}</span>}
           </span>
-          {/* PLA-63: the header has the room for the whole name; the short one (first words) is for small places. */}
+          {/* PLA-63, PLA-148 (F-6): a request's title is the start of the owner's text: the header shows its first
+              sentence as the name, the whole text on hover (and in Entendido). */}
           <h2 className="cor-ellipsis" title={d.title}>
-            {d.summary || d.title}
+            {ideaName(d.summary || d.title) || d.title}
           </h2>
         </div>
         <Btn kind="quiet" small aria-pressed={ui.sub === "recorrido"} onClick={() => set({ sub: ui.sub === "recorrido" ? "entrega" : "recorrido" })} data-control="ficha-recorrido">
