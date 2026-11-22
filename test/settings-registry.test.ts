@@ -129,10 +129,11 @@ const OWNER_ONLY_SAMPLE: Record<string, unknown> = {
   auto_accept_invisible: true,
   runner: { max_concurrent: 4 },
   next_first: "HUE-1",
+  velocidad: { revision: "por_paso" },
 };
 
 test("PLA-I2-6: every owner-only key is refused from an agent (INVALID_FILTER, nothing written) and taken from the screen", async () => {
-  assert.deepEqual([...reg.OWNER_ONLY_KEYS].sort(), ["auto_accept", "auto_accept_invisible", "next_first", "plan_approval", "preview_url", "runner"]);
+  assert.deepEqual([...reg.OWNER_ONLY_KEYS].sort(), ["auto_accept", "auto_accept_invisible", "next_first", "plan_approval", "preview_url", "runner", "velocidad"]);
   for (const k of reg.OWNER_ONLY_KEYS) {
     assert.ok(k in OWNER_ONLY_SAMPLE, `a sample value for ${k}`);
     const value = OWNER_ONLY_SAMPLE[k];

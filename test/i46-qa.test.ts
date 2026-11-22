@@ -439,6 +439,8 @@ test("I46-9 #3: a usage hold stops the QA run like any other run; it starts once
 
 test("I46-9: without a QA teammate a delivery reaches the floor as before; the check list is editable from the screen", async () => {
   await raw.query(`update agents set status = 'retired' where slug = 'qa-zz'`);
+  // PLA-I73-2: with the verification lane off; on (the default) Plania runs the checks itself (below).
+  await raw.query(`update projects set settings = settings || '{"velocidad": {"verificar": false}}'::jsonb where slug = 'zigzag'`);
   try {
     const key = await newTicket("Sin QA");
     await deliver(key, SHA1, 15);
@@ -461,6 +463,22 @@ test("I46-9: without a QA teammate a delivery reaches the floor as before; the c
     assert.deepEqual(stored.map((c: Json) => [c.n, c.text, c.done]), [[1, "Uno", false], [2, "Dos", false]], "one storage: tasks.po_checklist");
   } finally {
     await raw.query(`update agents set status = 'idle' where slug = 'qa-zz'`);
+    await raw.query(`update projects set settings = settings - 'velocidad' where slug = 'zigzag'`);
   }
   assert.ok(DENY_RULES.length > 0 && QA_DENY_RULES.includes("Edit"));
+});
+
+test("PLA-I73-2: without a QA teammate the verification lane still runs the project's checks and decides on them", async () => {
+  await raw.query(`update agents set status = 'retired' where slug = 'qa-zz'`);
+  try {
+    const key = await newTicket("Solo pruebas");
+    await deliver(key, SHA1, 15);
+    const verify = (await raw.query(`select settings->'qa'->'verify' as v from projects where slug = 'zigzag'`)).rows[0].v;
+    if (!Array.isArray(verify) || verify.length === 0) return; // this project has no checks to run
+    assert.ok((await qa.sweepQa(db, new Date(), qaDeps())).opened >= 1, "lanes open without a QA seat");
+    const lane = (await raw.query(`select status from qa_lanes where task_key = $1 order by created_at desc limit 1`, [key])).rows[0];
+    assert.ok(lane, "a lane was opened");
+  } finally {
+    await raw.query(`update agents set status = 'idle' where slug = 'qa-zz'`);
+  }
 });

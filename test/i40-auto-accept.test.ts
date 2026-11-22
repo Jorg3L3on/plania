@@ -76,7 +76,8 @@ before(async () => {
 beforeEach(async () => {
   merges = [];
   ghBase = "sandbox";
-  await raw.query(`update projects set runs_paused = (slug <> 'micasa'), settings = settings - 'auto_accept'`);
+  // PLA-I73-3: these tests are about the switch; one review per module (the new default) has its own tests below.
+  await raw.query(`update projects set runs_paused = (slug <> 'micasa'), settings = (settings - 'auto_accept') || '{"velocidad": {"revision": "por_paso"}}'::jsonb`);
   await raw.query(`update runner_settings set company_paused = false`);
   await raw.query(`update tasks set status = 'Done' where kind = 'ticket' and status = 'In review'`);
   await raw.query(`update thread_messages set action_state = '{"action":"aceptar","at":"2026-01-01T00:00:00Z","result":{}}'::jsonb where action_state is null`);
@@ -174,4 +175,22 @@ test("I40-7 #4: the switch is the screen's only, and it survives a read", async 
   assert.equal((await raw.query(`select settings->>'auto_accept' as v from projects where slug = 'micasa'`)).rows[0].v, "true");
   await option(false);
   assert.equal((await card()).auto_accept.on, false);
+});
+
+// ---- PLA-I73-3: one review per module. With revision por_modulo (the default) a green delivery with no risk is
+// accepted by itself; a delivery that touches login or payments waits for the owner.
+test("PLA-I73-3: one review per module accepts a green riskless delivery and holds a risky one", async () => {
+  await raw.query(`update projects set settings = settings - 'velocidad' where slug = 'micasa'`);
+  const ok = await delivery("Catálogo como revista");
+  const risky = await delivery("Pantalla de acceso");
+  const touched = (key: string, files: string[]) =>
+    raw.query(`insert into events (project_id, task_id, task_key, type, actor, payload) select project_id, id, key, 'task.areas_touched', '{"agent":"plania"}'::jsonb, $2::jsonb from tasks where key = $1`, [key, JSON.stringify({ files })]);
+  await touched(ok.key, ["src/app/catalogo/revista.tsx"]);
+  await touched(risky.key, ["src/app/panel/login/page.tsx"]);
+  await raw.query(`update tasks set cambio = 'no_se_ve' where key in ($1, $2)`, [ok.key, risky.key]);
+  const out = await sweepAutoAccept(db);
+  assert.deepEqual(out.accepted, [ok.key]);
+  assert.equal(out.held.length, 1);
+  assert.match(out.held[0]!.reason, /acceso o las sesiones/);
+  assert.equal(await status(risky.key), "In review");
 });

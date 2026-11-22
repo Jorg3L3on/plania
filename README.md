@@ -963,6 +963,7 @@ Only the owner's screen sets these; `set_project` from an agent refuses them (IN
 | `auto_accept_invisible` | on, deliveries enter the test copy without the owner |
 | `runner` | it raises how many runs go at once and which server variables runs get |
 | `next_first` | it overrides the step the owner picked to go first |
+| `velocidad` | It decides when work is accepted without the owner and how much runs at once. |
 
 Advanced settings, which can be left alone:
 
@@ -972,6 +973,7 @@ Advanced settings, which can be left alone:
 | `release_target` | prod | Only matters with more than one deploy target; prod fits a project with one. |
 | `release_on` | env with Vercel or a recorded commit, else branch | Plania picks it from what the project has; set it only when the guess is wrong. |
 | `auto_done` | on | On is what a new owner wants; off keeps every closing by hand. |
+| `velocidad` | apilar on, revision por_modulo, carriles 2, esqueleto_temprano on, verificar on | PLA-I73: measured on guided test 3, most of a module's time was waiting between steps. |
 | `branch_pattern` | none: any branch name | The runner already names its branches; a pattern only binds outside clients. |
 | `claim_from` | backlog | The PO decides what is Ready; the default suits a team the PO leads. |
 | `resources` | none: leases with the server's limits | Leases work without it; it only caps how long one may be held. |
