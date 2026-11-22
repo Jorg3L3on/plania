@@ -65,7 +65,8 @@ export type MoveAction =
   | { kind: "publish"; label: string }
   | { kind: "fijar"; label: string }
   | { kind: "plan"; text: string; label: string }
-  | { kind: "start"; agent: string; label: string }
+  // PLA-165: key is the step the move names; «Que empiece ya» starts that one, never «whatever comes next».
+  | { kind: "start"; agent: string; label: string; key?: string | null }
   | { kind: "link"; href: string; label: string };
 export type MoveOrigin =
   | { kind: "decision"; id: string; decision: Decision["kind"] }
@@ -165,7 +166,7 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
     const origen: MoveOrigin = { kind: "hold", agent: held.agent, hold: n.hold };
     if (n.hold === "no_goal") return { verbo: "fijar", texto: w.setGoal, accion: { kind: "fijar", label: w.setGoalLabel }, origen };
     if (n.hold === "waiting_owner") return { verbo: "aceptar", texto: w.approveBefore(q(n.title)), accion: { kind: "reveal", id: null, label: w.seeDelivery }, origen };
-    return { verbo: "arrancar", texto: w.start(q(n.title)), accion: { kind: "start", agent: held.agent, label: w.startNow }, origen };
+    return { verbo: "arrancar", texto: w.start(q(n.title)), accion: { kind: "start", agent: held.agent, label: w.startNow, key: n.key }, origen };
   }
 
   // 3. The leg we stand on is complete and the next one has no steps: planning it is the owner's call.

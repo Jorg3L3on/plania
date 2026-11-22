@@ -184,6 +184,32 @@ test("PLA-151: an initiative turning Active wakes Taller on its first Ready step
   assert.deepEqual(await wakes(), [], "a blocked step still waits for its landing");
 });
 
+test("PLA-164: after «Constrúyelo» the idea's promotion wakes Taller on step 1, even with the initiative still Planning", async () => {
+  await raw.query(`delete from agent_runs`);
+  const idea = await writes.createTask(db, { project: "micasa", kind: "idea", title: "Cómo llegar" } as never, ctx);
+  const ideaKey = (idea as { key: string }).key;
+  const pid = await id("projects", "micasa");
+  await raw.query(`insert into events (project_id, task_id, task_key, type, actor, payload) select $1, id, key, 'pedido.construir', '{"agent":"owner","session_id":"web"}'::jsonb, '{}'::jsonb from tasks where key = $2`, [pid, ideaKey]);
+  await writes.createTask(db, { project: "micasa", kind: "initiative", key: "EV-BUILT", title: "Cómo llegar", scope: "Plan" } as never, ctx);
+  await backlog("EV-B1", { parent_key: "EV-BUILT", phase: 1, status: "Ready" });
+  assert.deepEqual(await wakes(), [], "before the promotion the initiative is just Planning");
+  const { version } = (await raw.query(`select version from tasks where key = $1`, [ideaKey])).rows[0];
+  await writes.setTask(db, { project: "micasa", key: ideaKey, promoted_to: "EV-BUILT", version } as never, ctx);
+  const w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key]), [["taller", "EV-B1"]]);
+  assert.match(w[0]!.summary, /built from/);
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-B2", { parent_key: "EV-BUILT", phase: 2, status: "Ready" });
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "EV-B2"]], "a later step born Ready under it wakes Taller too");
+});
+
+test("PLA-164: an ordinary Planning initiative (no «Constrúyelo») still wakes nobody on a step born Ready", async () => {
+  await raw.query(`delete from agent_runs`);
+  await writes.createTask(db, { project: "micasa", kind: "initiative", key: "EV-PLAIN", title: "Otro plan", scope: "Plan" } as never, ctx);
+  await backlog("EV-P1", { parent_key: "EV-PLAIN", phase: 1, status: "Ready" });
+  assert.deepEqual(await wakes(), []);
+});
+
 test("PLA-155: a PO run that leaves its ticket In progress with uncommitted code hands it to Taller, who wakes", async () => {
   await raw.query(`delete from agent_runs`);
   await backlog("EV-PO", { status: "Ready", owner_agent: "housi" });

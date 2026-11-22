@@ -182,6 +182,32 @@ test("I40-2 #3: with Ready work and no queued run it queues and starts one run; 
   f.spawned[0]!.child.finish();
 });
 
+test("PLA-165: Que empiece ya starts the step the move names, and never a blocked, On hold or owner's step in its place", async () => {
+  const f = fakes();
+  // What the stray pick chose on a customer project: a step of an On hold initiative, owned by nobody, blocked, sorting first.
+  await writes.createTask(db, { project: "micasa", kind: "initiative", key: "AA-HOLD", title: "Plan de pagos", scope: "s" } as never, A);
+  const first = ((await writes.createTask(db, { project: "micasa", parent_key: "AA-HOLD", phase: 1, title: "Tabla", scope: "s", checks: ["c"], status: "Ready", priority: "P0" } as never, A)) as { key: string }).key;
+  const v = (await raw.query(`select version from tasks where key = 'AA-HOLD'`)).rows[0].version;
+  await writes.setTask(db, { project: "micasa", key: "AA-HOLD", status: "On hold", version: v } as never, A);
+  const blocker = await ticket("Algo antes");
+  await writes.createTask(db, { project: "micasa", title: "Detrás de otro", scope: "s", checks: ["c"], status: "Ready", priority: "P0", blocked_by: [blocker] } as never, A);
+  await raw.query(`update tasks set status = 'Backlog' where key = $1`, [blocker]);
+  const mine = await ticket("Cómo llegar");
+  await rested(2);
+
+  const loaded = (await (await import("../src/jobs/heartbeat.js")).loadReady(db)).map((r: { key: string }) => r.key);
+  assert.ok(!loaded.includes(first), "a step of an On hold initiative is not ready work");
+  assert.ok(loaded.includes(mine));
+
+  const named = await go(f, { key: mine });
+  assert.deepEqual([named.started, named.ticket], [true, mine], "the named step starts");
+  f.spawned[0]!.child.finish();
+  await runner.waitForAllRuns();
+
+  const refused = await go(fakes(), { key: first });
+  assert.equal(refused.error, "NOT_READY", "a named step that is not startable is refused, not swapped for another");
+});
+
 test("I40-2 #4: with nothing Ready and nothing queued it says idle and starts nothing", async () => {
   const f = fakes();
   const out = await go(f);

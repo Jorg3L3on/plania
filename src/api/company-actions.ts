@@ -53,6 +53,7 @@ export const ACTION_WORDS = defineWords({
     notReady: "Solo un ticket listo puede ir primero.",
     idle: "Sin trabajo para el PO: pídele algo.",
     noTeammate: "Ese compañero no está en el equipo de este proyecto.",
+    notReadyStep: (key: string) => `${key} ya no está lista para empezar: bloqueada, en espera o ya tomada.`,
     noOrder: "Ese pedido no está.",
     orderTaken: "Ese pedido ya no espera a nadie.",
   },
@@ -64,6 +65,7 @@ export const ACTION_WORDS = defineWords({
     notReady: "Only a ready ticket can go first.",
     idle: "No work for the PO: ask it for something.",
     noTeammate: "That teammate is not on this project's team.",
+    notReadyStep: (key: string) => `${key} is no longer ready to start: blocked, on hold or already taken.`,
     noOrder: "That request is not here.",
     orderTaken: "That request no longer waits on anyone.",
   },
@@ -243,17 +245,20 @@ export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promis
 // The rest between runs is skipped once; past_guard also lets it past the plan guard this once. A paused
 // company or project refuses, as do the goal, the base branch and the cap (a full cap leaves it queued).
 export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
-export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "AGENT_NOT_FOUND"; status: 404 | 409; hint: string };
+export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "AGENT_NOT_FOUND" | "NOT_READY"; status: 404 | 409; hint: string };
 
 // PLA-I49-5: reason, when given, is what the bot reads under "Why you woke" (a screen wake had none).
-export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date; reason?: string } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
+export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date; reason?: string; key?: string } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: say(ACTION_WORDS).companyPaused };
   if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: say(ACTION_WORDS).projectPaused };
   const agent = (await teamOf(db, project.id)).find((a) => a.slug === agentSlug);
   if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noTeammate };
-  const work = pickReady({ ...agent, projectSlug: project.slug }, (await loadReady(db)).filter((r) => r.project === project.slug));
+  const ready = (await loadReady(db)).filter((r) => r.project === project.slug);
+  // PLA-165: the step the owner pressed «Que empiece ya» on, when the screen names it; never another one in its place.
+  const work = opts.key ? pickReady({ ...agent, projectSlug: project.slug }, ready.filter((r) => r.key === opts.key)) : pickReady({ ...agent, projectSlug: project.slug }, ready);
+  if (opts.key && !work) return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).notReadyStep(opts.key) };
   const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date(), reason: opts.reason }, deps?.runner);
   const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
   return "runId" in out ? { ...base, ticket: out.taskKey, run_id: out.runId } : { ...base, ticket: null, run_id: null };

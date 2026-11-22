@@ -425,8 +425,9 @@ export const api = {
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean; max_turns?: number; timeout_minutes?: number; cooldown_minutes?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   // PLA-I40-2: Que empiece ya for one teammate.
-  startTeammate: (slug: string, agent: string, pastGuard = false) =>
-    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
+  // PLA-165: key, when the move names a step, starts that step and nothing else.
+  startTeammate: (slug: string, agent: string, pastGuard = false, key: string | null = null) =>
+    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, { ...(pastGuard ? { past_guard: true } : {}), ...(key ? { key } : {}) }),
   // PLA-I54-1: mode forma (an idea in the floor's tube) or ya (the Ready ticket plus the wake). The reply's key is the
   // new idea's or ticket's: F5 uploads the side page's pictures to it.
   // PLA-I57-1: mode pregunta asks the PO a question (no task; the reply's consulta is its id); consulta on a forma or
@@ -757,7 +758,7 @@ export type OrgMoveAction =
   | { kind: "publish"; label: string }
   | { kind: "fijar"; label: string }
   | { kind: "plan"; text: string; label: string }
-  | { kind: "start"; agent: string; label: string }
+  | { kind: "start"; agent: string; label: string; key?: string | null }
   | { kind: "link"; href: string; label: string };
 export type OrgMoveOrigin = { kind: "decision"; id: string; decision: string } | { kind: "light" } | { kind: "hold"; agent: string; hold: string } | { kind: "route"; leg: string };
 export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAction; origen: OrgMoveOrigin };
