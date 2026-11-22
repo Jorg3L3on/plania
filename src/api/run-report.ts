@@ -15,6 +15,7 @@ import type { Db } from "../db/client.js";
 import { agentRuns, events, projects, questions, tasks, type Task } from "../db/schema.js";
 import { isScreenActor } from "../mcp/tx.js";
 import { OWNER_CLICK, type DecisionControl } from "./clicks.js";
+import { ST } from "../state/status.js";
 
 export const HEALED = "turn.healed";
 export type ReportStop = "entendido" | "investigacion" | "diseno" | "plan" | "lista" | "construccion" | "publicado";
@@ -156,7 +157,7 @@ export function runReport(input: ReportInput): RunReport {
   const review = new Map<string, number>();
   for (const e of evs) {
     if (e.type !== "task.status" || !e.taskKey) continue;
-    if (e.payload.to === "In review") review.set(e.taskKey, e.at.getTime());
+    if (e.payload.to === ST.inReview) review.set(e.taskKey, e.at.getTime());
     else if (review.has(e.taskKey)) {
       busy.push({ from: review.get(e.taskKey)!, to: e.at.getTime() });
       review.delete(e.taskKey);
