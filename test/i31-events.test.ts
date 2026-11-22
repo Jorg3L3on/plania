@@ -210,6 +210,34 @@ test("PLA-164: an ordinary Planning initiative (no «Constrúyelo») still wakes
   assert.deepEqual(await wakes(), []);
 });
 
+test("PLA-167: a note on a step an ended run still holds frees it and wakes Taller with the note; a live run is left alone", async () => {
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-NOTE", { status: "Ready" });
+  await raw.query(`delete from agent_runs`);
+  await writes.claim(db, { project: "micasa", key: "EV-NOTE" } as never, { actor: { agent: "plania-runner", session_id: "run-0b4b01d4271a4e8f", machine: "m" } } as never);
+  const { noteForAgent } = await import("../src/api/company-runs.js");
+  const out = await noteForAgent(db, "micasa", "EV-NOTE", "Arregla la prueba inestable y vuelve a entregar.");
+  assert.deepEqual(out, { noted: true, woke: true });
+  assert.equal((await raw.query(`select status from tasks where key = 'EV-NOTE'`)).rows[0].status, "Ready", "the ended run's lease is released");
+  const w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key]), [["taller", "EV-NOTE"]]);
+  assert.match(w[0]!.summary, /note from the owner: Arregla la prueba inestable/);
+  // While a run is queued or running on the step, the note waits for its next step: nothing more is queued.
+  const again = await noteForAgent(db, "micasa", "EV-NOTE", "Otra cosa.");
+  assert.deepEqual(again, { noted: true, woke: false });
+  assert.equal((await wakes()).length, 1);
+});
+
+test("PLA-167: a person's own lease is never released by a note", async () => {
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-NOTE2", { status: "Ready" });
+  await raw.query(`delete from agent_runs`);
+  await writes.claim(db, { project: "micasa", key: "EV-NOTE2" } as never, { actor: { agent: "Claude Code", session_id: "cc-someone-working", machine: "m" } } as never);
+  const { noteForAgent } = await import("../src/api/company-runs.js");
+  assert.deepEqual(await noteForAgent(db, "micasa", "EV-NOTE2", "Hola."), { noted: true, woke: false });
+  assert.equal((await raw.query(`select status from tasks where key = 'EV-NOTE2'`)).rows[0].status, "In progress");
+});
+
 test("PLA-155: a PO run that leaves its ticket In progress with uncommitted code hands it to Taller, who wakes", async () => {
   await raw.query(`delete from agent_runs`);
   await backlog("EV-PO", { status: "Ready", owner_agent: "housi" });
