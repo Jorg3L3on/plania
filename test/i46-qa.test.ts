@@ -4,7 +4,7 @@
 // app, Chrome, claude); throwaway DB; nothing reaches a real repo or a real claude.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -481,4 +481,42 @@ test("PLA-I73-2: without a QA teammate the verification lane still runs the proj
   } finally {
     await raw.query(`update agents set status = 'idle' where slug = 'qa-zz'`);
   }
+});
+
+test("PLA-I74-9: a checkout with a build script gets the host's build as the last check; a failing build sends the delivery back; removed with a reason it does not run", async () => {
+  verifyOut = { "pnpm run build": { code: 1, out: "Type error: Property 'precio' does not exist on type 'Item'.\nError: Command \"next build\" exited with 1\n" } };
+  await raw.query(`delete from agent_runs`);
+  const key = await newTicket("Precio en la lista");
+  await deliver(key, SHA1, 21);
+  const dir = worktreePathFor(ROOT, "zigzag", key);
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { build: "next build", test: "node --test" } }));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  execCalls.length = 0;
+  await tick();
+  const l = await lane(key);
+  assert.deepEqual(l.verify.map((v: Json) => [v.name, v.command, v.ok]), [["test", "pnpm test", true], ["typecheck", "pnpm typecheck", true], ["build", "pnpm run build", false]]);
+  assert.ok(execCalls.some((c) => c.command === "pnpm run build" && c.cwd === dir), "run in the delivery's checkout");
+  assert.equal(l.status, "fail");
+  assert.equal((await ticket(key)).status, "Ready", "back to Taller");
+  const note = (await raw.query(`select payload from events where task_key = $1 and type = 'note' order by created_at desc limit 1`, [key])).rows[0]?.payload.text as string;
+  assert.match(note, /build falló[\s\S]*`pnpm run build`[\s\S]*Property 'precio' does not exist/);
+
+  // Removed with a reason: the list runs without it.
+  const p = await findProject(db, "zigzag");
+  await setProject(db, { project: "zigzag", version: p.version, settings: { qa: { ...p.settings.qa!, no_build: { reason: "La compila el servicio con otra versión de Node" } } } } as never, A);
+  await raw.query(`delete from agent_runs`);
+  const key2 = await newTicket("Precio sin construir");
+  await deliver(key2, SHA2, 22);
+  const dir2 = worktreePathFor(ROOT, "zigzag", key2);
+  writeFileSync(path.join(dir2, "package.json"), JSON.stringify({ scripts: { build: "next build" } }));
+  execCalls.length = 0;
+  await tick();
+  assert.ok(!execCalls.some((c) => c.command.includes("build")), "no build once removed");
+  assert.deepEqual((await lane(key2)).verify.map((v: Json) => v.name), ["test", "typecheck"]);
+  // A reason is required.
+  const bad = parseQaSettings({ verify: [], no_build: { reason: "" } });
+  assert.equal(bad.ok, false);
+  const p2 = await findProject(db, "zigzag");
+  const { no_build: _drop, ...rest } = p2.settings.qa!;
+  await setProject(db, { project: "zigzag", version: p2.version, settings: { qa: rest } } as never, A);
 });

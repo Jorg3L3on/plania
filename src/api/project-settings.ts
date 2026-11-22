@@ -27,6 +27,8 @@ import { kitRoot } from "../runner/kit.js";
 import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheckDeps } from "../runner/repo-check.js";
 import { checkGithubRepo } from "../runner/repo-setup.js";
 import { startBranchOf } from "../runner/start-branch.js";
+import { buildRead, type BuildRead } from "../runner/build-step.js";
+import { repoPathOf } from "../runner/worktree.js";
 import { CONTEXT_DOCS } from "../runner/runner.js";
 import type { QaSettings } from "../runner/qa-settings.js";
 
@@ -54,6 +56,8 @@ export type SettingsRead = {
   code: { repo_path: string | null; github_repo: string | null; no_code: boolean };
   release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations: "deploy" | "owner" | "none" | null } | null;
   verify: { name: string; command: string }[];
+  // PLA-I74-9: the host's production build the verify list runs by default, and the owner's reason when removed.
+  build: BuildRead;
   preview_url: string | null;
   plan_approval: boolean;
   context: { id: ContextDocId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string; updated_at: string | null }[];
@@ -97,6 +101,7 @@ export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> 
     code: { repo_path: s.local?.repo_path ?? null, github_repo: s.github?.repo ?? null, no_code: s.local?.no_code === true },
     release: s.release ? { from: s.release.from, into: s.release.into, env: s.release.env, mode: s.release.mode ?? "command", prod_migrations: s.release.prod_migrations ?? null } : null,
     verify: (s.qa?.verify ?? []).map((v) => ({ name: v.name, command: v.command })),
+    build: buildRead(p, repoPathOf(p.slug, s, process.env)),
     preview_url: s.preview_url ?? null,
     plan_approval: !!s.plan_approval,
     context: CONTEXT_DOC_IDS.map((id) => {
@@ -183,11 +188,13 @@ export function verifyItems(commands: string[], current: QaSettings["verify"] = 
   return out;
 }
 
-/** QA's verify list, one command per line; the rest of settings.qa stays as it was. Validated by set_project. */
-export async function setVerifyList(db: Db, slug: string, input: { version: number; commands: string[] }): Promise<SettingsRead> {
+/** QA's verify list, one command per line; the rest of settings.qa stays as it was. Validated by set_project.
+ * PLA-I74-9: no_build removes the host's production build with the owner's reason (null puts it back; absent keeps it). */
+export async function setVerifyList(db: Db, slug: string, input: { version: number; commands: string[]; no_build?: string | null }): Promise<SettingsRead> {
   const p = await findProject(db, slug);
-  const qa = p.settings.qa;
-  await setProject(db, { project: slug, version: input.version, settings: { qa: { ...(qa ?? {}), verify: verifyItems(input.commands, qa?.verify) } } }, settingsCtx);
+  const { no_build: was, ...qa } = p.settings.qa ?? { verify: [] };
+  const off = input.no_build === undefined ? was : input.no_build === null ? undefined : { reason: input.no_build };
+  await setProject(db, { project: slug, version: input.version, settings: { qa: { ...qa, verify: verifyItems(input.commands, qa.verify), ...(off ? { no_build: off } : {}) } } }, settingsCtx);
   return settingsRead(db, slug);
 }
 

@@ -34,6 +34,9 @@ export const qaSettingsSchema = z
     browser: z.boolean().optional(),
     // AUDIT-10: a delivery QA or the owner sent back queues one retro run that proposes one fix. Off unless true.
     retro: z.boolean().optional(),
+    // PLA-I74-9: the host's production build runs as the last verify step by default (src/runner/build-step.ts).
+    // Removing it takes the owner's reason, which Ajustes shows.
+    no_build: z.object({ reason: z.string().trim().min(3, "say why").max(240) }).strict().optional(),
   })
   .strict()
   .superRefine((s, ctx) => {

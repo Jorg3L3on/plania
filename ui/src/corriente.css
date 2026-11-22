@@ -3012,3 +3012,5 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
+.cor-ajustes-build { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--cor-line); min-width: 0; }
+.cor-ajustes-build code { overflow-wrap: anywhere; }

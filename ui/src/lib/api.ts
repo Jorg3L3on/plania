@@ -325,7 +325,7 @@ export const api = {
   crearRama: (slug: string) => request<{ state: "done" | "already" | "failed"; code: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/settings/code/rama`, {}),
   ajustesLanzamiento: (slug: string, input: { version: number; release: { from: string; into: string; env: string; mode?: "merge"; prod_migrations?: "deploy" | "owner" | "none" } | null }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/release`, input),
-  ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
+  ajustesPruebas: (slug: string, input: { version: number; commands: string[]; no_build?: string | null }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
   // PLA-I2-6: how the app starts, and one «Avanzado» field.

@@ -74,7 +74,7 @@ const Pruebas = ({ a }: { a: AjustesRead }) => {
           <textarea className="cor-textarea cor-mono cor-ajustes-area" rows={Math.max(3, cmds.length + 1)} value={text} onChange={(e) => setText(e.target.value)} placeholder={"pnpm test\npnpm exec tsc --noEmit"} spellCheck={false} data-campo="comandos" />
         </label>
         {aviso && <p className="cor-state amber">{aviso}</p>}
-        {!aviso && cmds.length === 0 && <p className="cor-cap">{w.noCommands}</p>}
+        {!aviso && cmds.length === 0 && !a.build?.on && <p className="cor-cap">{w.noCommands}</p>}
         <Falla error={save.error} />
         <div className="cor-acts">
           <Btn kind="secondary" type="submit" disabled={!!aviso || save.isPending} data-control="guardar-pruebas">
@@ -82,7 +82,67 @@ const Pruebas = ({ a }: { a: AjustesRead }) => {
           </Btn>
         </div>
       </form>
+      <Construccion a={a} commands={a.verify.map((v) => v.command)} />
     </Seccion>
+  );
+};
+
+/** PLA-I74-9: the host's production build QA runs by default. Removing it asks why, and the reason stays shown. */
+export const Construccion = ({ a, commands }: { a: AjustesRead; commands: string[] }) => {
+  const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState("");
+  const save = useGuardar(a.slug, (no_build: string | null) => api.ajustesPruebas(a.slug, { version: a.version, commands, no_build }));
+  const w = words(AJUSTES_VIEW_WORDS).build;
+  const b = a.build;
+  if (!b?.command) return null;
+  if (b.off_reason)
+    return (
+      <div className="cor-ajustes-build" data-build="off">
+        <p className="cor-text">
+          <b>{w.off}</b> · {w.offLine(b.off_reason)}
+        </p>
+        <Falla error={save.error} />
+        <div className="cor-acts">
+          <Btn kind="secondary" disabled={save.isPending} onClick={() => save.mutate(null)} data-control="build-volver">
+            {w.putBack}
+          </Btn>
+        </div>
+      </div>
+    );
+  return (
+    <div className="cor-ajustes-build" data-build={b.in_list ? "lista" : "on"}>
+      <p className="cor-text">
+        <b>{w.on}</b> · <code className="cor-mono">{b.command}</code>
+      </p>
+      <p className="cor-cap">{b.in_list ? w.inList : w.onLine}</p>
+      {!b.in_list &&
+        (asking ? (
+          <form
+            className="cor-ajustes-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (why.trim().length >= 3) save.mutate(why.trim());
+            }}
+          >
+            <label>
+              <span className="cor-cap">{w.why}</span>
+              <input className="cor-input" value={why} maxLength={240} onChange={(e) => setWhy(e.target.value)} placeholder={w.whyHint} data-campo="build-razon" />
+            </label>
+            <Falla error={save.error} />
+            <div className="cor-acts">
+              <Btn kind="secondary" type="submit" disabled={why.trim().length < 3 || save.isPending} data-control="build-quitar-confirmar">
+                {w.confirm}
+              </Btn>
+            </div>
+          </form>
+        ) : (
+          <div className="cor-acts">
+            <Btn kind="quiet" onClick={() => setAsking(true)} data-control="build-quitar">
+              {w.remove}
+            </Btn>
+          </div>
+        ))}
+    </div>
   );
 };
 

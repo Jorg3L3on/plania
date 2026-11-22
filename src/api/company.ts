@@ -224,7 +224,7 @@ const CodeBody = z.object({ version: Version, repo_path: z.string().max(500).opt
 const ReleaseBody = z
   .object({ version: Version, release: z.object({ from: z.string().max(100), into: z.string().max(100), env: z.string().max(40), mode: z.enum(["command", "merge"]).optional(), prod_migrations: z.enum(["deploy", "owner", "none"]).optional() }).strict().nullable() })
   .strict();
-const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8) }).strict();
+const VerifyBody = z.object({ version: Version, commands: z.array(z.string().max(300)).max(8), no_build: z.string().trim().min(3).max(240).nullable().optional() }).strict();
 const ContextBody = z.object({ markdown: z.string().max(60_000), version: Version.optional() }).strict();
 // PLA-135: a library doc from Ajustes.
 const LibraryBody = z.object({ title: z.string().min(1).max(120), markdown: z.string().max(60_000), version: Version.optional() }).strict();

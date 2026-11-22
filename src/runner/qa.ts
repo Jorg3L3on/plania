@@ -63,6 +63,7 @@ import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 import { velocidadOf } from "./velocidad.js";
 import { startBranchOf } from "./start-branch.js";
+import { verifyListOf } from "./build-step.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 import { defineWords, say } from "../words.js";
 
@@ -208,7 +209,9 @@ export async function qaAgentOf(db: Db, p: Project): Promise<Agent | null> {
 /** PLA-I73-2: the verification lane. A project with checks (settings.qa.verify) and no QA seat still gets them run by
  *  Plania on every delivery, in the delivery's checkout, before the owner sees it; with no seat there is no review,
  *  so the checks decide. settings.velocidad.verificar false turns it off. */
-export const checksOnlyLane = (p: Project): boolean => p.settings.qa?.enabled !== false && velocidadOf(p.settings).verificar && (p.settings.qa?.verify?.length ?? 0) > 0;
+// PLA-I74-9: the host's build counts as a check (verifyListOf), read from the project's repo.
+export const checksOnlyLane = (p: Project, env: NodeJS.ProcessEnv = process.env): boolean =>
+  p.settings.qa?.enabled !== false && velocidadOf(p.settings).verificar && verifyListOf(p, repoPathOf(p.slug, p.settings, env)).length > 0;
 
 export const qaTicket = (t: Pick<Task, "kind" | "workType" | "title">) => t.kind === "ticket" && QA_WORK.has(t.workType ?? "code") && !t.title.includes("[PRUEBA]");
 
@@ -612,7 +615,8 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   const diffLines = stat.code === 0 ? [...stat.stdout.matchAll(/(\d+) (?:insertion|deletion)/g)].reduce((a, m) => a + Number(m[1]), 0) : null;
 
   const verify: QaVerifyItem[] = [];
-  for (const v of s?.verify ?? []) {
+  // PLA-I74-9: the owner's list plus the host's production build, read from this checkout.
+  for (const v of verifyListOf(p, cwd)) {
     const started = Date.now();
     const r = await exec(v.command, { cwd, timeoutMs: (v.timeout_minutes ?? 15) * 60_000, env: checkoutEnv() });
     const output = `${r.stdout}\n${r.stderr}`;
