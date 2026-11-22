@@ -289,7 +289,7 @@ describe("capture run (fake browser)", () => {
     fake.hydrateAfter = 3;
     const r = await runCapture(db, { project: "zigzag", checkout, pages: ["panel"], actor }, { ...deps(), launch: fakeBrowser(fake, () => lastPassword), loginWaitMs: 5000 });
     fake.hydrateAfter = 0;
-    assert.equal(r.errors?.length ?? 0, 0, JSON.stringify(r.errors));
+    assert.equal(r.failed, 0, JSON.stringify(r.stills));
     assert.deepEqual(fake.logins, ["asesora@example.com"], "filled after the form was live, never lost");
     assert.ok((fake.checks ?? 0) >= 4, "it asked until the form was live");
   });
