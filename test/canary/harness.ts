@@ -128,6 +128,10 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   const repoName = `canary/${slug}`;
   const github = new FakeGithub(repoName, fx.origin);
   const host = new FakeHost(`prj_${slug}`);
+  // One network for the pollers, as the real fetch is: GitHub's API to the fake GitHub, everything else (the host's
+  // API, the production site's live check) to the fake host.
+  const net = (url: string) => (new URL(url).hostname === "api.github.com" ? github.fetch(url) : host.fetch(url));
+  host.onDeploy = (d) => github.statuses.set(d.meta.githubCommitSha, [{ context: "Vercel", state: d.state === "READY" ? "success" : d.state === "ERROR" ? "failure" : "pending", target_url: `https://${d.url}` }]);
   const home = path.join(scratch, slug, "home");
   const worktrees = path.join(scratch, slug, "worktrees");
   mkdirSync(home, { recursive: true });
@@ -428,8 +432,8 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     await m.probador.sweepProbador(db, now, probadorDeps() as never);
     await m.probador.waitForProbador();
     const p = await m.queries.findProject(db, slug);
-    await m.github.pollGithubProject(db, p, { fetch: github.fetch as never, env: { GITHUB_TOKEN: "canary-token" }, now });
-    await m.vercel.pollVercelProject(db, p, { fetch: host.fetch as never, env: { VERCEL_TOKEN: "canary-token" }, now });
+    await m.github.pollGithubProject(db, p, { fetch: net as never, env: { GITHUB_TOKEN: "canary-token" }, now });
+    await m.vercel.pollVercelProject(db, p, { fetch: net as never, env: { VERCEL_TOKEN: "canary-token" }, now });
     for (const job of m.jobs.JOBS.filter((j: { name: string }) => ["blockers", "leases", "revision"].includes(j.name))) await job.runOnce(db, now);
     // PLA-I74-5: the turn watchdog, on the fast clock: one minute per tick, so its two minutes of grace are two ticks.
     const fast = new Date(Math.max(Date.now(), born + ticks * 60_000));

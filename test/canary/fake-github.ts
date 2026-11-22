@@ -167,6 +167,11 @@ export class FakeGithub {
       const statuses = this.statuses.get(m[1]!) ?? [];
       return ok({ state: statuses.length ? statuses[0]!.state : "pending", total_count: statuses.length, statuses });
     }
+    if ((m = /^\/branches\/(.+)$/.exec(p))) {
+      const name = decodeURIComponent(m[1]!);
+      const sha = tryGit(this.origin, "rev-parse", `refs/heads/${name}`);
+      return sha ? ok({ name, commit: { sha } }) : notFound();
+    }
     if (p === "/branches") {
       if (u.searchParams.get("page") !== "1") return ok([]);
       const refs = git(this.origin, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads");

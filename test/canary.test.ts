@@ -466,7 +466,7 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  test("the host answers ERROR after Publicar; the owner gets a red card and the step is not «En producción»", todo("PLA-I74-8"), async () => {
+  test("the host answers ERROR after Publicar; the ficha shows a red card with the build log, «Pedir arreglo» makes a Taller step, the step is not «En producción»", async () => {
     await row("npm", {}, async (w) => {
       w.host.outcome = "ERROR";
       await pedir(w);
@@ -475,9 +475,23 @@ describe("PLA-I74-3: scenario rows", () => {
       await construir(w);
       await aceptar(w);
       await publicar(w);
-      await w.until("a card about the failed deploy", async () => (await w.cards()).some((c) => /despliegue|deploy|publicar|arreglo/i.test(JSON.stringify(c))), 4);
+      // The ficha the screen reads (GET /api/company/projects/:slug/ideas/:key, built.deploy).
+      const ficha = async () => (await w.read(`/api/company/projects/${w.slug}/ideas/${w.ideaKey}`)).json;
+      await w.until("the red deploy card on the ficha", async () => (await ficha()).built?.deploy?.state === "error", 4);
+      const deploy = (await ficha()).built.deploy;
+      assert.match(deploy.log ?? "", /Failed to compile|exited with 1/, `the card carries the build log: ${JSON.stringify(deploy)}`);
       assert.ok(!["Released", "Done"].includes((await w.task(w.stepKey!))!.status), "a failed deploy is not «En producción»");
-      assert.equal((await w.turn()).who, "owner");
+      assert.equal((await w.turn()).who !== "nobody", true);
+      // «Pedir arreglo»: one Ready Taller step under the initiative, carrying the log.
+      const ini = (await w.task(w.ideaKey!))!.promoted_to as string;
+      const r = await w.click("arreglo", `/api/company/projects/${w.slug}/initiatives/${ini}/arreglo`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const fix = (await w.task(r.json.key))!;
+      assert.match(fix.scope ?? "", /Failed to compile|exited with 1/, "the step carries the log");
+      assert.ok(["Ready", "In progress"].includes(fix.status), fix.status);
+      await w.until("Taller woken on the fix", async () => w.spawned.some((x) => x.role === "taller" && x.key === r.json.key), 4);
+      assert.deepEqual(w.clicks.map((c) => c.what), [...DECISIONS, "arreglo"]);
+      assert.deepEqual(w.fakeErrors, []);
     });
   });
 
