@@ -214,7 +214,8 @@ describe("vercel", () => {
     const { db, close } = makeDb();
     try {
       const p = await findProject(db, "filmia");
-      const { fetch } = fakeFetch({ "/v6/deployments?": fixture("vercel/deployments.json") });
+      // PLA-I74-8: the newest READY production deploy counts once its URL answers.
+      const { fetch } = fakeFetch({ "/v6/deployments?": fixture("vercel/deployments.json"), "https://filmia-abc.vercel.app": {} });
       const s = await pollVercelProject(db, p, { fetch, env: { VERCEL_TOKEN: "vc_test" } });
       assert.equal(s.deployments, 3);
       assert.equal(s.released, 2, "dpl_A deployed the merge commit of #130, both its tickets");
@@ -232,7 +233,7 @@ describe("vercel", () => {
       const again = await pollVercelProject(db, p, { fetch, env: { VERCEL_TOKEN: "vc_test" } });
       assert.equal(again.deployments, 0, "the cursor skips what was seen");
       const { rows: poll } = await raw.query("select source, error from poll_state order by source");
-      assert.deepEqual(poll, [{ source: "github", error: null }, { source: "vercel", error: null }]);
+      assert.deepEqual(poll, [{ source: "deploy", error: null }, { source: "github", error: null }, { source: "vercel", error: null }]);
     } finally {
       await close();
     }

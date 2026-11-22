@@ -42,6 +42,7 @@
 //   PLA-I67-3: …/team/:agent/lessons[/:id[/decide]]: lessons, the teach bar's rule, the owner's verdicts
 //        (src/api/company-oficio-lessons.ts); a proposal also shows in Te toca as kind leccion (id l-<uuid>)
 //   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
+import { pedirArreglo } from "./deploy-fix.js";
 import { caminoRoutes } from "./company-camino.js";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -716,6 +717,8 @@ companyRoutes.post("/projects/:slug/ideas/:key/respuesta", async (c) => {
   if (input instanceof Response) return input;
   return send(c, await withDb((db) => ideaRespuesta(db, c.req.param("slug"), c.req.param("key"), input)));
 });
+// PLA-I74-8: «Pedir arreglo» on a failed production deploy.
+companyRoutes.post("/projects/:slug/initiatives/:key/arreglo", async (c) => send(c, await withDb((db) => pedirArreglo(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/despertar", async (c) => send(c, await withDb((db) => ideaDespertar(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.get("/projects/:slug/ideas/:key/frames/:id", async (c) => {
   const r = await withDb((db) => frameBytes(db, c.req.param("slug"), c.req.param("key"), c.req.param("id")));

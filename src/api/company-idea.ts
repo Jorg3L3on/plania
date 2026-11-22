@@ -26,6 +26,7 @@ import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb, type Db } from "../db/client.js";
 import { cronometroFor, type Cronometro } from "./cronometro.js";
+import { deployCardOf, type DeployCard } from "./deploy-fix.js";
 import { agentRuns, docs, events, ideaFrames, projects, pullRequests, questions, results, tasks, type Actor, type Task } from "../db/schema.js";
 import { projectEtapas, type EtapaId } from "./etapa.js";
 import { findProject } from "../mcp/queries.js";
@@ -170,6 +171,8 @@ export type Built = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: where the time went, per step and in total.
   tiempo: Cronometro;
+  // PLA-I74-8: the production deploy its merged steps wait on, when it failed, builds or waits for a live answer.
+  deploy: DeployCard | null;
 };
 export type IdeaDetail = Pedido & {
   summary: string;
@@ -294,6 +297,7 @@ export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> 
     published_at: published ? published.toISOString() : null,
     evidence: ev.map((r) => ({ key: keyOfId.get(r.taskId) ?? "", kind: r.kind, cite: r.cite, commit: r.commit, env: r.env, at: r.at.toISOString() })),
     tiempo,
+    deploy: published ? null : await deployCardOf(db, p.id, sorted),
   };
 }
 

@@ -452,6 +452,7 @@ export const api = {
   // AUDIT-8: his pick on one of the PO's decisions (numbers as the screen shows them, from 1).
   ideaDecision: (slug: string, key: string, input: IdeaDecisionInput) =>
     request<{ key: string; stage: string | null; changed: boolean; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/decision`, input),
+  pedirArreglo: (slug: string, key: string) => request<{ key: string; existing: boolean }>("POST", `/company/projects/${encodeURIComponent(slug)}/initiatives/${encodeURIComponent(key)}/arreglo`),
   ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
@@ -573,7 +574,10 @@ export type IdeaBuilt = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: an older server sends none.
   tiempo?: Cronometro;
+  // PLA-I74-8: the production deploy its merged steps wait on (src/api/deploy-fix.ts); an older server sends none.
+  deploy?: IdeaDeploy | null;
 };
+export type IdeaDeploy = { state: "error" | "building" | "checking"; sha: string | null; url: string | null; probe_url: string | null; log: string | null; at: string; fix_key: string | null };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
   mode: "forma";

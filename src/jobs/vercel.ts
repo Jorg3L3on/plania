@@ -4,30 +4,65 @@ import { pollState, projects, type Project } from "../db/schema.js";
 import { setEnv } from "../mcp/env.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
 import { closeReleased, releaseMerged, type Fetch } from "./github.js";
+import { logExcerpt, probeLive, productionUrlOf, writeDeployTruth } from "./deploy-truth.js";
 import type { Job } from "./index.js";
 
 // The Vercel poller (R-20, R-21, R-22-lite): every minute, the latest READY deployments of the
 // project in settings.vercel become set_env records with the provider's time and id as the source
 // (deployed_at is Vercel's, not ours). Then Merged tickets whose merge commit is deployed move to
 // Released. The token comes from the env var in settings.vercel.token_env (default VERCEL_TOKEN).
+//
+// PLA-I74-8: every state is read, not only READY. A production deploy in ERROR is kept with its build log
+// (src/jobs/deploy-truth.ts) so the screen shows a red card instead of «espera publicarse»; one still building
+// holds the cursor so it is read again. The newest READY production deploy is recorded only once the production
+// URL answers, so «En producción» never shows before the site does. Without a token the GitHub poller reads the
+// commit statuses the host posts instead.
 
 type Deployment = {
   uid: string;
   url: string;
-  state: string; // READY | ERROR | BUILDING | ...
+  state: string; // READY | ERROR | BUILDING | QUEUED | INITIALIZING | CANCELED
   target: string | null; // production | null (preview)
   created: number;
   ready?: number;
+  inspectorUrl?: string;
+  errorMessage?: string;
+  errorCode?: string;
   meta?: { githubCommitSha?: string; githubCommitRef?: string };
 };
+type BuildEvent = { type?: string; text?: string; payload?: { text?: string } };
 
 export type VercelDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined> };
+
+const FAILED = ["ERROR"];
+const ENDED = ["ERROR", "CANCELED"];
+
+/** The build log of a failed deploy, cut to what the owner reads; the host's own error message when the log is unreadable. */
+async function buildLog(deps: VercelDeps, token: string, d: Deployment, teamId?: string): Promise<string | null> {
+  const fallback = [d.errorCode, d.errorMessage].filter(Boolean).join(": ") || null;
+  try {
+    const q = new URLSearchParams({ builds: "1", direction: "backward", limit: "200" });
+    if (teamId) q.set("teamId", teamId);
+    const res = await deps.fetch(`https://api.vercel.com/v3/deployments/${encodeURIComponent(d.uid)}/events?${q}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status >= 400) return fallback;
+    const events = (await res.json()) as BuildEvent[];
+    if (!Array.isArray(events)) return fallback;
+    const lines = events
+      .slice()
+      .reverse()
+      .map((e) => e.text ?? e.payload?.text ?? "")
+      .flatMap((t) => t.split("\n"));
+    return logExcerpt(fallback ? [...lines, fallback] : lines) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): Promise<Record<string, number>> {
   const cfg = p.settings.vercel;
   if (!cfg?.project_id) return {};
   const token = (deps.env ?? process.env)[cfg.token_env ?? "VERCEL_TOKEN"];
-  const summary: Record<string, number> = { deployments: 0, released: 0 };
+  const summary: Record<string, number> = { deployments: 0, released: 0, failed: 0 };
   const [row] = await db.select().from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel")));
   const cursor = row?.cursor ?? {};
   const save = (error: string | null) =>
@@ -39,21 +74,48 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
     await save(`no token in ${cfg.token_env ?? "VERCEL_TOKEN"}`);
     return summary;
   }
+  const now = deps.now ?? new Date();
   try {
-    const q = new URLSearchParams({ projectId: cfg.project_id, limit: "10", state: "READY" });
+    const q = new URLSearchParams({ projectId: cfg.project_id, limit: "20" });
     if (cfg.team_id) q.set("teamId", cfg.team_id);
     const res = await deps.fetch(`https://api.vercel.com/v6/deployments?${q}`, { headers: { Authorization: `Bearer ${token}` } });
     if (res.status >= 400) throw new Error(`Vercel ${res.status}`);
     const { deployments } = (await res.json()) as { deployments: Deployment[] };
     const seen = Number(cursor.last_created ?? 0);
     const targets = cfg.targets ?? { production: p.settings.release_target ?? "prod", preview: "preview" };
+    const fresh = [...deployments].sort((a, b) => a.created - b.created).filter((d) => d.created > seen);
+    // Only the newest READY production deploy must answer live; older ones in the batch are history.
+    const newestReady = fresh.filter((d) => d.target === "production" && d.state === "READY").at(-1)?.uid;
     let newest = seen;
-    for (const d of [...deployments].sort((a, b) => a.created - b.created)) {
-      if (d.created <= seen || d.state !== "READY") continue;
+    for (const d of fresh) {
+      const prod = d.target === "production";
+      const sha = d.meta?.githubCommitSha?.toLowerCase() ?? null;
+      const base = { provider: "vercel" as const, deployment_id: d.uid, sha, url: d.inspectorUrl ?? `https://${d.url}`, created_at: new Date(d.created).toISOString() };
+      if (ENDED.includes(d.state)) {
+        newest = Math.max(newest, d.created);
+        if (prod && FAILED.includes(d.state)) {
+          await writeDeployTruth(db, p.id, { ...base, state: "error", probe_url: null, probe_status: null, log: await buildLog(deps, token, d, cfg.team_id) }, now);
+          summary.failed!++;
+        }
+        continue;
+      }
+      if (d.state !== "READY") {
+        // Still building: a production one holds the cursor so its end is read; a preview one is passed over.
+        if (prod) {
+          await writeDeployTruth(db, p.id, { ...base, state: "building", probe_url: null, probe_status: null, log: null }, now);
+          break;
+        }
+        continue;
+      }
+      if (prod && d.uid === newestReady) {
+        const probeUrl = (await productionUrlOf(db, p, `https://${d.url}`))!;
+        const live = await probeLive(deps.fetch, probeUrl);
+        await writeDeployTruth(db, p.id, { ...base, state: live.ok ? "live" : "checking", probe_url: probeUrl, probe_status: live.status, log: null }, now);
+        if (!live.ok) break;
+      }
       const env = targets[d.target ?? "preview"];
       newest = Math.max(newest, d.created);
       if (!env) continue;
-      const sha = d.meta?.githubCommitSha?.toLowerCase();
       await setEnv(
         db,
         {
