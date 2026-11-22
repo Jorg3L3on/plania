@@ -694,6 +694,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MARKS_INVALID` | 400 | deliver_marks: no mark was usable after cleaning and checking (detail: reasons) |
 | `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
+| `MUESTRA_SELECTOR` | 400 | finish: a muestra follow, click or fill is not a selector the browser reads, e.g. Playwright's :has-text( or >> (detail: field, value, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `PUESTO_INVALID` | 400 | a role of the owner's own needs a title (1-60 characters), a line (up to 200) and a base role from the catalog (detail: field) |

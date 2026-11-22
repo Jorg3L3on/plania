@@ -2,7 +2,7 @@ import type { Db } from "../db/client.js";
 import { agents, events, tasks, type Workspace } from "../db/schema.js";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { roleOf } from "../runner/limits.js";
-import { cambioOf, changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Cambio, type Muestra } from "../captures/muestra.js";
+import { cambioOf, changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, muestraSelectorIssue, parseMuestra, uiFiles, type Cambio, type Muestra } from "../captures/muestra.js";
 import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
 import { runVerifyList, verifyPlan } from "../runner/verify.js";
 import type { Exec } from "../captures/run.js";
@@ -94,6 +94,9 @@ async function muestraCheck(
   if (input.muestra !== undefined && input.muestra !== null) {
     const parsed = parseMuestra(input.muestra);
     if (!parsed.ok) throw new ToolError("MUESTRA_INVALID", { field: parsed.field, hint: parsed.hint });
+    // PLA-158 (F-28): a selector the browser cannot read is refused now, not found when photographing.
+    const bad = muestraSelectorIssue(parsed.muestra);
+    if (bad) throw new ToolError("MUESTRA_SELECTOR", bad);
     muestra = parsed.muestra;
   }
   const t = await requireTask(db, p.id, input.key);

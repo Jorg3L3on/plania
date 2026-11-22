@@ -105,5 +105,58 @@ export function parseMuestra(v: unknown): { ok: true; muestra: Muestra } | { ok:
   return { ok: false, field: ["muestra", ...issue.path].join("."), hint: issue.message };
 }
 
+// PLA-158 (F-28): a selector the browser cannot read (Playwright's a:has-text("Ana")) was only found when the views
+// were photographed, 21 minutes later. Node has no DOM to parse CSS, so this is a conservative check: it refuses the
+// Playwright and jQuery forms document.querySelector never accepts, and brackets or quotes left open. A path (follow
+// "/panel/x/") and a click by visible text stay allowed; in text mode a quote counts only inside [ ].
+const NOT_CSS: [RegExp, string][] = [
+  [/:has-text\(/i, ":has-text( is Playwright's, not CSS"],
+  [/:text(-is|-matches)?\(/i, ":text( is Playwright's, not CSS"],
+  [/:contains\(/i, ":contains( is jQuery's, not CSS"],
+  [/:visible\b/i, ":visible is Playwright's or jQuery's, not CSS"],
+  [/:nth-match\(/i, ":nth-match( is Playwright's, not CSS"],
+  [/>>/, ">> chains Playwright locators, not CSS"],
+  [/^\s*(text|xpath|css|id|data-testid|role)=/i, "a Playwright engine prefix (text=, xpath=…) is not CSS"],
+];
+
+export function selectorProblem(value: string, mode: "selector" | "text"): string | null {
+  for (const [re, why] of NOT_CSS) if (re.test(value)) return why;
+  const stack: string[] = [];
+  let quote: string | null = null;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i]!;
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "\\") i++;
+    else if ((c === '"' || c === "'") && (mode === "selector" || stack.at(-1) === "[")) quote = c;
+    else if (c === "[" || c === "(") stack.push(c);
+    else if (c === "]" || c === ")") {
+      if (stack.pop() !== (c === "]" ? "[" : "(")) return `an unmatched ${c}`;
+    }
+  }
+  if (quote) return `a quote ${quote} left open`;
+  if (stack.length) return `a ${stack.at(-1)} left open`;
+  return null;
+}
+
+/** The first follow, click or fill in the muestra that document.querySelector could not read, with why. */
+export function muestraSelectorIssue(m: Muestra): { field: string; value: string; hint: string } | null {
+  for (const [i, v] of m.vistas.entries()) {
+    if (v.follow && !v.follow.startsWith("/")) {
+      const why = selectorProblem(v.follow, "selector");
+      if (why) return { field: `muestra.vistas.${i}.follow`, value: v.follow, hint: `${why}: follow takes a path that starts with / (the link's href prefix) or a plain CSS selector` };
+    }
+    for (const [j, a] of (v.acciones ?? []).entries()) {
+      const [what, value, mode] = "click" in a ? (["click", a.click, "text"] as const) : (["fill", a.fill, "selector"] as const);
+      const why = selectorProblem(value, mode);
+      if (why) return { field: `muestra.vistas.${i}.acciones.${j}.${what}`, value, hint: `${why}: ${what === "click" ? "click takes the visible text of what to click or a plain CSS selector" : "fill takes a plain CSS selector"}` };
+    }
+  }
+  return null;
+}
+
 export const MUESTRA_HINT =
   "this delivery changes the screen: pass muestra {frase (one sentence for the owner), vistas [{key, label, path, estado?, session?, acciones?}] (the views it touched), pasos [three ways to try it], datos? (SQL with the fake rows the views need)} so Plania can photograph it before asking the owner";

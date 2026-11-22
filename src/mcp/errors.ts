@@ -62,6 +62,8 @@ export const ERRORS = {
   RESERVED_ACTOR: [400, "actor.agent is owner: only the screen writes as the owner"],
   MUESTRA_REQUIRED: [400, "finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint)"],
   MUESTRA_INVALID: [400, "finish: muestra does not fit its shape (detail: field, hint)"],
+  // PLA-158 (F-28)
+  MUESTRA_SELECTOR: [400, "finish: a muestra follow, click or fill is not a selector the browser reads, e.g. Playwright's :has-text( or >> (detail: field, value, hint)"],
   TASK_MISSING_PR_URL: [400, "Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR"],
   TEMPLATE_INVALID: [400, "create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing)"],
   TEXT_HAS_DATE: [400, "decision text starts with a date: the server stamps dates"],
