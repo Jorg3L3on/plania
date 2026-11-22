@@ -64,10 +64,13 @@ import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
 import { isOwnerAgent } from "../owner.js";
 import { screenTz } from "../locale.js";
+import { ownerClicks } from "./clicks.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
 export const api = new Hono();
+// PLA-I74-1: one owner.click event per write the screen makes (src/api/clicks.ts), mounted before every route.
+api.use("*", ownerClicks);
 
 const HEARTBEAT_MS = 25_000;
 const LOGIN_DOOR = "login";
