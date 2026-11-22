@@ -173,6 +173,17 @@ export function useCorrienteActs() {
         () => w.toReady,
         (e) => (e instanceof ApiError && e.code === "INVALID_TRANSITION" ? w.notInBacklog : e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : refusal(e)),
       ),
+    // PLA-161: Aplazar from En fila: a Ready step back to Backlog, or its initiative On hold.
+    aplazar: (slug: string, key: string, to: "Backlog" | "On hold") =>
+      run(
+        `aplazar-${key}`,
+        async () => {
+          const t = await api.task(slug, key);
+          await api.patchTask(slug, key, { status: to, version: t.version });
+        },
+        () => (to === "On hold" ? w.held : w.postponed),
+        (e) => (e instanceof ApiError && e.code === "INVALID_TRANSITION" ? w.notReady : e instanceof ApiError && e.code === "STALE_VERSION" ? w.stale : refusal(e)),
+      ),
     cerrar: (slug: string, key: string, version: number) =>
       run(
         `cerrar-${key}`,

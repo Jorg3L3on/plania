@@ -37,7 +37,7 @@ export function busyKey(slug: string, a: PalancaT): string | null {
     case "detener":
       return `stop-${a.run}`;
     case "primero":
-      return `next-${a.key}`;
+      return a.key ? `next-${a.key}` : `aplazar-${a.aplazar.key}`;
     case "lista":
       return `lista-${a.key}`;
     case "jugada":
@@ -60,7 +60,7 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
   const busy = !!key && acts.busy === key;
   const decisionId = a.kind === "jugada" ? a.decision : a.kind === "decision" ? a.id : a.kind === "entregas" && a.ids.length === 1 ? a.ids[0]! : null;
   const d = decisionId ? (decisions.find((x) => x.id === decisionId) ?? null) : null;
-  const error = (key && acts.failed[key]) || (d && acts.decisions.errors[d.id]) || null;
+  const error = (key && acts.failed[key]) || (a.kind === "primero" && acts.failed[`aplazar-${a.aplazar.key}`]) || (d && acts.decisions.errors[d.id]) || null;
   const data = (name: string) => ({ "data-control": name, "data-palanca": a.kind });
   const btn = (label: string, onClick: () => void, name: string, busyWord = "…", k: "primary" | "secondary" | "quiet" = kind) => (
     <Btn kind={k} onClick={onClick} disabled={busy} {...data(name)} aria-label={`${label}: ${c.title}`}>
@@ -123,9 +123,19 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
         return link(a.label, linkTo({ slug: p.slug, tab: "camino", ...(a.sec === "resumen" ? {} : { ver: { kind: "camino", sec: a.sec } }) }), "ir-despliegue");
       case "detener":
         return btn(w.stop, () => acts.stopRun(a.run), "detener", w.stopping, "secondary");
-      case "primero":
+      case "primero": {
         // PLA-63: En fila can hold many rows; their «Hacer primero» stays quiet (no border) so the list is not a wall of buttons.
-        return btn(w.first, () => acts.pickNext(p.slug, a.key), "hacer-primero", "…", "quiet");
+        // PLA-161: Aplazar beside it, quiet too, with its own busy state.
+        const later = acts.busy === `aplazar-${a.aplazar.key}`;
+        return (
+          <>
+            {a.key && btn(w.first, () => acts.pickNext(p.slug, a.key!), "hacer-primero", "…", "quiet")}
+            <Btn kind="quiet" onClick={() => acts.aplazar(p.slug, a.aplazar.key, a.aplazar.to)} disabled={busy || later} data-control="aplazar" data-palanca="aplazar" aria-label={`${w.postpone}: ${c.title}`}>
+              {later ? "…" : w.postpone}
+            </Btn>
+          </>
+        );
+      }
       case "lista":
         return btn(w.toReady, () => acts.aLista(p.slug, a.key), "pasar-a-lista", w.moving, "secondary");
     }

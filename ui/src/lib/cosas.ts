@@ -286,8 +286,11 @@ export type Palanca =
   // PLA-132: that setting is Despliegue's production environment; its Resumen names it with a fix that opens it.
   | { kind: "camino"; sec: string; label: string }
   | { kind: "detener"; run: string }
-  | { kind: "primero"; key: string }
+  // PLA-161: En fila also offers Aplazar, so the owner can hold queued work before Reanudar: a loose step goes back
+  // to Backlog (Quieto, where Pasar a Lista undoes it), an initiative goes On hold (its steps read Pospuesto).
+  | { kind: "primero"; key: string | null; aplazar: Aplazar }
   | { kind: "lista"; key: string };
+export type Aplazar = { key: string; to: "Backlog" | "On hold" };
 
 export type Cosa = {
   key: string;
@@ -461,7 +464,8 @@ function ticketThing(
   // En fila: it starts by itself or is in review.
   const fila = focusOf(ts, paused, "fila");
   if (fila) {
-    const lever: Palanca | null = fila.etapa.etapa === "lista" && p.next_first !== fila.key ? { kind: "primero", key: fila.key } : null;
+    const aplazar: Aplazar = base.tipo === "iniciativa" ? { key: base.key, to: "On hold" } : { key: fila.key, to: "Backlog" };
+    const lever: Palanca | null = fila.etapa.etapa === "lista" ? { kind: "primero", key: p.next_first !== fila.key ? fila.key : null, aplazar } : null;
     return out("fila", filaWords(fila, paused, w, language), etapaWord(fila.etapa.etapa, language), lever, since(fila));
   }
   // Quieto: the first step that does not move, with its reason and its lever.

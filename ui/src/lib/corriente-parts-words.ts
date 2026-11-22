@@ -42,6 +42,7 @@ export const PALANCA = defineWords({
     stopping: "Deteniendo…",
     first: "Hacer primero",
     toReady: "Pasar a Lista",
+    postpone: "Aplazar",
     moving: "Pasando…",
   },
   en: {
@@ -63,6 +64,7 @@ export const PALANCA = defineWords({
     stopping: "Stopping…",
     first: "Do first",
     toReady: "Move to Ready",
+    postpone: "Postpone",
     moving: "Moving…",
   },
 });

@@ -472,6 +472,9 @@ export async function nextTask(db: Q, projectId: string, initiativeKey?: string)
   ];
   // settings.claim_from: "ready" means only Ready tickets (and stale claims) are offered.
   if (p?.settings.claim_from === "ready") where.push(sql`${tasks.status} <> 'Backlog'`);
+  // PLA-161: a step of an initiative the owner put On hold is postponed on purpose; the screen reads it Pospuesto, so
+  // it is never offered either (a stale claim on it included: whoever held it hands it back, nobody new takes it).
+  where.push(sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`);
   if (initiativeKey !== undefined) {
     const initiative = await findTask(db, projectId, initiativeKey);
     if (!initiative || initiative.kind !== "initiative") throw new ToolError("INITIATIVE_NOT_FOUND");
