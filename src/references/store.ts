@@ -480,7 +480,16 @@ export async function addLinkReference(
   await roomFor(db, seat);
   const got = await fetchLink(input.slug, url, deps);
   const host = hostOf(url) ?? url;
-  const [row] = await db
+  // PLA-136: the same link saved twice for one seat (a double click) stays one reference.
+  const row = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`ref:${seat.agentId}`}))`);
+    const [same] = await tx
+      .select()
+      .from(agentReferences)
+      .where(and(eq(agentReferences.agentId, seat.agentId), eq(agentReferences.kind, "link"), eq(agentReferences.url, url)))
+      .limit(1);
+    if (same) return same;
+    const [made] = await tx
     .insert(agentReferences)
     .values({
       projectId: seat.projectId,
@@ -498,7 +507,9 @@ export async function addLinkReference(
       ...(set.title ? { title: set.title } : {}),
     })
     .returning();
-  return { reference: await viewOne(db, seat, input.agent, row!), error: got.error ? { ...got.error, message: referenceMessage(got.error.code, got.error.detail) } : null };
+    return made!;
+  });
+  return { reference: await viewOne(db, seat, input.agent, row), error: got.error ? { ...got.error, message: referenceMessage(got.error.code, got.error.detail) } : null };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

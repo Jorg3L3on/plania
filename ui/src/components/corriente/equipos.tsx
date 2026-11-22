@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgMember, type OrgProject, type PackageSource, type TeamView } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { words } from "@/lib/i18n";
+import { skillName } from "@/lib/oficio";
 import { EQUIPOS_WORDS } from "@/lib/equipos-words";
 import { Btn, Label, ReadError, useOnce } from "./parts";
 import { Organigrama } from "./organigrama";
@@ -51,6 +52,16 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
   const save = useMutation({ mutationFn: () => api.saveTeam(p.slug, { name, lessons: withL, references: withR }), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
   const onceBring = useOnce({ sticky: true, key: url + (file?.name ?? "") });
   const bring = useMutation({ mutationFn: async () => api.bringTeam(await sourceOf(url, file)), onSuccess: () => void client.invalidateQueries({ queryKey: ["teams"] }) });
+  // PLA-142: a team the owner saved or brought can leave the catalog.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const onceRemove = useOnce();
+  const remove = useMutation({
+    mutationFn: (slug: string) => api.deleteTeam(slug),
+    onSuccess: () => {
+      setRemoving(null);
+      void client.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
   const card = (t: TeamView) => (
     <li key={t.slug}>
       <article className="cor-card eqs-card" data-team={t.slug}>
@@ -70,6 +81,23 @@ export const EquiposPage = ({ p, nav, links }: { p: OrgProject; nav: React.React
             {w.adopt(p.title)}
           </Link>
         </span>
+        {t.origin !== "factory" &&
+          (removing === t.slug ? (
+            <span className="agt-retire" role="group" aria-label={w.remove}>
+              <p className="cor-text">{w.removeAsk(t.name)}</p>
+              <Btn kind="secondary" disabled={remove.isPending} onClick={() => onceRemove(() => remove.mutateAsync(t.slug))} data-control={`borrar-equipo-si-${t.slug}`}>
+                {w.removeYes}
+              </Btn>
+              <Btn kind="quiet" onClick={() => setRemoving(null)} data-control="borrar-equipo-no">
+                {w.removeNo}
+              </Btn>
+              {remove.isError && <span className="cor-cap cor-state bad">{w.removeFailed(remove.error instanceof ApiError ? remove.error.code : "NETWORK")}</span>}
+            </span>
+          ) : (
+            <Btn kind="link" onClick={() => (remove.reset(), setRemoving(t.slug))} data-control={`borrar-equipo-${t.slug}`}>
+              {w.remove}
+            </Btn>
+          ))}
       </article>
     </li>
   );
@@ -188,7 +216,7 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
   const chart = useMemo<OrgMember[]>(() => {
     if (!plan) return p.team;
     const byRole = new Map(p.team.map((m) => [m.puesto ? m.role : (m.template ?? m.role), m.agent]));
-    const arrivals = plan.arrives.map((a) => ({ agent: `llega:${a.role}`, role: a.role, template: a.role, state: "idle" as const, now: null, last: null, produced: null, waiting: null, puesto: a.title, reports_to: null as string | null }));
+    const arrivals = plan.arrives.map((a) => ({ agent: `llega:${a.role}`, role: a.role, template: a.role, state: "paused" as const, now: null, last: null, produced: null, waiting: null, puesto: a.title, reports_to: null as string | null }));
     for (const a of arrivals) byRole.set(a.role, a.agent);
     for (const [i, a] of plan.arrives.entries()) arrivals[i]!.reports_to = a.reports_to ? (byRole.get(a.reports_to) ?? null) : (byRole.get("product-owner") ?? null);
     return [...p.team, ...arrivals.map((a) => (a.reports_to === a.agent ? { ...a, reports_to: null } : a))];
@@ -229,14 +257,14 @@ export const AdoptarPage = ({ p, team, links, onDone }: { p: OrgProject; team: s
             <ul className="eqs-rows">
               {plan.arrives.map((a) => (
                 <li key={a.role}>
-                  <span className="org-tag ok">{w.arriveLine}</span> <b>{roleTitle(a)}</b> · {w.brings(a.skills.join(", "))}
+                  <span className="org-tag ok">{w.arriveLine}</span> <b>{roleTitle(a)}</b> · {w.brings(a.skills.map((x) => skillName(x)).join(", "))}
                 </li>
               ))}
               {plan.stays
                 .filter((s) => s.adds.length)
                 .map((s) => (
                   <li key={s.agent}>
-                    <span className="org-tag vi">{w.stayLine}</span> <b>{seatName(s.role)}</b> · {w.adds(s.adds.join(", "))}
+                    <span className="org-tag vi">{w.stayLine}</span> <b>{seatName(s.role)}</b> · {w.adds(s.adds.map((x) => skillName(x)).join(", "))}
                   </li>
                 ))}
             </ul>

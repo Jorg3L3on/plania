@@ -83,6 +83,8 @@ export const ERRORS = {
   LESSON_OWNER_ONLY: [403, "only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson)"],
   // 404: something named does not exist.
   PROPOSAL_NOT_FOUND: [404, "no seat proposal with that id in this project"],
+  PUESTO_NOT_FOUND: [404, "no role of the owner's own with that slug (factory roles cannot be deleted)"],
+  TEAM_NOT_FOUND: [404, "no team with that slug in the catalog; deleting also needs it to be one the owner saved or brought, not a factory team"],
   MARKS_NOT_FOUND: [404, "deliver_marks on an id that is not an open marks request of this project (detail: id)"],
   CONSULTA_NOT_FOUND: [404, "answer_consulta on an id that is not a question of this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
@@ -103,6 +105,7 @@ export const ERRORS = {
   // 409: the state changed or is held by someone else; re-read, then decide.
   MANAGER_LOOP: [409, "the new manager reports, directly or not, to the seat being moved (detail: chain)"],
   TEAM_FULL: [409, "a project's team holds at most eight seats"],
+  PUESTO_IN_USE: [409, "a seat still has that role on some team; retire it first (detail: seats)"],
   SEAT_REQUIRED: [409, "the product owner cannot be retired: every project keeps one"],
   SEAT_TAKEN: [409, "that role already has a seat on this team, or a role of the owner's own with that name exists"],
   PROPOSAL_DECIDED: [409, "the seat proposal was already accepted or declined"],

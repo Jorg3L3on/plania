@@ -827,6 +827,21 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-mrow-edit > div { display: flex; flex-direction: column; gap: 8px; }
 .cor-mrow-edit .cor-seg { gap: 6px; }
 .cor-mrow-edit .cor-opt { padding: 0 12px; }
+/* PLA-138: the side column goes under the table below 1100 px (at 800 the table's columns ran into each other), and on
+   a phone each row is two lines: who and Cambiar, then the motor and its tokens. */
+@media (max-width: 1100px) {
+  .cor-motores { flex-direction: column; gap: 24px; }
+  .cor-motores-side { flex: none; }
+}
+@media (max-width: 639px) {
+  .cor-mhead { display: none; }
+  .cor-mrow-line { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who act" "motor tokens"; gap: 4px 12px; padding: 10px 0; }
+  .cor-mrow-line > :nth-child(1) { grid-area: who; }
+  .cor-mrow-line > :nth-child(2) { grid-area: motor; flex-wrap: wrap; }
+  .cor-mrow-line > :nth-child(3) { grid-area: tokens; }
+  .cor-mrow-line > :nth-child(4) { grid-area: act; }
+  .cor-mrow.open { padding: 0 12px 12px; }
+}
 .cor-savebar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 10px 16px; border-radius: 14px; border: 1px solid var(--cor-line-strong); background: var(--cor-raised); }
 .cor-savebar > p { flex: 1; min-width: 0; }
 .cor-planline { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0 6px; }

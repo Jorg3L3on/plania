@@ -749,11 +749,13 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MARKS_NOT_FOUND` | 404 | deliver_marks on an id that is not an open marks request of this project (detail: id) |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `PROPOSAL_NOT_FOUND` | 404 | no seat proposal with that id in this project |
+| `PUESTO_NOT_FOUND` | 404 | no role of the owner's own with that slug (factory roles cannot be deleted) |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
 | `REFERENCE_NOT_FOUND` | 404 | no reference with that id on this seat |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
 | `SKILL_NOT_FOUND` | 404 | no skill with that slug for this agent, no such version, or a deleted skill past its 30 days (detail: skill) |
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
+| `TEAM_NOT_FOUND` | 404 | no team with that slug in the catalog; deleting also needs it to be one the owner saved or brought, not a factory team |
 | `THREAD_NOT_FOUND` | 404 | thread is not "company", a project slug with a thread, or a thread id |
 | `UNKNOWN_BRANCH` | 404 | get_context: no initiative or ticket is on that branch (detail: known) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
@@ -794,6 +796,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `PROPOSAL_DECIDED` | 409 | the seat proposal was already accepted or declined |
+| `PUESTO_IN_USE` | 409 | a seat still has that role on some team; retire it first (detail: seats) |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `REFERENCE_LIMIT` | 409 | the seat already has the most references it may keep (detail: max) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |

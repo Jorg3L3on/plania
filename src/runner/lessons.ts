@@ -296,10 +296,19 @@ export async function teachRule(db: Db, project: string, agent: string, input: {
   if (!by.owner) throw new ToolError("LESSON_OWNER_ONLY", {});
   const a = await seatOf(db, project, agent);
   const text = cleanText(input.text);
+  const appliesWhen = input.applies_when?.trim().slice(0, 200) || null;
   return db.transaction(async (tx) => {
+    // PLA-136: the same rule taught twice (a double click, two tabs) stays one lesson.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`teach:${a.id}`}))`);
+    const [same] = await tx
+      .select()
+      .from(lessons)
+      .where(and(eq(lessons.agentId, a.id), eq(lessons.state, "active"), eq(lessons.text, text)))
+      .limit(1);
+    if (same && (same.appliesWhen ?? null) === appliesWhen) return same;
     const [made] = await tx
       .insert(lessons)
-      .values({ projectId: a.projectId, agentId: a.id, scope: "agent", role: roleOf(a), text, appliesWhen: input.applies_when?.trim().slice(0, 200) || null, state: "active", proposedBy: "owner", approvedAt: now, decidedAt: now, lastConfirmedAt: now })
+      .values({ projectId: a.projectId, agentId: a.id, scope: "agent", role: roleOf(a), text, appliesWhen, state: "active", proposedBy: "owner", approvedAt: now, decidedAt: now, lastConfirmedAt: now })
       .returning();
     await tx.insert(lessonVersions).values({ lessonId: made!.id, n: 1, text, appliesWhen: made!.appliesWhen, author: "owner" });
     return made!;

@@ -124,8 +124,15 @@ export async function saveTeam(db: Db, project: string, input: { name: string; l
   const taken = new Set([...factoryTeams(env).map((t) => t.slug), ...(await db.select({ slug: teamTemplates.slug }).from(teamTemplates)).map((r) => r.slug)]);
   let slug = slugOf(name);
   if (!/^[a-z]/.test(slug)) slug = `e-${slug}`;
-  for (let n = 2; taken.has(slug); n++) slug = `${slugOf(name).slice(0, 34)}-${n}`;
-  const [row] = await db.insert(teamTemplates).values({ slug, name, line: (input.line ?? "").slice(0, 300), origin: "owner", spec, hash: hashOf(spec) }).returning();
+  // PLA-136/142: two saves of one name at once each land under their own slug instead of a 500.
+  let row: typeof teamTemplates.$inferSelect | undefined;
+  let n = 2;
+  while (!row) {
+    while (taken.has(slug)) slug = `${slugOf(name).slice(0, 34)}-${n++}`;
+    [row] = await db.insert(teamTemplates).values({ slug, name, line: (input.line ?? "").slice(0, 300), origin: "owner", spec, hash: hashOf(spec) }).onConflictDoNothing().returning();
+    taken.add(slug);
+    if (!row && n > 60) throw new ToolError("PUESTO_INVALID", { field: "name" });
+  }
   return { slug, name, line: row!.line, origin: "owner", seats: spec.seats.map((s) => ({ role: s.role, title: s.title ?? null })), skills: new Set(spec.seats.flatMap((s) => s.skills)).size, hash: row!.hash, source: null, at: row!.createdAt.toISOString(), spec };
 }
 
@@ -152,10 +159,19 @@ export type AdoptPlan = {
   plan_note: { more_agents: number };
 };
 
+/** PLA-142: deletes a team the owner saved or brought. Factory teams stay; projects that adopted it keep their seats
+ *  and the adoption's record (it holds its own copy of the plan). */
+export async function deleteTeam(db: Db, slug: string, env: NodeJS.ProcessEnv = process.env): Promise<{ deleted: string }> {
+  if (factoryTeams(env).some((t) => t.slug === slug)) throw new ToolError("TEAM_NOT_FOUND", { team: slug });
+  const gone = await db.delete(teamTemplates).where(eq(teamTemplates.slug, slug)).returning({ slug: teamTemplates.slug });
+  if (!gone.length) throw new ToolError("TEAM_NOT_FOUND", { team: slug });
+  return { deleted: slug };
+}
+
 export async function adoptPreview(db: Db, project: string, template: string, mode: AdoptMode = "keep", env: NodeJS.ProcessEnv = process.env): Promise<AdoptPlan> {
   const p = await projectOf(db, project);
   const t = (await teamCatalog(db, env)).find((x) => x.slug === template);
-  if (!t) throw new ToolError("PUESTO_INVALID", { field: "template" });
+  if (!t) throw new ToolError("TEAM_NOT_FOUND", { team: template });
   const team = await teamOf(db, p.id);
   const have = new Map(team.map((a) => [roleKey(a), a]));
   const stays: AdoptPlan["stays"] = [];

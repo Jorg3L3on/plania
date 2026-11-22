@@ -10,7 +10,7 @@ import { words } from "@/lib/i18n";
 import { skillWords, shelfNext, type Oficio } from "@/lib/oficio";
 import { SKILL_CARD_WORDS, PUESTO_WORDS } from "@/lib/oficio-skill-words";
 import { cardHead, changedOnly, draftChanged, saveError, scopeOptions, versionDiff, versionNote, type SkillCard, type SkillDraft, type SkillScope } from "@/lib/oficio-skills";
-import { Btn, Label, ReadError, Switch } from "./parts";
+import { Btn, Label, ReadError, Switch, useSingleFlight } from "./parts";
 import { LinkUpdate } from "./oficio-trial";
 import { TRIAL_WORDS } from "@/lib/oficio-trial-words";
 
@@ -45,20 +45,20 @@ const Fields = ({ d, set, seat, idPrefix }: { d: SkillDraft; set: (d: SkillDraft
   const w = words(SKILL_CARD_WORDS);
   return (
     <>
-      <label className="ofi-field" htmlFor={`${idPrefix}-name`}>
-        <Label>{w.name}</Label>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-name`}><Label>{w.name}</Label></label>
         <input id={`${idPrefix}-name`} className="cor-input" value={d.name} maxLength={80} placeholder={w.namePlaceholder} onChange={(e) => set({ ...d, name: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-when`}>
-        <Label>{w.when}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-when`}><Label>{w.when}</Label></label>
         <textarea id={`${idPrefix}-when`} className="cor-textarea" rows={2} value={d.description} maxLength={1024} placeholder={w.whenPlaceholder} onChange={(e) => set({ ...d, description: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-what`}>
-        <Label>{w.what}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-what`}><Label>{w.what}</Label></label>
         <textarea id={`${idPrefix}-what`} className="cor-textarea ofi-mono" rows={4} value={d.body} placeholder={w.whatPlaceholder} onChange={(e) => set({ ...d, body: e.target.value })} />
-      </label>
-      <label className="ofi-field" htmlFor={`${idPrefix}-scope`}>
-        <Label>{w.forWhom}</Label>
+      </div>
+      <div className="ofi-field">
+        <label htmlFor={`${idPrefix}-scope`}><Label>{w.forWhom}</Label></label>
         <select id={`${idPrefix}-scope`} className="cor-select" value={d.scope} onChange={(e) => set({ ...d, scope: e.target.value as SkillScope })}>
           {scopeOptions(seat).map((s) => (
             <option key={s.value} value={s.value}>
@@ -66,7 +66,7 @@ const Fields = ({ d, set, seat, idPrefix }: { d: SkillDraft; set: (d: SkillDraft
             </option>
           ))}
         </select>
-      </label>
+      </div>
     </>
   );
 };
@@ -80,8 +80,8 @@ const Diff = ({ card, onBack, onRollback, busy }: { card: SkillCard; onBack: () 
   const lines = useMemo(() => changedOnly(versionDiff(prev, v)), [prev, v]);
   return (
     <>
-      <label className="ofi-field ofi-field-row" htmlFor="ofi-diff-n">
-        <Label>{w.diffPick}</Label>
+      <div className="ofi-field ofi-field-row">
+        <label htmlFor="ofi-diff-n"><Label>{w.diffPick}</Label></label>
         <select id="ofi-diff-n" className="cor-select" value={n} onChange={(e) => setN(Number(e.target.value))}>
           {card.versions.map((x) => (
             <option key={x.n} value={x.n}>
@@ -89,7 +89,7 @@ const Diff = ({ card, onBack, onRollback, busy }: { card: SkillCard; onBack: () 
             </option>
           ))}
         </select>
-      </label>
+      </div>
       <p className="cor-cap">{prev ? w.diffTitle(v.n) : w.diffFirst}</p>
       <pre className="ofi-diff" data-diff={v.n} aria-label={prev ? w.diffTitle(v.n) : w.diffFirst}>
         {prev && lines.length === 0 ? (
@@ -140,7 +140,7 @@ export const SkillPanel = ({ o, seat, slug, onClose, onOpen, onTry }: { o: Ofici
     refresh();
     if (next && next.slug !== slug) onOpen(next.slug);
   };
-  const save = useMutation({ mutationFn: () => api.editSkill(o.project, o.agent, slug, d), onSuccess: (c) => done(c) });
+  const save = useMutation({ mutationFn: useSingleFlight(() => api.editSkill(o.project, o.agent, slug, d)), onSuccess: (c) => done(c) });
   const toggle = useMutation({
     mutationFn: async (on: boolean) => {
       if (card?.source === "owner") return api.setSkillOn(o.project, o.agent, slug, on);
@@ -149,9 +149,9 @@ export const SkillPanel = ({ o, seat, slug, onClose, onOpen, onTry }: { o: Ofici
     },
     onSuccess: () => done(),
   });
-  const rollback = useMutation({ mutationFn: (n: number) => api.rollbackSkill(o.project, o.agent, slug, n), onSuccess: () => (setMode("card"), done()) });
-  const dup = useMutation({ mutationFn: () => api.duplicateSkill(o.project, o.agent, slug), onSuccess: (c) => done(c) });
-  const remove = useMutation({ mutationFn: () => api.deleteSkill(o.project, o.agent, slug), onSuccess: () => (refresh(), onClose()) });
+  const rollback = useMutation({ mutationFn: useSingleFlight((n: number) => api.rollbackSkill(o.project, o.agent, slug, n)), onSuccess: () => (setMode("card"), done()) });
+  const dup = useMutation({ mutationFn: useSingleFlight(() => api.duplicateSkill(o.project, o.agent, slug)), onSuccess: (c) => done(c) });
+  const remove = useMutation({ mutationFn: useSingleFlight(() => api.deleteSkill(o.project, o.agent, slug)), onSuccess: () => (refresh(), onClose()) });
   const busy = save.isPending || toggle.isPending || rollback.isPending || dup.isPending || remove.isPending;
   const err = errOf(save.error ?? toggle.error ?? rollback.error ?? dup.error ?? remove.error);
   const use = o.skills.find((s) => s.slug === slug);
@@ -246,7 +246,7 @@ export const NewSkillPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: s
   const refresh = useRefresh(o);
   const [d, setD] = useState<SkillDraft>({ name: "", description: "", body: "", scope: "agent" });
   const make = useMutation({
-    mutationFn: () => api.createSkill(o.project, o.agent, d),
+    mutationFn: useSingleFlight(() => api.createSkill(o.project, o.agent, d)),
     onSuccess: (c) => {
       refresh();
       onOpen(c.slug);
@@ -276,7 +276,7 @@ export const PuestoPanel = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: 
   const q = useQuery({ queryKey: ["puesto", o.project, o.agent], queryFn: () => api.puesto(o.project, o.agent) });
   const [text, setText] = useState("");
   useEffect(() => setText(q.data?.manner ?? ""), [q.data?.manner_version, o.agent]); // eslint-disable-line react-hooks/exhaustive-deps
-  const save = useMutation({ mutationFn: () => api.setManner(o.project, o.agent, text), onSuccess: () => refresh() });
+  const save = useMutation({ mutationFn: useSingleFlight(() => api.setManner(o.project, o.agent, text)), onSuccess: () => refresh() });
   const err = save.error instanceof ApiError ? (save.error.code === "TOO_LARGE" ? w.tooLong : w.notAllowed) : null;
   const motor = q.data?.motor;
   return (
@@ -288,10 +288,10 @@ export const PuestoPanel = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: 
         <div className="ofi-shelf-scroll ofi-skill-body">
           <h4 className="ofi-puesto-seat">{seat}</h4>
           <p className="cor-cap">{w.roleLine}</p>
-          <label className="ofi-field" htmlFor="ofi-manner">
-            <Label>{w.manner}</Label>
+          <div className="ofi-field">
+            <label htmlFor="ofi-manner"><Label>{w.manner}</Label></label>
             <textarea id="ofi-manner" className="cor-textarea" rows={4} maxLength={2000} value={text} placeholder={w.mannerPlaceholder} onChange={(e) => setText(e.target.value)} />
-          </label>
+          </div>
           <p className="cor-cap">{w.mannerHint}</p>
           <div>
             <Label as="p">{w.motor}</Label>

@@ -15,7 +15,7 @@ import { changedOnly, scopeOptions, type SkillCard, type SkillScope } from "@/li
 import { IMPORT_WORDS, TRIAL_WORDS } from "@/lib/oficio-trial-words";
 import { SKILL_CARD_WORDS } from "@/lib/oficio-skill-words";
 import { hostOf, importError, othersCount, stampWords, trialError, trialLine, trialLive, updateDiff, type ImportPreview, type TrialView, type UpdateCheck } from "@/lib/oficio-trials";
-import { Btn, Label, ReadError } from "./parts";
+import { Btn, Label, ReadError, useSingleFlight } from "./parts";
 
 const codeOf = (e: unknown): string | null => (e instanceof ApiError ? e.code : e ? "NETWORK" : null);
 
@@ -78,8 +78,8 @@ export const TrialPanel = ({ o, slug, name, n, onClose, onShow, now, timeZone }:
           {q.data && q.data.deliveries.length === 0 ? (
             <p className="cor-cap">{w.none}</p>
           ) : (
-            <label className="ofi-field" htmlFor="ofi-trial-pick">
-              <Label>{w.pick}</Label>
+            <div className="ofi-field">
+              <label htmlFor="ofi-trial-pick"><Label>{w.pick}</Label></label>
               <select id="ofi-trial-pick" className="cor-select" value={chosen} disabled={!q.data} onChange={(e) => setPick(e.target.value)}>
                 {(q.data?.deliveries ?? []).map((d) => (
                   <option key={d.run_id} value={d.run_id}>
@@ -87,7 +87,7 @@ export const TrialPanel = ({ o, slug, name, n, onClose, onShow, now, timeZone }:
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           )}
           <p className="cor-cap" role="status">
             {start.isPending ? w.starting : err ? <span className="cor-state bad">{err}</span> : ""}
@@ -192,7 +192,7 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
   const [shown, setShown] = useState<ImportPreview | null>(null);
   const look = useMutation({ mutationFn: () => api.previewImport(o.project, o.agent, url.trim()), onSuccess: (p) => setShown(p) });
   const save = useMutation({
-    mutationFn: () => api.importSkill(o.project, o.agent, { url: shown!.url, source_hash: shown!.source_hash, scope }),
+    mutationFn: useSingleFlight(() => api.importSkill(o.project, o.agent, { url: shown!.url, source_hash: shown!.source_hash, scope })),
     onSuccess: (c) => {
       void client.invalidateQueries({ queryKey: ["oficio", o.project, o.agent] });
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
@@ -218,10 +218,10 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
             }
           }}
         >
-          <label className="ofi-field" htmlFor="ofi-import-url">
-            <Label>{w.url}</Label>
+          <div className="ofi-field">
+            <label htmlFor="ofi-import-url"><Label>{w.url}</Label></label>
             <input id="ofi-import-url" className="cor-input" type="url" inputMode="url" value={url} placeholder={w.urlPlaceholder} maxLength={2048} onChange={(e) => setUrl(e.target.value)} />
-          </label>
+          </div>
           <Btn kind="secondary" className="ofi-wide" type="submit" disabled={!url.trim() || look.isPending} data-control="traer-enlace">
             {w.fetch}
           </Btn>
@@ -244,8 +244,8 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
               <p className="cor-cap cor-state warn">{w.taken}</p>
             ) : (
               <>
-                <label className="ofi-field" htmlFor="ofi-import-scope">
-                  <Label>{words(SKILL_CARD_WORDS).forWhom}</Label>
+                <div className="ofi-field">
+                  <label htmlFor="ofi-import-scope"><Label>{words(SKILL_CARD_WORDS).forWhom}</Label></label>
                   <select id="ofi-import-scope" className="cor-select" value={scope} onChange={(e) => setScope(e.target.value as SkillScope)}>
                     {scopeOptions(seat).map((s) => (
                       <option key={s.value} value={s.value}>
@@ -253,7 +253,7 @@ export const ImportPanel = ({ o, seat, onClose, onOpen }: { o: Oficio; seat: str
                       </option>
                     ))}
                   </select>
-                </label>
+                </div>
                 <p className="cor-cap">{w.savedHint}</p>
                 <Btn kind="primary" className="ofi-wide" disabled={save.isPending} onClick={() => save.mutate()} data-control="guardar-importada">
                   {w.save}
@@ -273,7 +273,7 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
   const [seen, setSeen] = useState<UpdateCheck | null>(null);
   const check = useMutation({ mutationFn: () => api.checkSkillLink(o.project, o.agent, card.slug), onSuccess: (u) => setSeen(u) });
   const accept = useMutation({
-    mutationFn: () => api.updateSkillLink(o.project, o.agent, card.slug, seen!.source_hash),
+    mutationFn: useSingleFlight(() => api.updateSkillLink(o.project, o.agent, card.slug, seen!.source_hash)),
     onSuccess: () => {
       setSeen(null);
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
@@ -282,7 +282,7 @@ export const LinkUpdate = ({ o, card }: { o: Oficio; card: SkillCard }) => {
   });
   // PLA-I71-5: «No, quedarme con la mía» keeps the pin and stops offering that upstream content.
   const decline = useMutation({
-    mutationFn: () => api.declineSkillLink(o.project, o.agent, card.slug),
+    mutationFn: useSingleFlight(() => api.declineSkillLink(o.project, o.agent, card.slug)),
     onSuccess: () => {
       setSeen(null);
       void client.invalidateQueries({ queryKey: ["skill", o.project, o.agent] });
