@@ -115,10 +115,15 @@ export function stateLine(r: ProbadorRead, language: Language = getLanguage()): 
   const w = words(PROBADOR_ALL, language);
   const s = r.state;
   if (!s) return null;
-  if (s.state === "tomando") return w.taking;
+  // PLA-158 (F-27): a pass that waits (another delivery's pictures, a live copy left open) says on what.
+  if (s.state === "tomando") return s.waiting ? `${w.taking} ${s.waiting}` : w.taking;
   if (s.state === "fallo") return w.failed((s.error ?? w.noDetail).replace(/\bsandbox\b/g, w.testCopy));
   return s.error ? w.missing(s.error.replace(/copia de sandbox/g, w.testCopy).replace(/\bsandbox\b/g, w.testCopy)) : null;
 }
+
+// PLA-158 (F-27): the line under «Tomando las fotos de la entrega…» on the delivery card: what the pass waits on, or
+// the usual «they show up here» (soon) while it works.
+export const tomandoLine = (r: Pick<ProbadorRead, "state"> | null | undefined, soon: string): string => r?.state?.waiting?.trim() || soon;
 
 // What accepting does, in the owner's words. into: where an accepted delivery lands (the project's release from).
 export function siAceptas(into: string | null, waiting: string | null, language: Language = getLanguage()): string[] {

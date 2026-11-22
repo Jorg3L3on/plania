@@ -41,6 +41,8 @@ export const PROBADOR_WORDS = defineWords({
     olderCommit: (sha: string) => `Las fotos son de un commit anterior (${sha})`,
     unavailable: (what: string) => `Fotos: ${what}`,
     missing: (why: string) => `Faltan fotos: ${why}`,
+    waitLane: "Espera a que terminen las fotos de otra entrega.",
+    closingLive: "Cierra la copia en vivo de otra entrega que quedó abierta.",
   },
   en: {
     planiaFailed: (why: string) => `Plania failed while taking the pictures: ${why}`,
@@ -58,6 +60,8 @@ export const PROBADOR_WORDS = defineWords({
     olderCommit: (sha: string) => `The pictures are of an earlier commit (${sha})`,
     unavailable: (what: string) => `Pictures: ${what}`,
     missing: (why: string) => `Pictures missing: ${why}`,
+    waitLane: "Waits for another delivery's pictures to finish.",
+    closingLive: "Closing another delivery's live copy that was left open.",
   },
 });
 
@@ -69,6 +73,9 @@ export type ProbadorState = {
   at: string;
   // PLA-52: the PR head the sweep asked a retake for; a second mismatch on the same head opens the card with the reason.
   for_head?: string | null;
+  // PLA-158 (F-27): what a pass in «tomando» waits on (another pass on the project's lane, the delivery copy held by
+  // another delivery), in the owner's words; null while it works. The card and the board line show it.
+  waiting?: string | null;
 };
 
 export type ProbadorDeps = {
@@ -76,6 +83,7 @@ export type ProbadorDeps = {
   encender?: typeof encender;
   encenderEntrega?: typeof encenderEntrega;
   cargarDatos?: typeof cargarDatos; // PLA-78
+  apagarEntrega?: typeof apagarEntrega; // PLA-158
   waitMs?: number;
   pollMs?: number;
   returnToTaller?: boolean; // false: tests that only look at the state
@@ -97,6 +105,7 @@ const running = new Set<string>(); // project/key: one pass at a time per delive
 // rows while the other was mid-pass, and the second load failed with a duplicate key. Passes of one project now wait
 // their turn on that project's lane; another project's never waits.
 const lanes = new Map<string, Promise<unknown>>();
+export const laneBusy = (slug: string): boolean => lanes.has(slug);
 export function onLane<T>(slug: string, work: () => Promise<T>): Promise<T> {
   const before = lanes.get(slug) ?? Promise.resolve();
   const mine = before.catch(() => undefined).then(work);
@@ -133,6 +142,14 @@ export async function probar(db: Db, slug: string, key: string, deps: ProbadorDe
   if (!supported("stills") || !supported("test_copy")) return null;
   running.add(id);
   try {
+    // PLA-158 (F-27): a pass behind another one of the same project says so on its card instead of a bare «tomando».
+    if (laneBusy(slug)) {
+      const got = await load(db, slug, key);
+      if (got?.t.muestra && got.p.settings.capture) {
+        const s = got.t.probador;
+        await setState(db, got.t, { state: "tomando", attempts: s?.attempts ?? 0, error: null, commit: s?.commit ?? null, for_head: deps.forHead ?? s?.for_head ?? null, waiting: say(PROBADOR_WORDS).waitLane });
+      }
+    }
     return await onLane(slug, () => pass(db, slug, key, deps));
   } catch (e) {
     // PLA-52: never left «tomando». An error of Plania's own is not Taller's to fix: the sweep tries once more, then
@@ -161,7 +178,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const attempts = t.probador?.attempts ?? 0;
   // PLA-52: a delivery with no branch cannot be photographed; the card shows with the reason instead of waiting forever.
   if (!branch) return setState(db, t, { state: "lista", attempts, error: say(PROBADOR_WORDS).noBranch, commit: null });
-  await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
+  await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null, waiting: null });
   // PLA-110 (guided test PLA-86, F-40): passes took 10–20 minutes and the log could not say where. Each phase's
   // seconds go to the server log at the end, so a slow pass shows its own breakdown.
   const clock = Date.now();
@@ -181,6 +198,16 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const want = hashDatos(t.muestra.datos);
   const sbDatos = datosDe(slug, "sandbox");
   if (!outside && sbDatos && sbDatos !== want) await apagar(db, slug).catch(() => null);
+  // PLA-158 (F-27): one delivery copy per project. When it holds another delivery (the live copy the owner opened for
+  // it and left open), the new delivery wins: that copy closes now and the owner can open the live view again. The
+  // card says what the pass is doing meanwhile.
+  const held = entregaRead(slug);
+  if (held?.key && held.key !== t.key) {
+    const state = { state: "tomando" as const, attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null };
+    await setState(db, t, { ...state, waiting: say(PROBADOR_WORDS).closingLive });
+    await (deps.apagarEntrega ?? apagarEntrega)(db, slug).catch(() => null);
+    await setState(db, t, { ...state, waiting: null });
+  }
   const enDatos = datosDe(slug, "entrega");
   if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
   if (!outside) await startSandbox(db, slug, { stills: false }).catch(() => null);

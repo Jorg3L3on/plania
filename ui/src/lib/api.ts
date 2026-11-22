@@ -815,7 +815,8 @@ export type QaRead = {
 // PLA-I52-4: GET /api/projects/:slug/probador/:key (src/captures/probador.ts probadorRead).
 export type MuestraVista = { key: string; label: string; path: string; estado?: string; session?: boolean };
 export type Muestra = { frase: string; vistas: MuestraVista[]; pasos: string[] };
-export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string };
+// PLA-158 (F-27): waiting says what a pass in «tomando» waits on, in the owner's words (null while it works).
+export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string; waiting?: string | null };
 export type ParShot = { id: string; image_url: string; width: number; height: number | null; taken_at: string } | null;
 export type ParSide = { still: ParShot; error: string | null; missing: boolean };
 export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
