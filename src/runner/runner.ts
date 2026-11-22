@@ -118,6 +118,7 @@ import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { stackBaseOf, type StackBase } from "./stack.js";
+import { cloneModules } from "../lib/clone-modules.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 import { carryReferences, markOpened, referenceLines, type ReferenceLine } from "./references.js";
@@ -1260,6 +1261,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       cwd = made.path;
       worktree = made.path;
       branch = made.branch;
+      // PLA-I73-4: a new worktree gets the checkout's modules as an instant clone when the lockfile matches.
+      if (made.created) await cloneModules(repo, made.path).catch(() => false);
       if (made.created && deps.footprints !== false) {
         await registerFootprint(
           db,
@@ -2022,3 +2025,46 @@ export function defaultProbeUsage(env: NodeJS.ProcessEnv = process.env): () => P
 
 export const newRunId = (): string => randomUUID();
 export type { PlanWindowReading };
+
+// PLA-I73-4: a Taller step waiting in the queue (lanes full, or the machine busy) gets its worktree made now, with its
+// modules cloned and, when stacked, cut from the step under it, so the run starts on a ready checkout. At most `limit`
+// per tick; the footprint is the one start would register.
+export async function prewarmQueued(db: Db, deps: RunnerDeps = {}, limit = 2): Promise<string[]> {
+  const env = deps.env ?? process.env;
+  const root = rootOf(deps, env);
+  const rows = await db
+    .select({ taskKey: agentRuns.taskKey, projectId: agentRuns.projectId, agentId: agentRuns.agentId })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.status, "queued"), eq(agentRuns.role, "taller"), sql`${agentRuns.taskKey} is not null`))
+    .orderBy(asc(agentRuns.queuedAt))
+    .limit(20);
+  const made: string[] = [];
+  for (const r of rows) {
+    if (made.length >= limit) break;
+    const [project] = await db.select().from(projects).where(eq(projects.id, r.projectId)).limit(1);
+    if (!project) continue;
+    const [t] = await db.select({ id: tasks.id, key: tasks.key, branch: tasks.branch, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, r.taskKey!))).limit(1);
+    if (!t || t.status !== "Ready") continue;
+    const target = worktreePathFor(root, project.slug, t.key);
+    if (existsSync(target)) continue;
+    const repo = repoPathOf(project.slug, project.settings, env);
+    if (!existsSync(repo)) continue;
+    const [agent] = await db.select({ slug: agents.slug }).from(agents).where(eq(agents.id, r.agentId)).limit(1);
+    const stacked = await stackBaseOf(db, t.id);
+    const branch = t.branch?.trim() || branchFor(t.key, await workPatternOf(db, project.id));
+    const out = await withRepoLock(db, repo, () =>
+      ensureWorktree({ repo, root, project: project.slug, key: t.key, branch, base: startBranchOf(project.settings), ...(stacked ? { from: stacked.branch } : {}) }, carefulGit(deps.git ?? defaultGit)),
+    ).catch(() => null);
+    if (!out?.ok || !out.created) continue;
+    await cloneModules(repo, out.path).catch(() => false);
+    if (deps.footprints !== false) {
+      await registerFootprint(
+        db,
+        { project: project.slug, kind: "worktree", locator: out.path, purpose: `Runner worktree for ${t.key} (${agent?.slug ?? "taller"})`, teardown: `git -C ${repo} worktree remove ${out.path}`, task_key: t.key },
+        { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-${agent?.slug ?? "taller"}` } },
+      ).catch(() => undefined);
+    }
+    made.push(t.key);
+  }
+  return made;
+}

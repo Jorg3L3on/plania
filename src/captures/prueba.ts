@@ -6,6 +6,7 @@
 // taken and the Ventana says «En vivo». The process is a registered footprint (port:N, teardown kill -TERM -<pgid>)
 // and stops when the owner turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
+import { cloneModules } from "../lib/clone-modules.js";
 import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import { exitAfterDrain } from "../ops/shutdown.js";
 import { spawn as nodeSpawn, execFile } from "node:child_process";
@@ -432,7 +433,11 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     const mark = path.join(wt, "node_modules", ".plania-prueba");
     const hash = install.hash;
     const had = existsSync(mark) ? readFileSync(mark, "utf8").trim() : null;
-    if (had !== hash) {
+    // PLA-I73-4: the project's own checkout with the same lockfile lends its modules as an instant clone.
+    if (had !== hash && (await cloneModules(repo, wt, (cmd, o) => (deps.exec ?? shellExec)(cmd, { ...o, env: checkoutEnv() })))) {
+      mkdirSync(path.dirname(mark), { recursive: true });
+      writeFileSync(mark, hash);
+    } else if (had !== hash) {
       const r = await (deps.exec ?? shellExec)(install.command, { cwd: wt, timeoutMs: 600_000, env: checkoutEnv() });
       if (r.code !== 0) {
         c.tail = tailOf(r.stderr || r.stdout);
@@ -867,7 +872,7 @@ export function envValue(text: string, name: string): string | null {
 }
 
 /** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
-export function entregaUrl(base: string, suffix: CopySuffix | "_taller" = "_entrega"): { url: string; name: string } | null {
+export function entregaUrl(base: string, suffix: CopySuffix | "_taller" | "_plantilla" = "_entrega"): { url: string; name: string } | null {
   let u: URL;
   try {
     u = new URL(base);
@@ -907,6 +912,32 @@ export async function pgPathFor(url: string): Promise<string> {
   return found;
 }
 
+// PLA-I73-4: <db>_plantilla, a copy of the app's database that no one connects to, so it can be a template. Rebuilt
+// when it is older than PLANTILLA_MS or when this server has not built it yet.
+const PLANTILLA_MS = 6 * 60 * 60_000;
+const plantillas = new Map<string, number>();
+export async function plantillaOf(
+  exec: (cmd: string, o: { cwd: string; timeoutMs: number; env?: NodeJS.ProcessEnv }) => Promise<{ code: number | null; stdout: string; stderr: string }>,
+  cwd: string,
+  pgPath: string,
+  base: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const t = entregaUrl(base, "_plantilla");
+  if (!t) return null;
+  const built = plantillas.get(t.url);
+  if (built && now - built < PLANTILLA_MS) return t.name;
+  const cmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${t.name} with (force)' -c 'create database ${t.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_TPL_URL"`;
+  const r = await exec(cmd, { cwd, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_TPL_URL: t.url }) }).catch(() => null);
+  if (!r || r.code !== 0) {
+    plantillas.delete(t.url);
+    return null;
+  }
+  plantillas.set(t.url, now);
+  return t.name;
+}
+export const resetPlantillasForTests = (): void => plantillas.clear();
+
 async function entregaDatabase(
   db: Db,
   c: Copy,
@@ -925,8 +956,14 @@ async function entregaDatabase(
   const exec = deps.exec ?? shellExec;
   const pgPath = await pgPathFor(base);
   // The URLs go in the environment, never in the command line.
-  const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
-  const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
+  const dumpCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
+  // PLA-I73-4: a template of the app's database, refreshed every few hours, makes each copy a file copy
+  // (CREATE DATABASE … TEMPLATE) instead of a dump and restore. Any trouble falls back to the dump.
+  const tpl = await plantillaOf(exec, wt, pgPath, base);
+  const tplCmd = tpl ? `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name} template ${tpl}'` : null;
+  const env = checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url });
+  let copied = tplCmd ? await exec(tplCmd, { cwd: wt, timeoutMs: 120_000, env }) : null;
+  if (!copied || copied.code !== 0) copied = await exec(dumpCmd, { cwd: wt, timeoutMs: 300_000, env });
   if (copied.code !== 0) {
     c.tail = tailOf(copied.stderr || copied.stdout);
     return { ok: false, error: w.noCopyDb(target.name) };
