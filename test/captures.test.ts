@@ -49,7 +49,8 @@ function png(width: number, height: number, tag = ""): Buffer {
 }
 
 const BASE = "http://localhost:3999";
-type Fake = { logins: string[]; shots: string[]; broken: Set<string>; closed: number };
+// PLA-166: hydrateAfter: how many readiness checks the login form fails before React attaches; a submit before that is lost.
+type Fake = { logins: string[]; shots: string[]; broken: Set<string>; closed: number; hydrateAfter?: number; checks?: number };
 // A browser over a pretend app: /panel/** wants the login; /panel lists one ficha at /panel/novias/n1.
 function fakeBrowser(state: Fake, password: () => string | null): () => Promise<Browser> {
   return async () => {
@@ -69,6 +70,14 @@ function fakeBrowser(state: Fake, password: () => string | null): () => Promise<
           return { status: 200, url: at };
         },
         async evaluate<T>(js: string): Promise<T> {
+          if (js.includes("__planiaFormReady")) {
+            state.checks = (state.checks ?? 0) + 1;
+            return (state.checks > (state.hydrateAfter ?? 0)) as T;
+          }
+          if (js.includes("requestSubmit") && (state.checks ?? 0) <= (state.hydrateAfter ?? 0)) {
+            state.logins.push("lost");
+            return "ok" as T;
+          }
           if (js.includes("requestSubmit")) {
             const pw = password();
             state.logins.push(js.includes(JSON.stringify("asesora@example.com")) ? "asesora@example.com" : "?");
@@ -272,6 +281,17 @@ describe("capture run (fake browser)", () => {
     assert.ok([...of("ficha"), ...of("panel")].every((s: Json) => s.status === "error" && s.error === "No se pudo preparar el usuario de prueba: Error: no existe la cuenta"));
     const now = await read();
     assert.equal(now.pages[0].desktop.error, null, "fixed since the 500");
+  });
+
+  test("PLA-166: a login form that hydrates late is waited for, then filled once; the submit is not lost", async () => {
+    fake.logins.length = 0;
+    fake.checks = 0;
+    fake.hydrateAfter = 3;
+    const r = await runCapture(db, { project: "zigzag", checkout, pages: ["panel"], actor }, { ...deps(), launch: fakeBrowser(fake, () => lastPassword), loginWaitMs: 5000 });
+    fake.hydrateAfter = 0;
+    assert.equal(r.errors?.length ?? 0, 0, JSON.stringify(r.errors));
+    assert.deepEqual(fake.logins, ["asesora@example.com"], "filled after the form was live, never lost");
+    assert.ok((fake.checks ?? 0) >= 4, "it asked until the form was live");
   });
 
   test("a wrong password is not a session: the page that asks to log in again is an error, never a still of the login", async () => {
