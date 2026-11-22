@@ -24,6 +24,7 @@ const { parseStream, parseUsageText } = await import("../src/runner/stream.js");
 const { DENY_RULES, deniedBy } = await import("../src/runner/deny.js");
 const { checkBase, ensureWorktree, isInside, worktreePathFor } = await import("../src/runner/worktree.js");
 const { companyState } = await import("../src/runner/company.js");
+const prueba = await import("../src/captures/prueba.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
 let raw: pg.Client;
@@ -290,6 +291,84 @@ test("I2-9 #3: a run of Plania itself gets the live-database rules, and refuses 
   const [row] = (await raw.query(`select status, summary from agent_runs where task_key = 'SELF-BAD' order by queued_at desc limit 1`)).rows as { status: string; summary: string }[];
   assert.equal(row!.status, "fail", JSON.stringify(bad));
   assert.match(row!.summary, /\.env in the run's folder points at the live database/);
+});
+
+// PLA-158 (F-31): a builder's run on a project whose copies have their own bases works on <db>_taller, made once from
+// the app's base; the app's database never reaches the run. Other roles and projects without the setting: unchanged.
+test("PLA-158 F-31: a Taller run gets the app's database variable pointed at <db>_taller, made from the app's base when missing", async () => {
+  const APP = "postgres://dev@localhost:5432/appdb";
+  const execs: { command: string; env: NodeJS.ProcessEnv }[] = [];
+  let made = false;
+  prueba.setPruebaDeps({
+    footprints: false,
+    readPg: async () => ({ ok: false }),
+    exec: async (command: string, opts: { env?: NodeJS.ProcessEnv }) => {
+      execs.push({ command, env: opts.env ?? {} });
+      if (command.includes("select datname")) return { code: 0, stdout: made ? "appdb_taller\n" : "", stderr: "" };
+      if (command.includes("create database appdb_taller")) made = true;
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  } as never);
+  writeFileSync(path.join(repo, ".env"), `DATABASE_URL=${APP}\n`);
+  const plain = (await raw.query(`select settings from projects where slug = 'micasa'`)).rows[0].settings;
+  await raw.query(`update projects set settings = settings || $1::jsonb where slug = 'micasa'`, [JSON.stringify({ capture: { base_url: "http://localhost:3000", pages: [{ path: "/" }], database: { env_var: "DATABASE_URL", migrate_command: "pnpm db:migrate" } } })]);
+  try {
+    const f = fakes();
+    await ready("micasa", "RUN-TALLER-DB");
+    assert.equal((await wake("taller", f.deps, "RUN-TALLER-DB")).reason, "ok");
+    assert.equal(f.spawned[0]!.env.DATABASE_URL, "postgres://dev@localhost:5432/appdb_taller", "the run's own base, never the app's");
+    assert.ok(execs.some((e) => e.command.includes("create database appdb_taller") && e.env.PLANIA_BASE_URL === APP && e.env.PLANIA_NEW_URL === "postgres://dev@localhost:5432/appdb_taller"));
+    assert.ok(execs.every((e) => !e.command.includes(APP)), "the URLs go in the environment, never in the command line");
+    f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+    f.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+
+    // The next run finds it made and does not copy it again.
+    const creates = execs.filter((e) => e.command.includes("create database")).length;
+    const g = fakes();
+    await ready("micasa", "RUN-TALLER-DB2");
+    await wake("taller", g.deps, "RUN-TALLER-DB2");
+    assert.equal(g.spawned[0]!.env.DATABASE_URL, "postgres://dev@localhost:5432/appdb_taller");
+    assert.equal(execs.filter((e) => e.command.includes("create database")).length, creates);
+    g.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+    g.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+
+    // Another role on the same project: unchanged (no app database variable at all).
+    const h = fakes();
+    await ready("micasa", "RUN-TALLER-DB3");
+    await wake("housi", h.deps, "RUN-TALLER-DB3");
+    assert.equal(h.spawned[0]!.env.DATABASE_URL, undefined);
+    h.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+    h.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+
+    // A clone that cannot be made stops the run before it starts, rather than run on the app's database.
+    made = false;
+    prueba.setPruebaDeps({ footprints: false, readPg: async () => ({ ok: false }), exec: async (command: string) => ({ code: command.includes("create database") ? 1 : 0, stdout: "", stderr: "no" }) } as never);
+    const k = fakes();
+    await ready("micasa", "RUN-TALLER-DB4");
+    await wake("taller", k.deps, "RUN-TALLER-DB4");
+    assert.equal(k.spawned.length, 0, "no process started");
+    const [row] = (await raw.query(`select status, summary from agent_runs where task_key = 'RUN-TALLER-DB4' order by queued_at desc limit 1`)).rows as { status: string; summary: string }[];
+    assert.equal(row!.status, "fail");
+    assert.match(row!.summary, /no taller database/);
+  } finally {
+    await raw.query(`update projects set settings = $1::jsonb where slug = 'micasa'`, [JSON.stringify(plain)]);
+    rmSync(path.join(repo, ".env"), { force: true });
+    prueba.setPruebaDeps({});
+  }
+
+  // A project without settings.capture.database: a Taller run is unchanged.
+  const execsBefore = execs.length;
+  const m = fakes();
+  await ready("micasa", "RUN-TALLER-DB5");
+  await wake("taller", m.deps, "RUN-TALLER-DB5");
+  assert.equal(m.spawned[0]!.env.DATABASE_URL, undefined);
+  assert.equal(execs.length, execsBefore, "no database command");
+  m.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5[1m]": OPUS })]);
+  m.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
 });
 
 test("I29-2 #2: the timeout sends SIGINT, then SIGTERM, then SIGKILL, in that order", async () => {
