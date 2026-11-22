@@ -209,6 +209,8 @@ describe("github statuses without a Vercel token", () => {
     const { db, close } = makeDb();
     try {
       const deps = { fetch, env: { GITHUB_TOKEN: "ghp_test" }, tokenFile: () => ({ token: null }), fallback: false };
+      // The Vercel poller runs first and says it has no token (PLA-169: the fallback waits for that).
+      await pollVercelProject(db, await findProject(db, "zigzag"), { fetch, env: {} });
       await pollGithubProject(db, await findProject(db, "zigzag"), deps);
       const p = await findProject(db, "zigzag");
       const t = (await readDeployTruth(db, p.id))!;
@@ -237,6 +239,12 @@ describe("github statuses without a Vercel token", () => {
       const p = await findProject(db, "zigzag");
       const { pollHostStatuses } = await import("../src/jobs/github.js");
       assert.equal(await pollHostStatuses(db, p, { fetch, env: { VERCEL_TOKEN: "vc" } }, "ghp", "o/zig"), 0);
+      assert.equal(calls.length, 0);
+      // PLA-169: nor when the Vercel poller reads the host fine (or has not run), even if this poller's env lacks its token.
+      await raw.query("update poll_state set error = null where source = 'vercel' and project_id = $1", [p.id]);
+      assert.equal(await pollHostStatuses(db, p, { fetch, env: {} }, "ghp", "o/zig"), 0);
+      await raw.query("delete from poll_state where source = 'vercel' and project_id = $1", [p.id]);
+      assert.equal(await pollHostStatuses(db, p, { fetch, env: {} }, "ghp", "o/zig"), 0);
       assert.equal(calls.length, 0);
     } finally {
       await close();
