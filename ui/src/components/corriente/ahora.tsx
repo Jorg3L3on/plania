@@ -62,7 +62,7 @@ export const MoveButton = ({ p, a, d, primary, acts, links, onFijar }: { p: OrgP
       // A leg's plan goes with its suggested answers and its check list as they are.
       const plan = a.action === "empezar" && d.plan?.leg ? { answers: (d.plan.questions ?? []).map((q) => q.suggested), checklist: d.plan.checklist ?? [] } : {};
       acts.decisions.decide(d, { action: a.action, ...plan }, `now-${a.action}`);
-    } else if (a.kind === "start") acts.start(p.slug, a.agent, "pastGuard" in a ? a.pastGuard : false);
+    } else if (a.kind === "start") acts.start(p.slug, a.agent, "pastGuard" in a ? a.pastGuard : false, "key" in a ? (a.key ?? null) : null);
     else if (a.kind === "fijar") onFijar(p);
     else if (a.kind === "plan") acts.plan(p.slug, a.text);
   };

@@ -97,7 +97,7 @@ export function useCorrienteActs() {
     failed,
     stopRun: (id: string) => run(`stop-${id}`, () => api.stopRun(id)),
     resumeRun: (id: string) => run(`resume-${id}`, () => api.resumeRun(id)),
-    start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : ((r.reason === "fail" && arranqueLine(r.summary)) || (w.start[r.reason] ?? w.notStarted)))),
+    start: (slug: string, agent: string, pastGuard = false, key: string | null = null) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard, key), (r) => (r.started ? null : ((r.reason === "fail" && arranqueLine(r.summary)) || (w.start[r.reason] ?? w.notStarted)))),
     plan: (slug: string, text: string) => run(`${slug}:plan`, () => api.askProject(slug, { text, mode: "ya" }), () => w.planAsked),
     autoAccept: (slug: string, on: boolean) =>
       run(`${slug}:auto`, () => api.setProjectOptions(slug, { auto_accept: on }), () => (on ? w.autoAcceptOn : w.autoAcceptOff)),

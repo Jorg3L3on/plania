@@ -623,7 +623,8 @@ companyRoutes.post("/projects/:slug/wake", async (c) => {
 });
 
 // PLA-I40-2: Que empiece ya for one teammate. The body is optional: {past_guard} also passes the plan guard once.
-const StartNow = z.object({ past_guard: z.boolean().optional() }).strict();
+// PLA-165: key starts that step (it must be the teammate's ready work); without it, the teammate's next ready step.
+const StartNow = z.object({ past_guard: z.boolean().optional(), key: z.string().trim().min(1).max(40).optional() }).strict();
 companyRoutes.post("/projects/:slug/team/:agent/start", async (c) => {
   const raw = await c.req.text();
   let json: unknown = {};
