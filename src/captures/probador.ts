@@ -171,7 +171,11 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   // Both copies, then wait until each answers (or fails).
   const startSandbox = deps.encender ?? encender;
   const startEntrega = deps.encenderEntrega ?? encenderEntrega;
-  const outside = !pruebaOf(slug) && (await pruebaRead(slug, settings)).phase === "running";
+  // PLA-154 (guided test 3): «outside» means the app's own dev server answers on settings.port. After a restart reaped
+  // the sandbox copy, Plania's own delivery copy was on that port and was photographed as «antes»: every view IGUAL,
+  // and the card blamed Taller. A port one of Plania's copies holds is never outside.
+  const ownPort = entregaRead(slug)?.port ?? null;
+  const outside = !pruebaOf(slug) && ownPort !== settings.port && (await pruebaRead(slug, settings)).phase === "running";
   // PLA-78: a copy whose database carries another muestra's fake rows starts again on a fresh copy, so one
   // delivery's rows never show in another's pictures.
   const want = hashDatos(t.muestra.datos);
