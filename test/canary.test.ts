@@ -390,9 +390,9 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  // A real bug this row found: the redelivery's finish is refused EVIDENCE_STALE against the head the GitHub poller
-  // stored before the push (PLA-169). Not a lane's; filed on its own.
-  test("Pedir ajuste: the owner sends the delivery back with his words; Taller redelivers and the request ships", todo("PLA-169"), async () => {
+  // PLA-169 (found by this row): the redelivery's finish was refused EVIDENCE_STALE against the head the GitHub poller
+  // stored before the push.
+  test("Pedir ajuste: the owner sends the delivery back with his words; Taller redelivers and the request ships", async () => {
     await row("npm", {}, async (w) => {
       await pedir(w);
       await asiEs(w);
