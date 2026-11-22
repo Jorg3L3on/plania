@@ -235,6 +235,25 @@ describe("the PNG diff", () => {
   });
 });
 
+describe("PLA-154: antes never comes from Plania's own delivery copy", () => {
+  test("after a restart, the delivery copy on the app's port is not taken for the app's own server", async () => {
+    // A delivery copy from an earlier pass holds settings.port (3000); the sandbox copy is gone (a restart reaped it).
+    upPorts.add(3000);
+    upPorts.add(3001);
+    await prueba.encenderEntrega(db, "zigzag", { key: "OTRA", branch: "jl/otra" });
+    for (let i = 0; i < 200 && prueba.entregaRead("zigzag")?.phase !== "live"; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.equal(prueba.entregaRead("zigzag")?.port, 3000, "the delivery copy took the app's port");
+    assert.equal(prueba.pruebaOf("zigzag"), null, "no sandbox copy");
+    const key = await delivery("Catálogo como revista");
+    const out: Json[] = [];
+    await probador.probar(db, "zigzag", key, { capture: (async (d: unknown, input: Json) => { out.push(input); return fakeCapture(d as never, input as never); }) as any, pollMs: 5, waitMs: 3000 });
+    const antes = out.find((x) => x.side === "antes");
+    const despues = out.find((x) => x.side === "despues");
+    assert.ok(antes && despues, "both sides were taken");
+    assert.notEqual(antes!.base_url, despues!.base_url, "antes is not the delivery copy");
+  });
+});
+
 describe("antes y después", () => {
   test("photographs both sides; a path that was not there is nueva; the change is boxed; then the card may show", async () => {
     const key = await delivery("Pantalla de sucursales");
