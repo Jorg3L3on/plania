@@ -127,6 +127,8 @@ export const ERRORS = {
   EVIDENCE_REQUIRED: [409, "In review without evidence for the work_type from the current claim (detail: accepts, since)"],
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   IDEA_STAGE_NOT_YOURS: [409, "Research moves an idea only out of research, Artist only out of design (detail: role, stage, owns)"],
+  // PLA-149
+  IDEA_OWNER_NEWER: [409, "set_task stage: the owner decided or wrote on the idea after this run started; it stays on its stage and its agent is woken again with his words (detail: since, words)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
   PEDIDO_SIN_ORDEN: [409, "an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab"],
