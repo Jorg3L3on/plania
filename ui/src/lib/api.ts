@@ -1,3 +1,4 @@
+import type { Cronometro } from "./cronometro";
 import type { Oficio } from "./oficio";
 import type { CaminoRead } from "./camino-types";
 import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
@@ -561,6 +562,8 @@ export type IdeaBuilt = {
   prs: { number: number; state: string; url: string; key: string }[];
   published_at: string | null;
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
+  // PLA-I73-1: an older server sends none.
+  tiempo?: Cronometro;
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {

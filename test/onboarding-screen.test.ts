@@ -25,7 +25,7 @@ const { app } = await import("../src/app.js");
 const { issueSetupCode } = await import("../src/db/install.js");
 const state = await import("../src/install-state.js");
 const { findToken } = await import("../src/auth/tokens.js");
-const { offeredFolders, defaultFolders } = await import("../src/folders.js");
+const { offeredFolders, defaultFolders, worktreesDefault } = await import("../src/folders.js");
 const onboarding = await import("../src/api/onboarding.js");
 const primer = await import("../ui/src/lib/primer-arranque.js");
 const guia = await import("../ui/src/lib/primera-entrega.js");
@@ -89,7 +89,7 @@ test("F4: the one-time code comes from the address fragment; the field shows onl
 test("F5: first start offers the folders as this machine writes them, and opens «Más opciones» only for what lives there", () => {
   const win = defaultFolders("C:\\Users\\ana");
   assert.equal(win.projects, path.join("C:\\Users\\ana", "plania", "projects"));
-  assert.deepEqual(offeredFolders({ PLANIA_PROJECTS_ROOT: "/srv/code" }, "/home/ana"), { projects: "/srv/code", worktrees: path.join("/home/ana", "plania", "worktrees") });
+  assert.deepEqual(offeredFolders({ PLANIA_PROJECTS_ROOT: "/srv/code" }, "/home/ana"), { projects: "/srv/code", worktrees: worktreesDefault(path.join("/home/ana", "plania")) });
 
   const offered = { projects: "C:\\Users\\ana\\plania\\projects", worktrees: "C:\\Users\\ana\\plania\\worktrees" };
   const f = primer.initialForm({ folders: offered }, "Europe/Madrid", "ABCD");

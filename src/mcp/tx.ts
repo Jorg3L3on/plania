@@ -104,7 +104,14 @@ export async function writeTx<T>(
     }
     return result;
   });
-  if (lockedAt) noteWriteLock(waitMs, performance.now() - lockedAt);
+  if (lockedAt) {
+    const holdMs = performance.now() - lockedAt;
+    noteWriteLock(waitMs, holdMs);
+    // PLA-I73-1: in guided test 3 two release_footprint calls took 90 s each, yet the tool does a few rows of work:
+    // they waited on the one write lock behind something else. A slow wait or hold now names its tool in the log,
+    // so the next one points at the writer that held everyone up.
+    if (waitMs > SLOW_WRITE_MS || holdMs > SLOW_WRITE_MS) console.log(`[write] ${ctx.tool ?? "write"} on ${project.slug}: waited ${Math.round(waitMs / 100) / 10}s, held ${Math.round(holdMs / 100) / 10}s`);
+  }
   for (const change of changes.values()) bus.publish(change);
   return result;
 }
@@ -114,6 +121,7 @@ export async function writeTx<T>(
 const WINDOW = 2000;
 const waits: number[] = [];
 const holds: number[] = [];
+const SLOW_WRITE_MS = 5_000;
 function noteWriteLock(wait: number, hold: number): void {
   waits.push(wait);
   holds.push(hold);

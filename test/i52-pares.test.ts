@@ -220,6 +220,11 @@ const pass = (key: string, over: Json = {}) => {
   upPorts.add(3000);
   upPorts.add(3001);
   return probador.probar(db, "zigzag", key, { capture: fakeCapture as any, pollMs: 5, waitMs: 3000, ...over });
+}
+async function passEvents(key: string): Promise<{ type: string; payload: Json }[]> {
+  const schema = await import("../src/db/schema.js");
+  const { and, asc, eq, like } = await import("drizzle-orm");
+  return (await db.select({ type: schema.events.type, payload: schema.events.payload }).from(schema.events).where(and(eq(schema.events.taskKey, key), like(schema.events.type, "probador.%"))).orderBy(asc(schema.events.id))) as never;
 };
 
 describe("the PNG diff", () => {
@@ -272,7 +277,11 @@ describe("PLA-158 (F-27): a pass never waits silently", () => {
     assert.equal(during!.state, "tomando");
     assert.match(during!.waiting, /copia en vivo de otra entrega/, "the card says what the pass waits on");
     assert.equal(prueba.entregaRead("zigzag")?.key, key, "the new delivery holds the copy now");
-    assert.equal((await taskRow(key)).probador.waiting ?? null, null, "nothing to wait on once done");
+    assert.equal((await taskRow(key)).probador.waiting ?? null, null, "nothing to wait on once done");    // PLA-I73-1: the pass's start and end are events, for the stopwatch.
+    const kinds = await passEvents(key);
+    assert.deepEqual(kinds.map((e) => e.type), ["probador.started", "probador.pass"]);
+    assert.equal(kinds[1]!.payload.ok, true);
+    assert.ok(Array.isArray(kinds[1]!.payload.phases));
   });
 
   test("a pass behind another one of the same project says it waits for it, then works", async () => {
@@ -378,7 +387,8 @@ describe("antes y después", () => {
     upPorts = new Set();
     const s = await probador.probar(db, "zigzag", key, { capture: fakeCapture as any, pollMs: 5, waitMs: 200, returnToTaller: false });
     assert.equal(s?.state, "fallo");
-    assert.match(s!.error!, /no arrancó a tiempo|no respondió/);
+    assert.match(s!.error!, /no arrancó a tiempo|no respondió/);    const ends = (await passEvents(key)).filter((e) => e.type === "probador.pass");
+    assert.equal(ends.at(-1)!.payload.ok, false, "a failed pass ends with an event too (PLA-I73-1)");
   });
 
   test("without a muestra nothing happens and nothing is held", async () => {

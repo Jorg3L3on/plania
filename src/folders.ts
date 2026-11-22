@@ -2,10 +2,12 @@
 // with neutral defaults under the user's home; an environment variable always wins, so an install configured by
 // hand is unchanged.
 //   projects    PLANIA_PROJECTS_ROOT, else the first-start answer, else ~/plania/projects
-//   worktrees   PLANIA_WORKTREES_ROOT, else the first-start answer, else ~/plania/worktrees
+//   worktrees   PLANIA_WORKTREES_ROOT, else the first-start answer, else ~/plania/worktrees.noindex (or an existing
+//               ~/plania/worktrees)
 //   canvases    PLANIA_CANVASES_ROOT, else ~/plania/canvases
 // The first-start answers live in machine_state (key "folders"); loadFolders copies them into process.env at start,
 // the way src/install-state.ts does with the time zone, so every reader keeps reading the variable.
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
@@ -16,9 +18,18 @@ export const FOLDERS_KEY = "folders";
 export type Folders = { projects: string; worktrees: string };
 
 /** The defaults: a "plania" folder in the user's home. */
-export function defaultFolders(home: string = homedir()): Folders & { canvases: string } {
+export function defaultFolders(home: string = homedir(), exists: (p: string) => boolean = existsSync): Folders & { canvases: string } {
   const root = path.join(home, "plania");
-  return { projects: path.join(root, "projects"), worktrees: path.join(root, "worktrees"), canvases: path.join(root, "canvases") };
+  return { projects: path.join(root, "projects"), worktrees: worktreesDefault(root, exists), canvases: path.join(root, "canvases") };
+}
+
+/** PLA-I73-1: on the guided-test Mac, Spotlight and the file-event service spent ~140 % CPU indexing run copies (a
+ * full set of node modules each). macOS skips any folder whose name ends in ".noindex", so a new install keeps its
+ * copies in worktrees.noindex. An install that already has ~/plania/worktrees keeps it: its copies, branches and
+ * footprints point there. */
+export function worktreesDefault(root: string, exists: (p: string) => boolean = existsSync, platform: NodeJS.Platform = process.platform): string {
+  const old = path.join(root, "worktrees");
+  return platform !== "darwin" || exists(old) ? old : path.join(root, "worktrees.noindex");
 }
 
 /** F5: the folders first start offers, written the way this machine writes paths: a variable set by hand wins,
