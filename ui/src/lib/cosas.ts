@@ -12,6 +12,7 @@ import type { Decision, DecisionAction, EtapaHolder, EtapaId, FichaIdea, OrgFich
 import { etapaWord, wordOf } from "./etapas";
 import { ideaName } from "./nombre";
 import { seatName } from "./corriente";
+import { LOCALE } from "./locale";
 import { arranqueLine } from "./arranque";
 import { prodWaits, publicarWords } from "./publicar";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
@@ -56,6 +57,11 @@ export const COSAS_WORDS = defineWords({
     listaPaused: (t: string) => `${t} está lista: arranca cuando reanudes.`,
     lista: (t: string) => `${t} está lista: arranca sola.`,
     enQa: (t: string) => `${t} está en QA: no te necesita.`,
+    // PLA-I74-5: the step's turn (src/state/turn.ts) says who has it next.
+    queuedRun: (t: string, who: string) => `${t}: en cola, ${who} la toma en cuanto pueda.`,
+    busyWorker: (t: string, who: string) => `${t}: ${who} la toma al terminar lo que hace.`,
+    outsideUntil: (t: string, what: string, at: string) => `${t}: espera ${what}, a más tardar a las ${at}.`,
+    outsideOn: { ci: "las pruebas de GitHub", photos: "las fotos de la entrega", review: "la revisión", merge: "la integración", deploy: "el despliegue", close: "que Plania la cierre", env: "el entorno", time: "la hora indicada" } as Record<string, string>,
     enRevisionWhy: (t: string, why: string) => `${t}: ${why}. No te necesita.`,
     enRevision: (t: string) => `${t} está en revisión: no te necesita.`,
     integrado: (t: string) => `${t} ya está en la copia de prueba: espera publicación.`,
@@ -156,6 +162,10 @@ export const COSAS_WORDS = defineWords({
     listaPaused: (t: string) => `${t} is ready: it starts when you resume.`,
     lista: (t: string) => `${t} is ready: it starts by itself.`,
     enQa: (t: string) => `${t} is in QA: it does not need you.`,
+    queuedRun: (t: string, who: string) => `${t}: queued, ${who} takes it as soon as it can.`,
+    busyWorker: (t: string, who: string) => `${t}: ${who} takes it after what it is doing.`,
+    outsideUntil: (t: string, what: string, at: string) => `${t}: waits for ${what}, at the latest by ${at}.`,
+    outsideOn: { ci: "GitHub's checks", photos: "the delivery's pictures", review: "the review", merge: "the merge", deploy: "the deploy", close: "Plania to close it", env: "the environment", time: "the set time" } as Record<string, string>,
     enRevisionWhy: (t: string, why: string) => `${t}: ${why}. It does not need you.`,
     enRevision: (t: string) => `${t} is in review: it does not need you.`,
     integrado: (t: string) => `${t} is already on the test copy: it waits to be published.`,
@@ -342,11 +352,15 @@ const isPending = (d: Decision) => d.state === null && (d.actions.length > 0 || 
 const isDelivery = (d: Decision) => (d.kind === "deliverable" || d.kind === "pr") && d.actions.some((a) => a === "aceptar" || a === "fusionar");
 const refsOf = (d: Decision) => [d.ref, ...(d.links ?? []).filter((l) => l.kind === "ticket").map((l) => l.ref)].filter((x): x is string => !!x);
 
-export function tonoOf(t: Pick<ProjectTicket, "etapa">, paused: boolean): TramoTono {
+// PLA-I74-5: someone works it this minute only when its turn says an agent is working (a live run); a server before
+// the turn sends etapa.live alone.
+export const isWorking = (t: Pick<ProjectTicket, "etapa" | "turn">): boolean => (t.turn ? t.turn.turn === "agent_working" : t.etapa.live);
+
+export function tonoOf(t: Pick<ProjectTicket, "etapa" | "turn">, paused: boolean): TramoTono {
   const e = t.etapa;
   if (DONE.has(e.etapa)) return "hecho";
   if (e.etapa === "te_toca") return "toca";
-  if (e.live && !paused) return "vivo";
+  if (isWorking(t) && !paused) return "vivo";
   if (QUIET.has(e.etapa)) return "quieto";
   return "fila";
 }
@@ -369,9 +383,21 @@ function quietLever(t: ProjectTicket): Palanca | null {
   return t.status === "Backlog" && t.etapa.etapa === "despues" && !(t.etapa.reason ?? "").startsWith("Espera a") ? { kind: "lista", key: t.key } : null;
 }
 
-function filaWords(t: ProjectTicket, paused: boolean, w: W, language: Language): string {
+function filaWords(t: ProjectTicket, paused: boolean, w: W, language: Language, p?: OrgProject): string {
   const e = t.etapa.etapa;
   const q = w.quote(t.title);
+  // PLA-I74-5: the queued and outside waits read the step's turn.
+  const turn = t.turn;
+  const seat = (agent: string | null) => {
+    const m = agent ? p?.team.find((x) => x.agent === agent) : undefined;
+    return m ? seatName(m.role) : w.theTeam;
+  };
+  if (!paused && turn?.turn === "agent_queued" && turn.reason === "run_queued") return w.queuedRun(q, seat(turn.agent));
+  if (!paused && turn?.turn === "agent_queued" && turn.reason === "agent_busy") return w.busyWorker(q, seat(turn.agent));
+  if (turn?.turn === "outside" && turn.until) {
+    const at = new Date(turn.until).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+    return w.outsideUntil(q, w.outsideOn[turn.on] ?? w.outsideOn.env!, at);
+  }
   if (e === "lista") return paused ? w.listaPaused(q) : w.lista(q);
   if (e === "en_qa") return w.enQa(q);
   if (e === "en_revision") return t.etapa.reason ? w.enRevisionWhy(q, t.etapa.reason.replace(/\.$/, "")) : w.enRevision(q);
@@ -445,7 +471,7 @@ function ticketThing(
 
   // NEWPROJ-5: a step whose newest run could not start waits on the owner: what happened and what to fix, and a retry
   // (never «Que empiece ya», nor «arranca sola», while that cause may stand).
-  const roto = [...ts].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key)).find((t) => t.arranque && !t.etapa.live && tonoOf(t, paused) !== "hecho");
+  const roto = [...ts].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a.key, b.key)).find((t) => t.arranque && !isWorking(t) && tonoOf(t, paused) !== "hecho");
   if (roto) {
     const line = arranqueLine(roto.arranque!.summary, language) ?? w.couldNotStartLine;
     const agent = starterOf(roto.key, p);
@@ -466,7 +492,7 @@ function ticketThing(
   if (fila) {
     const aplazar: Aplazar = base.tipo === "iniciativa" ? { key: base.key, to: "On hold" } : { key: fila.key, to: "Backlog" };
     const lever: Palanca | null = fila.etapa.etapa === "lista" ? { kind: "primero", key: p.next_first !== fila.key ? fila.key : null, aplazar } : null;
-    return out("fila", filaWords(fila, paused, w, language), etapaWord(fila.etapa.etapa, language), lever, since(fila));
+    return out("fila", filaWords(fila, paused, w, language, p), etapaWord(fila.etapa.etapa, language), lever, since(fila));
   }
   // Quieto: the first step that does not move, with its reason and its lever.
   const q = focusOf(ts, paused, "quieto");

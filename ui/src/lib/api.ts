@@ -1,4 +1,5 @@
 import type { Cronometro } from "./cronometro";
+import type { RunReport } from "./informe";
 import type { Oficio } from "./oficio";
 import type { CaminoRead } from "./camino-types";
 import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
@@ -576,6 +577,8 @@ export type IdeaBuilt = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: an older server sends none.
   tiempo?: Cronometro;
+  // PLA-I74-1: the run report; an older server sends none.
+  informe?: RunReport;
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
@@ -744,7 +747,15 @@ export type Zona = "pantalla" | "servidor" | "datos" | "docs";
 // PLA-I3-1: tokens, what the runner measured: used is input + output (the figure to show), the prompt cache apart.
 // An initiative's rolls up its tickets, its own runs and the idea it was promoted from. Optional for older servers.
 export type Tokens = { used: number; cache_read: number; cache_write: number; runs: number };
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null; tokens?: Tokens };
+// PLA-I74-5: whose turn the step is (src/state/turn.ts). Optional so older servers and fixtures render.
+export type Turn =
+  | { turn: "agent_working"; agent: string | null; run_id: string | null; since: string | null }
+  | { turn: "agent_queued"; agent: string | null; reason: "run_queued" | "agent_busy" | "waits_step" | "qa_queued"; detail: string | null }
+  | { turn: "owner"; card: string; detail: string | null }
+  | { turn: "outside"; on: "ci" | "photos" | "review" | "merge" | "deploy" | "close" | "env" | "time"; until: string | null }
+  | { turn: "failed"; detail: string | null }
+  | { turn: "nobody"; why: string; agent: string | null };
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null; tokens?: Tokens; turn?: Turn };
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
 // An older server sends none of the three (then landed counts as closed, and there is no Cerrar).

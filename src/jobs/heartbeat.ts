@@ -11,7 +11,8 @@ import { sweepQa } from "../runner/qa.js";
 import { cleanupWorktrees, drainQueue, prewarmQueued, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { writeLockStats } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
-import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
+import { ST } from "../state/status.js";
+import { workable } from "../state/workable.js";
 import { iso } from "../mcp/tx.js";
 import type { Job } from "./index.js";
 import { sweepProbador } from "../captures/probador.js";
@@ -143,19 +144,10 @@ export const loadReady = async (db: Db): Promise<ReadyWork[]> => {
     })
     .from(tasks)
     .innerJoin(projects, eq(projects.id, tasks.projectId))
-    // PLA-165: ready means startable: no blocker that does not hold, not a step of an initiative the owner put On hold,
-    // and not a ticket a person owns (the owner's own steps, such as a post-deploy step). A Taller start on one of those
-    // was picked here and refused by claim (NOT_CLAIMABLE), twice in a row, while the owner's step waited.
-    .where(
-      and(
-        eq(tasks.kind, "ticket"),
-        eq(tasks.status, "Ready"),
-        eq(projects.runsPaused, false),
-        sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
-        sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`,
-        sql`not exists (select 1 from agents own where own.id = ${tasks.ownerAgent} and (own.kind = 'human' or own.slug = 'ceo'))`,
-      ),
-    );
+    // PLA-165, PLA-I74-4: ready means startable, by the one workable rule (src/state/workable.ts): no blocker that does
+    // not hold, not a step of an initiative the owner put On hold, not a ticket a person owns (the owner's own steps),
+    // no live lease. A Taller start on one of those was picked here and refused by claim (NOT_CLAIMABLE).
+    .where(and(workable, eq(projects.runsPaused, false)));
   return rows;
 };
 
@@ -187,7 +179,7 @@ const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<R
   if (found.length === 0) throw new ToolError("TASK_NOT_FOUND", { key });
   if (found.length > 1) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "key is in more than one project" });
   const row = found[0]!;
-  if (row.task.kind !== "ticket" || row.task.status !== "Ready") throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "not Ready" });
+  if (row.task.kind !== "ticket" || row.task.status !== ST.ready) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "not Ready" });
   if (row.task.ownerAgent && row.task.ownerAgent !== agentId) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "owned by another agent" });
   return {
     project: row.project,
