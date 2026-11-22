@@ -42,7 +42,8 @@ const read = async (): Promise<SettingsRead> => {
   return (await res.json()) as SettingsRead;
 };
 const stored = async () => (await raw.query(`select settings, version from projects where slug = $1`, [SLUG])).rows[0] as { settings: Record<string, any>; version: number };
-const eventsSince = async (id: number) => (await raw.query(`select id, type, payload from events where id > $1 and project_id = (select id from projects where slug = $2) order by id`, [id, SLUG])).rows as { id: number; type: string; payload: any }[];
+// PLA-I74-1: the owner.click every screen write leaves is not the write's own event.
+const eventsSince = async (id: number) => (await raw.query(`select id, type, payload from events where id > $1 and project_id = (select id from projects where slug = $2) and type <> 'owner.click' order by id`, [id, SLUG])).rows as { id: number; type: string; payload: any }[];
 const lastEvent = async () => Number((await raw.query(`select coalesce(max(id), 0) as n from events`)).rows[0].n);
 
 let gitCalls: string[][] = [];
