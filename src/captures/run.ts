@@ -132,7 +132,9 @@ export type CaptureSummary = {
   stills: CaptureOutcome[];
 };
 
-const LOGIN_WAIT_MS = 15_000;
+// PLA-168: a dev server compiles the login and its auth route on first use; on a copy that just started that took
+// longer than 15 s and the pass gave up on a correct password. Wait longer, and try once more before giving up.
+const LOGIN_WAIT_MS = 30_000;
 
 // sh -c in the checkout, with stdin, killed after timeoutMs.
 // PLA-I2-19 (audit B5): cmd.exe on Windows, and the timeout stops the whole tree there (taskkill /T): killing cmd.exe
@@ -184,6 +186,13 @@ export const formReadyScript = (passwordField: string) => `(() => { /* __planiaF
 })()`;
 
 async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number): Promise<string | null> {
+  const first = await logInOnce(page, base, s, password, waitMs);
+  if (first === null || first !== say(RUN_WORDS).noLogin(s.user, s.login_path)) return first;
+  // PLA-168: still on the login after the wait: once more, now that the app has compiled what it needed.
+  return logInOnce(page, base, s, password, waitMs);
+}
+
+async function logInOnce(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number): Promise<string | null> {
   await page.goto(base + s.login_path);
   const live = Date.now() + Math.min(FORM_WAIT_MS, waitMs);
   while (Date.now() < live) {
