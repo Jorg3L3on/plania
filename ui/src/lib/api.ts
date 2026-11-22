@@ -25,6 +25,9 @@ import type { Voice, VoiceRead } from "@/lib/voz";
 import type { Historial } from "@/lib/historial";
 import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
+import type { CopiasRead, EntrarRead, Numeros, SobrantesRead } from "@/lib/cuarto";
+
+const copiaQ = (copia?: string) => (copia ? `?copia=${encodeURIComponent(copia)}` : "");
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
@@ -130,12 +133,26 @@ export const api = {
   bitacora: (slug: string) => request<{ lines: string[] }>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/bitacora`),
   configurar: (slug: string) => request<MaquinasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/configurar`, {}),
   baseLever: (slug: string, act: "encender" | "apagar") => request<{ base: BaseRead }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/base/${act}`, {}),
-  tablas: (slug: string) => request<TablesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas`),
-  filas: (slug: string, table: string, offset: number) =>
-    request<RowsRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas/${encodeURIComponent(table)}/filas?offset=${offset}`),
-  migrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/migrar`, {}),
-  sembrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/sembrar`, {}),
-  vaciarYSembrar: (slug: string, rows: number) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar`, { rows }),
+  // PLA-I72-5: copia names one copy's own base ("inicio" or an initiative key); without it, the app's.
+  tablas: (slug: string, copia?: string) => request<TablesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas${copiaQ(copia)}`),
+  filas: (slug: string, table: string, offset: number, copia?: string) =>
+    request<RowsRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas/${encodeURIComponent(table)}/filas?offset=${offset}${copia ? `&copia=${encodeURIComponent(copia)}` : ""}`),
+  migrar: (slug: string, copia?: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/migrar${copiaQ(copia)}`, {}),
+  sembrar: (slug: string, copia?: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/sembrar${copiaQ(copia)}`, {}),
+  vaciarYSembrar: (slug: string, rows: number, copia?: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar${copiaQ(copia)}`, { rows }),
+  // PLA-I72: the copies, their numbers, the leftovers and the sign-in (src/maquinas/copias.ts, numeros.ts, sobrantes.ts).
+  copias: (slug: string) => request<CopiasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/copias`),
+  copiaAct: (slug: string, id: string, action: "encender" | "apagar" | "reiniciar" | "borrar" | "quedarse" | "rehacer", body: { keep?: boolean } = {}) =>
+    request<CopiasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/copias/${encodeURIComponent(id)}/${action}`, body),
+  borrarCache: (slug: string, id: string) => request<{ removed: string[]; freed_bytes: number }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/copias/${encodeURIComponent(id)}/borrar-cache`, {}),
+  reiniciarEncendidas: (slug: string) => request<CopiasRead & { reiniciadas: string[] }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/copias/reiniciar-encendidas`, {}),
+  numeros: (slug: string) => request<Numeros>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/numeros`),
+  sobrantes: (slug: string) => request<SobrantesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/sobrantes`),
+  borrarSobrante: (slug: string, id: string) => request<SobrantesRead>("DELETE", `/projects/${encodeURIComponent(slug)}/maquinas/sobrantes/${encodeURIComponent(id)}`),
+  borrarSobrantes: (slug: string, expected: number) => request<SobrantesRead & { borrados: number }>("DELETE", `/projects/${encodeURIComponent(slug)}/maquinas/sobrantes`, { expected }),
+  entrar: (slug: string) => request<EntrarRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/entrar`),
+  cambiarContrasena: (slug: string) => request<EntrarRead & { password: string; set_in: string[] }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/entrar/cambiar`, {}),
+  bitacoraDe: (slug: string, copia: string) => request<{ lines: string[] }>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/bitacora${copiaQ(copia)}`),
   llaves: (slug: string) => request<LlavesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`),
   // PLA-116: one value into the app's env file; the answer is the names-only read again.
   ponerLlave: (slug: string, name: string, value: string) => request<LlavesRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`, { name, value }),

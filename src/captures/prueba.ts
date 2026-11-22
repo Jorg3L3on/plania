@@ -10,7 +10,7 @@ import { DEFAULT_START_BRANCH, startBranchOf } from "../runner/start-branch.js";
 import { exitAfterDrain } from "../ops/shutdown.js";
 import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
@@ -26,9 +26,11 @@ import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSumm
 import type { CaptureSettings } from "./settings.js";
 import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
 import { pgSearchPath } from "../lib/pg-bin.js";
+import { readPg, type PgReading } from "../lib/pg-connect.js";
 import { supported } from "../lib/system-support.js";
 import { isSelfProject, serverRoot } from "../self/plania-self.js";
 import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
+import type { CopySuffix } from "../self/plania-self.js";
 import { processCommand } from "../lib/proc-command.js";
 import { killTree, shellCommand } from "../lib/proc-tree.js";
 import { defineWords, say } from "../words.js";
@@ -73,6 +75,12 @@ export const PRUEBA_WORDS = defineWords({
     copyOff: "la copia no está encendida",
     noOwnDb: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app",
     otherDatos: "la copia ya tiene los datos de otra muestra",
+    // PLA-I72-1: the copy of an open initiative.
+    iniCopy: "La copia de la iniciativa",
+    worktreeIni: (title: string, key: string, branch: string) => `Copia de ${title} para la iniciativa ${key} (${branch}), en Máquinas`,
+    serverIni: (title: string, key: string, branch: string) => `Servidor de la copia de ${title} para la iniciativa ${key} (${branch}), en Máquinas`,
+    dbIni: (slug: string, key: string) => `Base de la copia de ${slug} para la iniciativa ${key} (copia de la de inicio, con las migraciones de la rama)`,
+    noBranch: "la iniciativa no tiene rama todavía",
   },
   en: {
     noStart: (why: string) => `Could not turn it on: ${why}`,
@@ -111,6 +119,11 @@ export const PRUEBA_WORDS = defineWords({
     copyOff: "the copy is not on",
     noOwnDb: "the copy has no database of its own (settings.capture.database); the data never goes to the app's database",
     otherDatos: "the copy already holds another preview's data",
+    iniCopy: "The initiative's copy",
+    worktreeIni: (title: string, key: string, branch: string) => `Copy of ${title} for initiative ${key} (${branch}), in Máquinas`,
+    serverIni: (title: string, key: string, branch: string) => `Server of ${title}'s copy for initiative ${key} (${branch}), in Máquinas`,
+    dbIni: (slug: string, key: string) => `Database of ${slug}'s copy for initiative ${key} (a copy of the start copy's, with the branch's migrations)`,
+    noBranch: "the initiative has no branch yet",
   },
 });
 
@@ -172,12 +185,19 @@ export type PruebaDeps = {
   // PLA-I2-9: the running server's checkout (to tell a copy of Plania itself) and how its copy's database is built.
   serverRoot?: string;
   selfDb?: SelfDbBuild;
+  // PLA-I72-5: the server's version and program folder, to pick psql and pg_dump of the same major.
+  readPg?: (url: string) => Promise<PgReading>;
 };
 
 // PLA-I52-2: two lanes per project. «sandbox» is Encenderla's copy (the before, and what the Ventana shows);
 // «entrega» is the delivery under review (a PR branch), warm while the owner decides, at most one per project.
-export type Lane = "sandbox" | "entrega";
-const idOf = (slug: string, lane: Lane) => (lane === "sandbox" ? slug : `${slug}::entrega`);
+// PLA-I72-1: a third kind, one copy per open initiative («iniciativa»), on its integration branch with its own port,
+// worktree and base. Several per project; they are kept in maquina_copias so a restart lists them again.
+export type Lane = "sandbox" | "entrega" | "iniciativa";
+export const idOf = (slug: string, lane: Lane, key?: string | null) => (lane === "sandbox" ? slug : lane === "entrega" ? `${slug}::entrega` : `${slug}::ini::${key}`);
+/** The folder and database suffix of an initiative's copy: _ini_<key lowercased, dashes as underscores>. */
+export const iniSuffix = (key: string): `_ini_${string}` => `_ini_${key.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 30)}`;
+const folderOf = (c: { lane: Lane; taskKey: string | null }) => (c.lane === "sandbox" ? "_prueba" : c.lane === "entrega" ? "_entrega" : iniSuffix(c.taskKey ?? ""));
 
 type Copy = {
   id: string;
@@ -212,6 +232,10 @@ type Copy = {
   laps: string[];
   // PLA-97: the earlier accepted steps' datos already loaded into this copy (hashes), so a retake loads none twice.
   earlier: Set<string>;
+  // PLA-I72-1: «No apagarla sola»: the idle sweep leaves it on.
+  keep: boolean;
+  // PLA-I72-1: the copy's own database name (when it has one), for Máquinas and Borrar.
+  database: string | null;
 };
 
 let deps: PruebaDeps = {};
@@ -225,6 +249,7 @@ export function setPruebaDeps(d: PruebaDeps): void {
 // Tests: forget every copy (their fake processes are gone with the test).
 export function resetPrueba(): void {
   copies.clear();
+  pgPaths.clear();
   if (sweeper) clearInterval(sweeper);
   sweeper = null;
 }
@@ -306,6 +331,8 @@ export async function pruebaRead(slug: string, settings: CaptureSettings | undef
   if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const off: PruebaRead = withStills({ phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null });
   if (!settings) return off;
+  // PLA-I72-1: one of Plania's own copies (an initiative's) may hold that port: the start copy is still off.
+  if ([...copies.values()].some((x) => x.port === settings.port)) return off;
   const up = await (deps.up ?? defaultUp)(urlOf(settings.port) + (settings.ready_path ?? "/"));
   return up ? { ...off, phase: "running", port: settings.port, url: urlOf(settings.port) } : off;
 }
@@ -337,7 +364,7 @@ export async function encender(db: Db, slug: string, opts: { stills?: boolean } 
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null, stills: true, laps: [], earlier: new Set() };
+  return { id: idOf(slug, lane, taskKey), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null, stills: true, laps: [], earlier: new Set(), keep: false, database: null };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -356,9 +383,9 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   c.repo = repo;
   const w = say(PRUEBA_WORDS);
   if (!existsSync(repo)) return fail(db, c, w.noRepo(p.title, repo));
-  const wt = path.join(worktreeRoot(env()), p.slug, c.lane === "sandbox" ? "_prueba" : "_entrega");
+  const wt = path.join(worktreeRoot(env()), p.slug, folderOf(c));
   const ref = c.ref;
-  const what = c.lane === "sandbox" ? w.testCopy : w.deliveryCopy;
+  const what = c.lane === "sandbox" ? w.testCopy : c.lane === "entrega" ? w.deliveryCopy : w.iniCopy;
   if (isInside(wt, repo)) return fail(db, c, w.insideRepo);
   c.worktree = wt;
 
@@ -376,7 +403,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     if (deps.footprints !== false) {
       await registerFootprint(
         db,
-        { project: p.slug, kind: "worktree", locator: wt, purpose: c.lane === "sandbox" ? w.worktreeTest(p.title, BRANCH) : w.worktreeDelivery(p.title), teardown: `git -C ${repo} worktree remove --force ${wt}` },
+        { project: p.slug, kind: "worktree", locator: wt, purpose: c.lane === "sandbox" ? w.worktreeTest(p.title, BRANCH) : c.lane === "entrega" ? w.worktreeDelivery(p.title) : w.worktreeIni(p.title, c.taskKey ?? "", ref), teardown: `git -C ${repo} worktree remove --force ${wt}` },
         ctx(),
       ).catch(() => undefined);
     }
@@ -419,9 +446,14 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // migrate module from the copy's own files, then its env file is rewritten once the port is known.
   const self = isSelfProject(repo, deps.serverRoot ?? serverRoot());
   if (self) {
-    const made = await selfCopyDatabase(env().DATABASE_URL, c.lane === "sandbox" ? "_prueba" : "_entrega", wt, deps.selfDb ?? defaultSelfDbBuild);
+    const made = await selfCopyDatabase(env().DATABASE_URL, folderOf(c) as CopySuffix, wt, deps.selfDb ?? defaultSelfDbBuild);
     if (!made.ok) return fail(db, c, made.error);
     c.dbEnv = made.env;
+    c.database = made.name;
+    if (copies.get(c.id) !== c || c.stopping) return;
+  } else if (s.database && c.lane === "iniciativa") {
+    const made = await iniciativaDatabase(db, c, p.slug, wt, envFile, s.database);
+    if (!made.ok) return fail(db, c, made.error);
     if (copies.get(c.id) !== c || c.stopping) return;
   } else if (s.database) {
     const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database, c.lane === "sandbox" ? "_prueba" : "_entrega");
@@ -476,9 +508,9 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
         project: p.slug,
         kind: "server",
         locator: `port:${port}`,
-        purpose: c.lane === "sandbox" ? w.serverTest(p.title, BRANCH) : w.serverDelivery(c.taskKey ?? "", p.title, ref),
+        purpose: c.lane === "sandbox" ? w.serverTest(p.title, BRANCH) : c.lane === "entrega" ? w.serverDelivery(c.taskKey ?? "", p.title, ref) : w.serverIni(p.title, c.taskKey ?? "", ref),
         teardown: `kill -TERM -${child.pid}`,
-        details: { pid: child.pid, pgid: child.pid, server_pid: process.pid, worktree: wt, command, commit: head, branch: ref, lane: c.lane, ...(c.taskKey ? { task_key: c.taskKey } : {}) },
+        details: { pid: child.pid, pgid: child.pid, server_pid: process.pid, worktree: wt, command, commit: head, branch: ref, lane: c.lane, copy_id: c.id, ...(c.taskKey ? { task_key: c.taskKey } : {}) },
       },
       ctx(),
     ).catch(() => undefined);
@@ -504,8 +536,8 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   lap("responde");
   console.log(`[prueba] ${c.slug} ${c.lane}: ${c.laps.join(", ")}`);
   // The delivery's copy is En vivo as soon as it answers; its stills are the Probador's (PLA-I52-3), not the Ventana's.
-  // PLA-110: so is a test copy El Probador started (it takes its own «antes»).
-  if (c.lane === "entrega" || !c.stills) {
+  // PLA-110: so is a test copy El Probador started (it takes its own «antes»). PLA-I72-1: an initiative's copy takes none.
+  if (c.lane !== "sandbox" || !c.stills) {
     c.phase = "live";
     return;
   }
@@ -601,14 +633,17 @@ export function pruebaLog(slug: string, secrets: string[] = []): string[] {
 }
 
 // Reiniciar: Apagar, then Encenderla, with the same port rule (the first free port from settings.capture.port up).
-export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
+export async function reiniciar(db: Db, slug: string, opts: { stills?: boolean } = {}): Promise<PruebaRead> {
   const { s } = await settingsOf(db, slug);
   if (!supported("test_copy")) return withStills(UNAVAILABLE);
   const c = copies.get(slug);
   const outside = !c && (await pruebaRead(slug, s)).phase === "running";
   if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: say(PRUEBA_WORDS).notMine });
+  const keep = c?.keep ?? false;
   await apagar(db, slug);
-  return encender(db, slug);
+  const r = await encender(db, slug, opts);
+  setKeep(slug, "sandbox", null, keep);
+  return r;
 }
 
 // ---- Volver a tomar (Reintentar on a capture error)
@@ -743,7 +778,7 @@ export async function sweepIdle(db: Db): Promise<string[]> {
   const idle = deps.idleMs ?? IDLE_MS;
   const gone: string[] = [];
   for (const c of [...copies.values()]) {
-    if (!c.managed || now() - c.seenAt < idle) continue;
+    if (!c.managed || c.keep || now() - c.seenAt < idle) continue;
     await stopId(db, c.id);
     gone.push(c.id);
   }
@@ -792,8 +827,8 @@ export async function reapOrphans(db: Db, cmdOf: (pid: number) => Promise<string
     .where(and(eq(footprints.kind, "server"), isNull(footprints.releasedAt), sql`${footprints.holder}->>'session_id' = ${SESSION}`));
   let n = 0;
   for (const r of rows) {
-    if (copies.has(r.project) || copies.has(idOf(r.project, "entrega"))) continue;
-    const declared = (r.details.declared ?? r.details) as { pid?: number; command?: string; server_pid?: number };
+    const declared = (r.details.declared ?? r.details) as { pid?: number; command?: string; server_pid?: number; copy_id?: string };
+    if (copies.has(r.project) || copies.has(idOf(r.project, "entrega")) || (declared.copy_id && copies.has(declared.copy_id))) continue;
     const owner = Number(declared.server_pid);
     if (Number.isInteger(owner) && owner > 1 && owner !== process.pid && (deps.alive ?? defaultAlive)(owner)) continue;
     const pid = Number(declared.pid);
@@ -825,7 +860,7 @@ export function envValue(text: string, name: string): string | null {
 }
 
 /** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
-export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entrega"): { url: string; name: string } | null {
+export function entregaUrl(base: string, suffix: CopySuffix = "_entrega"): { url: string; name: string } | null {
   let u: URL;
   try {
     u = new URL(base);
@@ -844,6 +879,27 @@ export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entr
 // PLA-I2-4: psql and pg_dump are found on macOS and Linux alike (src/lib/pg-bin.ts), PATH included.
 export const pgPathOf = (): string => pgSearchPath(checkoutEnv().PATH);
 
+// PLA-I72-5: psql and pg_dump of the server's own major (and its own program folder first). The newest client on the
+// Mac dumps settings an older server rejects (pg_dump 17 → «transaction_timeout» on a 14 server), and every copy of a
+// project on that server failed to make its base. Cached per host and port; unknown servers fall back to the search.
+const pgPaths = new Map<string, string>();
+export async function pgPathFor(url: string): Promise<string> {
+  let key = url;
+  try {
+    const u = new URL(url);
+    key = `${u.hostname}:${u.port || "5432"}`;
+  } catch {
+    return pgPathOf();
+  }
+  const had = pgPaths.get(key);
+  if (had) return had;
+  const r = await (deps.readPg ?? readPg)(url).catch(() => ({ ok: false }) as PgReading);
+  if (!r.ok) return pgPathOf();
+  const found = pgSearchPath(checkoutEnv().PATH, { major: Math.floor(r.versionNum / 10000), ...(r.binDir ? { serverBinDir: r.binDir } : {}) });
+  pgPaths.set(key, found);
+  return found;
+}
+
 async function entregaDatabase(
   db: Db,
   c: Copy,
@@ -860,7 +916,7 @@ async function entregaDatabase(
   const target = entregaUrl(base, suffix);
   if (!target) return { ok: false, error: w.notLocal(cfg.env_var) };
   const exec = deps.exec ?? shellExec;
-  const pgPath = pgPathOf();
+  const pgPath = await pgPathFor(base);
   // The URLs go in the environment, never in the command line.
   const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
   const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
@@ -874,6 +930,7 @@ async function entregaDatabase(
     return { ok: false, error: w.migrateFailed(cfg.migrate_command) };
   }
   c.dbEnv = { [cfg.env_var]: target.url };
+  c.database = target.name;
   if (deps.footprints !== false) {
     const u = new URL(target.url);
     await registerFootprint(
@@ -910,7 +967,7 @@ export function copyDatabase(env: Record<string, string> | null): { url: string;
   if (!url) return null;
   try {
     const name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
-    return /^[A-Za-z0-9_]+_(entrega|prueba)$/.test(name) ? { url, name } : null;
+    return /^[A-Za-z0-9_]+_(entrega|prueba|ini_[a-z0-9_]+)$/.test(name) ? { url, name } : null;
   } catch {
     return null;
   }
@@ -928,7 +985,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   // statement, so rows the delivery already made are skipped; they never take the copy's own datos slot.
   if (opts.earlier) {
     if (c.earlier.has(hash) || c.datos === hash) return { ok: true, skipped: true };
-    const pgPath0 = pgPathOf();
+    const pgPath0 = await pgPathFor(target.url);
     await (deps.exec ?? shellExec)(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
       cwd: c.worktree ?? process.cwd(),
       stdin: sql,
@@ -941,7 +998,7 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   if (c.datos === hash) return { ok: true, skipped: true };
   if (c.datos) return { ok: false, error: say(PRUEBA_WORDS).otherDatos };
   const exec = deps.exec ?? shellExec;
-  const pgPath = pgPathOf();
+  const pgPath = await pgPathFor(target.url);
   const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
     cwd: c.worktree ?? process.cwd(),
     stdin: sql,
@@ -966,4 +1023,221 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: {
   }
   c.datos = hash;
   return { ok: true };
+}
+
+// ---- PLA-I72-1: one copy per open initiative
+
+export type IniRead = PruebaRead & { key: string; branch: string; commit: string | null; worktree: string | null; database: string | null; keep: boolean };
+
+function readIni(c: Copy): IniRead {
+  return { ...read(c), key: c.taskKey ?? "", branch: c.ref, commit: c.commit, worktree: c.worktree, database: c.database, keep: c.keep };
+}
+
+/** An initiative copy's live read, or null when it is not in memory (off). Reading it counts as somebody looking. */
+export function iniRead(slug: string, key: string, look = true): IniRead | null {
+  const c = copies.get(idOf(slug, "iniciativa", key));
+  if (!c) return null;
+  if (look) c.seenAt = now();
+  return readIni(c);
+}
+
+/** Every initiative copy of a project that is in memory (starting, live or failed). */
+export function iniCopies(slug: string): IniRead[] {
+  return [...copies.values()].filter((c) => c.slug === slug && c.lane === "iniciativa").map(readIni);
+}
+
+/** Where an initiative's copy lives on this machine (whether or not it was ever started). */
+export function iniWorktree(slug: string, key: string): string {
+  return path.join(worktreeRoot(env()), slug, iniSuffix(key));
+}
+
+const BRANCH_RE = /^[A-Za-z0-9._\/-]{1,200}$/;
+
+/** Starts an initiative's copy on its branch, or returns the one already starting or running. keep: no idle stop. */
+export async function encenderIni(db: Db, slug: string, ini: { key: string; branch: string; keep?: boolean }): Promise<IniRead> {
+  const { p, s } = await settingsOf(db, slug);
+  const branch = ini.branch.trim();
+  if (!BRANCH_RE.test(branch) || branch.startsWith("-") || branch.includes("..")) throw new ToolError("INVALID_FILTER", { field: "branch", hint: "a plain branch name" });
+  const id = idOf(slug, "iniciativa", ini.key);
+  if (!supported("test_copy")) return { ...withStills(UNAVAILABLE), key: ini.key, branch, commit: null, worktree: null, database: null, keep: !!ini.keep };
+  const had = copies.get(id);
+  if (had && had.phase !== "failed") {
+    had.seenAt = now();
+    if (ini.keep !== undefined) had.keep = ini.keep;
+    return readIni(had);
+  }
+  if (had) await stopId(db, id);
+  const c = newCopy(slug, "iniciativa", branch, ini.key, "starting", true);
+  c.keep = !!ini.keep;
+  copies.set(id, c);
+  hook();
+  void start(db, c, p, s).catch((e) => fail(db, c, say(PRUEBA_WORDS).noStart(short(e))));
+  return readIni(c);
+}
+
+export async function apagarIni(db: Db, slug: string, key: string): Promise<PruebaRead> {
+  return stopId(db, idOf(slug, "iniciativa", key));
+}
+
+/** «No apagarla sola» on a copy in memory (the start copy or an initiative's). Returns whether a copy was there. */
+export function setKeep(slug: string, lane: "sandbox" | "iniciativa", key: string | null, keep: boolean): boolean {
+  const c = copies.get(idOf(slug, lane, key));
+  if (!c) return false;
+  c.keep = keep;
+  c.seenAt = now();
+  return true;
+}
+export const keepOf = (slug: string): boolean => copies.get(idOf(slug, "sandbox"))?.keep ?? false;
+
+/** The app's base URL a project's copies are made from (the repo's env file), or Plania's own for Plania itself. */
+export function appBaseUrl(p: typeof projects.$inferSelect): string | null {
+  const repo = repoPathOf(p.slug, p.settings, env());
+  if (isSelfProject(repo, deps.serverRoot ?? serverRoot())) return env().DATABASE_URL ?? null;
+  // The copies' variable, else the usual database variables (a project whose copies run on the app's own base).
+  const cfg = p.settings.capture?.database;
+  const vars = cfg ? [cfg.env_var] : ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "PG_URL", "DB_URL"];
+  const names = p.settings.maquinas?.env_file ? [p.settings.maquinas.env_file] : ENV_FILES;
+  for (const f of names) {
+    const full = path.join(repo, f);
+    if (!existsSync(full)) continue;
+    const text = readFileSync(full, "utf8");
+    for (const v of vars) {
+      const got = envValue(text, v);
+      if (got && /^postgres(ql)?:/.test(got)) return got;
+    }
+  }
+  return null;
+}
+
+/** Whether a project's copies get bases of their own (settings.capture.database, or Plania itself). */
+export function ownBases(p: typeof projects.$inferSelect): boolean {
+  return !!p.settings.capture?.database || isSelfProject(repoPathOf(p.slug, p.settings, env()), deps.serverRoot ?? serverRoot());
+}
+
+/** The database name an initiative's copy gets, or null when the project has no base of its own for copies. */
+export function iniDatabaseName(p: typeof projects.$inferSelect, key: string): string | null {
+  if (!ownBases(p)) return null;
+  const base = appBaseUrl(p);
+  return base ? (entregaUrl(base, iniSuffix(key)) ?? copyDatabaseUrlLoose(base, iniSuffix(key)))?.name ?? null : null;
+}
+// Plania's own live URL may sit on a non-loopback host name in odd setups; the name alone is still the rule.
+function copyDatabaseUrlLoose(base: string, suffix: CopySuffix): { url: string; name: string } | null {
+  try {
+    const u = new URL(base);
+    const name = decodeURIComponent(u.pathname.replace(/^\//, ""));
+    if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return null;
+    u.pathname = `/${name}${suffix}`;
+    return { url: u.toString(), name: `${name}${suffix}` };
+  } catch {
+    return null;
+  }
+}
+
+// An initiative copy's base: made once (copied from the start copy's base when it exists, else from the app's own),
+// then migrated to the branch on every start. Kept between starts: what the owner tried stays until Borrar la copia.
+async function iniciativaDatabase(db: Db, c: Copy, slug: string, wt: string, envFile: string | null, cfg: { env_var: string; migrate_command: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const w = say(PRUEBA_WORDS);
+  const file = envFile ? path.join(wt, envFile) : null;
+  const base = file && existsSync(file) ? envValue(readFileSync(file, "utf8"), cfg.env_var) : null;
+  if (!base) return { ok: false, error: w.noVar(cfg.env_var) };
+  const target = entregaUrl(base, iniSuffix(c.taskKey ?? ""));
+  const startDb = entregaUrl(base, "_prueba");
+  if (!target || !startDb) return { ok: false, error: w.notLocal(cfg.env_var) };
+  // The start copy rebuilds its base while it starts: wait for it, or this copy would take a half-made base.
+  const until = now() + (deps.readyMs ?? READY_MS);
+  for (let sb = copies.get(idOf(slug, "sandbox")); sb && sb.phase === "starting" && !sb.stopping && now() < until; sb = copies.get(idOf(slug, "sandbox"))) {
+    if (copies.get(c.id) !== c || c.stopping) return { ok: true };
+    await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
+  }
+  const exec = deps.exec ?? shellExec;
+  const pgPath = await pgPathFor(base);
+  const pgEnv = (extra: Record<string, string>) => checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, ...extra });
+  const there = await exec(`psql "$PLANIA_BASE_URL" -X -tA -c "select datname from pg_database where datname in ('${target.name}', '${startDb.name}')"`, { cwd: wt, timeoutMs: 30_000, env: pgEnv({}) });
+  if (there.code !== 0) {
+    c.tail = tailOf(there.stderr || there.stdout);
+    return { ok: false, error: w.noCopyDb(target.name) };
+  }
+  const names = new Set(there.stdout.split(/\s+/).filter(Boolean));
+  if (!names.has(target.name)) {
+    const from = names.has(startDb.name) ? startDb.url : base;
+    const make = `psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_FROM_URL" | psql -X -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
+    const made = await exec(make, { cwd: wt, timeoutMs: 300_000, env: pgEnv({ PLANIA_FROM_URL: from, PLANIA_NEW_URL: target.url }) });
+    if (made.code !== 0) {
+      c.tail = tailOf(made.stderr || made.stdout);
+      // A half copy would be taken as made next time: drop it.
+      await exec(`psql "$PLANIA_BASE_URL" -X -q -c 'drop database if exists ${target.name} with (force)'`, { cwd: wt, timeoutMs: 60_000, env: pgEnv({}) });
+      return { ok: false, error: w.noCopyDb(target.name) };
+    }
+    if (deps.footprints !== false) {
+      const u = new URL(target.url);
+      await registerFootprint(
+        db,
+        { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: w.dbIni(slug, c.taskKey ?? ""), teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+        ctx(),
+      ).catch(() => undefined);
+    }
+  }
+  const migrated = await exec(cfg.migrate_command, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ [cfg.env_var]: target.url }) });
+  if (migrated.code !== 0) {
+    c.tail = tailOf(migrated.stderr || migrated.stdout);
+    return { ok: false, error: w.migrateFailed(cfg.migrate_command) };
+  }
+  c.dbEnv = { [cfg.env_var]: target.url };
+  c.database = target.name;
+  return { ok: true };
+}
+
+export type BorrarResult = { database: string | null; worktree: string | null; dropped: boolean; removed: boolean };
+
+/** Borrar la copia: stops the initiative's server, drops its base and removes its worktree, releasing their
+ * footprints. The caller has already refused the start copy and any protected base name. */
+export async function borrarIni(db: Db, slug: string, key: string, names: { database: string | null; worktree: string | null }): Promise<BorrarResult> {
+  const { p } = await settingsOf(db, slug);
+  await stopId(db, idOf(slug, "iniciativa", key));
+  const exec = deps.exec ?? shellExec;
+  const repo = repoPathOf(p.slug, p.settings, env());
+  const out: BorrarResult = { database: names.database, worktree: names.worktree, dropped: false, removed: false };
+  if (names.database) out.dropped = await dropIniBase(db, slug, names.database);
+  const wt = names.worktree;
+  const root = worktreeRoot(env());
+  if (wt && isInside(wt, root) && path.basename(wt) === iniSuffix(key)) {
+    if (existsSync(wt) && existsSync(repo)) await git()(["worktree", "remove", "--force", wt], repo);
+    if (existsSync(wt)) rmSync(wt, { recursive: true, force: true });
+    if (existsSync(repo)) await git()(["worktree", "prune"], repo);
+    out.removed = !existsSync(wt);
+    if (out.removed && deps.footprints !== false) await releaseFootprint(db, { project: slug, kind: "worktree", locator: wt }, ctx()).catch(() => undefined);
+  }
+  return out;
+}
+
+/** PLA-I72-2: what Máquinas' numbers need of a copy in memory (the process, when it started, where, its output). */
+export function copyRuntime(id: string): { pid: number | null; started_at: number; worktree: string | null; port: number | null; phase: Phase; tail: string[] } | null {
+  const c = copies.get(id);
+  return c ? { pid: c.pid, started_at: c.startedAt, worktree: c.worktree, port: c.port, phase: c.phase, tail: c.tail } : null;
+}
+
+/** PLA-I72-4: the env a command run in a copy needs to reach that copy's own base (null when it is not in memory). */
+export function copyEnvOf(slug: string, key: string | null): Record<string, string> | null {
+  const c = copies.get(key ? idOf(slug, "iniciativa", key) : idOf(slug, "sandbox"));
+  return c ? (c.dbEnv ?? {}) : null;
+}
+
+/** PLA-I72-5: drops one copy base by name (Borrar la copia, Rehacer desde inicio) and releases its footprint. The
+ * caller has refused protected names; the next start makes it again from the start copy's base. */
+export async function dropIniBase(db: Db, slug: string, name: string): Promise<boolean> {
+  const { p } = await settingsOf(db, slug);
+  const base = appBaseUrl(p);
+  if (!base || !/^[A-Za-z0-9_]{1,90}$/.test(name)) return false;
+  const repo = repoPathOf(p.slug, p.settings, env());
+  const r = await (deps.exec ?? shellExec)(`psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${name} with (force)'`, { cwd: existsSync(repo) ? repo : "/", timeoutMs: 120_000, env: checkoutEnv({ PATH: await pgPathFor(base), PLANIA_BASE_URL: base }) });
+  if (r.code !== 0) return false;
+  if (deps.footprints !== false) {
+    // Found by name: the registered locator may spell the host another way (localhost, 127.0.0.1).
+    const held = await db
+      .select({ locator: footprints.locator })
+      .from(footprints)
+      .where(and(eq(footprints.projectId, p.id), eq(footprints.kind, "database"), isNull(footprints.releasedAt), sql`split_part(${footprints.locator}, '@', 1) = ${name}`));
+    for (const h of held) await releaseFootprint(db, { project: slug, kind: "database", locator: h.locator }, ctx()).catch(() => undefined);
+  }
+  return true;
 }
