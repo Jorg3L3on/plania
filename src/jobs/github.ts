@@ -601,6 +601,10 @@ export const HOST_CONTEXT = /vercel|netlify|render|railway|cloudflare|deploy|fly
 export async function pollHostStatuses(db: Db, p: Project, deps: GithubDeps, token: string, repo: string): Promise<number> {
   const host = p.settings.vercel;
   if (!host?.project_id || (deps.env ?? process.env)[host.token_env ?? "VERCEL_TOKEN"]) return 0;
+  // Only once the Vercel poller has said it has no token (its job runs every minute): while it reads the host itself,
+  // or before it has run, there is nothing to fall back from. Its env may differ from this poller's.
+  const [vercelPoll] = await db.select({ error: pollState.error }).from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel"))).limit(1);
+  if (!vercelPoll?.error?.startsWith("no token")) return 0;
   const branch = releaseBranchOf(p);
   const head = await gh(deps, token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
   const sha = head.status === 200 ? (head.data as Branch).commit?.sha?.toLowerCase() : undefined;
