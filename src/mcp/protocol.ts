@@ -61,7 +61,7 @@ Work
 
 Finish
 11. Commit, push, open the PR with "Plania: <KEY>" in its body, then finish {key, result, pr_url, branch, muestra}: the result and the move to In review land together or not at all. A screen change needs muestra {frase, vistas, pasos} (MUESTRA_REQUIRED). Every check must be done or waived (CHECKS_OPEN lists what is left) and the pass must name the branch head (EVIDENCE_STALE says which).
-12. A step that waits on yours may start on top of your branch as soon as you deliver (stacked, start says stacked_on); it is accepted only after yours. The pollers move the ticket to Merged when the PR merges and to Released when the release target runs it. Never merge a PR, and never merge a release branch into another: a merged ticket waits in the release step until the owner ships it.
+12. The pollers move the ticket to Merged when the PR merges and to Released when the release target runs it. Never merge a PR, and never merge a release branch into another: a merged ticket waits in the release step until the owner ships it.
 13. Close what you finished: set_task Done once it is Merged or Released (ops and research from In review). A code ticket closes with its pr_url (TASK_MISSING_PR_URL), or no_pr_reason when there was none. An initiative is Done once all its tickets are closed. Won't do and reopening a closed task need a reason. On screen that is enough. An agent also sends delegated_by_owner {message_id, quote}; without that evidence the move is HUMAN_ONLY. The move is logged and listed for review. The same hourly cap and kill switch as answer_delegated apply. Sending approval_id does nothing: it is ignored.
 14. Leave the initiative current: finish's note (or set_task) updates its next_action; state_note is optional commentary.
 

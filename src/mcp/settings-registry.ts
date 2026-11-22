@@ -188,6 +188,7 @@ export const SETTINGS = {
     default: "apilar on, revision por_modulo, carriles 2, esqueleto_temprano on, verificar on",
     get frase() { return say(SETTING_WORDS).frase.velocidad; },
     reason: "PLA-I73: measured on guided test 3, most of a module's time was waiting between steps.",
+    owner_only: "It decides when work is accepted without the owner and how much runs at once.",
   },
   branch_pattern: {
     tier: "advanced",
