@@ -1,4 +1,5 @@
 import type { Cronometro } from "./cronometro";
+import type { RunReport } from "./informe";
 import type { Oficio } from "./oficio";
 import type { CaminoRead } from "./camino-types";
 import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
@@ -573,6 +574,8 @@ export type IdeaBuilt = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: an older server sends none.
   tiempo?: Cronometro;
+  // PLA-I74-1: the run report; an older server sends none.
+  informe?: RunReport;
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {

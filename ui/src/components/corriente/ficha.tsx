@@ -29,6 +29,7 @@ import { FICHA_WORDS } from "@/lib/ficha-words";
 import { ideaName } from "@/lib/nombre";
 import { stopBar } from "@/lib/ficha";
 import { CRONO_WORDS, cronoView, type CronoBar, type Cronometro as CronoData } from "@/lib/cronometro";
+import { informeView, type RunReport } from "@/lib/informe";
 import { words } from "@/lib/i18n";
 
 export type Sel = PedidoStop | "construccion" | "publicado";
@@ -279,6 +280,63 @@ const Cronometro = ({ c }: { c: CronoData | undefined }) => {
   );
 };
 
+// PLA-I74-1: the run report under the stopwatch: what rescued it (Plania's fixes, his extra clicks, turns Plania freed),
+// time per stop, the longest stretch with nobody's turn and the tokens per agent.
+export const Informe = ({ r }: { r: RunReport | undefined }) => {
+  const v = informeView(r);
+  if (!v) return null;
+  return (
+    <section className="cor-informe" aria-label={v.title}>
+      <h4 className="cor-crono-h">{v.title}</h4>
+      <ul className="cor-informe-lines">
+        <li>
+          <b>{v.fixes}</b>
+          {v.fixItems.length ? <span className="cor-informe-sub">{v.fixItems.join(" · ")}</span> : null}
+        </li>
+        <li>
+          <b>{v.clicks}</b>
+          {v.extra.length ? <span className="cor-informe-sub">{v.extra.map((e) => `${e.label} ×${e.n}`).join(" · ")}</span> : null}
+          {v.estimated ? <span className="cor-informe-sub">{v.estimated}</span> : null}
+        </li>
+        <li>
+          <b>{v.heals}</b>
+        </li>
+        <li>
+          <b>{v.gap}</b>
+        </li>
+      </ul>
+      <div className="cor-informe-cols">
+        <div>
+          <h5 className="cor-informe-h">{v.stopsTitle}</h5>
+          <dl className="cor-informe-dl">
+            {v.stops.map((s) => (
+              <div key={s.label}>
+                <dt>{s.label}</dt>
+                <dd>{s.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        <div>
+          <h5 className="cor-informe-h">{v.tokensTitle}</h5>
+          {v.tokens.length ? (
+            <dl className="cor-informe-dl">
+              {v.tokens.map((t) => (
+                <div key={t.agent}>
+                  <dt>{whoName(t.agent) || t.agent}</dt>
+                  <dd>{t.text}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="cor-crono-before">{v.noTokens}</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: Partial<Ui>) => void; links: FichaLinks; now: number; timeZone?: string; acts: CorrienteActs; slug: string }) => {
   const w = say();
   const b = d.built ?? null;
@@ -298,6 +356,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
           <p className="cor-text">{w.noSteps}</p>
         )}
         <Cronometro c={b.tiempo} />
+        <Informe r={b.informe} />
       </>
     );
   }
@@ -331,6 +390,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             ))}
           {b.evidence.length === 0 && <li className="cor-muted">{w.noEvidence}</li>}
         </ul>
+        <Informe r={b.informe} />
       </>
     );
   }
