@@ -10,7 +10,20 @@ export type MacDeps = {
   /** Database names on the local Postgres server, or null when it cannot be reached. */
   listDatabases: () => Promise<string[] | null>;
   projectsRoot: string;
+  /** PLA-158 (F-26): the database name the project's own env file points at (it may live on another port), or null. */
+  ownDatabase?: string | null;
 };
+
+// PLA-158 (F-26): the «Base de datos» picker listed every database on Plania's own Postgres: test databases, demo
+// servers and the throwaway copies El Probador and Máquinas make (<db>_entrega, _prueba, _taller, _ini_<key>). None
+// of them is a project's base, and the project's own base (on another port) was missing. Plania's leftovers are
+// hidden and the project's own name leads the list.
+const LEFTOVER = [/^plania_test_/, /_demo$/, /_(entrega|prueba|taller)$/, /_ini_[a-z0-9_]+$/];
+export const isLeftover = (name: string): boolean => LEFTOVER.some((re) => re.test(name));
+export function pickDatabases(listed: string[], own: string | null | undefined): string[] {
+  const out = listed.filter((d) => !isLeftover(d) || d === own);
+  return own ? [own, ...out.filter((d) => d !== own)] : out;
+}
 
 const readText = (p: string): string | null => {
   try {
@@ -116,7 +129,7 @@ export async function discoverMac(folder: string | null, repo: string | null, de
   const trusted = exists && !foreign;
   return {
     folder: folder ? { path: folder, exists, clone: !!remote, remote, matches, clones } : null,
-    postgres: databases ? { ok: true, databases } : { ok: false, databases: [] },
+    postgres: databases ? { ok: true, databases: pickDatabases(databases, deps.ownDatabase), own: deps.ownDatabase ?? null } : { ok: false, databases: deps.ownDatabase ? [deps.ownDatabase] : [], own: deps.ownDatabase ?? null },
     env_example: trusted && envText ? envNames(envText) : null,
     scripts: trusted && pkg?.scripts ? Object.keys(pkg.scripts) : null,
     folders: trusted ? folders : null,

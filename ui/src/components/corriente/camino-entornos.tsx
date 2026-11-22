@@ -439,8 +439,11 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
                   </span>
                   <select className="cor-input cor-mono" value={e.database.name ?? ""} onChange={(ev) => setDb({ name: ev.target.value || null })} data-campo="base-local">
                     <option value="">—</option>
-                    {(mac?.postgres?.databases ?? []).map((d) => (
-                      <option key={d}>{d}</option>
+                    {/* PLA-158 (F-26): Plania's own test and copy bases are gone from the list; the project's own leads it. */}
+                    {[...new Set([...(mac?.postgres?.databases ?? []), ...(e.database.name ? [e.database.name] : [])])].map((d) => (
+                      <option key={d} value={d}>
+                        {d === mac?.postgres?.own ? `${d} · ${w.ownDb}` : d}
+                      </option>
                     ))}
                   </select>
                 </label>

@@ -233,12 +233,32 @@ describe("discovery", () => {
     assert.ok(d.mac.folder?.matches);
     assert.deepEqual(d.mac.env_example, ["DATABASE_URL", "AUTH_SECRET", "TMDB_KEY"]);
     assert.deepEqual(d.mac.migrations, { dir: "drizzle", count: 2, tool: "drizzle" });
-    assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_dev", "zigzag_test"] });
+    assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_dev", "zigzag_test"], own: null });
     const read = (await (await req("GET", "/projects/zigzag/camino")).json()) as Json;
     assert.ok(read.checked_at);
     assert.equal(read.config.branches.published, "main");
     assert.equal(read.config.branches.integration, "sandbox");
     assert.equal(read.config.source.branches, "settings");
+  });
+
+  test("PLA-158 (F-26): the database picker hides Plania's own test and copy bases and leads with the project's own", async () => {
+    const { pickDatabases, isLeftover } = await import("../src/camino/mac.js");
+    const listed = ["plania", "plania_test_ab12cd", "plania_demo", "zigzag_dev", "zigzag_dev_entrega", "zigzag_dev_prueba", "zigzag_dev_taller", "zigzag_dev_ini_zig_i3", "otra_demo"];
+    assert.deepEqual(pickDatabases(listed, null), ["plania", "zigzag_dev"]);
+    assert.deepEqual(pickDatabases(listed, "zigzag_app"), ["zigzag_app", "plania", "zigzag_dev"], "the project's own base, even on another server");
+    assert.ok(isLeftover("plania_test_x") && isLeftover("x_entrega") && !isLeftover("zigzag_dev"));
+    const clone = path.join(TMP, "projects", "zigzag");
+    writeFileSync(path.join(clone, ".env.local"), "DATABASE_URL=postgres://u:secreto@localhost:5433/zigzag_app\n");
+    const was = caminoDeps.listDatabases;
+    caminoDeps.listDatabases = async () => ["plania_test_1", "zigzag_dev", "zigzag_dev_entrega"];
+    try {
+      const d = await discover(db, await findProject(db, "zigzag"));
+      assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_app", "zigzag_dev"], own: "zigzag_app" });
+      assert.ok(!JSON.stringify(d).includes("secreto"), "names only, never a value");
+    } finally {
+      caminoDeps.listDatabases = was;
+      rmSync(path.join(clone, ".env.local"));
+    }
   });
 
   test("a private repo whose plan has no rulesets says so; no token and an unknown repo are their own errors", async () => {
