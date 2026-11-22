@@ -82,6 +82,11 @@ appointment and its history, seed that state in `datos` and open it with `path` 
 In a step of an initiative, the rows of its earlier accepted steps are loaded after yours, statement
 by statement, skipping what yours already made (PLA-97). Seed only what this step needs.
 
+Every fake id, link token, slug or other unique value in `datos` is derived from the ticket key (for
+example the key in lowercase as a prefix), never a fixed value such as `token-demo` or id 1: those
+rows share a database with the other steps' rows, and two steps that reused one link token for
+different records showed impossible states in the copies (PLA-158).
+
 ## Done when
 
 - The pull request is open against `sandbox`, never main, and is not merged.
