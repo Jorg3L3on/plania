@@ -48,6 +48,9 @@ export const TABLERO_WORDS = defineWords({
     reopenPlaceholder: "Por qué lo reabres",
     reopening: "Reabriendo…",
     reopened: "Paso reabierto: vuelve a revisión.",
+    // PLA-160: a step with no photos to review goes back to the queue to be redone.
+    reopenRedoHint: "No tiene fotos que revisar: vuelve a la cola y el equipo lo rehace. Di por qué: el motivo queda en su historia.",
+    reopenedRedo: "Paso reabierto: el equipo lo rehace.",
     reopenFailed: "No se pudo reabrir el paso.",
     noPrDocs: "Sin PR ni docs.",
     history: "Historia",
@@ -98,6 +101,8 @@ export const TABLERO_WORDS = defineWords({
     reopenPlaceholder: "Why you reopen it",
     reopening: "Reopening…",
     reopened: "Step reopened: it is back in review.",
+    reopenRedoHint: "It has no photos to review: it goes back to the queue and the team redoes it. Say why: the reason stays in its history.",
+    reopenedRedo: "Step reopened: the team redoes it.",
     reopenFailed: "The step could not be reopened.",
     noPrDocs: "No PR or docs.",
     history: "History",

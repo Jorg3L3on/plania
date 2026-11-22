@@ -356,11 +356,24 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
     },
   });
   const r = (release ?? kept)?.release ?? null;
+  // PLA-160 (F-35): an empty sheet asks GitHub once more (the server throttles it), then reads the plan again.
+  const recheck = useQuery({
+    queryKey: ["release-recheck", p.slug],
+    queryFn: async () => {
+      const out = await api.releaseRecheck(p.slug);
+      await client.invalidateQueries({ queryKey: ["company"] });
+      return out;
+    },
+    enabled: !r,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
   if (!r)
     return (
       <Hoja label={w.publish} title={w.publishIt(p.title)} onClose={onClose}>
-        <p className="cor-text" data-publish-empty>
-          {w.nothingToPublish(p.title)}
+        <p className="cor-text" data-publish-empty={recheck.isFetching ? "checking" : "empty"}>
+          {recheck.isFetching ? w.recheckingPublish : w.nothingToPublish(p.title)}
         </p>
         <div className="cor-acts">
           <Btn kind="secondary" onClick={onClose}>

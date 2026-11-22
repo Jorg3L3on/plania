@@ -80,6 +80,8 @@ export const HOJAS_WORDS = defineWords({
     publish: "Publicar",
     publishIt: (title: string) => `Publicar ${title}`,
     nothingToPublish: (title: string) => `Ya no hay nada por publicar en ${title}.`,
+    // PLA-160: while the sheet asks GitHub again.
+    recheckingPublish: "Revisando si hay cambios nuevos…",
     whatUsersSee: (title: string) => `Lo que verá quien usa ${title}`,
     changesGo: (n: number, from: string, into: string, ahead: number | null) =>
       `${n === 1 ? "1 cambio terminado pasa" : `${n} cambios terminados pasan`} de la copia de prueba a la versión principal (${from} → ${into}${ahead != null ? `, ${ahead} commits` : ""}).`,
@@ -188,6 +190,7 @@ export const HOJAS_WORDS = defineWords({
     publish: "Release",
     publishIt: (title: string) => `Release ${title}`,
     nothingToPublish: (title: string) => `Nothing left to release in ${title}.`,
+    recheckingPublish: "Checking for new changes…",
     whatUsersSee: (title: string) => `What people who use ${title} will see`,
     changesGo: (n: number, from: string, into: string, ahead: number | null) =>
       `${n === 1 ? "1 finished change moves" : `${n} finished changes move`} from the test copy to the main version (${from} → ${into}${ahead != null ? `, ${ahead} commits` : ""}).`,

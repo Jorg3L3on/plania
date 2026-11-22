@@ -395,6 +395,8 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   state_note?: { text: string; at: string | null; stale: boolean };
   branch: string | null;
   /** PLA-157: state is the PR's own (open / merged / closed), null when only the URL is known. */
+  // PLA-160: the delivery's muestra, present once finish stored one («Reabrir» picks In review or Ready by it).
+  muestra?: unknown;
   pr?: { number: number | null; url: string; state?: string | null } | null;
   claim: { owner: Actor; claimed_at: string; lease_until: string; last_seen_at: string | null; live: boolean } | null;
   workspace: Workspace | null;

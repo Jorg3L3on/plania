@@ -35,9 +35,13 @@ test("PLA-157 (b): «Reabrir» shows on a closed step only and sends it back to 
   assert.equal(paso.canReopen({ kind: "initiative", status: "Done" }), false, "an initiative is not reopened from a step's view");
   assert.equal(paso.canReopen({ kind: "idea", status: "Done" }), false);
   assert.equal(paso.REOPEN_TO, "In review");
-  assert.deepEqual(paso.reopenPatch("  el PR sigue abierto ", 7), { status: "In review", reason: "el PR sigue abierto", version: 7 });
-  assert.equal(paso.reopenPatch("   ", 7), null, "the lifecycle's reopen needs a reason");
-  for (const lang of ["es", "en"]) for (const k of ["reopen", "reopenLabel", "reopenHint", "reopenPlaceholder", "reopened", "reopenFailed"]) assert.ok(words(TABLERO_WORDS, lang)[k], `${k} in ${lang}`);
+  assert.deepEqual(paso.reopenPatch("  el PR sigue abierto ", 7, true), { status: "In review", reason: "el PR sigue abierto", version: 7 });
+  assert.equal(paso.reopenPatch("   ", 7, true), null, "the lifecycle's reopen needs a reason");
+  // PLA-160 (F-34): no muestra, no delivery card to bring back: the step goes to Ready to be redone.
+  assert.deepEqual(paso.reopenPatch("no se arregló", 7, false), { status: "Ready", reason: "no se arregló", version: 7 });
+  assert.equal(paso.reopenTo(true), "In review");
+  assert.equal(paso.reopenTo(false), "Ready");
+  for (const lang of ["es", "en"]) for (const k of ["reopen", "reopenLabel", "reopenHint", "reopenPlaceholder", "reopened", "reopenFailed", "reopenRedoHint", "reopenedRedo"]) assert.ok(words(TABLERO_WORDS, lang)[k], `${k} in ${lang}`);
   assert.equal(words(TABLERO_WORDS, "es").reopen, "Reabrir");
 });
 
@@ -45,6 +49,7 @@ test("PLA-157 (b): the move «Reabrir» sends is one the lifecycle takes from th
   const lc = (await import(new URL("../src/mcp/lifecycle.ts", import.meta.url).href)) as Record<string, any>;
   for (const from of ["Done", "Won't do"]) {
     assert.equal(lc.actionForMove(from, paso.REOPEN_TO), "reopen");
+    assert.equal(lc.assertTransition("ticket", from, paso.REDO_TO, { human: true, reason: "rehacer" }), true, "PLA-160: reopening to Ready is allowed too");
     assert.equal(lc.assertTransition("ticket", from, paso.REOPEN_TO, { human: true, reason: "el PR sigue abierto" }), true);
     assert.throws(() => lc.assertTransition("ticket", from, paso.REOPEN_TO, { human: true, reason: "" }), /HUMAN_ONLY/);
   }
