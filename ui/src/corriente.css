@@ -2899,6 +2899,39 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-informe-dl dt { color: var(--cor-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cor-informe-dl dd { margin: 0; font: 12px var(--cor-mono); color: var(--cor-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* PLA-I74-6: «Revisar proyecto», one line at the top of Máquinas; a chip opens its detail. */
+.rv { border: 1px solid var(--cor-line); border-radius: 14px; background: var(--cor-surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv[data-revision="bad"] { border-color: rgba(255, 122, 122, 0.45); }
+.rv-row { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.rv-tt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 260px; }
+.rv-tt h3 { font-size: 13px; font-weight: 500; color: var(--cor-text); margin: 0; }
+.rv-sum { font-size: 12.5px; color: var(--cor-body); }
+.rv-sum.ok { color: var(--cor-green, #6fd39b); }
+.rv-sum.bad { color: var(--cor-red); }
+.rv-sum.warn { color: var(--cor-amber); }
+.rv-sum.live { color: var(--cor-violet-3); }
+.rv-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-width: 0; }
+.rv-step { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--cor-line); background: transparent; font-size: 12.5px; color: var(--cor-body); white-space: nowrap; }
+.rv-step small { color: var(--cq-faint, #5b5b66); font-size: 11.5px; }
+.rv-step:hover { border-color: var(--cor-line-strong); }
+.rv-step.on { border-color: var(--cor-violet-2); color: var(--cor-text); }
+.rv-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--cor-line-strong); flex: none; }
+.rv-step.ok .rv-dot { background: var(--cor-green, #6fd39b); }
+.rv-step.fallo { border-color: rgba(255, 122, 122, 0.45); color: var(--cor-red); }
+.rv-step.fallo .rv-dot { background: var(--cor-red); }
+.rv-step.aviso .rv-dot { background: var(--cor-amber); }
+.rv-step.live .rv-dot { background: var(--cor-violet-3); animation: rv-pulse 1.2s ease-in-out infinite; }
+@keyframes rv-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .rv-step.live .rv-dot { animation: none; } }
+.rv-detail { border-top: 1px solid var(--cor-line); padding-top: 8px; font-size: 12.5px; color: var(--cor-body); min-width: 0; }
+.rv-detail p { margin: 0; }
+.rv-detail b { color: var(--cor-text); font-weight: 500; }
+.rv-detail.fallo b { color: var(--cor-red); }
+.rv-note { margin-top: 4px !important; color: var(--cq-faint, #5b5b66); }
+.rv-detail pre { margin: 6px 0 0; max-height: 160px; overflow: auto; font-size: 11.5px; line-height: 1.45; background: var(--cq-deep, #08080b); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+.cor-build-warn { display: block; margin-top: 4px; color: var(--cor-amber); font-size: 12.5px; }
+
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */

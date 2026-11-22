@@ -11,8 +11,9 @@ import type { Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { launchChrome, type BrowserPage, type LaunchBrowser } from "./chrome.js";
-import { baseUrl, VIEWPORT_NAMES, VIEWPORTS, type CapturePage, type CaptureSettings, type ViewportName } from "./settings.js";
+import { baseUrl, landingOf, landsOn, VIEWPORT_NAMES, VIEWPORTS, type CapturePage, type CaptureSettings, type ViewportName } from "./settings.js";
 import { prune, recordStill } from "./store.js";
+import { DEFAULT_WAITS, measuredWaits } from "./waits.js";
 import { runEnv } from "../runner/run-env.js";
 import { defineWords, say } from "../words.js";
 
@@ -39,6 +40,9 @@ export const RUN_WORDS = defineWords({
     code: (code: number | null) => `código ${code}`,
     noUser: (why: string) => `No se pudo preparar el usuario de prueba: ${why}`,
     noSignIn: (why: string) => `No se pudo entrar: ${why}`,
+    noPages: "El proyecto no tiene páginas para fotografiar",
+    // PLA-I74-10: crashed() and wrongPage() in probador.ts read this back.
+    wrongPage: (label: string, at: string, want: string) => `Foto equivocada: «${label}» salió en ${at} y debía salir en ${want}`,
   },
   en: {
     noFields: (page: string, user: string, pass: string) => `The page ${page} has no ${user} and ${pass} fields`,
@@ -60,6 +64,8 @@ export const RUN_WORDS = defineWords({
     code: (code: number | null) => `code ${code}`,
     noUser: (why: string) => `Could not prepare the test user: ${why}`,
     noSignIn: (why: string) => `Could not sign in: ${why}`,
+    noPages: "The project has no pages to photograph",
+    wrongPage: (label: string, at: string, want: string) => `Wrong picture: «${label}» landed on ${at} and should have been on ${want}`,
   },
 });
 
@@ -94,6 +100,7 @@ export type CaptureDeps = {
   password?: () => string;
   fetch?: typeof fetch;
   loginWaitMs?: number;
+  formWaitMs?: number; // PLA-I74-7
 };
 
 export type CaptureInput = {
@@ -118,8 +125,17 @@ export type CaptureInput = {
 // A muestra's view as a page to shoot: the page fields plus what to do on it before the still.
 export type ViewPage = CapturePage & { acciones?: ({ click: string } | { fill: string; value: string })[] };
 class Missing extends Error {}
+// PLA-I74-10: the photo was of another page than the one the view declares.
+class WrongPage extends Error {
+  constructor(
+    message: string,
+    readonly at: string,
+  ) {
+    super(message);
+  }
+}
 
-export type CaptureOutcome = { page: string; viewport: ViewportName; status: "ok" | "error"; id: string; error?: string; missing?: boolean };
+export type CaptureOutcome = { page: string; viewport: ViewportName; status: "ok" | "error"; id: string; error?: string; missing?: boolean; wrong?: boolean };
 export type CaptureSummary = {
   run_id: string;
   project: string;
@@ -134,7 +150,8 @@ export type CaptureSummary = {
 
 // PLA-168: a dev server compiles the login and its auth route on first use; on a copy that just started that took
 // longer than 15 s and the pass gave up on a correct password. Wait longer, and try once more before giving up.
-const LOGIN_WAIT_MS = 30_000;
+// PLA-I74-7: today's value; runCapture waits twice the last check-up's cold start instead (src/captures/waits.ts).
+const LOGIN_WAIT_MS: number = DEFAULT_WAITS.login_ms;
 
 // sh -c in the checkout, with stdin, killed after timeoutMs.
 // PLA-I2-19 (audit B5): cmd.exe on Windows, and the timeout stops the whole tree there (taskkill /T): killing cmd.exe
@@ -176,7 +193,7 @@ async function gitLine(exec: Exec, cwd: string, args: string): Promise<string | 
 // and requestSubmit()ed as soon as goto resolved, before React attached to the form: the submit never reached the
 // app and the page stayed on the login. The form is live once the page is complete and, on a React page, the password
 // field carries React's props. A page without React is live on load. Waits at most FORM_WAIT_MS, then fills anyway.
-export const FORM_WAIT_MS = 10_000;
+export const FORM_WAIT_MS: number = DEFAULT_WAITS.form_ms;
 export const formReadyScript = (passwordField: string) => `(() => { /* __planiaFormReady */
   if (document.readyState !== 'complete') return false;
   const pass = document.querySelector('input[name=' + ${JSON.stringify(JSON.stringify(passwordField))} + ']');
@@ -185,16 +202,16 @@ export const formReadyScript = (passwordField: string) => `(() => { /* __planiaF
   return !react || Object.keys(pass).some((k) => k.startsWith('__react'));
 })()`;
 
-async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number): Promise<string | null> {
-  const first = await logInOnce(page, base, s, password, waitMs);
+async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number, formWaitMs = FORM_WAIT_MS): Promise<string | null> {
+  const first = await logInOnce(page, base, s, password, waitMs, formWaitMs);
   if (first === null || first !== say(RUN_WORDS).noLogin(s.user, s.login_path)) return first;
   // PLA-168: still on the login after the wait: once more, now that the app has compiled what it needed.
-  return logInOnce(page, base, s, password, waitMs);
+  return logInOnce(page, base, s, password, waitMs, formWaitMs);
 }
 
-async function logInOnce(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number): Promise<string | null> {
+async function logInOnce(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number, formWaitMs: number): Promise<string | null> {
   await page.goto(base + s.login_path);
-  const live = Date.now() + Math.min(FORM_WAIT_MS, waitMs);
+  const live = Date.now() + Math.min(formWaitMs, waitMs);
   while (Date.now() < live) {
     let ready = false;
     try {
@@ -297,7 +314,21 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   // and holds Aceptar back instead of calling it «cambió».
   const crash = pageError(await page.evaluate<PageText>(PAGE_TEXT_SCRIPT).catch(() => null));
   if (crash) throw new Error(say(RUN_WORDS).crash(pg.path, crash));
-  return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
+  // PLA-I74-10: the page the browser is on now (after the follow and the actions) must be the declared one; a photo of
+  // another page is wrong, never shown as the delivery.
+  const at = await page.evaluate<string>("location.href").catch(() => nav.url);
+  const want = landingOf(pg);
+  if (want && !landsOn(want, at)) {
+    let shown = at;
+    try {
+      const u = new URL(at);
+      shown = u.origin === new URL(base).origin ? u.pathname + u.search : at;
+    } catch {
+      // keep the raw value
+    }
+    throw new WrongPage(say(RUN_WORDS).wrongPage(pg.label, shown, want), at);
+  }
+  return { png: await page.screenshot(Boolean(pg.full_page)), url: at || nav.url };
 }
 
 // PLA-I52-5: sign the test user in on a running copy and return the session cookies, for El Probador's live copy.
@@ -318,6 +349,39 @@ export async function sessionCookies(
     const err = await logIn(browser.page, input.base_url.replace(/\/$/, ""), s, password, deps.loginWaitMs ?? LOGIN_WAIT_MS);
     if (err) throw new Error(err);
     return (await browser.page.cookies?.()) ?? [];
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+// PLA-I74-6: the check-up's sixth step. Sign the capture user in (when the project has one), take one photo of the
+// first page behind the login (else the first page) and check it landed on its declared URL. Nothing is stored.
+export type PhotoCheck = { ok: true; page: string; url: string } | { ok: false; page: string | null; error: string };
+export async function photoCheck(input: { base_url: string; checkout: string; settings: CaptureSettings; env?: Record<string, string> }, deps: CaptureDeps = {}): Promise<PhotoCheck> {
+  const s = input.settings;
+  const pg = (s.session ? s.pages.find((x) => x.session) : null) ?? s.pages[0];
+  if (!pg) return { ok: false, page: null, error: say(RUN_WORDS).noPages };
+  const base = input.base_url.replace(/\/$/, "");
+  let browser: Awaited<ReturnType<LaunchBrowser>>;
+  try {
+    browser = await (deps.launch ?? launchChrome)();
+  } catch (e) {
+    return { ok: false, page: pg.key, error: say(RUN_WORDS).noChrome(short(e)) };
+  }
+  try {
+    await browser.page.setViewport(VIEWPORTS.desktop);
+    if (pg.session && s.session) {
+      const exec = deps.exec ?? shellExec;
+      const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
+      const r = await exec(s.session.password_command.replaceAll("{user}", s.session.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
+      if (r.code !== 0) return { ok: false, page: pg.key, error: say(RUN_WORDS).noUser((r.stderr || r.stdout).trim().split("\n").pop()?.slice(0, 200) || say(RUN_WORDS).code(r.code)) };
+      const err = await logIn(browser.page, base, s.session, password, deps.loginWaitMs ?? LOGIN_WAIT_MS, deps.formWaitMs);
+      if (err) return { ok: false, page: pg.key, error: err };
+    }
+    const shot = await shoot(browser.page, base, pg, s);
+    return { ok: true, page: pg.key, url: shot.url };
+  } catch (e) {
+    return { ok: false, page: pg.key, error: short(e) };
   } finally {
     await browser.close().catch(() => {});
   }
@@ -346,7 +410,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
   const runId = randomUUID();
   const stills: CaptureOutcome[] = [];
 
-  const save = async (pg: CapturePage, vp: ViewportName, r: { png: Buffer; url: string } | { error: string; missing?: boolean }) => {
+  const save = async (pg: CapturePage, vp: ViewportName, r: { png: Buffer; url: string } | { error: string; missing?: boolean; url?: string }) => {
     const v = VIEWPORTS[vp];
     const common = {
       projectId: p.id,
@@ -365,8 +429,8 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
     const row =
       "png" in r
         ? await recordStill(db, p.slug, { ...common, height: pngHeight(r.png, v.scale), ok: true, png: r.png, url: r.url })
-        : await recordStill(db, p.slug, { ...common, height: null, ok: false, error: r.error, url: null, missing: Boolean(r.missing) });
-    stills.push({ page: pg.key, viewport: vp, status: row.status as "ok" | "error", id: row.id, ...(row.error ? { error: row.error } : {}), ...(row.missing ? { missing: true } : {}) });
+        : await recordStill(db, p.slug, { ...common, height: null, ok: false, error: r.error, url: r.url ?? null, missing: Boolean(r.missing) });
+    stills.push({ page: pg.key, viewport: vp, status: row.status as "ok" | "error", id: row.id, ...(row.error ? { error: row.error } : {}), ...(row.missing ? { missing: true } : {}), ...("error" in r && r.url ? { wrong: true } : {}) });
   };
   const failAll = async (list: CapturePage[], error: string) => {
     for (const vp of viewports) for (const pg of list) await save(pg, vp, { error });
@@ -422,7 +486,9 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
       else {
         try {
           await browser.page.setViewport(VIEWPORTS.desktop);
-          sessionError = await logIn(browser.page, base, s, password, deps.loginWaitMs ?? LOGIN_WAIT_MS);
+          // PLA-I74-7: the project's measured waits, unless a caller (a test) gives its own.
+          const waits = deps.loginWaitMs != null && deps.formWaitMs != null ? null : await measuredWaits(db, p.slug);
+          sessionError = await logIn(browser.page, base, s, password, deps.loginWaitMs ?? waits!.login_ms, deps.formWaitMs ?? waits!.form_ms);
         } catch (e) {
           sessionError = say(RUN_WORDS).noSignIn(short(e));
         }
@@ -438,7 +504,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
         try {
           await save(pg, vp, await shoot(browser.page, base, pg, settings, Boolean(input.allow_missing)));
         } catch (e) {
-          await save(pg, vp, { error: short(e), missing: e instanceof Missing });
+          await save(pg, vp, { error: short(e), missing: e instanceof Missing, ...(e instanceof WrongPage ? { url: e.at } : {}) });
         }
       }
     }

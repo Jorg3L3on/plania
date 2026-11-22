@@ -14,6 +14,8 @@ import { enqueueWake } from "../runner/events.js";
 import { supported } from "../lib/system-support.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
+import { caseViews, emptyCases } from "./vacios.js";
+import { measuredWaits } from "./waits.js";
 import { apagar, apagarEntrega, cargarDatos, datosDe, encender, encenderEntrega, entregaEnv, entregaRead, hashDatos, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
@@ -43,6 +45,7 @@ export const PROBADOR_WORDS = defineWords({
     missing: (why: string) => `Faltan fotos: ${why}`,
     waitLane: "Espera a que terminen las fotos de otra entrega.",
     closingLive: "Cierra la copia en vivo de otra entrega que quedó abierta.",
+    wrongPage: (why: string) => `No se puede aprobar todavía. ${why}. Hay que corregir la muestra o la pantalla y volver a tomar las fotos.`,
   },
   en: {
     planiaFailed: (why: string) => `Plania failed while taking the pictures: ${why}`,
@@ -62,6 +65,7 @@ export const PROBADOR_WORDS = defineWords({
     missing: (why: string) => `Pictures missing: ${why}`,
     waitLane: "Waits for another delivery's pictures to finish.",
     closingLive: "Closing another delivery's live copy that was left open.",
+    wrongPage: (why: string) => `It cannot be approved yet. ${why}. The preview or the screen needs fixing and the pictures taking again.`,
   },
 });
 
@@ -76,6 +80,9 @@ export type ProbadorState = {
   // PLA-158 (F-27): what a pass in «tomando» waits on (another pass on the project's lane, the delivery copy held by
   // another delivery), in the owner's words; null while it works. The card and the board line show it.
   waiting?: string | null;
+  // PLA-I74-10: a photo landed on another page than its view declares. error says which, in the owner's words, and
+  // it holds «Aceptar» back (the card and the server's accept).
+  wrong?: boolean;
 };
 
 export type ProbadorDeps = {
@@ -140,7 +147,7 @@ async function setState(db: Db, t: Task, s: Omit<ProbadorState, "at">): Promise<
 }
 
 export const viewsOf = (m: Muestra): ViewPage[] =>
-  m.vistas.map((v) => ({ key: v.key, label: v.label, path: v.path, ...(v.session ? { session: true } : {}), ...(v.follow ? { follow: v.follow } : {}), ...(v.acciones ? { acciones: v.acciones } : {}) }));
+  m.vistas.map((v) => ({ key: v.key, label: v.label, path: v.path, ...(v.session ? { session: true } : {}), ...(v.follow ? { follow: v.follow } : {}), ...(v.acciones ? { acciones: v.acciones } : {}), ...(v.url ? { url: v.url } : {}) }));
 
 // Takes the delivery's pairs. Returns the new state, or null when there is nothing to show (no capture settings,
 // no muestra, no branch). Never throws for a picture problem: that is the state's error.
@@ -218,15 +225,18 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
     await (deps.apagarEntrega ?? apagarEntrega)(db, slug).catch(() => null);
     await setState(db, t, { ...state, waiting: null });
   }
+  // PLA-I74-10: Artist's empty states are photographed on a copy no muestra rows have touched yet.
+  const cases = await emptyCases(db, t);
   const enDatos = datosDe(slug, "entrega");
-  if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
+  if (enDatos && (enDatos !== want || cases.length)) await apagarEntrega(db, slug).catch(() => null);
   if (!outside) await startSandbox(db, slug, { stills: false }).catch(() => null);
   try {
     await startEntrega(db, slug, { key: t.key, branch, head: deps.forHead ?? null });
   } catch (e) {
     return failed(db, p, t, attempts, say(PROBADOR_WORDS).noStart(short(e)), deps);
   }
-  const until = Date.now() + (deps.waitMs ?? WAIT_MS);
+  // PLA-I74-7: a slow project's copies get the time its check-up measured (and a minute to install and copy the base).
+  const until = Date.now() + (deps.waitMs ?? Math.max(WAIT_MS, (await measuredWaits(db, slug)).ready_ms + 60_000));
   const settled = (ph: string | undefined) => ph === "live" || ph === "failed";
   for (;;) {
     const e = entregaRead(slug);
@@ -238,6 +248,19 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const e = entregaRead(slug);
   mark("copias");
   if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? say(PROBADOR_WORDS).late, deps);
+
+  // PLA-I74-10: the empty-state cases, before any row is loaded: what the app's migrations and defaults leave.
+  let vacios: CaptureSummary | null = null;
+  if (cases.length) {
+    const capture = deps.capture ?? runCapture;
+    const sbLive = !outside && pruebaOf(slug)?.phase === "live" && !datosDe(slug, "sandbox");
+    const info = pruebaInfo(slug);
+    const sbPort = pruebaOf(slug)?.port;
+    if (sbLive && sbPort)
+      await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sbPort}`, branch: info?.branch ?? BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views: caseViews(cases), side: "antes", allow_missing: true, actor: ctx().actor, env: pruebaEnv(slug) }).catch(() => null);
+    vacios = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views: caseViews(cases), side: "despues", actor: ctx().actor, env: entregaEnv(slug) }).catch(() => null);
+    mark("vacios");
+  }
 
   // PLA-78: the muestra's fake rows, in the delivery's database (a failure goes back to Taller: its SQL is wrong for
   // its own branch) and in the test copy's (a failure there is fine: the rows may need the branch's new columns).
@@ -284,11 +307,22 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   console.log(`[probador] ${slug}/${t.key}: ${lap.join(", ")}`);
   await passEvent(db, t, "probador.pass", { ok: true, phases: lap });
   await markDiffs(db, p, t, despues.run_id);
+  if (vacios) {
+    await markDiffs(db, p, t, vacios.run_id);
+    despues = { ...despues, ok: despues.ok + vacios.ok, failed: despues.failed + vacios.failed, stills: [...despues.stills, ...vacios.stills] };
+  }
   if (despues.ok === 0) {
     const why = despues.stills.find((x) => x.error)?.error ?? say(PROBADOR_WORDS).noView;
-    return failed(db, p, t, attempts, say(PROBADOR_WORDS).noPicture(why), deps);
+    const wrongAll = despues.stills.find((x) => x.wrong);
+    return failed(db, p, t, attempts, wrongAll ? say(PROBADOR_WORDS).wrongPage(wrongAll.error ?? "") : say(PROBADOR_WORDS).noPicture(why), deps, Boolean(wrongAll));
   }
   const missing = despues.stills.filter((x) => x.status === "error");
+  // PLA-I74-10: a wrong page says so first, and the card cannot be accepted until the delivery is photographed right.
+  const wrong = despues.stills.find((x) => x.wrong);
+  if (wrong) {
+    const error = say(PROBADOR_WORDS).wrongPage(wrong.error ?? "");
+    return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null, wrong: true });
+  }
   const error = [missing.length ? say(PROBADOR_WORDS).someMissing(missing.length, despues.stills.length, missing[0]!.error) : null, antesError].filter(Boolean).join(" · ") || null;
   return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
 }
@@ -329,17 +363,17 @@ async function markDiffs(db: Db, p: Project, t: Task, runId: string): Promise<vo
   }
 }
 
-async function failed(db: Db, p: Project, t: Task, attempts: number, error: string, deps: ProbadorDeps): Promise<ProbadorState> {
+async function failed(db: Db, p: Project, t: Task, attempts: number, error: string, deps: ProbadorDeps, wrong = false): Promise<ProbadorState> {
   const n = attempts + 1;
   await passEvent(db, t, "probador.pass", { ok: false, error: error.slice(0, 300) });
   if (n >= MAX_ATTEMPTS) {
     // Second failure: the owner sees the card with what there is and why the rest is missing.
-    return setState(db, t, { state: "lista", attempts: n, error, commit: null });
+    return setState(db, t, { state: "lista", attempts: n, error, commit: null, ...(wrong ? { wrong: true } : {}) });
   }
   const state = await setState(db, t, { state: "fallo", attempts: n, error, commit: null });
   if (deps.returnToTaller !== false && !(await returnToTaller(db, p, t, error))) {
     // PLA-52: it could not go back to Taller: the owner sees the card with the reason, never a hidden delivery.
-    return setState(db, t, { state: "lista", attempts: n, error, commit: null });
+    return setState(db, t, { state: "lista", attempts: n, error, commit: null, ...(wrong ? { wrong: true } : {}) });
   }
   return state;
 }
@@ -442,6 +476,8 @@ export function probadorGate(p: Project | null, t: Task | null, head: string | n
   if (!supported("stills") || !supported("test_copy")) return { pending: false, hold: s?.error ? say(PROBADOR_WORDS).missing(onScreen(s.error)) : say(PROBADOR_WORDS).unavailable(say(SISTEMA).unavailable.toLowerCase()) };
   if (!s || s.state === "tomando" || s.state === "fallo") return { pending: true, hold: null };
   if (head && s.commit && !head.startsWith(s.commit.slice(0, 7)) && !s.commit.startsWith(head.slice(0, 7))) return { pending: true, hold: null };
+  // PLA-I74-10: a wrong page holds with its own reason (already in the owner's words).
+  if (s.wrong && s.error) return { pending: false, hold: onScreen(s.error) };
   return { pending: false, hold: s.error ? say(PROBADOR_WORDS).missing(onScreen(s.error)) : null };
 }
 
@@ -477,6 +513,8 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
   if (!got) return null;
   const { t } = got;
   const m = t.muestra ?? null;
+  // PLA-I74-10: the empty-state cases show after the muestra's own views.
+  const all = m ? [...m.vistas, ...(await emptyCases(db, t))] : [];
   const rows = m
     ? await db
         .select()
@@ -490,7 +528,7 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
     error: r && r.status === "error" && !r.missing ? r.error : null,
     missing: Boolean(r?.missing),
   });
-  const vistas: ParVista[] = (m?.vistas ?? []).map((v) => {
+  const vistas: ParVista[] = all.map((v) => {
     const per = Object.fromEntries(
       VIEWPORT_NAMES.map((vp) => {
         const d = pick(v.key, vp, "despues");

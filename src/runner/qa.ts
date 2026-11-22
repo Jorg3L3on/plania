@@ -66,6 +66,7 @@ import { startBranchOf } from "./start-branch.js";
 import { verifyListOf } from "./build-step.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 import { defineWords, say } from "../words.js";
+import { measuredWaits } from "../captures/waits.js"; // PLA-I74-7
 
 // PLA-I2-10: what QA writes for the owner and for Taller (holds, lane errors, the notes sent back, the results' lines),
 // in the install's language; the Spanish is unchanged.
@@ -651,7 +652,7 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
     const base = `http://localhost:${port}`;
     let app: StartedApp | null = null;
     try {
-      app = await (deps.startApp ?? startApp)({ cwd, command: cs.start_command.replaceAll("{port}", String(port)), url: base + (cs.ready_path ?? "/"), port, timeoutMs: 180_000 });
+      app = await (deps.startApp ?? startApp)({ cwd, command: cs.start_command.replaceAll("{port}", String(port)), url: base + (cs.ready_path ?? "/"), port, timeoutMs: (await measuredWaits(db, p.slug)).qa_start_ms });
       const sum = await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: cwd, base_url: base, commit: head, branch: made.branch, task_key: t.key, actor: qaActor("qa") }, deps.captureDeps);
       const firstError = sum.stills.find((x) => x.error)?.error ?? null;
       capture = { run_id: sum.run_id, ok: sum.ok, failed: sum.failed, still_ids: sum.stills.filter((x) => x.status === "ok").map((x) => x.id), error: app.ok ? firstError : (app.error ?? firstError) };

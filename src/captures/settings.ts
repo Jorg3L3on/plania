@@ -19,6 +19,40 @@ const PATH = /^\/[^\s]*$/;
 export const isTestUser = (user: string): boolean => TEST_USER.test(user);
 const PAGE_KEY = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
+// PLA-I74-10: the URL a page must land on. A follow click once landed on another page and the photo was shown as the
+// delivery. A path that starts with /, no query; a segment «:name» matches any one segment, a final «*» any rest.
+export const LANDING = /^\/[^\s?#]*$/;
+export const LANDING_HINT = "a path that starts with / (no query): :name matches one segment, a final * matches the rest";
+
+/** The path a page's photo must be on: its url, else its path (without the query), else, with a follow that is a path,
+ * anything under that prefix. A follow by CSS selector declares nothing unless url says it: null (no check). */
+export function landingOf(pg: { path: string; follow?: string; url?: string }): string | null {
+  if (pg.url) return pg.url;
+  if (pg.follow) return pg.follow.startsWith("/") ? `${pg.follow.replace(/\*$/, "")}*` : null;
+  return pg.path.split(/[?#]/)[0] || "/";
+}
+
+const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+/** Whether the page the browser is on (a full URL or a path) is the declared one. */
+export function landsOn(pattern: string, at: string): boolean {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(at, "http://x").pathname);
+  } catch {
+    return false;
+  }
+  const star = pattern.endsWith("*");
+  const want = trim(star ? pattern.slice(0, -1) : pattern).split("/");
+  const got = trim(pathname).split("/");
+  if (star) {
+    // «/panel/novias/*» is /panel/novias/<anything>; a final «/» before * still needs something after it.
+    const open = pattern.endsWith("/*");
+    if (got.length < want.length + (open ? 1 : 0)) return false;
+    return want.every((seg, i) => (seg.startsWith(":") ? !!got[i] : i === want.length - 1 && !open ? got[i]!.startsWith(seg) : seg === got[i]));
+  }
+  return got.length === want.length && want.every((seg, i) => (seg.startsWith(":") ? !!got[i] : seg === got[i]));
+}
+
 const page = z
   .object({
     // Stable id of the page across runs (the latest read groups by it). Lowercase, digits and dashes.
@@ -29,6 +63,8 @@ const page = z
     // Open path, then go to the href of the first element matching this CSS selector (e.g. the first ficha in a list).
     follow: z.string().min(1).max(200).optional(),
     full_page: z.boolean().optional(), // the whole scroll height instead of the first screen
+    // PLA-I74-10: the path the photo must be taken on (landingOf has the default).
+    url: z.string().regex(LANDING, LANDING_HINT).max(300).optional(),
   })
   .strict();
 
