@@ -6,8 +6,9 @@ import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import type { Q } from "../mcp/tx.js";
 import { events, projects, taskBlockers, tasks } from "../db/schema.js";
 import { velocidadOf } from "./velocidad.js";
+import { ST } from "../state/status.js";
 
-const LANDED = ["Merged", "Released", "Done"];
+const LANDED = [ST.merged, ST.released, ST.done];
 
 export type StackBase = { key: string; title: string; branch: string; status: string };
 
@@ -32,7 +33,7 @@ export async function stackHold(db: Q, taskId: string): Promise<StackBase | null
     .select({ key: tasks.key, title: tasks.title, branch: tasks.branch, status: tasks.status })
     .from(taskBlockers)
     .innerJoin(tasks, eq(tasks.id, taskBlockers.blockerId))
-    .where(and(eq(taskBlockers.taskId, taskId), notInArray(tasks.status, [...LANDED, "Won't do"])))
+    .where(and(eq(taskBlockers.taskId, taskId), notInArray(tasks.status, [...LANDED, ST.wontDo])))
     .limit(1);
   return b ? { key: b.key, title: b.title, branch: b.branch ?? "", status: b.status } : null;
 }
@@ -43,7 +44,7 @@ export async function stackedOn(db: Q, blockerId: string): Promise<{ id: string;
     .select({ id: tasks.id, key: tasks.key })
     .from(taskBlockers)
     .innerJoin(tasks, eq(tasks.id, taskBlockers.taskId))
-    .where(and(eq(taskBlockers.blockerId, blockerId), inArray(tasks.status, ["Ready", "In progress", "In review"])));
+    .where(and(eq(taskBlockers.blockerId, blockerId), inArray(tasks.status, [ST.ready, ST.inProgress, ST.inReview])));
 }
 
 // PLA-I73-6: the early skeleton. When an idea's plan is delivered and its first step is the skeleton, Taller builds

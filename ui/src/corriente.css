@@ -2887,6 +2887,17 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-crono-verifica { background: var(--cor-green); }
 .cor-crono-dueno { background: var(--cor-violet-4); opacity: 0.55; }
 .cor-crono-detenido { background: var(--cor-red); }
+/* PLA-I74-1: the run report under the stopwatch (components/corriente/ficha.tsx Informe). */
+.cor-informe { margin-top: 22px; display: grid; gap: 12px; }
+.cor-informe-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; color: var(--cor-body); }
+.cor-informe-lines b { font-weight: 500; color: var(--cor-text); }
+.cor-informe-sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--cor-muted); overflow-wrap: anywhere; }
+.cor-informe-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 28px; }
+.cor-informe-h { margin: 0 0 6px; font: 500 11.5px/1.4 var(--cor-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cor-muted); }
+.cor-informe-dl { margin: 0; display: grid; gap: 4px; font-size: 13px; }
+.cor-informe-dl div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.cor-informe-dl dt { color: var(--cor-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cor-informe-dl dd { margin: 0; font: 12px var(--cor-mono); color: var(--cor-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */

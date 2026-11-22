@@ -9,6 +9,7 @@ import type { Db } from "../db/client.js";
 import { pullRequests, tasks, type Task } from "../db/schema.js";
 import { readDeployTruth, setDeployFix, type DeployState, type DeployTruth } from "../jobs/deploy-truth.js";
 import { findProject } from "../mcp/queries.js";
+import { ST } from "../state/status.js";
 import { webCtx } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
@@ -69,7 +70,7 @@ export const DEPLOY_FIX_WORDS = defineWords({
 });
 
 type Refusal = { error: string; status: 400 | 404 | 409; hint: string };
-const LANDED_NOT_OUT = ["Merged"];
+const LANDED_NOT_OUT: string[] = [ST.merged];
 
 /** The merges of the initiative's steps that wait on a deploy: Merged, with a merge commit. */
 async function waitingMerges(db: Db, kids: Pick<Task, "id" | "status">[]): Promise<{ sha: string; at: Date }[]> {
@@ -120,7 +121,7 @@ export async function pedirArreglo(db: Db, slug: string, key: string): Promise<{
       summary: w.summary,
       scope: w.scope(init.key, t.sha, t.url, t.log ?? w.noLog),
       checks: w.checks,
-      status: "Ready",
+      status: ST.ready,
       work_type: "bug",
       // Production is down for the new version: high, not total (the previous version keeps serving).
       severity: "S2",

@@ -41,6 +41,9 @@ import { zonasOf, type Zona } from "./zonas.js";
 import { failReason, startFailureOf } from "../runner/start-failures.js";
 import { SIGNED_OUT } from "../runner/signed-out.js";
 import { defineWords, say } from "../words.js";
+import { isRunSession, sessionsOf } from "../runner/run-session.js";
+import { projectTurns } from "../state/turn-facts.js";
+import type { TurnOrNobody } from "../state/turn.js";
 
 export const ETAPAS = ["despues", "lista", "en_espera", "pospuesto", "bloqueado", "construyendo", "devuelto", "sin_dueno", "en_qa", "en_revision", "te_toca", "integrado", "publicado", "hecho"] as const;
 export type EtapaId = (typeof ETAPAS)[number];
@@ -245,7 +248,8 @@ export type Arranque = { summary: string; at: string | null };
 export type Tokens = { used: number; cache_read: number; cache_write: number; runs: number };
 export const NO_TOKENS: Tokens = Object.freeze({ used: 0, cache_read: 0, cache_write: 0, runs: 0 }) as Tokens;
 export const addTokens = (a: Tokens, b: Tokens): Tokens => ({ used: a.used + b.used, cache_read: a.cache_read + b.cache_read, cache_write: a.cache_write + b.cache_write, runs: a.runs + b.runs });
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[]; arranque: Arranque | null; tokens: Tokens };
+// PLA-I74-5: turn, whose turn the step is (src/state/turn.ts); the board's working/queued/waiting text reads it.
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[]; arranque: Arranque | null; tokens: Tokens; turn?: TurnOrNobody };
 // A completed initiative (Done), for the board's folded line: no tickets.
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done. can_close: every ticket is Done,
@@ -361,6 +365,10 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       where r.project_id = ${p.id} and r.status = 'running' and r.task_key is not null
       order by r.task_key, r.started_at desc nulls last`)
   ).rows as Row[];
+  // PLA-I74-5 (PLA-167): a lease a runner run holds is live only while that run is; one an ended run left is nobody's.
+  const liveSessions = new Set(
+    ((await db.execute(sql`select r.id from ${agentRuns} r where r.status in ('starting', 'running')`)).rows as Row[]).flatMap((r) => sessionsOf(String(r.id))),
+  );
   // NEWPROJ-5: each step's newest run of any state, to tell a step whose run could not start.
   const newest = (
     await db.execute(sql`
@@ -453,7 +461,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       status: t.status,
       statusChangedAt: t.statusChangedAt ?? t.createdAt,
       owner,
-      lease: actor && t.leaseUntil ? { holder: leaseAgent ? { agent: leaseAgent.slug, role: roleOf(leaseAgent) ?? leaseAgent.role } : { agent: actor.agent, role: owner.role }, since: t.claimedAt ?? null, until: t.leaseUntil } : null,
+      lease: actor && t.leaseUntil && !(isRunSession(actor.session_id) && !liveSessions.has(actor.session_id)) ? { holder: leaseAgent ? { agent: leaseAgent.slug, role: roleOf(leaseAgent) ?? leaseAgent.role } : { agent: actor.agent, role: owner.role }, since: t.claimedAt ?? null, until: t.leaseUntil } : null,
       run: run ? { holder: { agent: String(run.slug), role: String(run.role) }, since: date(run.started_at) } : null,
       qa: {
         applies: qaOn && qaTicket(t),
@@ -476,6 +484,12 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     };
     const etapa = etapaOf(facts, now);
     if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas), arranque: arranqueBy.get(t.key) ?? null, tokens: tokensBy.get(t.id) ?? NO_TOKENS });
+  }
+
+  // PLA-I74-5: whose turn each step is.
+  for (const it of await projectTurns(db, p, byTicket, now)) {
+    const row = byTicket.get(it.key);
+    if (row) row.turn = it.turn;
   }
 
   const keyNo = (k: string) => Number(/(\d+)$/.exec(k)?.[1] ?? Number.MAX_SAFE_INTEGER);
