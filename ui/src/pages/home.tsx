@@ -10,9 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { GoalsHome } from "@/components/goals/goals-board";
 import { Ciudad } from "@/components/home/ciudad";
 import { Hoy } from "@/components/home/hoy";
-import { PedirHome } from "@/components/pedir";
 import { GuiaPrimeraEntrega } from "@/components/home/guia-primera-entrega";
-import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
+import { LaMaquina, Proximo } from "@/components/home/parts";
 import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
 import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
@@ -108,10 +107,7 @@ export function HomePage() {
     return (
       <div className="grid gap-6" aria-busy="true">
         <Skeleton className="h-[380px] rounded-[22px] md:h-[560px] md:rounded-[26px]" />
-        <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
-          <Skeleton className="h-72 rounded-[22px]" />
-          <Skeleton className="h-72 rounded-[22px]" />
-        </div>
+        <Skeleton className="h-80 rounded-2xl" />
       </div>
     );
   }
@@ -121,34 +117,20 @@ export function HomePage() {
       {/* PLA-I2-16: the guide to a first delivery, until one is accepted. */}
       <GuiaPrimeraEntrega />
 
-      {/* 2.12: one field to ask for something in any project; not while the guide asks for the first task. */}
-      <Seccion show={ver.pedir} id="pedir">
-        <PedirHome projects={listed} />
-      </Seccion>
-
+      {/* Pedir is no longer a field here: the palette (⌘K, or the header's button) asks from every screen. ADR 0007. */}
       {/* 2.12: what changed since "Visto", and what waits on the owner, above the city. */}
       <Hoy names={names} />
 
       <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} nowMs={nowMs} />
 
+      <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
+
+      {/* La máquina holds the projects: its own figures stay small, the projects are most of it. */}
+      {ver.maquina ? <LaMaquina machine={machine.data} servers={model.servers} tiles={model.tiles} cifras={ver.cifrasMaquina} nowMs={nowMs} /> : null}
+
       <Seccion show={ver.metas} id="metas">
         <GoalsHome />
       </Seccion>
-
-      <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
-
-      {/* Under the city, as before: La máquina beside the projects; they stack below xl, and the projects take the
-          whole row when the machine has nothing to show yet. */}
-      {ver.maquina || ver.proyectos ? (
-        <div className={cn("grid items-start gap-5", ver.maquina && ver.proyectos && "xl:grid-cols-[300px_minmax(0,1fr)]")}>
-          {ver.maquina ? (
-            <div className="min-w-0 animate-rise">
-              {machine.data ? <LaMac machine={machine.data} servers={model.servers} names={names} nowMs={nowMs} /> : <Skeleton className="h-72 rounded-[22px]" />}
-            </div>
-          ) : null}
-          {ver.proyectos ? <Proyectos tiles={model.tiles} /> : null}
-        </div>
-      ) : null}
     </div>
   );
 }

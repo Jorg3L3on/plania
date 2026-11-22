@@ -47,98 +47,6 @@ function fmtKb(kb: number) {
   return gb >= 1 ? `${gb.toFixed(gb >= 10 ? 0 : 1)} GB` : `${Math.round(kb / 1024)} MB`;
 }
 
-// What the machine runs for the agents: the live ports, the counts, and the first thing the audit found. The same
-// plain look as the project tiles: a heading, a list, two numbers, and a warning only when there is one. Beside the
-// projects at xl it is one narrow column; full width below it, the ports and the numbers sit side by side.
-export function LaMac({ machine, servers, names, nowMs }: { machine: Machine; servers: LiveServer[]; names: (slug: string) => string; nowMs: number }) {
-  const w = words(HOME_PARTS);
-  const reducido = useReducedMotion() ?? false;
-  const t = machine.totals;
-  const warn = t.orphan + t.stale + machine.findings.length;
-  const seen = machine.items.reduce((m, it) => (it.last_seen_at && it.last_seen_at > m ? it.last_seen_at : m), "");
-  // Rows and the warning fold in and out (height with opacity, 200ms in, 140ms out); reduced motion only fades.
-  const sale: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } };
-  const entra: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0 };
-  const queda: TargetAndTransition = { opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } };
-  return (
-    <section id="la-mac" aria-labelledby="la-mac-titulo" className="grid content-start gap-4 rounded-2xl border bg-card p-4 sm:p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 id="la-mac-titulo" className="font-display text-xl font-bold tracking-tight">
-          {w.machine}
-        </h2>
-        {seen && <span className="text-xs text-muted-foreground">{w.seen(ago(seen, nowMs))}</span>}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-1 xl:gap-4">
-        {/* Live ports. A server that starts or stops folds in or out of the list instead of shifting it. */}
-        <div className="grid content-start gap-1">
-          <p className="text-sm font-medium">{servers.length === 0 ? w.noPorts : w.ports}</p>
-          {servers.length > 0 && (
-            <ul className="grid divide-y">
-              <AnimatePresence initial={false}>
-                {servers.map((s) => {
-                  const [a] = s.slug ? projectAccent(s.slug) : ["var(--status-idle)"];
-                  return (
-                    <motion.li key={`${s.owner}/${s.port}`} className="overflow-hidden" initial={entra} animate={queda} exit={sale}>
-                      <Link
-                        to="/machine"
-                        className="flex min-h-11 items-center gap-2.5 rounded-lg px-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none sm:min-h-9 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.05]"
-                      >
-                        <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: a }} />
-                        <span className="font-mono text-xs font-medium tabular-nums">{s.port}</span>
-                        <span className="min-w-0 truncate text-muted-foreground">{s.slug ? names(s.slug) : s.owner}</span>
-                        {s.up && <span className="ml-auto shrink-0 text-xs whitespace-nowrap text-muted-foreground tabular-nums">{s.up}</span>}
-                      </Link>
-                    </motion.li>
-                  );
-                })}
-              </AnimatePresence>
-            </ul>
-          )}
-        </div>
-
-        {/* Two numbers, no boxes around them: they roll only when they change. */}
-        <dl className="grid grid-cols-2 content-start gap-4">
-          <div className="grid gap-1">
-            <dt className="order-2 text-xs text-muted-foreground">{w.databases}</dt>
-            <dd className="order-1">
-              <Cifra value={t.databases} className="font-display text-2xl leading-none font-bold" />
-            </dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="order-2 text-xs text-muted-foreground">{w.inWorktrees}</dt>
-            <dd className="order-1">
-              <Cifra value={fmtKb(t.worktree_kb)} className="font-display text-2xl leading-none font-bold" />
-            </dd>
-          </div>
-        </dl>
-      </div>
-
-      {/* The audit's warning: only when it found something, and it folds in so it is noticed. */}
-      <AnimatePresence initial={false}>
-        {warn > 0 && (
-          <motion.div key="aviso" className="overflow-hidden" initial={entra} animate={queda} exit={sale}>
-            <div className="grid gap-1 rounded-lg border border-status-now/40 px-3 py-2.5" style={tint("now", 8)} role="status">
-              <p className="text-sm font-medium text-ink-now">
-                {[machine.findings.length > 0 && w.findings(machine.findings.length), t.orphan > 0 && w.orphan(t.orphan), t.stale > 0 && w.stale(t.stale)].filter(Boolean).join(" · ")}
-              </p>
-              {machine.findings[0] && <p className="text-xs leading-snug wrap-anywhere text-muted-foreground">{machine.findings[0].detail}</p>}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <Link
-        to="/machine"
-        className="group inline-flex min-h-11 w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground"
-      >
-        {w.seeMachine}
-        <ArrowRightIcon className="size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:translate-x-0.5" aria-hidden />
-      </Link>
-    </section>
-  );
-}
-
 /** A tile's dot and word for how the project goes. Only "en marcha" moves (agents are on it right now). */
 function Estado({ t }: { t: Tile }) {
   const reducido = useReducedMotion() ?? false;
@@ -167,7 +75,7 @@ function Estado({ t }: { t: Tile }) {
 // One project. Read top to bottom: which one and how it goes; how much is left; what needs the owner; prod. A line
 // with nothing to say is left out (no "nothing waits" filler): an empty space is the all-clear. The project's
 // colour lives in its mark only, no stripe on the card.
-function TileCard({ t }: { t: Tile }) {
+function TileCard({ t, puertos }: { t: Tile; puertos: LiveServer[] }) {
   const w = words(HOME_PARTS);
   const pct = t.progress.total === 0 ? 0 : t.progress.closed / t.progress.total;
   const allDone = t.left.initiatives === 0 && t.left.tickets === 0;
@@ -227,8 +135,9 @@ function TileCard({ t }: { t: Tile }) {
         </span>
       )}
 
-      {/* Prod in plain words: when it last got code and what it still lacks. */}
+      {/* Its live ports here on the machine, then prod in plain words: when it last got code and what it still lacks. */}
       <span className="mt-auto grid gap-0.5 border-t pt-3 text-xs leading-snug text-muted-foreground">
+        <PuertosTile puertos={puertos} />
         <span>{t.deploy.text}</span>
         {t.deploy.lag && <span className="text-amber-700 dark:text-amber-400">{t.deploy.lag}</span>}
       </span>
@@ -236,42 +145,136 @@ function TileCard({ t }: { t: Tile }) {
   );
 }
 
-// The projects: which one moves, how it goes, what its prod runs. One entrance for the whole rail (not a cascade per
-// tile: Inicio opens many times a day). When a project changes rank (it starts running, or waits on the owner) its
-// tile glides to its new place instead of jumping; a project added or gone fades in or out.
-export function Proyectos({ tiles }: { tiles: Tile[] }) {
+/** A tile's live ports: the first one, and how many more (the machine page lists them all). */
+function PuertosTile({ puertos }: { puertos: LiveServer[] }) {
+  const w = words(HOME_PARTS);
+  const [primero, ...resto] = puertos;
+  if (!primero) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5" title={puertos.map((s) => s.port).join(", ")}>
+      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-done" />
+      <span className="font-mono tabular-nums">{w.port(primero.port, primero.up)}</span>
+      {resto.length > 0 && <span>{w.morePorts(resto.length)}</span>}
+    </span>
+  );
+}
+
+// La máquina is where every project lives, so it holds them: a quiet header (the machine, when it was seen, its
+// figures and the ports no project owns), the audit's warning when there is one, and then the projects, the part the
+// owner uses every day and the largest thing in it. Each tile carries its own live ports.
+//
+// Motion: one entrance for the block. A project that changes rank glides to its new place (a spring, no bounce); a
+// project added or gone fades and scales from 0.97. Figures roll only when they change, and the warning and the
+// project-less ports fold in and out. Reduced motion keeps the fades only.
+export function LaMaquina({ machine, servers, tiles, cifras, nowMs }: { machine: Machine | undefined; servers: LiveServer[]; tiles: Tile[]; cifras: boolean; nowMs: number }) {
   const w = words(HOME_PARTS);
   const reducido = useReducedMotion() ?? false;
-  const moving = tiles.filter((t) => t.rank === 0).length;
-  const waiting = tiles.filter((t) => t.rank === 1).length;
+  const t = machine?.totals;
+  const warn = machine && t ? t.orphan + t.stale + machine.findings.length : 0;
+  const seen = machine?.items.reduce((m, it) => (it.last_seen_at && it.last_seen_at > m ? it.last_seen_at : m), "") ?? "";
+  const porProyecto = new Map<string, LiveServer[]>();
+  for (const s of servers) if (s.slug) porProyecto.set(s.slug, [...(porProyecto.get(s.slug) ?? []), s]);
+  const sueltos = servers.filter((s) => !s.slug || !tiles.some((x) => x.slug === s.slug));
+  const moving = tiles.filter((x) => x.rank === 0).length;
+  const waiting = tiles.filter((x) => x.rank === 1).length;
   const still = tiles.length - moving - waiting;
   const parts = [moving > 0 && w.moving(moving), waiting > 0 && w.waiting(waiting), still > 0 && w.still(still)].filter(Boolean);
+  const sale: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } };
+  const entra: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0 };
+  const queda: TargetAndTransition = { opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } };
+
   return (
-    <section aria-labelledby="proyectos-titulo" className="grid animate-rise gap-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 id="proyectos-titulo" className="font-display text-xl font-bold tracking-tight">
-          {w.projects}
-        </h2>
-        <span className="text-sm text-muted-foreground">{parts.join(" · ")}</span>
+    <section id="la-mac" aria-labelledby="proyectos-titulo" className="grid animate-rise gap-4 rounded-2xl border bg-muted/30 p-3 sm:p-4" data-maquina>
+      {/* The machine: small and to one side. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1">
+        <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+          <Link to="/machine" className="font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
+            {w.machine}
+          </Link>
+          {seen && <span className="text-xs text-muted-foreground">{w.seen(ago(seen, nowMs))}</span>}
+        </p>
+        {cifras && t ? (
+          <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex items-baseline gap-1">
+              <dd className="order-1">
+                <Cifra value={t.databases} className="text-sm font-semibold text-foreground" />
+              </dd>
+              <dt className="order-2">{w.databases}</dt>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <dd className="order-1">
+                <Cifra value={fmtKb(t.worktree_kb)} className="text-sm font-semibold text-foreground" />
+              </dd>
+              <dt className="order-2">{w.inWorktrees}</dt>
+            </div>
+          </dl>
+        ) : null}
+      </header>
+
+      {/* Ports no project owns (a tool, another repo): one quiet line, folding in and out. */}
+      <AnimatePresence initial={false}>
+        {sueltos.length > 0 && (
+          <motion.p key="sueltos" className="overflow-hidden px-1 text-xs text-muted-foreground" initial={entra} animate={queda} exit={sale}>
+            <span className="mr-2">{w.otherPorts}:</span>
+            {sueltos.map((s, n) => (
+              <span key={`${s.owner}/${s.port}`} className="whitespace-nowrap">
+                {n > 0 ? " · " : ""}
+                <span className="font-mono tabular-nums">{s.port}</span> {s.owner}
+              </span>
+            ))}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      {/* The audit's warning: only when it found something. */}
+      <AnimatePresence initial={false}>
+        {machine && t && warn > 0 && (
+          <motion.div key="aviso" className="overflow-hidden" initial={entra} animate={queda} exit={sale}>
+            <Link to="/machine" className="grid gap-1 rounded-lg border border-status-now/40 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none" style={tint("now", 8)} role="status">
+              <span className="text-sm font-medium text-ink-now">
+                {[machine.findings.length > 0 && w.findings(machine.findings.length), t.orphan > 0 && w.orphan(t.orphan), t.stale > 0 && w.stale(t.stale)].filter(Boolean).join(" · ")}
+              </span>
+              {machine.findings[0] && <span className="text-xs leading-snug wrap-anywhere text-muted-foreground">{machine.findings[0].detail}</span>}
+            </Link>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* The projects: what the owner looks at every day, so the largest heading and most of the room. */}
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1">
+          <h2 id="proyectos-titulo" className="font-display text-xl font-bold tracking-tight">
+            {w.projects}
+          </h2>
+          <span className="text-sm text-muted-foreground">{parts.join(" · ")}</span>
+        </div>
+        {/* auto-fill, not auto-fit: one project keeps a tile's width instead of stretching across the page. */}
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] items-stretch gap-3">
+          <AnimatePresence initial={false}>
+            {tiles.map((x) => (
+              <motion.li
+                key={x.slug}
+                layout={reducido ? false : "position"}
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97, transition: { duration: motionTokens.duration.exit } }}
+                transition={{ ...motionTokens.spring.smooth, opacity: { duration: motionTokens.duration.standard } }}
+                className="min-w-0"
+              >
+                <TileCard t={x} puertos={porProyecto.get(x.slug) ?? []} />
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ul>
       </div>
-      {/* auto-fill, not auto-fit: one project keeps a tile's width instead of stretching across the page. */}
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] items-stretch gap-3">
-        <AnimatePresence initial={false}>
-          {tiles.map((t) => (
-            <motion.li
-              key={t.slug}
-              layout={reducido ? false : "position"}
-              initial={{ opacity: 0, scale: 0.97 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.97, transition: { duration: motionTokens.duration.exit } }}
-              transition={{ ...motionTokens.spring.smooth, opacity: { duration: motionTokens.duration.standard } }}
-              className="min-w-0"
-            >
-              <TileCard t={t} />
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </ul>
+
+      <Link
+        to="/machine"
+        className="group inline-flex min-h-11 w-fit items-center gap-1.5 px-1 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground"
+      >
+        {w.seeMachine}
+        <ArrowRightIcon className="size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:translate-x-0.5" aria-hidden />
+      </Link>
     </section>
   );
 }

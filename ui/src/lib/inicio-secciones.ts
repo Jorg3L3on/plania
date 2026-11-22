@@ -24,7 +24,8 @@ export function maquinaEnUso(m: Machine | null | undefined, servidores: number):
   return servidores > 0 || t.databases > 0 || t.worktree_kb > 0 || t.orphan > 0 || t.stale > 0 || m.findings.length > 0;
 }
 
-export type Secciones = { pedir: boolean; metas: boolean; maquina: boolean; proyectos: boolean };
+/** maquina: the block that holds the projects; cifrasMaquina: its own figures in that block's header. */
+export type Secciones = { metas: boolean; maquina: boolean; cifrasMaquina: boolean };
 
 export function seccionesDe(i: {
   etapa: Etapa;
@@ -37,12 +38,11 @@ export function seccionesDe(i: {
   // The guide card leaves Inicio once the wizard is done, so the team's turn reads like a normal day.
   const normal = i.etapa !== "guia";
   return {
-    // During the wizard the first task is asked in its third step; a second field here would compete with it.
-    pedir: i.proyectos > 0 && i.etapa !== "guia",
     // Goals are for later: shown once there is one, or once the guide is done (with its empty state and its button).
     metas: (i.metas ?? 0) > 0 || normal,
-    // A fresh machine runs nothing; the guide already links to the requirements.
-    maquina: i.maquinaEnUso || normal,
-    proyectos: i.proyectos > 0,
+    // La máquina holds the projects, so it shows with the first one, at any stage.
+    maquina: i.proyectos > 0,
+    // Its figures (databases, worktrees) only once it holds something: a row of zeros says nothing.
+    cifrasMaquina: i.maquinaEnUso,
   };
 }

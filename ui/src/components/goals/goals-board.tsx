@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { PlusIcon } from "lucide-react";
 import { Link } from "react-router";
 import { GoalCard } from "@/components/goals/goal-card";
 import { GoalDialog } from "@/components/goals/goal-dialog";
@@ -9,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { words } from "@/lib/i18n";
 import { GOALS_WORDS } from "@/lib/goals-words";
+import { metasLinea, metasLineaTexto, metasLineaWords } from "@/lib/metas-linea";
 
 function useGoalNames() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
@@ -47,13 +49,9 @@ function GoalList({
 
 function GoalsBlock({
   project,
-  compact = false,
-  companyOnly = false,
   heading,
 }: {
   project?: string;
-  compact?: boolean;
-  companyOnly?: boolean;
   heading: "section" | "none";
 }) {
   const w = words(GOALS_WORDS);
@@ -90,11 +88,6 @@ function GoalsBlock({
           </div>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
-          {compact && (
-            <Link to="/goals" className="inline-flex min-h-9 items-center text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-              {w.seeGoals}
-            </Link>
-          )}
           <Button type="button" onClick={handleCreate}>{w.newGoal}</Button>
         </div>
       </div>
@@ -104,9 +97,8 @@ function GoalsBlock({
         <Skeleton className="h-28 rounded-[20px]" />
       ) : (
         <GoalList
-          goals={companyOnly ? list.data.goals.filter((goal) => goal.project === null) : list.data.goals}
+          goals={list.data.goals}
           names={names}
-          compact={compact}
           onEdit={handleEdit}
         />
       )}
@@ -122,8 +114,52 @@ function GoalsBlock({
   );
 }
 
+/**
+ * Inicio's goals: one line, not the board. «Metas», how many company goals are active and their tasks done, a thin
+ * bar for that share (it grows from the left when it changes, never on load), «Ver metas» and «Nueva», which opens
+ * the same dialog in place. The cards live on the goals screen. Nothing shows until the list is read: it is the
+ * page's last line, so it shifts nothing under it.
+ */
 export function GoalsHome() {
-  return <GoalsBlock compact companyOnly heading="section" />;
+  const w = words(GOALS_WORDS);
+  const l = metasLineaWords();
+  const list = useQuery({ queryKey: ["goals"], queryFn: () => api.goals() });
+  const { projects } = useGoalNames();
+  const [open, setOpen] = useState(false);
+  if (!list.data) return null;
+  const goals = list.data.goals;
+  const m = metasLinea(goals);
+  const partes = metasLineaTexto(m);
+  const pct = m.total > 0 ? m.done / m.total : 0;
+  return (
+    <section aria-label={w.goals} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card/60 px-4 py-2.5" data-metas-linea>
+      <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+        <span className="font-medium">{w.goals}</span>
+        {partes.map((t) => (
+          <span key={t} className="text-muted-foreground">
+            <span aria-hidden className="mr-2">·</span>
+            {t}
+          </span>
+        ))}
+      </p>
+      {m.total > 0 ? (
+        <span aria-hidden className="h-1 w-20 overflow-hidden rounded-full bg-foreground/[0.08]">
+          <span className="block h-full origin-left bg-status-done transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none" style={{ transform: `scaleX(${pct})` }} />
+        </span>
+      ) : null}
+      <span className="flex items-center gap-1">
+        {m.hay ? (
+          <Link to="/goals" className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
+            {w.seeGoals}
+          </Link>
+        ) : null}
+        <Button type="button" variant="ghost" size="sm" className="min-h-11 transition-[background-color,color,scale] active:scale-[0.97] motion-reduce:transition-none sm:min-h-8" onClick={() => setOpen(true)} data-control="metas-nueva">
+          <PlusIcon aria-hidden /> {l.nueva}
+        </Button>
+      </span>
+      <GoalDialog open={open} goal={null} projects={projects} parents={goals.filter((g) => g.project === null)} onOpenChange={setOpen} />
+    </section>
+  );
 }
 
 export function GoalsProject({ slug }: { slug: string }) {
