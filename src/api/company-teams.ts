@@ -14,7 +14,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
-import { adopt, adoptPreview, bringTeam, saveTeam, teamCatalog } from "../runner/teams.js";
+import { adopt, adoptPreview, bringTeam, deleteTeam, saveTeam, teamCatalog } from "../runner/teams.js";
 import { applyCompany, exportCompany, previewCompany, tarOf, teamSpecOf, untar, type PackageFile } from "../runner/company-package.js";
 import { repoFiles } from "../runner/skill-catalog.js";
 import type { ImportDeps } from "../runner/skill-import.js";
@@ -51,6 +51,8 @@ async function filesOf(s: SourceIn): Promise<{ files: PackageFile[]; source: str
 const flags = (c: Context) => ({ lessons: c.req.query("lessons") === "1", references: c.req.query("references") === "1" });
 
 teamRoutes.get("/teams", (c) => act(c, async () => c.json({ teams: await withDb((db) => teamCatalog(db)) })));
+// PLA-142: a team the owner saved or brought can be deleted; factory teams cannot.
+teamRoutes.delete("/teams/:team", (c) => act(c, async () => c.json(await withDb((db) => deleteTeam(db, c.req.param("team"))))));
 teamRoutes.post("/projects/:slug/teams/save", async (c) => {
   const input = await body(c, z.object({ name: z.string().min(1).max(80), line: z.string().max(300).optional(), lessons: z.boolean().optional(), references: z.boolean().optional() }).strict());
   if (input instanceof Response) return input;

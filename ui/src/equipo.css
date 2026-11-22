@@ -10,6 +10,12 @@
 .eq-places a:hover { color: var(--cor-text); background: rgba(255, 255, 255, 0.04); }
 .eq-places a[aria-current="page"] { color: var(--cor-text); background: rgba(139, 92, 246, 0.16); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.4); }
 .eq-places a .cor-cap { color: var(--cor-muted); }
+/* PLA-138: on a phone the four places scroll sideways instead of cutting «Motores» at the edge; Motores keeps a gap
+   under them like the other places. */
+.eq-places { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.eq-places::-webkit-scrollbar { display: none; }
+.eq-places a { flex: 0 0 auto; }
+.eq-places + .cor-motores { margin-top: 18px; }
 .eq-title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .org-legend { display: inline-flex; gap: 14px; font-weight: 400; }
 .org-legend > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -168,6 +174,10 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .tda-seat { display: inline-grid; place-items: center; width: 24px; height: 22px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); text-transform: uppercase; }
 .tda-seat.on { background: rgba(139, 92, 246, 0.25); color: var(--cor-violet-4); }
 .tda-side { overflow: auto; max-height: 100%; }
+/* PLA-140: «Hacer mi copia» asks for whom before it copies. */
+.tda-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.tda-copy label { flex: 1 0 100%; }
+.tda-copy select { flex: 1 1 160px; min-height: 44px; }
 .tda-text { min-height: 100px; max-height: 160px; }
 .tda-seats { list-style: none; margin: 0; padding: 0; }
 .tda-seats li { border-bottom: 1px solid var(--cor-line); }

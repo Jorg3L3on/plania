@@ -355,6 +355,9 @@ export const api = {
   pauseSeat: (slug: string, agent: string, paused: boolean) => request<{ paused: boolean }>("PUT", `${seatPath(slug, agent)}/pause`, { paused }),
   retireSeat: (slug: string, agent: string) => request<{ moved: string[] }>("POST", `${seatPath(slug, agent)}/retire`, {}),
   createPuesto: (input: { title: string; line: string; base: string }) => request<PuestoView>("POST", "/company/puestos", input),
+  // PLA-142: a role of the owner's own and a saved or brought team can be deleted.
+  deletePuesto: (slug: string) => request<{ deleted: string }>("DELETE", `/company/puestos/${encodeURIComponent(slug)}`),
+  deleteTeam: (slug: string) => request<{ deleted: string }>("DELETE", `/company/teams/${encodeURIComponent(slug)}`),
   decideProposal: (slug: string, id: string, accept: boolean) => request<{ state: string; agent: string | null }>("POST", `/company/projects/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(id)}/decide`, { accept }),
   // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
   saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
@@ -364,6 +367,9 @@ export const api = {
   oficio: (slug: string, agent: string) => request<Oficio>("GET", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/oficio`),
   setSeatPacks: (slug: string, agent: string, packs: string[]) =>
     request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs, own: true }),
+  // PLA-140: back to the role's factory list (an empty list that is not its own).
+  resetSeatPacks: (slug: string, agent: string) =>
+    request<{ project: string; agent: string; packs: PackRef[]; own: boolean }>("PUT", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/packs`, { packs: [], own: false }),
   // PLA-I67-2: the owner's skills and «tu manera» (src/api/company-oficio-skills.ts).
   skillCard: (slug: string, agent: string, skill: string) => request<SkillCard>("GET", `${seatPath(slug, agent)}/skills/${encodeURIComponent(skill)}`),
   createSkill: (slug: string, agent: string, d: SkillDraft) => request<SkillCard>("POST", `${seatPath(slug, agent)}/skills`, d),

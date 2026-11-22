@@ -313,15 +313,26 @@ export async function createSkill(db: Db, project: string, agent: string, input:
   const slug = input.slug ?? packSlug(c.name);
   if (!SLUG.test(slug)) throw bad("slug", "lowercase letters, digits and dashes, starting with a letter");
   if ((await liveBySlug(db, slug)) || (await listPacks(db, env)).some((p) => p.slug === slug)) throw new ToolError("SKILL_EXISTS", { slug });
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(skills)
-      .values({ slug, origin: "owner", ...scopeTarget(input.scope ?? "agent", a), state: "on", createdBy: author })
-      .returning();
-    await addVersion(tx, row!, c, author, null);
-    return slug;
-  });
+  try {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(skills)
+        .values({ slug, origin: "owner", ...scopeTarget(input.scope ?? "agent", a), state: "on", createdBy: author })
+        .returning();
+      await addVersion(tx, row!, c, author, null);
+      return slug;
+    });
+  } catch (e) {
+    // PLA-136: two writes racing for the same free slug; the loser gets the code, not a 500.
+    if (isUniqueViolation(e)) throw new ToolError("SKILL_EXISTS", { slug });
+    throw e;
+  }
 }
+
+const isUniqueViolation = (e: unknown): boolean => {
+  const code = (x: unknown) => (x as { code?: string } | undefined)?.code;
+  return code(e) === "23505" || code((e as { cause?: unknown } | undefined)?.cause) === "23505";
+};
 
 export type EditSkill = Partial<SkillInput> & { scope?: SkillScope };
 
@@ -375,9 +386,17 @@ export async function duplicateSkill(db: Db, project: string, agent: string, slu
   const taken = new Set([...(await listPacks(db, env)).map((p) => p.slug), ...(await db.select({ slug: skills.slug }).from(skills).where(ne(skills.state, "archived"))).map((r) => r.slug)]);
   let n = 2;
   const stem = slug.slice(0, 36).replace(/-+$/, "");
-  while (taken.has(stem + "-" + n)) n += 1;
-  const name = card.name + " (" + n + ")";
-  return createSkill(db, project, agent, { slug: stem + "-" + n, name, description: card.when, body: card.body, files: card.files, scope: card.scope ?? "agent" }, env);
+  // PLA-136: a copy made at the same moment may take the same number; step past it a few times.
+  for (let tries = 0; ; tries++) {
+    while (taken.has(stem + "-" + n)) n += 1;
+    const name = card.name + " (" + n + ")";
+    try {
+      return await createSkill(db, project, agent, { slug: stem + "-" + n, name, description: card.when, body: card.body, files: card.files, scope: card.scope ?? "agent" }, env);
+    } catch (e) {
+      if (!(e instanceof ToolError && e.code === "SKILL_EXISTS") || tries >= 5) throw e;
+      taken.add(stem + "-" + n);
+    }
+  }
 }
 
 export async function setSkillState(db: Db, slug: string, on: boolean): Promise<void> {

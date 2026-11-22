@@ -1,5 +1,6 @@
 // PLA-I71-5: the words of «Traer una habilidad de fuera» (ui/src/components/corriente/traer.tsx).
 import { defineWords } from "./i18n.js";
+import { FALLBACK_LOCALES } from "./locale.js";
 
 export const TRAER_WORDS = defineWords({
   es: {
@@ -16,7 +17,7 @@ export const TRAER_WORDS = defineWords({
     searchPlaceholder: "Buscar en skills.sh…",
     search: "Buscar",
     searching: "Buscando…",
-    installs: (n: number) => `${n} instalaciones`,
+    installs: (n: number) => `${n.toLocaleString(FALLBACK_LOCALES.es)} instalaciones`,
     noHits: "Nada con esa búsqueda.",
     catalogNote: "La lista viene de skills.sh, sin cuenta ni llave. Lo que elijas se lee de su repositorio en GitHub.",
     pickHint: "Pega un enlace o busca en el catálogo. Nada se instala hasta que lo leas.",
@@ -68,7 +69,7 @@ export const TRAER_WORDS = defineWords({
     searchPlaceholder: "Search skills.sh…",
     search: "Search",
     searching: "Searching…",
-    installs: (n: number) => `${n} installs`,
+    installs: (n: number) => `${n.toLocaleString(FALLBACK_LOCALES.en)} installs`,
     noHits: "Nothing for that search.",
     catalogNote: "The list comes from skills.sh, with no account or key. What you pick is read from its GitHub repository.",
     pickHint: "Paste a link or search the catalog. Nothing is installed until you read it.",

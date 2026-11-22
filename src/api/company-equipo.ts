@@ -17,7 +17,7 @@ import { z } from "zod";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { tiendaRead } from "./company-tienda.js";
-import { belowOf, catalog, createPuesto, decideProposal, moveSeat, pauseSeat, proposalsOf, retireSeat } from "../runner/puestos.js";
+import { belowOf, catalog, createPuesto, decideProposal, deletePuesto, moveSeat, pauseSeat, proposalsOf, retireSeat } from "../runner/puestos.js";
 
 export const equipoRoutes = new Hono();
 
@@ -68,6 +68,8 @@ equipoRoutes.post("/puestos", async (c) => {
   if (input instanceof Response) return input;
   return act(c, async () => c.json(await withDb((db) => createPuesto(db, input)), 201));
 });
+// PLA-142: a role of the owner's own that no live seat holds can be deleted.
+equipoRoutes.delete("/puestos/:slug", (c) => act(c, async () => c.json(await withDb((db) => deletePuesto(db, c.req.param("slug"))))));
 equipoRoutes.post("/projects/:slug/proposals/:id/decide", async (c) => {
   const input = await body(c, z.object({ accept: z.boolean() }).strict());
   if (input instanceof Response) return input;

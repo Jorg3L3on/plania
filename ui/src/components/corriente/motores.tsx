@@ -283,7 +283,7 @@ export const Motores = ({ p, def, signIn, onSave, planTo, acts, now = Date.now()
             </span>
             <p className="cor-text" data-plan-read>{planReadLine(r.plan, now, w)}</p>
             <p className="cor-text">
-              {w.brakeLine}{" "}
+              {r.plan.override ? w.brakeOffLine : w.brakeLine}{" "}
               <Link className="cor-inline" to={planTo}>
                 {w.plomeria}
               </Link>

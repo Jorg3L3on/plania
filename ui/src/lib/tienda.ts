@@ -1,6 +1,7 @@
 // PLA-I71-4: the skill store's pure part (board Habilidades): the filters and their counts, the search, the line
 // each card says about its use, and the list a seat's switch saves.
 import { getLanguage, words, type Language } from "./i18n.js";
+import { skillWords } from "./oficio.js";
 import { TIENDA_WORDS } from "./tienda-words.js";
 
 export type TiendaSkill = {
@@ -32,9 +33,16 @@ const fold = (t: string) =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase();
-export const searchOf = (list: TiendaSkill[], q: string): TiendaSkill[] => {
-  const k = fold(q.trim());
-  return k ? list.filter((s) => fold(`${s.name} ${s.when} ${s.slug}`).includes(k)) : list;
+/** PLA-137: matches what the card shows (its name and line in the owner's language) as well as the stored name, its
+ *  description and the slug; every word of the query must appear, in any order. */
+export const searchOf = (list: TiendaSkill[], q: string, language: Language = getLanguage()): TiendaSkill[] => {
+  const parts = fold(q.trim()).split(/\s+/).filter(Boolean);
+  if (!parts.length) return list;
+  return list.filter((s) => {
+    const shown = skillWords(s, language);
+    const hay = fold(`${shown.name} ${shown.line} ${s.name} ${s.when} ${s.slug.replace(/-/g, " ")}`);
+    return parts.every((p) => hay.includes(p));
+  });
 };
 
 /** «usada en 9 de 11», or that no run carried it (never «0 de 0»). */

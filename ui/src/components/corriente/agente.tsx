@@ -6,6 +6,7 @@
 // a trial) widens the panel over the chart; Esc narrows it first, then closes the panel. It replaces the separate
 // agent page (PLA-I67-1), whose panels it reuses.
 import { useEffect, useState } from "react";
+import { ownerText } from "@/lib/owner-text";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type OrgMember, type OrgProject } from "@/lib/api";
@@ -73,7 +74,12 @@ const Shelf = ({ o, onOpen }: { o: Oficio; onOpen: (slug: string) => void }) => 
   };
   const own = useMutation({ mutationFn: ({ slug, on }: { slug: string; on: boolean }) => api.setSkillOn(o.project, o.agent, slug, on), onSuccess: refresh });
   const save = useMutation({ mutationFn: (list: string[]) => api.setSeatPacks(o.project, o.agent, list), onSuccess: refresh });
-  const err = save.error instanceof ApiError ? (save.error.code === "TOO_MANY_PACKS" ? w.tooManyCode : w.saveFailed(save.error.code)) : save.isError ? words(EQUIPO_WORDS).notNow : null;
+  // PLA-140: a seat whose list became its own can go back to its role's factory set; the line says what the last
+  // switch did (on or off).
+  const reset = useMutation({ mutationFn: () => api.resetSeatPacks(o.project, o.agent), onSuccess: refresh });
+  const [lastOn, setLastOn] = useState(true);
+  const failed = save.error ?? reset.error;
+  const err = failed instanceof ApiError ? (failed.code === "TOO_MANY_PACKS" ? w.tooManyCode : w.saveFailed(failed.code)) : failed ? words(EQUIPO_WORDS).notNow : null;
   const groups: [string, typeof o.skills][] = [
     [ws.groupYours(o.skills.filter((s) => s.source === "owner").length), o.skills.filter((s) => s.source === "owner")],
     [w.groupFactory(o.skills.filter((s) => s.source === "kit").length), o.skills.filter((s) => s.source === "kit")],
@@ -82,7 +88,15 @@ const Shelf = ({ o, onOpen }: { o: Oficio; onOpen: (slug: string) => void }) => 
   return (
     <>
       <p className="cor-cap ofi-shelf-hint" role="status">
-        {save.isPending || own.isPending ? w.saving : err ? <span className="cor-state bad">{err}</span> : save.isSuccess || own.isSuccess ? w.savedNext : <>{w.onCount(numWord(onCount, undefined, true), onCount)} {onCount > 6 ? `${w.focusHint} ${w.tooMany}` : o.own ? w.ownKit : w.defaultKit}</>}
+        {save.isPending || own.isPending || reset.isPending ? w.saving : err ? <span className="cor-state bad">{err}</span> : reset.isSuccess && !o.own ? w.backDone : save.isSuccess || own.isSuccess ? (lastOn ? w.savedNext : w.savedOff) : <>{w.onCount(numWord(onCount, undefined, true), onCount)} {onCount > 6 ? `${w.focusHint} ${w.tooMany}` : o.own ? w.ownKit : w.defaultKit}</>}
+        {o.own && !save.isPending && !reset.isPending && (
+          <>
+            {" "}
+            <Btn kind="link" onClick={() => (reset.reset(), save.reset(), own.reset(), reset.mutate())} data-control="volver-a-fabrica">
+              {w.backToFactory}
+            </Btn>
+          </>
+        )}
       </p>
       {groups.map(
         ([label, list]) =>
@@ -96,7 +110,7 @@ const Shelf = ({ o, onOpen }: { o: Oficio; onOpen: (slug: string) => void }) => 
                   const sw = skillWords(s);
                   return (
                     <li key={s.slug} data-shelf={s.slug}>
-                      <Switch on={s.on} label={sw.name} disabled={save.isPending || own.isPending} onChange={(on) => (s.owner ? own.mutate({ slug: s.slug, on }) : save.mutate(shelfNext(carried, s.slug, on)))} data-control={`estante-${s.slug}`} />
+                      <Switch on={s.on} label={sw.name} disabled={save.isPending || own.isPending} onChange={(on) => (setLastOn(on), reset.reset(), s.owner ? own.mutate({ slug: s.slug, on }) : save.mutate(shelfNext(carried, s.slug, on)))} data-control={`estante-${s.slug}`} />
                       <button type="button" className="ofi-shelf-open cor-cap" onClick={() => onOpen(s.slug)} aria-label={ws.openCard(sw.name)} data-control={`ver-${s.slug}`}>
                         <span className="ofi-shelf-line">{sw.line}</span>
                         <span aria-hidden>›</span>
@@ -297,7 +311,7 @@ const PuestoWide = ({ o, seat, motorLink, onClose }: { o: Oficio; seat: string; 
           <span className="org-tag">{w.readOnly}</span>
         </span>
         <pre className="agt-pre" tabIndex={0}>
-          {q.data ? (q.data.role_text ?? w.noRoleText) : "…"}
+          {q.data ? (q.data.role_text ? ownerText(q.data.role_text) : w.noRoleText) : "…"}
         </pre>
       </section>
       <PuestoPanel o={o} seat={seat} motorLink={motorLink} onClose={onClose} />

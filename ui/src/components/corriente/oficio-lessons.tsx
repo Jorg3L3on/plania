@@ -2,14 +2,14 @@
 // with their own words and the delivery they came from: Aprobar, Editar, Fue solo esa vez, No es una lección), the list
 // of lessons it carries (each can be retired), the "reading your correction" line, and the teach bar at the bottom
 // («Enséñale»: a rule, active at once; or a skill, which opens the new skill form).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
 import { words } from "@/lib/i18n";
 import { dayLabel, skillWords, type Oficio } from "@/lib/oficio";
 import { LESSON_WORDS } from "@/lib/oficio-lesson-words";
 import { budgetShare, historyLine, lessonError, type Budget, type LessonAction, type LessonView, type LessonsRead } from "@/lib/oficio-lessons";
-import { Btn, Label, Opt } from "./parts";
+import { Btn, Label, Opt, useSingleFlight } from "./parts";
 
 function useDecide(o: Oficio) {
   const client = useQueryClient();
@@ -61,14 +61,14 @@ export const ProposalCard = ({ o, seat, lesson, onClose }: { o: Oficio; seat: st
       <div className="ofi-shelf-scroll ofi-skill-body" tabIndex={0} aria-label={w.proposalHead}>
         {editing ? (
           <>
-            <label className="ofi-field" htmlFor={`ofi-lesson-${lesson.id}`}>
-              <Label>{w.editLabel}</Label>
+            <div className="ofi-field">
+              <label htmlFor={`ofi-lesson-${lesson.id}`}><Label>{w.editLabel}</Label></label>
               <textarea id={`ofi-lesson-${lesson.id}`} className="cor-textarea" rows={3} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} />
-            </label>
-            <label className="ofi-field" htmlFor={`ofi-lesson-when-${lesson.id}`}>
-              <Label>{w.whenLabel}</Label>
+            </div>
+            <div className="ofi-field">
+              <label htmlFor={`ofi-lesson-when-${lesson.id}`}><Label>{w.whenLabel}</Label></label>
               <input id={`ofi-lesson-when-${lesson.id}`} className="cor-input" maxLength={200} value={when} onChange={(e) => setWhen(e.target.value)} />
-            </label>
+            </div>
           </>
         ) : (
           <p className="ofi-proposal-text">{lesson.text}</p>
@@ -148,10 +148,10 @@ const LessonItem = ({ o, x, skills }: { o: Oficio; x: LessonView; skills: { slug
   };
   const decide = useDecide(o);
   const [target, setTarget] = useState(skills[0]?.slug ?? "");
-  const repeat = useMutation({ mutationFn: () => api.markRepeat(o.project, o.agent, x.id), onSuccess: refresh });
-  const confirm = useMutation({ mutationFn: ({ rid, yes }: { rid: string; yes: boolean }) => api.confirmRepeat(o.project, o.agent, rid, yes), onSuccess: refresh });
-  const merge = useMutation({ mutationFn: (skill: string | null) => api.mergeLesson(o.project, o.agent, x.id, skill), onSuccess: refresh });
-  const keep = useMutation({ mutationFn: () => api.keepLesson(o.project, o.agent, x.id), onSuccess: refresh });
+  const repeat = useMutation({ mutationFn: useSingleFlight(() => api.markRepeat(o.project, o.agent, x.id)), onSuccess: refresh });
+  const confirm = useMutation({ mutationFn: useSingleFlight(({ rid, yes }: { rid: string; yes: boolean }) => api.confirmRepeat(o.project, o.agent, rid, yes)), onSuccess: refresh });
+  const merge = useMutation({ mutationFn: useSingleFlight((skill: string | null) => api.mergeLesson(o.project, o.agent, x.id, skill)), onSuccess: refresh });
+  const keep = useMutation({ mutationFn: useSingleFlight(() => api.keepLesson(o.project, o.agent, x.id)), onSuccess: refresh });
   const busy = decide.isPending || repeat.isPending || confirm.isPending || merge.isPending || keep.isPending;
   const err = errOf(decide.error ?? repeat.error ?? confirm.error ?? merge.error ?? keep.error);
   const r = x.repeats;
@@ -309,13 +309,19 @@ export const TeachBar = ({ o, seat, onSkill }: { o: Oficio; seat: string; onSkil
   const client = useQueryClient();
   const [text, setText] = useState("");
   const teach = useMutation({
-    mutationFn: () => api.teachRule(o.project, o.agent, text),
+    mutationFn: useSingleFlight(() => api.teachRule(o.project, o.agent, text)),
     onSuccess: () => {
       setText("");
       void client.invalidateQueries({ queryKey: ["lessons", o.project, o.agent] });
     },
   });
   const err = errOf(teach.error);
+  // PLA-141: «Lista…» is said once; it stayed on after the lesson was retired.
+  useEffect(() => {
+    if (!teach.isSuccess) return;
+    const t = window.setTimeout(() => teach.reset(), 6000);
+    return () => window.clearTimeout(t);
+  }, [teach.isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <form
       className="ofi-teach"
@@ -335,7 +341,7 @@ export const TeachBar = ({ o, seat, onSkill }: { o: Oficio; seat: string; onSkil
           {w.modeSkill}
         </Opt>
       </div>
-      <input className="cor-input ofi-teach-input" aria-label={w.ruleLabel(seat)} placeholder={w.rulePlaceholder(seat)} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} data-control="regla" />
+      <input className="cor-input ofi-teach-input" aria-label={w.ruleLabel(seat)} placeholder={w.rulePlaceholder(seat)} maxLength={300} value={text} onChange={(e) => (setText(e.target.value), teach.isSuccess && teach.reset())} data-control="regla" />
       <span className="cor-cap ofi-teach-status" role="status">
         {teach.isPending ? "…" : err ? <span className="cor-state bad">{err}</span> : teach.isSuccess ? w.taught : ""}
       </span>

@@ -34,7 +34,8 @@ export const REFERENCE_UI_WORDS = defineWords({
     size: (w: number, h: number, tokens: number | null) => `${w.toLocaleString(FALLBACK_LOCALES.es)} × ${h.toLocaleString(FALLBACK_LOCALES.es)}${tokens ? ` · ~${tokens.toLocaleString(FALLBACK_LOCALES.es)} tokens` : ""}`,
     notReduced: "Esta máquina no pudo reducirla; se guardó sin sus datos ocultos.",
     pages: (n: number | null) => (n ? `PDF · ${n} ${n === 1 ? "página" : "páginas"}` : "PDF"),
-    snapshot: (date: string, chars: number) => `Copia del texto guardada el ${date} · ${chars.toLocaleString(FALLBACK_LOCALES.es)} letras`,
+    // PLA-141: «hoy» takes no article («guardada hoy», not «guardada el hoy»).
+    snapshot: (date: string, chars: number) => `Copia del texto guardada ${date === "hoy" ? "hoy" : `el ${date}`} · ${chars.toLocaleString(FALLBACK_LOCALES.es)} letras`,
     linkFailed: "El enlace no abrió",
     retry: "Probar otra vez",
     openLink: "Abrir el enlace",
@@ -92,7 +93,7 @@ export const REFERENCE_UI_WORDS = defineWords({
     size: (w: number, h: number, tokens: number | null) => `${w.toLocaleString(FALLBACK_LOCALES.en)} × ${h.toLocaleString(FALLBACK_LOCALES.en)}${tokens ? ` · ~${tokens.toLocaleString(FALLBACK_LOCALES.en)} tokens` : ""}`,
     notReduced: "This machine could not reduce it; it was kept without its hidden data.",
     pages: (n: number | null) => (n ? `PDF · ${n} ${n === 1 ? "page" : "pages"}` : "PDF"),
-    snapshot: (date: string, chars: number) => `Text copy saved on ${date} · ${chars.toLocaleString(FALLBACK_LOCALES.en)} characters`,
+    snapshot: (date: string, chars: number) => `Text copy saved ${date === "today" ? "today" : `on ${date}`} · ${chars.toLocaleString(FALLBACK_LOCALES.en)} characters`,
     linkFailed: "The link did not open",
     retry: "Try again",
     openLink: "Open the link",

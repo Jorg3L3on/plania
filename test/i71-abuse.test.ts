@@ -84,7 +84,7 @@ test("abuse: every seat route refuses bad input with a code, never a 500", async
     ["POST", `${T}/team`, { template: "../../etc" }, 400, "INVALID_TEMPLATE"],
     ["GET", "/api/company/projects/nada/equipo", undefined, 404, "PROJECT_NOT_FOUND"],
     ["GET", "/api/company/projects/nada/tienda", undefined, 404, "PROJECT_NOT_FOUND"],
-    ["GET", `${T}/teams/nada/adopt`, undefined, 400, "PUESTO_INVALID"],
+    ["GET", `${T}/teams/nada/adopt`, undefined, 404, "TEAM_NOT_FOUND"],
     ["POST", `${T}/teams/save`, { name: "" }, 400, "INVALID_BODY"],
     ["POST", "/api/company/import/preview", { source: { url: "javascript:alert(1)" } }, 400, "SKILL_IMPORT_FORMAT"],
     ["POST", "/api/company/import/preview", { source: { url: "https://intranet.test/a" } }, 400, "SKILL_IMPORT_FORMAT"],

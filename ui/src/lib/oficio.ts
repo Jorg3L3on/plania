@@ -58,6 +58,9 @@ export function skillWords(s: { slug: string; name: string; when: string; source
   return { name: s.name, line };
 }
 
+/** PLA-141: a skill named by its slug alone (a team's list, a role's suggested set), as the owner reads it. */
+export const skillName = (slug: string, language: Language = getLanguage()): string => skillWords({ slug, name: slug, when: "" }, language).name;
+
 /** «una», «dos»… up to ten (feminine: habilidad, entrega), capitalised on request; digits after. */
 const NUM: Record<Language, string[]> = {
   es: ["ninguna", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez"],

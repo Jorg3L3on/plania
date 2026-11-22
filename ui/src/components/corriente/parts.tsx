@@ -87,6 +87,22 @@ export const Switch = ({ on, label, onChange, disabled, ...rest }: { on: boolean
   </button>
 );
 
+/** PLA-136: one request per write, whoever calls it. Wraps a mutationFn: while a call is on its way, another call
+ *  gets the same promise instead of sending a second request (a double click on Enseñar, Crear or Duplicar wrote
+ *  twice). Use it where the button has no useOnce of its own. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function useSingleFlight<F extends (...args: any[]) => Promise<unknown>>(fn: F): F {
+  const flight = useRef<Promise<unknown> | null>(null);
+  return ((...args: Parameters<F>) => {
+    if (flight.current) return flight.current;
+    const p: Promise<unknown> = fn(...args).finally(() => {
+      if (flight.current === p) flight.current = null;
+    });
+    flight.current = p;
+    return p;
+  }) as F;
+}
+
 /** PLA-I71: one write per click. A second click while the first is on its way does nothing (a triple click on a save
  *  sent three writes before the button could disable). sticky: a one-time action (accept, add, retire, adopt, import)
  *  stays locked after it succeeded, until key changes (another role picked, another proposal); an error unlocks it.
