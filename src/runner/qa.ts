@@ -107,6 +107,11 @@ export const QA_WORDS = defineWords({
     axes: (spec: boolean, code: boolean) => `lo pedido ${spec ? "pasa" : "falla"} · el código ${code ? "pasa" : "falla"}`,
     reviewVerdict: (ok: boolean) => `revisión ${ok ? "pasa" : "falla"}`,
     noReview: "sin revisión (fallaron las pruebas)",
+    // PLA-I74-11: why there is no review, from what happened.
+    noReviewChecksOnly: "sin revisión aparte (este proyecto solo corre sus comprobaciones)",
+    noReviewYet: "sin revisión",
+    noTests: "sin pruebas",
+    checksRan: (ok: number, total: number) => `comprobaciones ${ok} de ${total}`,
     walked: "recorrió la app",
     checklist: (ok: number, total: number) => `check list ${ok} de ${total}`,
     noChecklist: "sin check list",
@@ -152,6 +157,10 @@ export const QA_WORDS = defineWords({
     axes: (spec: boolean, code: boolean) => `what was asked ${spec ? "passes" : "fails"} · the code ${code ? "passes" : "fails"}`,
     reviewVerdict: (ok: boolean) => `review ${ok ? "passes" : "fails"}`,
     noReview: "no review (the tests failed)",
+    noReviewChecksOnly: "no separate review (this project only runs its checks)",
+    noReviewYet: "no review",
+    noTests: "no tests",
+    checksRan: (ok: number, total: number) => `checks ${ok} of ${total}`,
     walked: "walked through the app",
     checklist: (ok: number, total: number) => `check list ${ok} of ${total}`,
     noChecklist: "no check list",
@@ -734,6 +743,35 @@ export function notesOf(lane: Pick<QaLane, "verify" | "capture" | "review" | "ma
 
 const attachUrl = (deps: QaDeps, slug: string, id: string) => `${(deps.publicUrl ?? deps.env?.PLANIA_PUBLIC_URL ?? process.env.PLANIA_PUBLIC_URL ?? "http://127.0.0.1:3737").replace(/\/$/, "")}${imageUrl(slug, id)}`;
 
+/** PLA-I74-11: the QA line the screen shows, said from what happened: a pass never reads as failed tests, a project
+ * that only runs its checks says why there is no review, and checks with no test counts are counted as checks. */
+export function qaSummary(
+  r: { pass: boolean; attempt: number; verify: QaVerifyItem[]; review: Pick<QaReview, "verdict" | "spec" | "code" | "walked"> | null; checksOnly: boolean; checklist: { ok: number; total: number }; captures: number | null },
+  language?: "es" | "en",
+): string {
+  const w = language ? say(QA_WORDS, language) : say(QA_WORDS);
+  const tests = testsOf(r.verify);
+  const verifyOk = r.verify.every((v) => v.ok);
+  const testLine = tests.total > 0 ? w.tests(tests.pass, tests.total) : r.verify.length ? w.checksRan(r.verify.filter((v) => v.ok).length, r.verify.length) : w.noTests;
+  const reviewLine = r.review?.spec && r.review.code
+    ? w.axes(r.review.spec.verdict === "pass", r.review.code.verdict === "pass")
+    : r.review
+      ? w.reviewVerdict(r.review.verdict === "pass")
+      : !verifyOk
+        ? w.noReview
+        : r.checksOnly
+          ? w.noReviewChecksOnly
+          : w.noReviewYet;
+  return [
+    w.summary(r.pass, r.attempt),
+    testLine,
+    reviewLine,
+    ...(r.review?.walked ? [w.walked] : []),
+    r.checklist.total ? w.checklist(r.checklist.ok, r.checklist.total) : w.noChecklist,
+    r.captures !== null ? w.capturesN(r.captures) : w.noCaptures,
+  ].join(" · ");
+}
+
 export function testsOf(verify: QaVerifyItem[]): { pass: number; total: number } {
   let pass = 0;
   let total = 0;
@@ -803,21 +841,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   await add({
     kind: "verify",
     verdict: status,
-    cite: cut(
-      [
-        w.summary(pass, lane.attempt),
-        w.tests(tests.pass, tests.total),
-        review?.spec && review.code
-          ? w.axes(review.spec.verdict === "pass", review.code.verdict === "pass")
-          : review
-            ? w.reviewVerdict(review.verdict === "pass")
-            : w.noReview,
-        ...(review?.walked ? [w.walked] : []),
-        items.length ? w.checklist(checkedOk, items.length) : w.noChecklist,
-        lane.capture ? w.capturesN(lane.capture.ok) : w.noCaptures,
-      ].join(" · "),
-      500,
-    ),
+    cite: cut(qaSummary({ pass, attempt: lane.attempt, verify: lane.verify, review, checksOnly, checklist: { ok: checkedOk, total: items.length }, captures: lane.capture ? lane.capture.ok : null }), 500),
     counts: { pass: tests.pass, fail: tests.total - tests.pass },
   });
   await db.insert(events).values({ projectId: p.id, taskId: t.id, taskKey: t.key, type: "verify.done", actor: qaActor("qa"), payload: { lane_id: lane.id, pass, checks_only: checksOnly } });

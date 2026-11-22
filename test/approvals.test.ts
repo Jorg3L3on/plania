@@ -16,7 +16,8 @@ const { waiveCheck } = await import("../src/mcp/checks.js");
 type Json = Record<string, any>;
 const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const P = { project: "filmia" };
-const T = { scope: "s", checks: ["tests green", "screenshot at 375px"] };
+// PLA-I74-11: the second check is not visual, so an agent may waive it (a visual one is the QA lane's or the owner's).
+const T = { scope: "s", checks: ["tests green", "changelog entry written"] };
 
 let client: Client;
 let raw: pg.Client;

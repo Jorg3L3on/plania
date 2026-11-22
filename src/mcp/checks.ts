@@ -1,6 +1,8 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, tasks, type Actor, type Project, type Task } from "../db/schema.js";
+import { agentRuns, agents, checks, tasks, type Actor, type Project, type Task } from "../db/schema.js";
+import { roleOf } from "../runner/limits.js";
+import { runPrefixOf } from "../runner/run-session.js";
 import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
@@ -134,6 +136,30 @@ export async function setCheckInTx(
 
 export type WaiveCheckInput = { project: string; key: string; n: number; reason: string; approval_id?: string };
 
+// PLA-I74-11: a check about what the screen shows (how it looks, a still, a viewport) is waived only by the QA lane, a
+// QA seat or the owner. The builder waived its own visual checks; nobody had looked.
+const VISUAL = /\b(visual(?:es|mente)?|visually|pantallas?|screens?|capturas?|stills?|screenshots?|fotos?|se ve[n]?|verse|looks?|layout|dise[ñn]o|design|viewports?|m[óo]vil|mobile|tel[ée]fono|phone|desktop|escritorio|responsive|\d{3,4}\s?px|\d{3,4}x\d{3,4}|a11y|accesib\w*|contraste|contrast|aparece[n]?|appears?|visible[s]?|render\w*)\b/i;
+export const isVisualCheck = (text: string): boolean => VISUAL.test(text);
+
+/** Who may waive a visual check: the owner's screen (human), a server move (system), the QA lane, or a QA seat's run. */
+export async function mayWaiveVisual(tx: Q, ctx: Ctx): Promise<boolean> {
+  if (ctx.human || ctx.system) return true;
+  if (ctx.actor?.session_id === "qa-lane") return true;
+  const prefix = runPrefixOf(ctx.actor?.session_id) ?? runPrefixOf(ctx.runSession);
+  let seat: (typeof agents.$inferSelect) | undefined;
+  if (prefix) {
+    const [run] = await tx
+      .select({ agentId: agentRuns.agentId })
+      .from(agentRuns)
+      .where(sql`replace(${agentRuns.id}::text, '-', '') like ${`${prefix}%`}`)
+      .orderBy(sql`${agentRuns.queuedAt} desc`)
+      .limit(1);
+    if (run) [seat] = await tx.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
+  }
+  // Only a run proves a seat: an actor that merely calls itself qa is not one.
+  return !!seat && roleOf(seat) === "qa";
+}
+
 // A check that will not be done, with why. The reason is the record at every status.
 export async function waiveCheckInTx(tx: Q, emit: Emit, p: Project, input: WaiveCheckInput, ctx: Ctx) {
   if (!input.reason.trim()) throw new ToolError("INVALID_APPROVAL", { field: "reason", hint: "say why the check is waived" });
@@ -141,6 +167,8 @@ export async function waiveCheckInTx(tx: Q, emit: Emit, p: Project, input: Waive
   checkOwner(t, ctx);
   const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
+  if (isVisualCheck(before.text) && !(await mayWaiveVisual(tx, ctx)))
+    throw new ToolError("WAIVE_VISUAL_FORBIDDEN", { n: before.n, text: before.text, hint: "a visual check is proven with a visual result, or waived by the QA lane or the owner; ask the owner if it truly does not apply" });
   const [c] = await tx
     .update(checks)
     .set({ waivedAt: sql`now()`, waivedBy: ctx.actor, waiveReason: input.reason.trim(), approvalId: null })
