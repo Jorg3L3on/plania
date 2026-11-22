@@ -444,3 +444,13 @@ describe("Propuestas leave Archivo", () => {
     assert.equal(corr.atOf("?proyecto=zigzag&t=prs").tab, "camino");
   });
 });
+
+test("PLA-158 (F-24): in «Revisar y aplicar» only a change's row is the grid; its plain lines wrap by words", () => {
+  const css = readFileSync(new URL("../ui/src/camino.css", import.meta.url), "utf8");
+  assert.ok(!/^\.cam-rvs li \{/m.test(css), "no descendant rule turns the plain lines into the row's grid");
+  assert.match(css, /^\.cam-rvs > ul > li \{[^}]*grid-template-columns: 20px minmax\(0, 1fr\) auto/m);
+  assert.match(css, /^\.cam-rvs > ul > li > \* \{ min-width: 0; \}/m);
+  assert.match(css, /^\.cam-lines > li \{[^}]*display: block/m);
+  assert.match(css, /^\.cam-d \{[^}]*min-width: 0;[^}]*overflow-wrap: break-word/m);
+  assert.ok(!/overflow-wrap: anywhere/.test(css.slice(css.indexOf(".cam-rvs"), css.indexOf(".cam-diff {"))), "words are not broken anywhere");
+});
