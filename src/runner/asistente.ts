@@ -329,11 +329,14 @@ const actorCtx = (tool: string) => ({ actor: { ...ASISTENTE_ACTOR, machine: host
 
 // A PO's ticket that the owner asked for (origin owner), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
+// PLA-156 (guided test 3): never one that carries a PR. A «Hacerlo ya» the PO coded ended In review with an open
+// PR; Asistente closed it Done and the change never reached the app. Code goes through the owner's card and merge.
 export async function routineAccept(db: Db, now: Date): Promise<number> {
   const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`
     select t.id, t.key, t.title, t.version, p.slug as project, p.id as project_id, t.owner_agent as owner
     from tasks t join projects p on p.id = t.project_id
     where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'owner' and t.work_type in ('ops', 'research') and t.owner_agent is not null
+      and t.pr_url is null
       and not exists (select 1 from checks c where c.task_id = t.id and not c.done and c.waived_at is null)
     order by t.key`);
   let n = 0;
