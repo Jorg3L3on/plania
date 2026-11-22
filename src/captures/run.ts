@@ -170,8 +170,32 @@ async function gitLine(exec: Exec, cwd: string, args: string): Promise<string | 
 }
 
 // Logs in on the page with the test user and the password just set. Returns null or what went wrong.
+// PLA-166 (guided test 2026-11-22): on a React login (Next.js app router, onSubmit + signIn) the fields were filled
+// and requestSubmit()ed as soon as goto resolved, before React attached to the form: the submit never reached the
+// app and the page stayed on the login. The form is live once the page is complete and, on a React page, the password
+// field carries React's props. A page without React is live on load. Waits at most FORM_WAIT_MS, then fills anyway.
+export const FORM_WAIT_MS = 10_000;
+export const formReadyScript = (passwordField: string) => `(() => { /* __planiaFormReady */
+  if (document.readyState !== 'complete') return false;
+  const pass = document.querySelector('input[name=' + ${JSON.stringify(JSON.stringify(passwordField))} + ']');
+  if (!pass) return false;
+  const react = !!(window.__next_f || window.__NEXT_DATA__ || window.next || document.querySelector('[data-reactroot]'));
+  return !react || Object.keys(pass).some((k) => k.startsWith('__react'));
+})()`;
+
 async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSettings["session"]>, password: string, waitMs: number): Promise<string | null> {
   await page.goto(base + s.login_path);
+  const live = Date.now() + Math.min(FORM_WAIT_MS, waitMs);
+  while (Date.now() < live) {
+    let ready = false;
+    try {
+      ready = await page.evaluate<boolean>(formReadyScript(s.password_field));
+    } catch {
+      // mid-navigation
+    }
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
   const filled = await page.evaluate<string>(`(() => {
     const byName = (n) => document.querySelector('input[name=' + JSON.stringify(n) + ']');
     const user = byName(${JSON.stringify(s.user_field)});
