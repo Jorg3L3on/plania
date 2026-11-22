@@ -1,6 +1,9 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { hostname } from "node:os";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, results, tasks, type Project, type Task } from "../db/schema.js";
+import { branches, checks, results, tasks, type Project, type Task } from "../db/schema.js";
 import { setMetricInTx } from "./blockers.js";
 import { ToolError, findProject, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
@@ -69,9 +72,64 @@ export async function headFor(db: Q, t: Pick<Task, "projectId">, branch: string 
   return latest?.commit ?? null;
 }
 
+// PLA-169: a redelivery pushed seconds before finish names a commit the poller has not read yet. The stored head is
+// then older than the pass, not newer, and the pass is not stale. Whether the pass's commit descends from the stored
+// head is asked of git in the ticket's own workspace (when it is a folder on this machine); git says no → stale.
+// When git cannot tell (no workspace here, a commit it does not have), a pass recorded after the poller saw the head,
+// on a ticket whose earlier pass named that head, is a newer delivery: the head is the one it delivered before.
+export type Ancestry = (cwd: string, ancestor: string, descendant: string) => Promise<boolean | null>;
+const ANCESTRY_MS = 3000;
+const gitAncestry: Ancestry = (cwd, ancestor, descendant) =>
+  new Promise((resolve) => {
+    execFile("git", ["-C", cwd, "merge-base", "--is-ancestor", ancestor, descendant], { timeout: ANCESTRY_MS }, (err) => {
+      if (!err) return resolve(true);
+      const code = (err as { code?: unknown }).code;
+      resolve(code === 1 ? false : null);
+    });
+  });
+let ancestry: Ancestry = gitAncestry;
+/** Test seam: replaces the git call. Pass null to restore it. */
+export function setAncestryForTests(fn: Ancestry | null): void {
+  ancestry = fn ?? gitAncestry;
+}
+
+/** Where git can answer for this ticket: its workspace folder, when it is on this machine. */
+const workspaceOf = (t: Pick<Task, "workspace">): string | null => {
+  const ws = t.workspace;
+  if (!ws?.worktree_path || (ws.machine && ws.machine !== hostname()) || !existsSync(ws.worktree_path)) return null;
+  return ws.worktree_path;
+};
+
+export type HeadRelation = "same" | "newer" | "older" | "unknown";
+/** How a result's commit stands against the branch's stored head. */
+export async function relationToHead(db: Q, t: Pick<Task, "id" | "projectId" | "workspace">, r: Pick<Result, "commit" | "branch" | "createdAt">, head: string | null, branch: string | null): Promise<HeadRelation | null> {
+  if (!r.commit || !head) return null;
+  if (head.startsWith(r.commit) || r.commit.startsWith(head)) return "same";
+  const cwd = workspaceOf(t);
+  const known = cwd ? await ancestry(cwd, head, r.commit) : null;
+  if (known === true) return "newer";
+  if (known === false) return "older";
+  // git cannot tell: the head was this ticket's own earlier delivery and the pass came after the poller saw it.
+  const [b] = branch ? await db.select({ headAt: branches.headAt }).from(branches).where(and(eq(branches.projectId, t.projectId), eq(branches.name, branch))).limit(1) : [];
+  if (b?.headAt && r.createdAt > b.headAt) {
+    const [before] = await db
+      .select({ id: results.id })
+      .from(results)
+      .where(and(eq(results.taskId, t.id), sql`(${results.commit} like ${head.slice(0, 7)} || '%')`, lt(results.createdAt, r.createdAt)))
+      .limit(1);
+    if (before) return "newer";
+  }
+  return "unknown";
+}
+/** stale_for_head with PLA-169's rule: a pass on a commit newer than the stored head is not stale. */
+export async function staleFor(db: Q, t: Pick<Task, "id" | "projectId" | "workspace">, r: Pick<Result, "commit" | "branch" | "createdAt">, head: string | null, branch: string | null): Promise<boolean | null> {
+  const rel = await relationToHead(db, t, r, head, branch);
+  return rel === null ? null : rel === "older" || rel === "unknown";
+}
+
 // 2.11 (fix d): each result also says which of this task's checks it ticked (checks.evidence_id),
 // so the sheet's timeline can show "☑ 2, 3" on the row.
-export async function taskResults(db: Q, t: Pick<Task, "id" | "projectId" | "branch">) {
+export async function taskResults(db: Q, t: Pick<Task, "id" | "projectId" | "branch" | "workspace">) {
   const rows = await db.select().from(results).where(eq(results.taskId, t.id)).orderBy(asc(results.createdAt));
   const ticked = await db
     .select({ n: checks.n, evidenceId: checks.evidenceId })
@@ -83,7 +141,8 @@ export async function taskResults(db: Q, t: Pick<Task, "id" | "projectId" | "bra
   for (const r of rows) {
     const b = r.branch ?? t.branch ?? null;
     if (b && !heads.has(b)) heads.set(b, await headFor(db, t, b));
-    out.push({ ...resultShape(r, b ? (heads.get(b) ?? null) : null), ticked_checks: ticked.filter((c) => c.evidenceId === r.id).map((c) => c.n) });
+    const head = b ? (heads.get(b) ?? null) : null;
+    out.push({ ...resultShape(r, head), stale_for_head: await staleFor(db, t, r, head, b), ticked_checks: ticked.filter((c) => c.evidenceId === r.id).map((c) => c.n) });
   }
   return out;
 }
@@ -102,22 +161,27 @@ export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Ta
   if (t.claimedAt) where.push(gte(results.createdAt, t.claimedAt));
   const found = await tx.select().from(results).where(and(...where)).orderBy(desc(results.createdAt));
   if (found.length) {
-    const fresh = [];
+    const relations: HeadRelation[] = [];
     for (const r of found) {
       const b = r.branch ?? t.branch ?? null;
       const head = b ? await headFor(tx, t, b) : null;
-      if (resultShape(r, head).stale_for_head !== true) fresh.push(r);
+      const rel = await relationToHead(tx, t, r, head, b);
+      if (rel === null || rel === "same" || rel === "newer") return;
+      relations.push(rel);
     }
-    if (fresh.length) return;
     const branch = found[0]!.branch ?? t.branch;
     const head = await headFor(tx, t, branch ?? null);
     const named = [...new Set(found.map((r) => r.commit?.slice(0, 7)).filter(Boolean))].join(", ");
+    const at = head?.slice(0, 7) ?? "?";
     throw new ToolError("EVIDENCE_STALE", {
       branch,
       head,
       results: found.map((r) => ({ id: r.id, kind: r.kind, commit: r.commit })),
-      // 2.13: say what moved, so the fix is obvious: the branch went on past the commit the passes name.
-      hint: `${branch} is at ${head?.slice(0, 7) ?? "?"} (what the GitHub poller last saw, else the newest commit a result named), but your passes name ${named}; run the checks again at ${head?.slice(0, 7) ?? "the head"} and add a pass with that commit`,
+      // 2.13: say what moved, so the fix is obvious. PLA-169: only a pass known to be older than the head is told to
+      // run again at the head; when Plania cannot tell, the commit may be newer and only unpushed or unread.
+      hint: relations.every((x) => x === "older")
+        ? `${branch} is at ${at} (what the GitHub poller last saw), past the commits your passes name (${named}); run the checks again at ${at} and add a pass with that commit`
+        : `${branch} is at ${at} as far as Plania knows (what the GitHub poller last saw, else the newest commit a result named) and your passes name ${named}. If ${named} is newer, push it to ${branch} and call finish again (the poller reads a push within a minute); if it is older, run the checks again on the branch's current head`,
     });
   }
   if (workType === "research" && (await hasDoc(tx, t))) return;
@@ -232,8 +296,9 @@ export async function addResultInTx(tx: Q, emit: Emit, p: Project, input: AddRes
     ...(r!.branch ? { branch: r!.branch } : {}),
     checks: ticked,
   });
-  const head = await headFor(tx, t, r!.branch ?? t.branch ?? null);
-  return writeReply(tx, u, ctx, ticked.length ? ["results", "checks"] : ["results"], { result: resultShape(r!, head) });
+  const rb = r!.branch ?? t.branch ?? null;
+  const head = await headFor(tx, t, rb);
+  return writeReply(tx, u, ctx, ticked.length ? ["results", "checks"] : ["results"], { result: { ...resultShape(r!, head), stale_for_head: await staleFor(tx, t, r!, head, rb) } });
 }
 
 export async function addResult(db: Db, input: AddResultInput, ctx: Ctx) {

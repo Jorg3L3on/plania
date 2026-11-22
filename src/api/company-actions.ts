@@ -27,6 +27,7 @@ import { startNow } from "../runner/runner.js";
 import { ACTIVE_STATUSES, workKeyOf } from "../runner/queue.js";
 import { teamOf } from "../runner/team.js";
 import { ownerEs } from "../owner.js";
+import { ST } from "../state/status.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
@@ -143,7 +144,7 @@ export async function createPoTicket(
     {
       project: project.slug,
       title: firstLine(sentence),
-      status: "Ready",
+      status: ST.ready,
       origin: "owner",
       work_type: "ops",
       priority: "P2",
@@ -209,7 +210,7 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select({ status: tasks.status, kind: tasks.kind }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (!t || t.kind !== "ticket") return { error: "TASK_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noTicket };
-  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).notReady };
+  if (t.status !== ST.ready) return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).notReady };
   await db.update(projects).set({ settings: { ...p.settings, next_first: key }, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
   return { next: key };
 }
@@ -270,7 +271,7 @@ export async function resendRequest(db: Db, slug: string, key: string): Promise<
   if ("error" in g) return g;
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, g.project.id), eq(tasks.key, key))).limit(1);
   if (!t || t.origin !== "owner") return { error: "ORDER_NOT_FOUND", status: 404, hint: say(ACTION_WORDS).noOrder };
-  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).orderTaken };
+  if (t.status !== ST.ready) return { error: "NOT_READY", status: 409, hint: say(ACTION_WORDS).orderTaken };
   if (!eventWakesEnabled()) return { key, wake: "off" };
   const out = await queueWake(db, g.project, { id: t.id, key: t.key }, { agent: g.po, taskKey: t.key, reason: "request resent" }, "screen.resend");
   return { key, wake: out.kind === "queued" ? "queued" : "busy" };

@@ -19,6 +19,7 @@ import { checkRepoFolder, defaultRepoCheckDeps, type RepoCheckCode, type RepoChe
 import { CONTEXT_DOCS } from "./runner.js";
 import { teamOf } from "./team.js";
 import { repoPathOf } from "./worktree.js";
+import { verifyListOf } from "./build-step.js";
 import { ghLoginOn, storedRunnerToken } from "../install-state.js";
 import { readTokenFile } from "../jobs/gh-token.js";
 import { ghState } from "../machine-check/index.js";
@@ -144,7 +145,8 @@ export async function projectReadiness(db: Db, slug: string, deps: ReadinessDeps
     items.push(access === "ok" ? { id: "github", state: "ready", blocks: false } : { id: "github", state: "missing", blocks: false, why: access });
   }
   withCode("capture", !!settings.capture);
-  withCode("verify", (settings.qa?.verify?.length ?? 0) > 0);
+  // PLA-I74-9: the host's production build counts as a check.
+  withCode("verify", verifyListOf({ settings }, repoPathOf(slug, settings, env)).length > 0);
 
   // The context docs appended to a session's first prompt (projectContext in ./runner.ts).
   const ctx = await db

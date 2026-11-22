@@ -94,13 +94,16 @@ jobs:
           git config --global init.defaultBranch main
 
       # The suite as `pnpm test` runs it, with a second, TAP copy of the results for the skip list below.
-      # The clean-install test (test/clean-install.test.ts) is part of it.
+      # The clean-install test (test/clean-install.test.ts) is part of it. PLA-I74-2: the canary runs in its own job
+      # (below), so it is left out here and never runs twice.
       - name: Test
-        run: >-
-          node --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=300000
-          --test-reporter=spec --test-reporter-destination=stdout
-          --test-reporter=tap --test-reporter-destination=test-results.tap
-          "test/*.test.ts"
+        run: |
+          files=()
+          for f in test/*.test.ts; do [ "$f" = test/canary.test.ts ] || files+=("$f"); done
+          node --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=300000 \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=tap --test-reporter-destination=test-results.tap \
+            "${files[@]}"
 
       # Every skipped test with its reason (test/platform.ts says why a test cannot run on this system).
       - name: Skipped tests
@@ -112,3 +115,74 @@ jobs:
           else
             echo "no test results (the suite did not run)"
           fi
+
+  # PLA-I74-2: the canary. One owner request from Pedir to production through the real API, runner, heartbeat, QA lane,
+  # El Probador and the GitHub and deploy pollers, with every outside call faked (test/canary.test.ts). Its own job so
+  # its result is one named check that can be made required, and so a broken handoff reads as "Canary" and not as one
+  # of 340 test files. A scenario row still waiting on its fix is a todo naming that ticket: it shows, it does not fail.
+  canary:
+    name: Canary (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    env:
+      PLANIA_TEST_PGUSER: postgres
+      PG_MAJOR: "16"
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Postgres (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql
+          sudo systemctl start postgresql.service
+          for i in $(seq 1 30); do pg_isready -h localhost -p 5432 && break; sleep 1; done
+          hba=$(sudo -u postgres psql -tAc "show hba_file")
+          sudo sed -i '1i host all all ::1/128 trust' "$hba"
+          sudo sed -i '1i host all all 127.0.0.1/32 trust' "$hba"
+          sudo -u postgres psql -tAc "select pg_reload_conf()"
+
+      - name: Postgres (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install "postgresql@${PG_MAJOR}"
+          bin="$(brew --prefix "postgresql@${PG_MAJOR}")/bin"
+          echo "$bin" >> "$GITHUB_PATH"
+          brew services start "postgresql@${PG_MAJOR}"
+          for i in $(seq 1 30); do "$bin/pg_isready" -h localhost -p 5432 && break; sleep 1; done
+          if [ "$("$bin/psql" -h localhost -d postgres -tAc "select 1 from pg_roles where rolname = 'postgres'")" != "1" ]; then
+            "$bin/psql" -h localhost -d postgres -c "create role postgres with login superuser"
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The fixture app's repos commit and merge with real git (test/canary/fixture.ts, fake-github.ts).
+      - name: Git identity for the fixture repos
+        run: |
+          git config --global user.name "plania-ci"
+          git config --global user.email "ci@plania.invalid"
+          git config --global init.defaultBranch main
+
+      # Under five minutes is the bar (PLA-I74-2); the job's timeout is the ceiling, not the target.
+      - name: Canary
+        run: >-
+          node --import tsx --test --test-force-exit --test-timeout=300000
+          --test-reporter=spec --test-reporter-destination=stdout
+          test/canary.test.ts

@@ -19,6 +19,8 @@ export type Ajustes = {
   code: AjustesCodigo;
   release: { from: string; into: string; env: string; mode: "command" | "merge"; prod_migrations?: "deploy" | "owner" | "none" | null } | null;
   verify: { name: string; command: string }[];
+  // PLA-I74-9: the host's production build QA runs by default (src/runner/build-step.ts); an older server sends none.
+  build?: { command: string | null; source: "vercel.json" | "vercel-build" | "build" | null; on: boolean; in_list: boolean; off_reason: string | null };
   preview_url: string | null;
   plan_approval: boolean;
   context: AjustesContexto[];

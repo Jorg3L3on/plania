@@ -802,7 +802,9 @@ export type ProjectSettings = {
   resources?: Record<string, { needs_approval?: boolean; ttl_max?: number }>; // by name glob
   quotas?: Record<string, { daily: number }>;
   github?: { repo: string; token_env?: string };
-  vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string> };
+  // PLA-I74-8: production_url is the address that must answer before a deploy counts as in production (default: the
+  // production environment's health or URL in Camino, else the deploy's own URL).
+  vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string>; production_url?: string };
   // Where the project's repo lives on the machine the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
   // NEWPROJ-3: no_code says on purpose that the project has no code yet (never together with repo_path).
   local?: { repo_path?: string; no_code?: boolean };

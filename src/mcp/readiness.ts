@@ -563,7 +563,8 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
     lastEventAt: asDate(lastEvent),
     headlineStale: p.headlineNoteStale,
     nextClaimableKey: nextKey,
-    deployFailed: polls.some((row) => row.source === "vercel" && !!row.error),
+    // PLA-I74-8: a failed production build (the deploy row src/jobs/deploy-truth.ts keeps) counts too.
+    deployFailed: polls.some((row) => (row.source === "vercel" || row.source === "deploy") && !!row.error),
     envBehind: behind.behind,
     envUnknown: behind.unknown,
     initiatives,

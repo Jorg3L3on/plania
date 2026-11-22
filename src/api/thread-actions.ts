@@ -218,6 +218,8 @@ async function accept(db: Db, msg: ThreadMessage, ref: ThreadRef, by: AcceptBy =
   const t = await linkedTicket(db, msg, ref);
   if (!t) return refuse("NO_TICKET", w().noTicket);
   if (t.status !== "In review") return refuse("NOT_IN_REVIEW", w().notInReview(t.key, t.status), { key: t.key, status: t.status });
+  // PLA-I74-10: a delivery photographed on the wrong page is never accepted, from the card or by the auto switch.
+  if (t.probador?.wrong) return refuse("PHOTO_WRONG_PAGE", t.probador.error ?? "");
   const pr = prOf(msg, t);
   if (pr && CODE.has(t.workType ?? "code")) return merge(db, msg, t, pr, by);
   // Only a PR is accepted automatically: a doc or a plan is the owner's to read.

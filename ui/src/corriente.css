@@ -756,6 +756,12 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-ahora { display: flex; align-items: center; gap: 12px; min-height: 62px; margin-top: 10px; padding: 8px 14px 8px 22px; border-top: 1px solid var(--cor-line); border-radius: 0 0 13px 13px; flex: none; }
 .cor-ficha-ahora.you { border-top-color: rgba(255, 180, 84, 0.4); background: linear-gradient(180deg, rgba(255, 180, 84, 0.08), rgba(255, 180, 84, 0.02)); }
 .cor-ficha-ahora.live { border-top-color: rgba(167, 139, 250, 0.35); background: linear-gradient(180deg, rgba(139, 92, 246, 0.08), transparent); }
+/* PLA-I74-8: a failed production deploy. */
+.cor-ficha-ahora.bad { border-top-color: rgba(255, 122, 122, 0.45); background: linear-gradient(180deg, rgba(255, 122, 122, 0.1), rgba(255, 122, 122, 0.02)); }
+.cor-ficha-ahora.bad .cor-ficha-gl { border-color: var(--cor-red); box-shadow: 0 0 18px 4px rgba(255, 122, 122, 0.45); }
+.cor-label.bad { color: var(--cor-red); }
+.cor-ficha-deploy { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+.cor-ficha-deploy-log { width: 100%; max-height: 260px; overflow: auto; margin: 0; padding: 10px 12px; border: 1px solid rgba(255, 122, 122, 0.3); border-radius: 10px; background: rgba(0, 0, 0, 0.25); color: var(--cor-text); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 .cor-ficha-ahora-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cor-ficha-ahora-tx p { font-size: 15px; color: var(--cor-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cor-ficha-ahora-tx p span { color: var(--cor-body); }
@@ -1285,6 +1291,9 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ajustes-sec[data-ajustes="contexto"] { grid-column: 1 / -1; }
 .cor-ajustes-h { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .cor-ajustes-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* PLA-I74-9: the production build QA runs by default. */
+.cor-ajustes-build { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--cor-line); min-width: 0; }
+.cor-ajustes-build code { overflow-wrap: anywhere; }
 .cor-ajustes-form > label { display: flex; flex-direction: column; gap: 6px; }
 .cor-ajustes-form .cor-input, .cor-ajustes-area { width: 100%; min-width: 0; }
 .cor-ajustes-three > label { min-width: 0; }
@@ -2878,6 +2887,50 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-crono-verifica { background: var(--cor-green); }
 .cor-crono-dueno { background: var(--cor-violet-4); opacity: 0.55; }
 .cor-crono-detenido { background: var(--cor-red); }
+/* PLA-I74-1: the run report under the stopwatch (components/corriente/ficha.tsx Informe). */
+.cor-informe { margin-top: 22px; display: grid; gap: 12px; }
+.cor-informe-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; color: var(--cor-body); }
+.cor-informe-lines b { font-weight: 500; color: var(--cor-text); }
+.cor-informe-sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--cor-muted); overflow-wrap: anywhere; }
+.cor-informe-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 28px; }
+.cor-informe-h { margin: 0 0 6px; font: 500 11.5px/1.4 var(--cor-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cor-muted); }
+.cor-informe-dl { margin: 0; display: grid; gap: 4px; font-size: 13px; }
+.cor-informe-dl div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.cor-informe-dl dt { color: var(--cor-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cor-informe-dl dd { margin: 0; font: 12px var(--cor-mono); color: var(--cor-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* PLA-I74-6: «Revisar proyecto», one line at the top of Máquinas; a chip opens its detail. */
+.rv { border: 1px solid var(--cor-line); border-radius: 14px; background: var(--cor-surface); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv[data-revision="bad"] { border-color: rgba(255, 122, 122, 0.45); }
+.rv-row { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.rv-tt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 260px; }
+.rv-tt h3 { font-size: 13px; font-weight: 500; color: var(--cor-text); margin: 0; }
+.rv-sum { font-size: 12.5px; color: var(--cor-body); }
+.rv-sum.ok { color: var(--cor-green, #6fd39b); }
+.rv-sum.bad { color: var(--cor-red); }
+.rv-sum.warn { color: var(--cor-amber); }
+.rv-sum.live { color: var(--cor-violet-3); }
+.rv-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-width: 0; }
+.rv-step { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--cor-line); background: transparent; font-size: 12.5px; color: var(--cor-body); white-space: nowrap; }
+.rv-step small { color: var(--cq-faint, #5b5b66); font-size: 11.5px; }
+.rv-step:hover { border-color: var(--cor-line-strong); }
+.rv-step.on { border-color: var(--cor-violet-2); color: var(--cor-text); }
+.rv-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--cor-line-strong); flex: none; }
+.rv-step.ok .rv-dot { background: var(--cor-green, #6fd39b); }
+.rv-step.fallo { border-color: rgba(255, 122, 122, 0.45); color: var(--cor-red); }
+.rv-step.fallo .rv-dot { background: var(--cor-red); }
+.rv-step.aviso .rv-dot { background: var(--cor-amber); }
+.rv-step.live .rv-dot { background: var(--cor-violet-3); animation: rv-pulse 1.2s ease-in-out infinite; }
+@keyframes rv-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .rv-step.live .rv-dot { animation: none; } }
+.rv-detail { border-top: 1px solid var(--cor-line); padding-top: 8px; font-size: 12.5px; color: var(--cor-body); min-width: 0; }
+.rv-detail p { margin: 0; }
+.rv-detail b { color: var(--cor-text); font-weight: 500; }
+.rv-detail.fallo b { color: var(--cor-red); }
+.rv-note { margin-top: 4px !important; color: var(--cq-faint, #5b5b66); }
+.rv-detail pre { margin: 6px 0 0; max-height: 160px; overflow: auto; font-size: 11.5px; line-height: 1.45; background: var(--cq-deep, #08080b); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+.cor-build-warn { display: block; margin-top: 4px; color: var(--cor-amber); font-size: 12.5px; }
+
 
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */

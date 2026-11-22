@@ -3,6 +3,7 @@ import type { Actor, Workspace } from "../../db/schema.js";
 import { liveOwner } from "../../mcp/queries.js";
 import { shq } from "./parse.js";
 import { installLanguage } from "../../language.js";
+import { ST } from "../../state/status.js";
 
 // Who owns what the machine job sees, worked out from the Plania data (no agent call needed):
 //   process cwd → worktree (or the repo's main checkout) → branch → branches.owner_task_id → ticket → live claim → session
@@ -228,8 +229,8 @@ export const STALE_LONG_MS = 24 * 3600_000; // databases, containers (and declar
 export const GHOST_DECLARED_MS = 5 * 60_000; // declared, never observed: ghost this long after declared_at
 export const GHOST_MISSES = 2; // declared and observed before: ghost after this many ticks of its collector without it
 export const GHOST_RELEASE_MS = 3600_000; // a ghost row is released (bookkeeping only) an hour after it turned ghost
-export const CLOSED_STATUSES = ["Done", "Merged", "Won't do", "Released"];
-const MERGED_STATUSES = ["Done", "Merged", "Released"];
+export const CLOSED_STATUSES: string[] = [ST.done, ST.merged, ST.wontDo, ST.released];
+const MERGED_STATUSES: string[] = [ST.done, ST.merged, ST.released];
 
 // null = never stale from ticket rules. A worktree goes by its branch, not by a clock; database
 // servers and services are the machine's, shared, and never stale.
@@ -361,7 +362,7 @@ function staleVerdict(i: StateInput, now: Date): Verdict | null {
     // counts only when work was committed here (a new worktree on a merged commit is not "merged work").
     if (w.branchMergedAt) return { state: "stale", reason: "rama fusionada", since: w.branchMergedAt };
     if (w.merged === true && (w.ownCommits ?? 0) > 0) return { state: "stale", reason: "rama fusionada", since: null };
-    if (t && (MERGED_STATUSES.includes(t.status) || t.status === "Won't do")) {
+    if (t && (MERGED_STATUSES.includes(t.status) || t.status === ST.wontDo)) {
       return { state: "stale", reason: `${noun(t)} ${t.key} ${t.status}`, since: t.closedAt };
     }
     return null;

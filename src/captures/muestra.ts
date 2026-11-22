@@ -4,6 +4,7 @@
 // without one: MUESTRA_REQUIRED. Nobody is asked to approve what they cannot see.
 import { z } from "zod";
 import type { GitFn } from "../runner/worktree.js";
+import { LANDING, LANDING_HINT } from "./settings.js";
 
 const PATH = /^\/[^\s]*$/;
 const KEY = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -23,6 +24,9 @@ const vista = z
     session: z.boolean().optional(), // behind the test user's login
     follow: z.string().min(1).max(200).optional(), // as in settings.capture.pages: go to the first matching href
     acciones: z.array(accion).max(6).optional(),
+    // PLA-I74-10: the path the photo must be on (default: path; with a follow path, anything under it). A photo taken
+    // on another URL is marked wrong and holds «Aceptar» back.
+    url: z.string().regex(LANDING, LANDING_HINT).max(300).optional(),
   })
   .strict();
 

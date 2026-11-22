@@ -19,16 +19,20 @@ import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Decisiones, forwardOf } from "./decisiones";
 import { Images } from "./images";
+import { useRevision } from "./revision";
+import { buildWarning } from "@/lib/revision";
 import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts";
 import { Corriente } from "./rio";
 import { CX0, PX, STOP_IDS, STOP_NAMES, SX, VX, W, rioOf, type Chan, type RioModel } from "./rio-geo";
 import { busyOf, run, useCerrar } from "./tablero";
+import { DeployBar, DeployLog } from "./deploy-card";
 import { firstStop, stopLine, whoName } from "./idea";
 import { LOCALE } from "@/lib/locale";
 import { FICHA_WORDS } from "@/lib/ficha-words";
 import { ideaName } from "@/lib/nombre";
 import { stopBar } from "@/lib/ficha";
 import { CRONO_WORDS, cronoView, type CronoBar, type Cronometro as CronoData } from "@/lib/cronometro";
+import { informeView, type RunReport } from "@/lib/informe";
 import { words } from "@/lib/i18n";
 
 export type Sel = PedidoStop | "construccion" | "publicado";
@@ -54,7 +58,7 @@ const Md = ({ children }: { children: string }) => (
 export const kindWord = (d: Pick<IdeaDetail, "pedido" | "kind" | "built">) => (d.built || d.kind === "initiative" ? say().kindInitiative : d.pedido ? say().kindPedido : say().kindIdea);
 /** The stop the ficha opens on: the building once it is built, else the newest delivery not seen, else where it is. */
 export function selOf(d: Pick<IdeaDetail, "stops" | "stop" | "built">): Sel {
-  if (d.built) return d.built.published_at ? "publicado" : "construccion";
+  if (d.built) return d.built.published_at || d.built.deploy?.state === "error" ? "publicado" : "construccion";
   return firstStop(d);
 }
 /** The recommended option: the one the recommendation names («opción N»), else the first. */
@@ -125,7 +129,7 @@ function tabsOf(d: IdeaDetail, m: RioModel, stuck = false): TabInfo[] {
     gist: b ? (m.per > 1 ? w.channelEvery(m.per) : w.channelPerStep) : null,
     state: m.here > 6 ? "done" : m.here === 6 ? "here" : "todo",
   });
-  out.push({ sel: "publicado", who: b?.published_at ? dayHm(b.published_at, Date.now()) : w.notYet, tone: b?.published_at ? "ok" : "", gist: null, state: m.here === 7 ? "done" : "todo" });
+  out.push({ sel: "publicado", who: b?.published_at ? dayHm(b.published_at, Date.now()) : b?.deploy?.state === "error" ? w.deploy.tab : w.notYet, tone: b?.published_at ? "ok" : b?.deploy?.state === "error" ? "you" : "", gist: null, state: m.here === 7 ? "done" : "todo" });
   return out;
 }
 
@@ -279,6 +283,63 @@ const Cronometro = ({ c }: { c: CronoData | undefined }) => {
   );
 };
 
+// PLA-I74-1: the run report under the stopwatch: what rescued it (Plania's fixes, his extra clicks, turns Plania freed),
+// time per stop, the longest stretch with nobody's turn and the tokens per agent.
+export const Informe = ({ r }: { r: RunReport | undefined }) => {
+  const v = informeView(r);
+  if (!v) return null;
+  return (
+    <section className="cor-informe" aria-label={v.title}>
+      <h4 className="cor-crono-h">{v.title}</h4>
+      <ul className="cor-informe-lines">
+        <li>
+          <b>{v.fixes}</b>
+          {v.fixItems.length ? <span className="cor-informe-sub">{v.fixItems.join(" · ")}</span> : null}
+        </li>
+        <li>
+          <b>{v.clicks}</b>
+          {v.extra.length ? <span className="cor-informe-sub">{v.extra.map((e) => `${e.label} ×${e.n}`).join(" · ")}</span> : null}
+          {v.estimated ? <span className="cor-informe-sub">{v.estimated}</span> : null}
+        </li>
+        <li>
+          <b>{v.heals}</b>
+        </li>
+        <li>
+          <b>{v.gap}</b>
+        </li>
+      </ul>
+      <div className="cor-informe-cols">
+        <div>
+          <h5 className="cor-informe-h">{v.stopsTitle}</h5>
+          <dl className="cor-informe-dl">
+            {v.stops.map((s) => (
+              <div key={s.label}>
+                <dt>{s.label}</dt>
+                <dd>{s.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        <div>
+          <h5 className="cor-informe-h">{v.tokensTitle}</h5>
+          {v.tokens.length ? (
+            <dl className="cor-informe-dl">
+              {v.tokens.map((t) => (
+                <div key={t.agent}>
+                  <dt>{whoName(t.agent) || t.agent}</dt>
+                  <dd>{t.text}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="cor-crono-before">{v.noTokens}</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: Partial<Ui>) => void; links: FichaLinks; now: number; timeZone?: string; acts: CorrienteActs; slug: string }) => {
   const w = say();
   const b = d.built ?? null;
@@ -298,10 +359,13 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
           <p className="cor-text">{w.noSteps}</p>
         )}
         <Cronometro c={b.tiempo} />
+        <Informe r={b.informe} />
       </>
     );
   }
   if (ui.sel === "publicado") {
+    // PLA-I74-8: a failed production build shows the host's log here.
+    if (!b?.published_at && b?.deploy?.state === "error") return <DeployLog d={b.deploy} />;
     if (!b?.published_at) return <Empty title={w.notReleased} line={w.notReleasedLine} />;
     return (
       <>
@@ -331,6 +395,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             ))}
           {b.evidence.length === 0 && <li className="cor-muted">{w.noEvidence}</li>}
         </ul>
+        <Informe r={b.informe} />
       </>
     );
   }
@@ -762,6 +827,8 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
         {w.released} <span>{w.releasedLine}</span>
       </Bar>
     );
+  // PLA-I74-8: a production deploy that failed, builds or waits for its live answer says so before anything else.
+  if (b.deploy) return <DeployBar slug={p.slug} b={{ ...b, deploy: b.deploy }} paso={links.paso} />;
   if (b.can_close)
     return (
       <Bar tone="you" label={w.yourTurn} side={<Btn kind="primary" disabled={cerrar.isPending} onClick={() => cerrar.mutate({ slug: p.slug, key: b.key, version: b.version })} data-control="ficha-cerrar-iniciativa">{cerrar.isPending ? w.closing : w.closeInitiative}</Btn>}>
@@ -817,6 +884,8 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
 
 const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d: IdeaDetail; m: RioModel; ui: Ui; set: (x: Partial<Ui>) => void; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks }) => {
   const w = say();
+  // PLA-I74-6: «Constrúyelo» warns when the project's last check-up is red, more than a day old, or missing.
+  const revision = useRevision(p.slug).data;
   const k = d.key;
   const busy = (a: string) => acts.busy === `pedido-${k}:${a}`;
   const send = (stop: PedidoStop, input: Omit<IdeaAnswerInput, "stop">) => acts.respuesta(p.slug, k, { stop, ...input });
@@ -881,6 +950,11 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
     return (
       <Bar tone="you" label={w.yourTurn} side={<Btn kind="primary" disabled={busy("construir")} onClick={() => acts.pedido(p.slug, k, "construir")} data-control="ficha-construir">{w.buildIt}</Btn>}>
         {w.needsBuild} <span>{w.needsBuildLine}</span>
+        {buildWarning(revision, Date.now()) && (
+          <span className="cor-build-warn" role="note" data-aviso-revision>
+            {buildWarning(revision, Date.now())}
+          </span>
+        )}
       </Bar>
     );
   }

@@ -12,6 +12,8 @@ import { findProject, findTask, prRowOf } from "../mcp/queries.js";
 import { compareKey, migrationFiles, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
+import { setEnv } from "../mcp/env.js";
+import { probeLive, productionUrlOf, readDeployTruth, writeDeployTruth } from "./deploy-truth.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
 import type { Job } from "./index.js";
 import { defineWords, say } from "../words.js";
@@ -36,7 +38,7 @@ import { defineWords, say } from "../words.js";
 // The clock is deps.now.
 // The token is never written to the log, an event or poll_state.
 
-export type Fetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> }>;
+export type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> }>;
 
 type Pr = {
   number: number;
@@ -465,6 +467,10 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     // PLA-03: a merged PR whose ticket has not reached In review is said once, never moved.
     summary.drift = await flagStatusDrift(db, p, cfg.repo);
 
+    // PLA-I74-8: with the host set and no host token, the host's own commit statuses on the release branch say
+    // whether production built, failed or still builds.
+    summary.host = await pollHostStatuses(db, p, deps, token, cfg.repo);
+
     // 4. Merged tickets whose merge commit the release target now contains.
     summary.released = await releaseMerged(db, p, async (merge, env) => {
       const cacheKey = `cmp:${merge}:${env}`;
@@ -586,6 +592,57 @@ export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise
 // with a commit recorded for its release env is env, any other is branch.
 export const releaseBranchOf = (p: Pick<Project, "settings">): string => p.settings.release?.into ?? "main";
 export const mayReleaseByBranch = (p: Pick<Project, "settings">): boolean => p.settings.release_on === "branch" || (p.settings.release_on === undefined && !p.settings.vercel);
+
+// PLA-I74-8: the commit statuses a host posts to GitHub (Vercel, Netlify, Render…), read when the host is set but
+// Plania has no token for it. The release branch's head is the production commit: a red status is a failed
+// production build (its description is the excerpt; GitHub carries no log), a green one counts once the production
+// URL answers, and then the head becomes the release target's commit so Merged tickets move to Released.
+export const HOST_CONTEXT = /vercel|netlify|render|railway|cloudflare|deploy|fly\.io|heroku/i;
+export async function pollHostStatuses(db: Db, p: Project, deps: GithubDeps, token: string, repo: string): Promise<number> {
+  const host = p.settings.vercel;
+  if (!host?.project_id || (deps.env ?? process.env)[host.token_env ?? "VERCEL_TOKEN"]) return 0;
+  // Only once the Vercel poller has said it has no token (its job runs every minute): while it reads the host itself,
+  // or before it has run, there is nothing to fall back from. Its env may differ from this poller's.
+  const [vercelPoll] = await db.select({ error: pollState.error }).from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel"))).limit(1);
+  if (!vercelPoll?.error?.startsWith("no token")) return 0;
+  const branch = releaseBranchOf(p);
+  const head = await gh(deps, token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
+  const sha = head.status === 200 ? (head.data as Branch).commit?.sha?.toLowerCase() : undefined;
+  if (!sha) return 0;
+  const combined = await gh(deps, token, `/repos/${repo}/commits/${sha}/status?per_page=100`);
+  type HostStatus = { context: string; state: string; target_url: string | null; description?: string | null; created_at?: string; updated_at?: string };
+  const list = combined.status === 200 && Array.isArray((combined.data as CombinedStatus).statuses) ? ((combined.data as CombinedStatus).statuses as HostStatus[]) : [];
+  const hosts = list.filter((x) => HOST_CONTEXT.test(x.context) && !/preview/i.test(x.context));
+  if (!hosts.length) return 0;
+  const failed = hosts.find((x) => x.state === "failure" || x.state === "error");
+  const green = hosts.every((x) => x.state === "success");
+  const main = failed ?? hosts.find((x) => x.state !== "success") ?? hosts[0]!;
+  const id = `${main.context}@${sha}`;
+  const before = await readDeployTruth(db, p.id);
+  // A settled answer for this very commit is not asked again.
+  if (before?.deployment_id === id && (before.state === "live" || before.state === "error")) return 0;
+  const now = deps.now ?? new Date();
+  const base = { provider: "github" as const, deployment_id: id, sha, url: main.target_url, created_at: main.updated_at ?? main.created_at ?? now.toISOString() };
+  if (failed) {
+    const log = [`${failed.context}: ${failed.state}`, failed.description ?? "", failed.target_url ?? ""].filter(Boolean).join("\n");
+    await writeDeployTruth(db, p.id, { ...base, state: "error", probe_url: null, probe_status: null, log }, now);
+    return 1;
+  }
+  if (!green) {
+    await writeDeployTruth(db, p.id, { ...base, state: "building", probe_url: null, probe_status: null, log: null }, now);
+    return 0;
+  }
+  const probeUrl = await productionUrlOf(db, p, main.target_url);
+  const live = probeUrl ? await probeLive(deps.fetch, probeUrl) : { ok: false, status: null };
+  await writeDeployTruth(db, p.id, { ...base, state: live.ok ? "live" : "checking", probe_url: probeUrl, probe_status: live.status, log: null }, now);
+  if (!live.ok) return 0;
+  await setEnv(
+    db,
+    { project: p.slug, env: p.settings.release_target ?? "prod", commit: sha, commits: [sha], branch, deployed: { provider: "github-status", deployment_id: id, ...(main.target_url ? { url: main.target_url } : {}) } },
+    { actor: { ...SYSTEM_ACTOR, machine: "poller" }, requestId: `host-status:${id}`, tool: "jobs.github" },
+  );
+  return 1;
+}
 
 // Merged → Released once the release target contains the merge commit. env mode: the env's commit is
 // the merge commit, env_commits lists it, or contains() says so (GitHub compare). branch mode: the

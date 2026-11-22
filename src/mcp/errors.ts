@@ -58,6 +58,7 @@ export const ERRORS = {
   INVALID_BATCH_OP: [400, "batch: an op is not set_task, set_check, add_result, add_decision, create_task or note"],
   ACTOR_REQUIRED: [400, "actor.agent is missing and no agent token identifies the caller"],
   INVALID_APPROVAL: [400, "a waiver needs a non-empty reason. The old approval action list is no longer a tool"],
+  WAIVE_VISUAL_FORBIDDEN: [403, "waive_check: a visual check (how the screen looks, a still, a viewport) is waived only by the QA lane or the owner (detail: n, text); prove it with a visual result or ask the owner"],
   PARENT_MUST_BE_INITIATIVE: [400, "parent_key names a ticket"],
   RESERVED_ACTOR: [400, "actor.agent is owner: only the screen writes as the owner"],
   MUESTRA_REQUIRED: [400, "finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint)"],

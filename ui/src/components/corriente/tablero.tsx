@@ -13,6 +13,7 @@ import { Btn, Key, Label, ReadError, State } from "./parts";
 import { LOCALE } from "@/lib/locale";
 import { words } from "@/lib/i18n";
 import { TABLERO_WORDS } from "@/lib/tablero-words";
+import { WAIVER_WORDS, waiverLine } from "@/lib/waiver";
 import { TASK_PATCH_WORDS } from "@/lib/task-patch-words";
 import { canReopen, prChip, reopenPatch } from "@/lib/paso";
 import { useState, type FormEvent } from "react";
@@ -202,9 +203,11 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
               <ul>
                 {t.checks.slice(0, 4).map((c) => (
                   <li key={c.n} className="cor-row">
-                    <State tone={c.done ? "ok" : c.waived ? undefined : undefined}>{c.done ? w.done : c.waived ? w.waived : w.missing}</State>
-                    <span className="cor-ellipsis" title={c.text}>
+                    <State tone={c.done ? "ok" : undefined}>{c.done ? w.done : c.waived ? words(WAIVER_WORDS).state : w.missing}</State>
+                    <span className="cor-ellipsis" title={c.waived ? `${c.text} · ${waiverLine(c.waived)}` : c.text}>
                       {c.text}
+                      {/* PLA-I74-11: who waived it and why, never a bare «No aplica». */}
+                      {c.waived && <span className="cor-cap" data-waived-by> · {waiverLine(c.waived)}</span>}
                     </span>
                   </li>
                 ))}

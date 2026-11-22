@@ -30,6 +30,8 @@ test("I73-4 #2: modules are cloned with cp -c on macOS, never elsewhere or acros
   const from = dir("from", '{"v":1}');
   mkdirSync(path.join(from, "node_modules", "left-pad"), { recursive: true });
   writeFileSync(path.join(from, "node_modules", "left-pad", "index.js"), "module.exports = 1;");
+  // PLA-I74-6: npm's own marker: these modules were installed by the tool package-lock.json names.
+  writeFileSync(path.join(from, "node_modules", ".package-lock.json"), "{}");
   const calls: string[] = [];
   const fake = async (cmd: string) => {
     calls.push(cmd);
@@ -49,6 +51,37 @@ test("I73-4 #2: modules are cloned with cp -c on macOS, never elsewhere or acros
   const to5 = dir("to5", '{"v":1}');
   assert.equal(await cloneModules(from, to5, failing, "darwin"), false);
   assert.equal(existsSync(path.join(to5, "node_modules")), false, "a failed clone leaves nothing half made");
+});
+
+test("I74-6 #2: installed packages are never copied across package managers", async () => {
+  const { installedBy, lockTool } = await import("../src/lib/clone-modules.js");
+  const calls: string[] = [];
+  const fake = async (cmd: string) => {
+    calls.push(cmd);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  // An npm-locked checkout whose modules pnpm installed (the run that went flaky): never lent.
+  const pnpmOnNpm = dir("pnpm-on-npm", '{"v":7}');
+  mkdirSync(path.join(pnpmOnNpm, "node_modules", ".pnpm"), { recursive: true });
+  writeFileSync(path.join(pnpmOnNpm, "node_modules", ".modules.yaml"), "layoutVersion: 5\n");
+  assert.equal(installedBy(pnpmOnNpm), "pnpm");
+  assert.deepEqual(lockTool(pnpmOnNpm), { lockfile: "package-lock.json", tool: "npm" });
+  assert.equal(await cloneModules(pnpmOnNpm, dir("to-npm", '{"v":7}'), fake, "darwin"), false);
+  // Modules with no marker at all: unknown tool, never lent.
+  const bare = dir("bare", '{"v":7}');
+  mkdirSync(path.join(bare, "node_modules", "x"), { recursive: true });
+  assert.equal(installedBy(bare), null);
+  assert.equal(await cloneModules(bare, dir("to-bare", '{"v":7}'), fake, "darwin"), false);
+  assert.deepEqual(calls, []);
+  // A pnpm-locked checkout pnpm installed: lent.
+  const pnpm = path.join(scratch, "pnpm-ok");
+  mkdirSync(path.join(pnpm, "node_modules", ".pnpm"), { recursive: true });
+  writeFileSync(path.join(pnpm, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+  const to = path.join(scratch, "pnpm-to");
+  mkdirSync(to, { recursive: true });
+  writeFileSync(path.join(to, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+  assert.equal(await cloneModules(pnpm, to, fake, "darwin"), true);
+  assert.equal(calls.length, 1);
 });
 
 test("I73-4 #3: the template is built once, reused for six hours, rebuilt after, and a failure means no template", async () => {

@@ -63,8 +63,10 @@ import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 import { velocidadOf } from "./velocidad.js";
 import { startBranchOf } from "./start-branch.js";
+import { verifyListOf } from "./build-step.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 import { defineWords, say } from "../words.js";
+import { measuredWaits } from "../captures/waits.js"; // PLA-I74-7
 
 // PLA-I2-10: what QA writes for the owner and for Taller (holds, lane errors, the notes sent back, the results' lines),
 // in the install's language; the Spanish is unchanged.
@@ -106,6 +108,11 @@ export const QA_WORDS = defineWords({
     axes: (spec: boolean, code: boolean) => `lo pedido ${spec ? "pasa" : "falla"} · el código ${code ? "pasa" : "falla"}`,
     reviewVerdict: (ok: boolean) => `revisión ${ok ? "pasa" : "falla"}`,
     noReview: "sin revisión (fallaron las pruebas)",
+    // PLA-I74-11: why there is no review, from what happened.
+    noReviewChecksOnly: "sin revisión aparte (este proyecto solo corre sus comprobaciones)",
+    noReviewYet: "sin revisión",
+    noTests: "sin pruebas",
+    checksRan: (ok: number, total: number) => `comprobaciones ${ok} de ${total}`,
     walked: "recorrió la app",
     checklist: (ok: number, total: number) => `check list ${ok} de ${total}`,
     noChecklist: "sin check list",
@@ -151,6 +158,10 @@ export const QA_WORDS = defineWords({
     axes: (spec: boolean, code: boolean) => `what was asked ${spec ? "passes" : "fails"} · the code ${code ? "passes" : "fails"}`,
     reviewVerdict: (ok: boolean) => `review ${ok ? "passes" : "fails"}`,
     noReview: "no review (the tests failed)",
+    noReviewChecksOnly: "no separate review (this project only runs its checks)",
+    noReviewYet: "no review",
+    noTests: "no tests",
+    checksRan: (ok: number, total: number) => `checks ${ok} of ${total}`,
     walked: "walked through the app",
     checklist: (ok: number, total: number) => `check list ${ok} of ${total}`,
     noChecklist: "no check list",
@@ -208,7 +219,9 @@ export async function qaAgentOf(db: Db, p: Project): Promise<Agent | null> {
 /** PLA-I73-2: the verification lane. A project with checks (settings.qa.verify) and no QA seat still gets them run by
  *  Plania on every delivery, in the delivery's checkout, before the owner sees it; with no seat there is no review,
  *  so the checks decide. settings.velocidad.verificar false turns it off. */
-export const checksOnlyLane = (p: Project): boolean => p.settings.qa?.enabled !== false && velocidadOf(p.settings).verificar && (p.settings.qa?.verify?.length ?? 0) > 0;
+// PLA-I74-9: the host's build counts as a check (verifyListOf), read from the project's repo.
+export const checksOnlyLane = (p: Project, env: NodeJS.ProcessEnv = process.env): boolean =>
+  p.settings.qa?.enabled !== false && velocidadOf(p.settings).verificar && verifyListOf(p, repoPathOf(p.slug, p.settings, env)).length > 0;
 
 export const qaTicket = (t: Pick<Task, "kind" | "workType" | "title">) => t.kind === "ticket" && QA_WORK.has(t.workType ?? "code") && !t.title.includes("[PRUEBA]");
 
@@ -612,7 +625,8 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
   const diffLines = stat.code === 0 ? [...stat.stdout.matchAll(/(\d+) (?:insertion|deletion)/g)].reduce((a, m) => a + Number(m[1]), 0) : null;
 
   const verify: QaVerifyItem[] = [];
-  for (const v of s?.verify ?? []) {
+  // PLA-I74-9: the owner's list plus the host's production build, read from this checkout.
+  for (const v of verifyListOf(p, cwd)) {
     const started = Date.now();
     const r = await exec(v.command, { cwd, timeoutMs: (v.timeout_minutes ?? 15) * 60_000, env: checkoutEnv() });
     const output = `${r.stdout}\n${r.stderr}`;
@@ -638,7 +652,7 @@ async function runChecks(db: Db, lane: QaLane, p: Project, t: Task, deps: QaDeps
     const base = `http://localhost:${port}`;
     let app: StartedApp | null = null;
     try {
-      app = await (deps.startApp ?? startApp)({ cwd, command: cs.start_command.replaceAll("{port}", String(port)), url: base + (cs.ready_path ?? "/"), port, timeoutMs: 180_000 });
+      app = await (deps.startApp ?? startApp)({ cwd, command: cs.start_command.replaceAll("{port}", String(port)), url: base + (cs.ready_path ?? "/"), port, timeoutMs: (await measuredWaits(db, p.slug)).qa_start_ms });
       const sum = await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: cwd, base_url: base, commit: head, branch: made.branch, task_key: t.key, actor: qaActor("qa") }, deps.captureDeps);
       const firstError = sum.stills.find((x) => x.error)?.error ?? null;
       capture = { run_id: sum.run_id, ok: sum.ok, failed: sum.failed, still_ids: sum.stills.filter((x) => x.status === "ok").map((x) => x.id), error: app.ok ? firstError : (app.error ?? firstError) };
@@ -730,6 +744,35 @@ export function notesOf(lane: Pick<QaLane, "verify" | "capture" | "review" | "ma
 
 const attachUrl = (deps: QaDeps, slug: string, id: string) => `${(deps.publicUrl ?? deps.env?.PLANIA_PUBLIC_URL ?? process.env.PLANIA_PUBLIC_URL ?? "http://127.0.0.1:3737").replace(/\/$/, "")}${imageUrl(slug, id)}`;
 
+/** PLA-I74-11: the QA line the screen shows, said from what happened: a pass never reads as failed tests, a project
+ * that only runs its checks says why there is no review, and checks with no test counts are counted as checks. */
+export function qaSummary(
+  r: { pass: boolean; attempt: number; verify: QaVerifyItem[]; review: Pick<QaReview, "verdict" | "spec" | "code" | "walked"> | null; checksOnly: boolean; checklist: { ok: number; total: number }; captures: number | null },
+  language?: "es" | "en",
+): string {
+  const w = language ? say(QA_WORDS, language) : say(QA_WORDS);
+  const tests = testsOf(r.verify);
+  const verifyOk = r.verify.every((v) => v.ok);
+  const testLine = tests.total > 0 ? w.tests(tests.pass, tests.total) : r.verify.length ? w.checksRan(r.verify.filter((v) => v.ok).length, r.verify.length) : w.noTests;
+  const reviewLine = r.review?.spec && r.review.code
+    ? w.axes(r.review.spec.verdict === "pass", r.review.code.verdict === "pass")
+    : r.review
+      ? w.reviewVerdict(r.review.verdict === "pass")
+      : !verifyOk
+        ? w.noReview
+        : r.checksOnly
+          ? w.noReviewChecksOnly
+          : w.noReviewYet;
+  return [
+    w.summary(r.pass, r.attempt),
+    testLine,
+    reviewLine,
+    ...(r.review?.walked ? [w.walked] : []),
+    r.checklist.total ? w.checklist(r.checklist.ok, r.checklist.total) : w.noChecklist,
+    r.captures !== null ? w.capturesN(r.captures) : w.noCaptures,
+  ].join(" · ");
+}
+
 export function testsOf(verify: QaVerifyItem[]): { pass: number; total: number } {
   let pass = 0;
   let total = 0;
@@ -799,21 +842,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
   await add({
     kind: "verify",
     verdict: status,
-    cite: cut(
-      [
-        w.summary(pass, lane.attempt),
-        w.tests(tests.pass, tests.total),
-        review?.spec && review.code
-          ? w.axes(review.spec.verdict === "pass", review.code.verdict === "pass")
-          : review
-            ? w.reviewVerdict(review.verdict === "pass")
-            : w.noReview,
-        ...(review?.walked ? [w.walked] : []),
-        items.length ? w.checklist(checkedOk, items.length) : w.noChecklist,
-        lane.capture ? w.capturesN(lane.capture.ok) : w.noCaptures,
-      ].join(" · "),
-      500,
-    ),
+    cite: cut(qaSummary({ pass, attempt: lane.attempt, verify: lane.verify, review, checksOnly, checklist: { ok: checkedOk, total: items.length }, captures: lane.capture ? lane.capture.ok : null }), 500),
     counts: { pass: tests.pass, fail: tests.total - tests.pass },
   });
   await db.insert(events).values({ projectId: p.id, taskId: t.id, taskKey: t.key, type: "verify.done", actor: qaActor("qa"), payload: { lane_id: lane.id, pass, checks_only: checksOnly } });

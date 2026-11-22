@@ -26,6 +26,8 @@ import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb, type Db } from "../db/client.js";
 import { cronometroFor, type Cronometro } from "./cronometro.js";
+import { deployCardOf, type DeployCard } from "./deploy-fix.js";
+import { runReportFor, type ReportMarks, type RunReport } from "./run-report.js";
 import { agentRuns, docs, events, ideaFrames, projects, pullRequests, questions, results, tasks, type Actor, type Task } from "../db/schema.js";
 import { projectEtapas, type EtapaId } from "./etapa.js";
 import { findProject } from "../mcp/queries.js";
@@ -36,7 +38,7 @@ import { listTaskImages } from "../pedidos/images.js";
 import { listFrames, type FrameView } from "../pedidos/frames.js";
 import { projectPo } from "./company-actions.js";
 import { DESPERTAR, RESPUESTA, VISTO, askedText, fichaOf, sectionAll, trailOf, whoOf, type FichaIdea, type TrailItem } from "./company-pedido.js";
-import { PEDIDO_STOPS, pedidoOf, type Pedido, type PedidoStop } from "./company-pedidos.js";
+import { CONSTRUIR as CONSTRUIR_EVENT, PEDIDO_STOPS, pedidoOf, type Pedido, type PedidoStop } from "./company-pedidos.js";
 import { ownerEs, ownerName } from "../owner.js";
 import { defineWords, say } from "../words.js";
 
@@ -170,6 +172,10 @@ export type Built = {
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
   // PLA-I73-1: where the time went, per step and in total.
   tiempo: Cronometro;
+  // PLA-I74-8: the production deploy its merged steps wait on, when it failed, builds or waits for a live answer.
+  deploy: DeployCard | null;
+  // PLA-I74-1: the run report (src/api/run-report.ts): fixes, extra clicks, heals, time per stop, the longest gap, tokens.
+  informe: RunReport;
 };
 export type IdeaDetail = Pedido & {
   summary: string;
@@ -246,7 +252,7 @@ const LANDED = ["Merged", "Released", "Done"];
 const PUBLISHED = ["Released", "Done"];
 
 /** The initiative an idea became: its steps with their stage and PR, and when it was published. */
-export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> {
+export async function builtOf(db: Db, slug: string, init: Task, stopMarks: ReportMarks = {}): Promise<Built> {
   const p = await findProject(db, slug);
   const kids = (await db.select().from(tasks).where(and(eq(tasks.parentId, init.id), eq(tasks.kind, "ticket")))).filter((k) => k.status !== "Won't do");
   const etapas = kids.length ? await projectEtapas(db, p) : null;
@@ -279,8 +285,14 @@ export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> 
         .limit(4)
     : [];
   const keyOfId = new Map(kids.map((k) => [k.id, k.key]));
-  const [idea] = await db.select({ createdAt: tasks.createdAt }).from(tasks).where(and(eq(tasks.projectId, init.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, init.key))).limit(1);
+  const [idea] = await db.select().from(tasks).where(and(eq(tasks.projectId, init.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, init.key))).limit(1);
   const tiempo = await cronometroFor(db, init, sorted, idea?.createdAt ?? null);
+  // PLA-I74-1: «Constrúyelo» is the newest order on the idea; building ends when the last step landed.
+  const [ordered] = idea
+    ? await db.select({ at: events.createdAt }).from(events).where(and(eq(events.taskId, idea.id), eq(events.type, CONSTRUIR_EVENT))).orderBy(desc(events.id)).limit(1)
+    : [];
+  const marks: ReportMarks = { ...stopMarks, lista: ordered?.at ?? stopMarks.lista ?? null, construccion: tiempo.end ? new Date(tiempo.end) : null, publicado: published };
+  const informe = await runReportFor(db, init, sorted, idea ?? null, marks, published);
   return {
     key: init.key,
     title: init.title,
@@ -294,6 +306,8 @@ export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> 
     published_at: published ? published.toISOString() : null,
     evidence: ev.map((r) => ({ key: keyOfId.get(r.taskId) ?? "", kind: r.kind, cite: r.cite, commit: r.commit, env: r.env, at: r.at.toISOString() })),
     tiempo,
+    deploy: published ? null : await deployCardOf(db, p.id, sorted),
+    informe,
   };
 }
 
@@ -469,7 +483,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
       const text = last ? String((last.payload as { text?: string }).text ?? "").replace(UNDERSTOOD_MARK, "").trim() : "";
       return text || null;
     })(),
-    built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted) : null,
+    built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted, marksOf(stops)) : null,
   };
   return { ...out, gist: gistOf(out) };
 }
@@ -517,6 +531,9 @@ async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean
     built: withBuilt ? await builtOf(db, slug, t) : null,
   };
 }
+
+// PLA-I74-1: when each of the idea's stops was reached, for the run report's time per stop.
+const marksOf = (stops: IdeaStop[]): ReportMarks => Object.fromEntries(stops.filter((s) => s.stop !== "lista" && s.delivered && s.at).map((s) => [s.stop, new Date(s.at!)]));
 
 const decisionView = (s: DecisionState, i: number): IdeaDecisionView => ({ n: i + 1, question: s.question, options: s.options, recommended: s.recommended + 1, why: s.why, state: s.state, chosen: s.chosen + 1, at: s.at ? s.at.toISOString() : null });
 

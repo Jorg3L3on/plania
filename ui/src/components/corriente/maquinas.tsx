@@ -46,6 +46,7 @@ import {
 import { CUARTO_WORDS } from "@/lib/maquinas-words";
 import { words } from "@/lib/i18n";
 import { Btn, Logo, ReadError } from "./parts";
+import { Revision } from "./revision";
 
 const W = () => words(CUARTO_WORDS);
 const errText = (e: unknown, what: string) => (e instanceof ApiError ? (typeof e.detail.hint === "string" && e.detail.hint ? `${what}: ${e.detail.hint}` : W().errAct(what, e.code)) : W().errAsleep(what));
@@ -1158,6 +1159,8 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
           )}
         </div>
       )}
+
+      {r.configured && <Revision slug={s} />}
 
       <div className="cq-body">
         <div className="cq-rail">

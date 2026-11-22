@@ -19,6 +19,9 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { agentRuns, agents, events, projects, taskBlockers, tasks, type Actor, type Agent, type RunTrigger } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
+import { LANDED, ST, sqlNotIn } from "../state/status.js";
+import { wakeOf } from "../state/transitions.js";
+import { workable } from "../state/workable.js";
 import type { Q } from "../mcp/tx.js";
 import { loadSettings, roleOf, type RunnerRole } from "./limits.js";
 import { insertRun, kickQueue } from "./queue.js";
@@ -31,8 +34,6 @@ import { buildReason } from "../api/company-pedido.js";
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
 const TALLER_WORK = new Set(["code", "bug", "debt", "ops"]);
-// PLA-15: the statuses where a ticket's work is in the integration branch (or needed no merge).
-const LANDED = new Set(["Merged", "Released", "Done"]);
 const PRIORITY = ["P0", "P1", "P2", "P3"];
 
 // PLA-I2-2: wakesOn is PLANIA_JOBS=1, or PLANIA_JOBS unset on an install made by the first-start screen.
@@ -122,12 +123,10 @@ export async function freedBy(tx: Q, project: ProjectRef, landedId: string, tall
     .where(
       and(
         eq(tasks.projectId, project.id),
-        eq(tasks.kind, "ticket"),
-        eq(tasks.status, "Ready"),
-        sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
+        workable,
         sql`not exists (
           select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-          where tb.task_id = ${tasks.id} and tb.blocker_id <> ${landedId}::uuid and b.status not in ('Merged', 'Released', 'Done')
+          where tb.task_id = ${tasks.id} and tb.blocker_id <> ${landedId}::uuid and ${sqlNotIn(sql`b.status`, LANDED)}
         )`,
       ),
     );
@@ -203,7 +202,7 @@ async function firstStepFor(tx: Q, project: ProjectRef, initiativeId: string, ta
   const rows = await tx
     .select({ key: tasks.key, title: tasks.title, phase: tasks.phase, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), eq(tasks.parentId, initiativeId), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`));
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.parentId, initiativeId), workable));
   const mine = rows
     .filter((t) => !t.title.includes("[PRUEBA]") && (t.ownerAgent ? t.ownerAgent === taller.id : !!t.workType && TALLER_WORK.has(t.workType)))
     .sort((a, b) => (a.phase ?? Number.MAX_SAFE_INTEGER) - (b.phase ?? Number.MAX_SAFE_INTEGER) || a.key.localeCompare(b.key, "en", { numeric: true }));
@@ -228,7 +227,9 @@ async function targetOf(
   // PLA-151 (guided test 3): after «Constrúyelo» the PO files the plan (step 1 born Ready, the rest chained) and then
   // moves the initiative to Active. Nothing moved step 1, so nobody woke Taller and the board said «Nadie trabaja».
   // The initiative turning Active wakes Taller on its first Ready, unblocked step Taller may take.
-  if (type === "task.status" && payload.to === "Active" && payload.from !== "Active") {
+  // PLA-I74-4: which wake a status move earns is the transitions table's (src/state/transitions.ts wakeOf).
+  const move = type === "task.status" && typeof payload.to === "string" ? wakeOf(payload.from as string | null, payload.to) : null;
+  if (move === "initiative-started") {
     const taller = await serviceAgent(tx, "taller", project);
     const first = await firstStepFor(tx, project, task.id, taller);
     return first ? { agent: taller, taskKey: first, reason: `initiative ${task.key} started` } : null;
@@ -241,7 +242,7 @@ async function targetOf(
     const to = ((payload.changes as Record<string, unknown>).promoted_to as unknown[])[1];
     if (typeof to === "string" && to && (await builtByOwner(tx, task.id))) {
       const [ini] = await tx.select({ id: tasks.id, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, to))).limit(1);
-      if (ini && ini.status !== "On hold") {
+      if (ini && ini.status !== ST.onHold) {
         const taller = await serviceAgent(tx, "taller", project);
         const first = await firstStepFor(tx, project, ini.id, taller);
         return first ? { agent: taller, taskKey: first, reason: `built from ${task.key}` } : null;
@@ -255,10 +256,10 @@ async function targetOf(
   // PLA-16: a runner run's lease that ran out (the run ended without finishing or freeing its ticket) puts
   // the ticket back in Ready like a move. A person's or another client's expired lease wakes nobody.
   const runnerLeaseExpired =
-    type === "claim.expired" && payload.from === "In progress" && payload.to === "Ready" && isRunSession((payload.owner as Actor | null | undefined)?.session_id);
+    type === "claim.expired" && payload.from === ST.inProgress && wakeOf(String(payload.from), String(payload.to), "ticket") === "ready" && isRunSession((payload.owner as Actor | null | undefined)?.session_id);
   const readyNow =
-    (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") ||
-    (type === "task.created" && payload.kind === "ticket" && payload.status === "Ready") ||
+    move === "ready" ||
+    (type === "task.created" && payload.kind === "ticket" && typeof payload.status === "string" && wakeOf(null, payload.status, "ticket") === "ready") ||
     runnerLeaseExpired;
   if (readyNow) {
     const [t] = await tx
@@ -279,7 +280,7 @@ async function targetOf(
     // PLA-151: a step created Ready, unblocked, under an initiative that is already Active wakes Taller too.
     // PLA-164: or under one built from an idea the owner said «Constrúyelo» to (not On hold).
     const parentRow = type === "task.created" && t.parentId && !t.blocked ? (await tx.select({ key: tasks.key, status: tasks.status }).from(tasks).where(eq(tasks.id, t.parentId)).limit(1))[0] : undefined;
-    const parentActive = !!parentRow && (parentRow.status === "Active" || (parentRow.status !== "On hold" && (await initiativeBuiltByOwner(tx, project, parentRow.key))));
+    const parentActive = !!parentRow && (parentRow.status === ST.active || (parentRow.status !== ST.onHold && (await initiativeBuiltByOwner(tx, project, parentRow.key))));
     if (type === "task.created" && !parentActive && !(t.ownerAgent && t.ownerAgent === taller?.id && !t.parentId && !t.blocked)) return null;
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
@@ -288,7 +289,7 @@ async function targetOf(
     return { agent: taller, taskKey: task.key, reason: runnerLeaseExpired ? "lease expired" : (freed ?? "ticket ready") };
   }
   // PLA-15: a ticket lands once (In review → Merged; Merged → Released → Done after it is not a landing).
-  if (type === "task.status" && LANDED.has(String(payload.to)) && !LANDED.has(String(payload.from))) {
+  if (move === "landed") {
     const taller = await serviceAgent(tx, "taller", project);
     const next = await freedBy(tx, project, task.id, taller);
     return next ? { agent: taller, taskKey: next, reason: `unblocked by ${task.key}` } : null;
@@ -355,7 +356,7 @@ async function wakeReadyOwners(tx: Q, project: ProjectRef): Promise<void> {
     .select({ id: tasks.id, key: tasks.key, agent: agents })
     .from(tasks)
     .innerJoin(agents, eq(agents.id, tasks.ownerAgent))
-    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.origin, "owner")))
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.origin, "owner"), workable))
     .orderBy(asc(tasks.createdAt));
   const seen = new Set<string>();
   for (const r of rows) {
@@ -398,7 +399,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
   const rows = await tx
     .select({ id: tasks.id, key: tasks.key, title: tasks.title })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, agent.id), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`)) // PLA-165: never On hold
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.ownerAgent, agent.id), workable)) // PLA-165, PLA-I74-4: the one workable rule
     .orderBy(asc(tasks.createdAt));
   const next = rows.find((t) => t.key !== justRan && !t.title.includes("[PRUEBA]"));
   if (next) return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
@@ -411,7 +412,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
         eq(tasks.projectId, project.id),
         eq(tasks.kind, "idea"),
         eq(tasks.origin, "owner"),
-        eq(tasks.status, "Open"),
+        eq(tasks.status, ST.open),
         eq(tasks.ownerAgent, agent.id),
         sql`${tasks.promotedTo} is null`,
         sql`${tasks.key} <> ${justRan ?? ""}`,
@@ -431,7 +432,7 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
         eq(tasks.projectId, project.id),
         eq(tasks.kind, "idea"),
         eq(tasks.origin, "owner"),
-        eq(tasks.status, "Open"),
+        eq(tasks.status, ST.open),
         eq(tasks.stage, "idea"),
         eq(tasks.ownerAgent, agent.id),
         sql`${tasks.promotedTo} is null`,
@@ -452,7 +453,7 @@ async function wakeTallerIfWaiting(tx: Q, agent: Agent, project: ProjectRef, jus
   const rows = await tx
     .select({ id: tasks.id, key: tasks.key, title: tasks.title, priority: tasks.priority })
     .from(tasks)
-    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, agent.id), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`)) // PLA-165: never On hold
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.ownerAgent, agent.id), workable)) // PLA-165, PLA-I74-4: the one workable rule
     .orderBy(asc(tasks.createdAt));
   // As freedBy: the project's next_first («Hacer primero») first, then priority, then the oldest.
   const [p] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, project.id)).limit(1);

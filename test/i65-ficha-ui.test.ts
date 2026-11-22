@@ -280,3 +280,26 @@ test("PLA-63: an initiative that never was an idea is drawn born (no water befor
   assert.equal(geo.rioOf(none).born, true);
   assert.equal(geo.rioOf(at("lista", { kind: "idea", built })).born, false);
 });
+
+test("PLA-I74-8: a failed production build opens on Publicado with the host's log and a red bar with «Pedir arreglo»; building and checking say so; a fix asked links to it", () => {
+  const steps = [{ key: "MIA-I4-1", title: "Lista", status: "Merged", phase: 1, etapa: "integrado", pr: { number: 51, state: "merged", url: "u" } }];
+  const deploy = { state: "error", sha: "abcdef1", url: "https://vercel.com/o/p/dpl_1", probe_url: null, log: "Type error: Property 'precio' does not exist", at: "2026-11-17T21:00:00Z", fix_key: null };
+  const built = { key: "MIA-I4", title: "Lista", status: "Active", version: 2, done: 1, total: 1, can_close: false, steps, prs: [{ number: 51, state: "merged", url: "u", key: "MIA-I4-1" }], published_at: null, evidence: [], deploy };
+  const out = ficha({ ...detail("lista"), promoted_to: "MIA-I4", built });
+  assert.match(out, /data-sel="publicado"/);
+  assert.match(out, /data-deploy-log[\s\S]*Property &#x27;precio&#x27; does not exist/);
+  assert.match(out, /data-ahora="bad"[\s\S]*Falló la publicación[\s\S]*El servicio no pudo construir la versión de producción/);
+  assert.match(out, /data-control="ficha-pedir-arreglo"[^>]*>Pedir arreglo</);
+  assert.match(out, /href="https:\/\/vercel.com\/o\/p\/dpl_1"/);
+  assert.ok(!/espera publicarse/.test(out));
+  const asked = ficha({ ...detail("lista"), promoted_to: "MIA-I4", built: { ...built, deploy: { ...deploy, fix_key: "MIA-I4-2" } } });
+  assert.match(asked, /Taller lo está arreglando[\s\S]*href="\/paso\/MIA-I4-2"[^>]*>Ver el arreglo/);
+  const checking = ficha({ ...detail("lista"), promoted_to: "MIA-I4", built: { ...built, deploy: { ...deploy, state: "checking", log: null } } });
+  assert.match(checking, /data-sel="construccion"/);
+  assert.match(checking, /data-ahora="live"[\s\S]*Comprobando[\s\S]*falta que la dirección de producción conteste/);
+  assert.ok(!/En producción/.test(checking), "not in production before the live answer");
+  const building = ficha({ ...detail("lista"), promoted_to: "MIA-I4", built: { ...built, deploy: { ...deploy, state: "building", log: null } } });
+  assert.match(building, /Publicando[\s\S]*construye la versión de producción/);
+  const live = ficha({ ...detail("lista"), promoted_to: "MIA-I4", built: { ...built, steps: steps.map((s) => ({ ...s, status: "Released" })), published_at: "2026-11-17T21:00:00Z", deploy: null } });
+  assert.match(live, /En producción · /);
+});
