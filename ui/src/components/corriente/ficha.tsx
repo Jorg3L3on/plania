@@ -19,6 +19,8 @@ import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
 import { Decisiones, forwardOf } from "./decisiones";
 import { Images } from "./images";
+import { useRevision } from "./revision";
+import { buildWarning } from "@/lib/revision";
 import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts";
 import { Corriente } from "./rio";
 import { CX0, PX, STOP_IDS, STOP_NAMES, SX, VX, W, rioOf, type Chan, type RioModel } from "./rio-geo";
@@ -877,6 +879,8 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
 
 const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d: IdeaDetail; m: RioModel; ui: Ui; set: (x: Partial<Ui>) => void; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks }) => {
   const w = say();
+  // PLA-I74-6: «Constrúyelo» warns when the project's last check-up is red, more than a day old, or missing.
+  const revision = useRevision(p.slug).data;
   const k = d.key;
   const busy = (a: string) => acts.busy === `pedido-${k}:${a}`;
   const send = (stop: PedidoStop, input: Omit<IdeaAnswerInput, "stop">) => acts.respuesta(p.slug, k, { stop, ...input });
@@ -941,6 +945,11 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
     return (
       <Bar tone="you" label={w.yourTurn} side={<Btn kind="primary" disabled={busy("construir")} onClick={() => acts.pedido(p.slug, k, "construir")} data-control="ficha-construir">{w.buildIt}</Btn>}>
         {w.needsBuild} <span>{w.needsBuildLine}</span>
+        {buildWarning(revision, Date.now()) && (
+          <span className="cor-build-warn" role="note" data-aviso-revision>
+            {buildWarning(revision, Date.now())}
+          </span>
+        )}
       </Bar>
     );
   }

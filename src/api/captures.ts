@@ -11,6 +11,9 @@
 //   GET  /api/projects/:slug/entrega               the copy's read (null when off)
 //   POST /api/projects/:slug/entrega/encender      {key}: start the copy of that delivery (its ticket's branch)
 //   POST /api/projects/:slug/entrega/apagar        turn it off
+// PLA-I74-6: «Revisar proyecto» (src/captures/revision.ts):
+//   GET  /api/projects/:slug/revision              the last check-up, the one running, the measured waits
+//   POST /api/projects/:slug/revision              start one (202), or say one is already running
 import { Hono, type Context } from "hono";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
@@ -21,6 +24,7 @@ import { startVivo, vivoRead } from "../captures/vivo.js";
 import { preguntar } from "../captures/preguntas.js";
 import { imagenBytes, imagenesRead } from "../captures/imagenes.js";
 import { latestStills, stillFile } from "../captures/store.js";
+import { revisionRead, startRevision } from "../captures/revision.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
@@ -55,6 +59,29 @@ const fail = (c: Context, e: unknown) => {
   if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.code === "PROJECT_NOT_FOUND" ? 404 : 400);
   throw e;
 };
+
+// PLA-I74-6: «Revisar proyecto». The last check-up (and the one running), and the button that starts one.
+captureRoutes.get("/:slug/revision", async (c) => {
+  try {
+    return c.json({ revision: await withDb((db) => revisionRead(db, c.req.param("slug"))) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+captureRoutes.post("/:slug/revision", async (c) => {
+  try {
+    const slug = c.req.param("slug");
+    const out = await withDb(async (db) => {
+      const read = await revisionRead(db, slug);
+      if (!read.available) return { started: false, revision: read };
+      const started = startRevision(db, slug, "owner");
+      return { started, revision: await revisionRead(db, slug) };
+    });
+    return c.json(out, out.started ? 202 : 200);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
 
 captureRoutes.get("/:slug/entrega", (c) => c.json({ entrega: entregaRead(c.req.param("slug")) }));
 captureRoutes.post("/:slug/entrega/encender", async (c) => {
