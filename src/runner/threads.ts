@@ -23,6 +23,7 @@ import {
 import { ToolError } from "../mcp/errors.js";
 import { writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js";
 import { roleOf } from "./limits.js";
+import { ST } from "../state/status.js";
 
 export const MAX_BODY = 4000;
 export const MAX_LINKS = 10;
@@ -197,7 +198,7 @@ export async function actionsFor(db: Q, msg: ThreadMessage, projectId: string | 
     .from(tasks)
     .where(pid ? and(eq(tasks.projectId, pid), eq(tasks.key, ticket.ref)) : eq(tasks.key, ticket.ref))
     .limit(1);
-  if (!t || t.status !== "In review") return [];
+  if (!t || t.status !== ST.inReview) return [];
   const pr = msg.links.find((l) => l.kind === "pr" && PR_URL.test(l.ref)) ?? (t.prUrl && PR_URL.test(t.prUrl) ? { ref: t.prUrl } : null);
   const code = (t.workType ?? "code") === "code" || t.workType === "bug" || t.workType === "debt";
   return pr && code ? ["fusionar", "cambios"] : ["aceptar", "cambios"];
