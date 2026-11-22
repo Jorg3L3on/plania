@@ -124,6 +124,15 @@ async function load(db: Db, slug: string, key: string): Promise<{ p: Project; t:
   return t ? { p, t } : null;
 }
 
+// PLA-I73-1: a pass's start and end are events, so the initiative's stopwatch reads photo time from its own records
+// (until now only the server log had it). The end carries each phase's seconds.
+async function passEvent(db: Db, t: Pick<Task, "id" | "key" | "projectId">, type: "probador.started" | "probador.pass", payload: Record<string, unknown>): Promise<void> {
+  await db
+    .insert(events)
+    .values({ projectId: t.projectId, taskId: t.id, taskKey: t.key, type, actor: ctx().actor, payload })
+    .catch((e) => console.log(`[probador] ${t.key}: could not record ${type}: ${short(e)}`));
+}
+
 async function setState(db: Db, t: Task, s: Omit<ProbadorState, "at">): Promise<ProbadorState> {
   const state = { ...s, at: new Date().toISOString() };
   await db.update(tasks).set({ probador: state }).where(eq(tasks.id, t.id));
@@ -179,6 +188,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   // PLA-52: a delivery with no branch cannot be photographed; the card shows with the reason instead of waiting forever.
   if (!branch) return setState(db, t, { state: "lista", attempts, error: say(PROBADOR_WORDS).noBranch, commit: null });
   await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null, waiting: null });
+  await passEvent(db, t, "probador.started", { attempts });
   // PLA-110 (guided test PLA-86, F-40): passes took 10–20 minutes and the log could not say where. Each phase's
   // seconds go to the server log at the end, so a slow pass shows its own breakdown.
   const clock = Date.now();
@@ -272,6 +282,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   }
   mark("despues");
   console.log(`[probador] ${slug}/${t.key}: ${lap.join(", ")}`);
+  await passEvent(db, t, "probador.pass", { ok: true, phases: lap });
   await markDiffs(db, p, t, despues.run_id);
   if (despues.ok === 0) {
     const why = despues.stills.find((x) => x.error)?.error ?? say(PROBADOR_WORDS).noView;
@@ -283,13 +294,13 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
 }
 
 /** PLA-97: the datos of the initiative's earlier accepted steps (Merged, Released or Done), in step order; none for a
- * standalone ticket. */
+ * standalone ticket. PLA-I73-2: a step delivered and still In review counts too, since a stacked step carries its code. */
 export async function earlierDatos(db: Db, t: Pick<Task, "id" | "parentId" | "projectId">): Promise<string[]> {
   if (!t.parentId) return [];
   const rows = await db
     .select({ key: tasks.key, phase: tasks.phase, muestra: tasks.muestra })
     .from(tasks)
-    .where(and(eq(tasks.projectId, t.projectId), eq(tasks.parentId, t.parentId), ne(tasks.id, t.id), inArray(tasks.status, ["Merged", "Released", "Done"])));
+    .where(and(eq(tasks.projectId, t.projectId), eq(tasks.parentId, t.parentId), ne(tasks.id, t.id), inArray(tasks.status, ["Merged", "Released", "Done", "In review"])));
   return rows
     .filter((r) => !!r.muestra?.datos?.trim())
     .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || a.key.localeCompare(b.key, "en", { numeric: true }))
@@ -320,6 +331,7 @@ async function markDiffs(db: Db, p: Project, t: Task, runId: string): Promise<vo
 
 async function failed(db: Db, p: Project, t: Task, attempts: number, error: string, deps: ProbadorDeps): Promise<ProbadorState> {
   const n = attempts + 1;
+  await passEvent(db, t, "probador.pass", { ok: false, error: error.slice(0, 300) });
   if (n >= MAX_ATTEMPTS) {
     // Second failure: the owner sees the card with what there is and why the rest is missing.
     return setState(db, t, { state: "lista", attempts: n, error, commit: null });

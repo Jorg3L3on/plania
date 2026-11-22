@@ -37,6 +37,7 @@ export const AVANZADO_WORDS = defineWords({
       quotas: "Límites diarios",
       maquinas: "Comandos de la base de la app",
       qa: "Otros ajustes de QA",
+      velocidad: "Velocidad al construir",
     } as Record<string, string>,
     opciones: {
       backlog: "De lo pendiente",
@@ -84,6 +85,7 @@ export const AVANZADO_WORDS = defineWords({
       quotas: "Daily limits",
       maquinas: "Commands for the app's database",
       qa: "Other QA settings",
+      velocidad: "Building speed",
     },
     opciones: {
       backlog: "From what is pending",

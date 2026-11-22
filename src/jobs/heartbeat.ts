@@ -8,7 +8,7 @@ import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed
 import { sweepTouched } from "../runner/touched.js";
 import { sweepAutoAccept } from "../api/auto-accept.js";
 import { sweepQa } from "../runner/qa.js";
-import { cleanupWorktrees, drainQueue, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { cleanupWorktrees, drainQueue, prewarmQueued, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { writeLockStats } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
@@ -315,6 +315,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   // PLA-58: what each live Taller run really changed joins its ticket's areas, before the drain admits anything.
   const touched = await sweepTouched(db, { git: deps?.runner?.git }).catch(logged("touched sweep"));
   const drained = await drainQueue(db, now, deps?.runner);
+  // PLA-I73-4: steps still waiting for a slot get their worktree ready now.
+  await prewarmQueued(db, deps?.runner ?? {}).catch(logged("prewarm"));
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   // PLA-I60-6: run-log retention, and the write lock's timings kept for Máquina's diagnostics.
   const pruned = pruneRunLogs(runLogDir(deps?.runner ?? {}), now);

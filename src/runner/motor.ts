@@ -34,7 +34,7 @@ export function cleanEffort(v: string | null | undefined): Effort | null | undef
   return isEffort(t) ? t : undefined;
 }
 
-export type MotorSource = "qa" | "consulta" | "seat" | "company" | "cli";
+export type MotorSource = "qa" | "consulta" | "seat" | "company" | "cli" | "step";
 export type Motor = { model: string | null; effort: Effort | null; source: { model: MotorSource; effort: MotorSource } };
 
 export type MotorInput = {
@@ -44,6 +44,8 @@ export type MotorInput = {
   consulta?: boolean;
   seat: { model: string | null; effort: string | null; consultaModel?: string | null; consultaEffort?: string | null };
   company: { model: string | null; effort: string | null };
+  // PLA-I73-6: the effort the plan gave this step (high for the skeleton), over the seat's.
+  stepEffort?: string | null;
 };
 
 const effortOf = (v: string | null | undefined): Effort | null => (v && isEffort(v) ? v : null);
@@ -61,6 +63,7 @@ export function resolveMotor(i: MotorInput): Motor {
   ]);
   const [effort, es] = pick<Effort>([
     [i.consulta ? effortOf(i.seat.consultaEffort) : null, "consulta"],
+    [i.consulta ? null : effortOf(i.stepEffort), "step"],
     [effortOf(i.seat.effort), "seat"],
     [effortOf(i.company.effort), "company"],
   ]);

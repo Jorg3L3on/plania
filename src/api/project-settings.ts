@@ -250,6 +250,7 @@ export async function setAdvanced(db: Db, slug: string, input: { version: number
     case "resources":
     case "quotas":
     case "maquinas":
+    case "velocidad":
       if (value !== null && !isObj(value)) return bad;
       patch = { [field]: value };
       break;

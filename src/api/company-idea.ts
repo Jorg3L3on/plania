@@ -25,6 +25,7 @@ import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb, type Db } from "../db/client.js";
+import { cronometroFor, type Cronometro } from "./cronometro.js";
 import { agentRuns, docs, events, ideaFrames, projects, pullRequests, questions, results, tasks, type Actor, type Task } from "../db/schema.js";
 import { projectEtapas, type EtapaId } from "./etapa.js";
 import { findProject } from "../mcp/queries.js";
@@ -167,6 +168,8 @@ export type Built = {
   published_at: string | null;
   // The newest passing evidence on its steps (what Publicado shows).
   evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
+  // PLA-I73-1: where the time went, per step and in total.
+  tiempo: Cronometro;
 };
 export type IdeaDetail = Pedido & {
   summary: string;
@@ -276,6 +279,8 @@ export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> 
         .limit(4)
     : [];
   const keyOfId = new Map(kids.map((k) => [k.id, k.key]));
+  const [idea] = await db.select({ createdAt: tasks.createdAt }).from(tasks).where(and(eq(tasks.projectId, init.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, init.key))).limit(1);
+  const tiempo = await cronometroFor(db, init, sorted, idea?.createdAt ?? null);
   return {
     key: init.key,
     title: init.title,
@@ -288,6 +293,7 @@ export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> 
     prs: sorted.flatMap((k) => prRows.filter((r) => r.taskId === k.id).map((r) => ({ number: r.number, state: r.state, url: r.url, key: k.key }))),
     published_at: published ? published.toISOString() : null,
     evidence: ev.map((r) => ({ key: keyOfId.get(r.taskId) ?? "", kind: r.kind, cite: r.cite, commit: r.commit, env: r.env, at: r.at.toISOString() })),
+    tiempo,
   };
 }
 

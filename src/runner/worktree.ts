@@ -78,7 +78,7 @@ export type WorktreeOutcome = { ok: true; path: string; branch: string; created:
 
 // Creates (or reuses) <root>/<project>/<KEY> on its branch from origin/sandbox.
 export async function ensureWorktree(
-  input: { repo: string; root: string; project: string; key: string; branch: string; base?: string },
+  input: { repo: string; root: string; project: string; key: string; branch: string; base?: string; from?: string },
   git: GitFn = defaultGit,
 ): Promise<WorktreeOutcome> {
   const start = input.base ?? ALLOWED_BASE;
@@ -107,9 +107,15 @@ export async function ensureWorktree(
   if (fetched.code !== 0) return { ok: false, summary: "fail: fetch origin/sandbox" };
   mkdirSync(path.dirname(target), { recursive: true });
   const exists = (await git(["rev-parse", "--verify", "--quiet", `refs/heads/${input.branch}`], input.repo)).code === 0;
+  // PLA-I73-2: a stacked step starts from the delivered step under it, not from the start branch.
+  let from = `origin/${start}`;
+  if (!exists && input.from && input.from !== start) {
+    const got = await git(["fetch", "origin", input.from], input.repo);
+    if (got.code === 0) from = `origin/${input.from}`;
+  }
   const args = exists
     ? ["worktree", "add", target, input.branch]
-    : ["worktree", "add", "--no-track", target, "-b", input.branch, `origin/${start}`];
+    : ["worktree", "add", "--no-track", target, "-b", input.branch, from];
   const added = await git(args, input.repo);
   if (added.code !== 0) return { ok: false, summary: "fail: worktree add" };
   const head = await git(["rev-parse", "--abbrev-ref", "HEAD"], target);

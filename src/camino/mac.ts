@@ -15,10 +15,10 @@ export type MacDeps = {
 };
 
 // PLA-158 (F-26): the «Base de datos» picker listed every database on Plania's own Postgres: test databases, demo
-// servers and the throwaway copies El Probador and Máquinas make (<db>_entrega, _prueba, _taller, _ini_<key>). None
+// servers and the throwaway copies El Probador and Máquinas make (<db>_entrega, _prueba, _taller, _plantilla, _ini_<key>). None
 // of them is a project's base, and the project's own base (on another port) was missing. Plania's leftovers are
 // hidden and the project's own name leads the list.
-const LEFTOVER = [/^plania_test_/, /_demo$/, /_(entrega|prueba|taller)$/, /_ini_[a-z0-9_]+$/];
+const LEFTOVER = [/^plania_test_/, /_demo$/, /_(entrega|prueba|taller|plantilla)$/, /_ini_[a-z0-9_]+$/];
 export const isLeftover = (name: string): boolean => LEFTOVER.some((re) => re.test(name));
 export function pickDatabases(listed: string[], own: string | null | undefined): string[] {
   const out = listed.filter((d) => !isLeftover(d) || d === own);

@@ -773,6 +773,19 @@ export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: 
   // PLA-I2-13: names of server variables this project's runs also get (src/runner/run-env.ts). Never Plania's own.
   env?: string[] };
 
+// PLA-I73: how building goes fast (src/runner/velocidad.ts reads it with its defaults).
+export type VelocidadSettings = {
+  /** the next chained step starts when the previous one is delivered, on top of its branch */
+  apilar?: boolean;
+  /** por_modulo: a green step without risk is accepted by itself and the owner reviews the module at Publicar */
+  revision?: "por_paso" | "por_modulo";
+  /** Taller steps of this project at once (areas never overlap) */
+  carriles?: number;
+  /** the skeleton step starts when the plan is delivered, before «Constrúyelo» */
+  esqueleto_temprano?: boolean;
+  /** Plania runs settings.qa.verify on each delivery even without a QA seat */
+  verificar?: boolean;
+};
 export type ProjectSettings = {
   // PLA-I60: «Agentes a la vez», «Preguntas a la vez», «Por agente» (Motores) and same-files serialization.
   runner?: ProjectRunnerSettings;
@@ -783,6 +796,7 @@ export type ProjectSettings = {
   // PLA-I56-1: a released code, bug or debt ticket with every check closed and no open question moves to Done by
   // the rule. On unless false.
   auto_done?: boolean;
+  velocidad?: VelocidadSettings;
   branch_pattern?: string; // regex every branch name must match
   claim_from?: "backlog" | "ready"; // what get_next offers (default backlog)
   resources?: Record<string, { needs_approval?: boolean; ttl_max?: number }>; // by name glob

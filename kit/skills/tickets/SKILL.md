@@ -67,7 +67,8 @@ which reaches his inbox. In a proposed plan, the steps carry only three fields, 
 doc and add the blocker with `set_task` once the tickets exist.
 
 Leg steps run in order: Plania blocks each one on the step before it. For tickets you create, write the
-blockers yourself as keys in `blocked_by`.
+blockers yourself as keys in `blocked_by`, except for the steps of an idea's plan that has `depends_on` or
+`files`: there Plania fills `blocked_by` and `areas` from the plan when you leave them out.
 
 ## Done when
 

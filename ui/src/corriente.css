@@ -2857,6 +2857,27 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
 @media (prefers-reduced-motion: reduce) { .cq-dot.live, .cq-ring.on::before, .cq-drawer { animation: none !important; } }
 
 
+/* PLA-I73-1: the stopwatch on «Construcción». */
+.cor-crono { margin-top: 20px; display: grid; gap: 10px; }
+.cor-crono-h { margin: 0; font: 500 12px/1.4 var(--cor-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cor-muted); }
+.cor-crono-before { margin: 0; font-size: 13px; color: var(--cor-muted); }
+.cor-crono-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--cor-raised); min-width: 0; }
+.cor-crono-bar.is-big { height: 14px; }
+.cor-crono-bar span { min-width: 2px; }
+.cor-crono-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--cor-body); }
+.cor-crono-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.cor-crono-legend b { font-weight: 500; color: var(--cor-text); font-variant-numeric: tabular-nums; }
+.cor-crono-steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.cor-crono-steps li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 64px; gap: 10px; align-items: center; font-size: 13px; }
+.cor-crono-name { color: var(--cor-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cor-crono-ms { font: 12px var(--cor-mono); color: var(--cor-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.cor-crono-construye { background: var(--cor-violet); }
+.cor-crono-rehace { background: var(--cor-violet-3); }
+.cor-crono-fotos { background: var(--cor-amber); }
+.cor-crono-verifica { background: var(--cor-green); }
+.cor-crono-dueno { background: var(--cor-violet-4); opacity: 0.55; }
+.cor-crono-detenido { background: var(--cor-red); }
+
 /* ---- PLA-I3-7 «La página del proyecto en el teléfono». Everything that changes the layout lives in the 639 px rule
    below; above it these pieces are not drawn (the steps control, the Pedir chip, the send arrow, the pulse's line). */
 /* An initiative's steps as one control on its card: the segments, «3 de 8», a chevron (components/corriente/tramos.tsx). */

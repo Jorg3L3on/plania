@@ -117,6 +117,11 @@ import { DEFAULT_START_BRANCH, startBranchOf } from "./start-branch.js";
 import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
+import { earlyBaseOf, stackBaseOf, type StackBase } from "./stack.js";
+import { velocidadOf } from "./velocidad.js";
+import { cloneModules } from "../lib/clone-modules.js";
+import { heavyEnv } from "./heavy.js";
+import { planStepFor } from "../mcp/plan-step.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 import { carryReferences, markOpened, referenceLines, type ReferenceLine } from "./references.js";
@@ -266,7 +271,7 @@ type WakeContext = {
   role: RunnerRole | null;
   project: Project | null;
   task: ReadyWork | null;
-  taskRow: { branch: string | null; base: string | null } | null;
+  taskRow: { id?: string | null; branch: string | null; base: string | null } | null;
 };
 
 // PLA-I32-5: an agent's project is its team's (project_id); Asistente's is its home project (where its runs
@@ -280,12 +285,12 @@ async function projectOfAgent(db: Q, agent: Agent): Promise<Project | null> {
   return row ?? null;
 }
 
-async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ branch: string | null; base: string | null }> {
-  const rows = await db.execute<{ branch: string | null; base: string | null }>(sql`
-    select t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
+async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ id: string | null; branch: string | null; base: string | null }> {
+  const rows = await db.execute<{ id: string | null; branch: string | null; base: string | null }>(sql`
+    select t.id as id, t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
     from tasks t left join tasks p on p.id = t.parent_id
     where t.project_id = ${projectId} and t.key = ${key} limit 1`);
-  return rows.rows[0] ?? { branch: null, base: null };
+  return rows.rows[0] ?? { id: null, branch: null, base: null };
 }
 
 // PLA-89: Research and Artist are woken for an idea's stage (research, design). A wake queued for a stage the idea
@@ -645,10 +650,15 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
         continue;
       }
       {
-        const lim = projectLimits(projectById.get(run.projectId)?.settings?.runner);
+        const ps = projectById.get(run.projectId)?.settings;
+        const lim = projectLimits(ps?.runner);
+        // PLA-I73-5: lanes. Unless the owner set the project's caps by hand, a project runs settings.velocidad.carriles
+        // work runs at once (2 by default) and its Taller seat that many steps; areas still never overlap (below).
+        const carriles = velocidadOf(ps).carriles;
+        const workCap = ps?.runner?.max_concurrent ?? Math.max(lim.maxConcurrent, carriles);
         if (run.lane === "consulta" || agent.projectId) {
           const used = c.byProjectLane.get(`${run.projectId}:${run.lane}`) ?? 0;
-          const cap = run.lane === "consulta" ? lim.consultaSlots : lim.maxConcurrent;
+          const cap = run.lane === "consulta" ? lim.consultaSlots : workCap;
           if (used >= cap) {
             await hold(run, "project_cap", { running: used, cap, lane: run.lane });
             continue;
@@ -656,7 +666,7 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
         }
         if (run.lane === "work") {
           const used = c.byAgent.get(agent.id) ?? 0;
-          const cap = agentCapOf(agent, lim);
+          const cap = run.role === "taller" && agent.maxParallel == null && ps?.runner?.max_per_agent == null ? Math.max(agentCapOf(agent, lim), carriles) : agentCapOf(agent, lim);
           if (used >= cap) {
             await hold(run, "agent_cap", { running: used, cap });
             continue;
@@ -959,6 +969,8 @@ export function userPrompt(input: {
   changes?: string | null;
   // PLA-I67-4: the seat's references, copied into the run's temp folder (src/runner/references.ts).
   references?: ReferenceLine[];
+  // PLA-I73-2: the delivered step this one is stacked on (its branch is this worktree's starting point).
+  stackedOn?: { key: string; title: string; branch: string } | null;
 }): string {
   const company = input.role === "asistente";
   const startBranch = input.project.startBranch ?? DEFAULT_START_BRANCH;
@@ -986,6 +998,12 @@ export function userPrompt(input: {
   );
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base ${startBranch}.`);
+  }
+  if (input.stackedOn) {
+    const b = input.stackedOn;
+    lines.push(
+      `This step is stacked on ${b.key} «${b.title}», delivered and still in review: your branch starts from ${b.branch}, so its code is already here. Build on it, do not redo it. Your PR still goes into ${startBranch}; until ${b.key} merges it also shows that step's commits, which is expected. If ${b.key} is sent back and changes, rebase onto origin/${b.branch} before you deliver.`,
+    );
   }
   lines.push(...packLines(input.packs ?? []));
   lines.push(...kitLines(input.kit ?? []));
@@ -1225,6 +1243,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // Where the run works: the ticket's worktree, or a scratch folder for a PO with no ticket.
   let cwd: string;
   let worktree: string | null = null;
+  let stacked: StackBase | null = null;
   let branch: string | null = null;
   let readCopy: { branch: string | null; commit: string | null; fallback?: string } | null = null;
   if (trial) {
@@ -1238,7 +1257,12 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key, await workPatternOf(db, project.id));
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
-    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
+    // PLA-I73-2: a step stacked on a delivered one starts from that step's branch.
+    stacked = ctx.taskRow?.id ? await stackBaseOf(db, ctx.taskRow.id) : null;
+    // PLA-I73-6: step 1 starts from the skeleton built early on the idea's branch.
+    const early = !stacked && ctx.taskRow?.id ? await earlyBaseOf(db, ctx.taskRow.id) : null;
+    const from = stacked?.branch ?? early?.branch;
+    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings), ...(from ? { from } : {}) }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
       if (made.summary === "fail: no repo" && role !== "taller") {
         cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
@@ -1248,6 +1272,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       cwd = made.path;
       worktree = made.path;
       branch = made.branch;
+      // PLA-I73-4: a new worktree gets the checkout's modules as an instant clone when the lockfile matches.
+      if (made.created) await cloneModules(repo, made.path).catch(() => false);
       if (made.created && deps.footprints !== false) {
         await registerFootprint(
           db,
@@ -1387,6 +1413,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     goal,
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
+    stackedOn: stacked,
     sessionId: planiaSession,
     reason: run.reason?.trim() || null,
     packs,
@@ -1404,7 +1431,11 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I69-5, PLA-130: how the app addresses people (Marca → Estilo → Trato) rides in every run that writes for it.
   const voiceText = consulta || qa ? "" : voiceBlock(project.slug);
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
+  // PLA-I73-6: a Taller step's own effort from the plan.
+  const stepRow = role === "taller" && ctx.taskRow?.id ? (await db.select({ projectId: tasks.projectId, parentId: tasks.parentId, phase: tasks.phase }).from(tasks).where(eq(tasks.id, ctx.taskRow.id)).limit(1))[0] : null;
+  const stepEffort = stepRow ? ((await planStepFor(db, stepRow).catch(() => null))?.effort ?? null) : null;
   const motor = resolveMotor({
+    stepEffort,
     qaModel: qa?.model ?? null,
     consulta: !!consulta,
     seat: { model: ctx.agent.motorModel, effort: ctx.agent.motorEffort, consultaModel: ctx.agent.consultaModel, consultaEffort: ctx.agent.consultaEffort },
@@ -1448,7 +1479,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     if (made && !made.ok) return fail(`fail: no taller database (${made.error})`);
     if (made) tallerEnv = made.env;
   }
-  const runEnvValue = childEnv(env, { ...tallerEnv, PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  // PLA-I73-5: Taller's heavy commands take turns through the heavy-work queue.
+  const heavy = role === "taller" && run.lane === "work" && !trial && !readOnly ? heavyEnv(root, env) : {};
+  const runEnvValue = childEnv(env, { ...tallerEnv, ...heavy, PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
   // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
   const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
   if (selfProblem) return fail(`fail: ${selfProblem}`);
@@ -2009,3 +2042,47 @@ export function defaultProbeUsage(env: NodeJS.ProcessEnv = process.env): () => P
 
 export const newRunId = (): string => randomUUID();
 export type { PlanWindowReading };
+
+// PLA-I73-4: a Taller step waiting in the queue (lanes full, or the machine busy) gets its worktree made now, with its
+// modules cloned and, when stacked, cut from the step under it, so the run starts on a ready checkout. At most `limit`
+// per tick; the footprint is the one start would register.
+export async function prewarmQueued(db: Db, deps: RunnerDeps = {}, limit = 2): Promise<string[]> {
+  const env = deps.env ?? process.env;
+  const root = rootOf(deps, env);
+  const rows = await db
+    .select({ taskKey: agentRuns.taskKey, projectId: agentRuns.projectId, agentId: agentRuns.agentId })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.status, "queued"), eq(agentRuns.role, "taller"), sql`${agentRuns.taskKey} is not null`))
+    .orderBy(asc(agentRuns.queuedAt))
+    .limit(20);
+  const made: string[] = [];
+  for (const r of rows) {
+    if (made.length >= limit) break;
+    const [project] = await db.select().from(projects).where(eq(projects.id, r.projectId)).limit(1);
+    if (!project) continue;
+    const [t] = await db.select({ id: tasks.id, key: tasks.key, branch: tasks.branch, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, r.taskKey!))).limit(1);
+    if (!t || t.status !== "Ready") continue;
+    const target = worktreePathFor(root, project.slug, t.key);
+    if (existsSync(target)) continue;
+    const repo = repoPathOf(project.slug, project.settings, env);
+    if (!existsSync(repo)) continue;
+    const [agent] = await db.select({ slug: agents.slug }).from(agents).where(eq(agents.id, r.agentId)).limit(1);
+    const stacked = await stackBaseOf(db, t.id);
+    const from = stacked?.branch ?? (await earlyBaseOf(db, t.id))?.branch;
+    const branch = t.branch?.trim() || branchFor(t.key, await workPatternOf(db, project.id));
+    const out = await withRepoLock(db, repo, () =>
+      ensureWorktree({ repo, root, project: project.slug, key: t.key, branch, base: startBranchOf(project.settings), ...(from ? { from } : {}) }, carefulGit(deps.git ?? defaultGit)),
+    ).catch(() => null);
+    if (!out?.ok || !out.created) continue;
+    await cloneModules(repo, out.path).catch(() => false);
+    if (deps.footprints !== false) {
+      await registerFootprint(
+        db,
+        { project: project.slug, kind: "worktree", locator: out.path, purpose: `Runner worktree for ${t.key} (${agent?.slug ?? "taller"})`, teardown: `git -C ${repo} worktree remove ${out.path}`, task_key: t.key },
+        { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-${agent?.slug ?? "taller"}` } },
+      ).catch(() => undefined);
+    }
+    made.push(t.key);
+  }
+  return made;
+}

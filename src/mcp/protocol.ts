@@ -4,7 +4,7 @@
 
 import { personalize } from "../owner.js";
 
-export const PROTOCOL_VERSION = "2.25";
+export const PROTOCOL_VERSION = "2.26";
 
 // 2.25: propose_seat (PLA-I71-3). A PO proposes one more seat with its reason; only the owner's screen accepts or
 // declines it, and an accepted seat arrives paused. Runs never create, move, pause or retire seats. The rules live in

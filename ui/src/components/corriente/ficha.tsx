@@ -28,6 +28,7 @@ import { LOCALE } from "@/lib/locale";
 import { FICHA_WORDS } from "@/lib/ficha-words";
 import { ideaName } from "@/lib/nombre";
 import { stopBar } from "@/lib/ficha";
+import { CRONO_WORDS, cronoView, type CronoBar, type Cronometro as CronoData } from "@/lib/cronometro";
 import { words } from "@/lib/i18n";
 
 export type Sel = PedidoStop | "construccion" | "publicado";
@@ -238,6 +239,46 @@ const PlanSteps = ({ titles, chans, links, keys }: { titles: string[]; chans?: C
   );
 };
 
+// PLA-I73-1: where the time went, one bar for the whole initiative and one per step, in the fixed order of the pieces.
+const CronoBars = ({ bars, big }: { bars: CronoBar[]; big?: boolean }) => (
+  <div className={`cor-crono-bar${big ? " is-big" : ""}`} role="img" aria-label={bars.map((b) => `${b.label} ${b.text}`).join(", ")}>
+    {bars.map((b) => (
+      <span key={b.tramo} className={`cor-crono-${b.tramo}`} style={{ flexGrow: b.ms }} title={`${b.label}: ${b.text}`} />
+    ))}
+  </div>
+);
+const Cronometro = ({ c }: { c: CronoData | undefined }) => {
+  const v = cronoView(c);
+  if (!v) return null;
+  const cw = words(CRONO_WORDS);
+  return (
+    <section className="cor-crono" aria-label={cw.title}>
+      <h4 className="cor-crono-h">
+        {cw.title} · {v.headline}
+      </h4>
+      {v.before ? <p className="cor-crono-before">{v.before}</p> : null}
+      <CronoBars bars={v.total} big />
+      <ul className="cor-crono-legend">
+        {v.total.map((b) => (
+          <li key={b.tramo}>
+            <i className={`cor-crono-${b.tramo}`} />
+            {b.label} <b>{b.text}</b>
+          </li>
+        ))}
+      </ul>
+      <ol className="cor-crono-steps">
+        {v.steps.map((s) => (
+          <li key={s.key}>
+            <span className="cor-crono-name">{s.title}</span>
+            <CronoBars bars={s.bars} />
+            <span className="cor-crono-ms">{s.text}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+};
+
 const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: Partial<Ui>) => void; links: FichaLinks; now: number; timeZone?: string; acts: CorrienteActs; slug: string }) => {
   const w = say();
   const b = d.built ?? null;
@@ -256,6 +297,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
         ) : (
           <p className="cor-text">{w.noSteps}</p>
         )}
+        <Cronometro c={b.tiempo} />
       </>
     );
   }

@@ -18,6 +18,7 @@ export const AVANZADO_FIELDS = [
   "quotas",
   "maquinas",
   "qa",
+  "velocidad",
 ] as const;
 export type AvanzadoField = (typeof AVANZADO_FIELDS)[number];
 export type AvanzadoEditor = "text" | "select" | "switch" | "number" | "env" | "json";
@@ -32,6 +33,8 @@ export const AVANZADO: Record<AvanzadoField, { key: SettingKey; editor: Avanzado
   quotas: { key: "quotas", editor: "json" },
   maquinas: { key: "maquinas", editor: "json" },
   qa: { key: "qa", editor: "json" },
+  // PLA-I73: {apilar, revision por_paso|por_modulo, carriles 1-4, esqueleto_temprano, verificar}.
+  velocidad: { key: "velocidad", editor: "json" },
 };
 
 /** Every advanced key of the registry whose control is «Avanzado» has a field here (test/settings-registry.test.ts);

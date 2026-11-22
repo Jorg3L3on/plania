@@ -4,7 +4,7 @@
 //   idea      problem, who, why_now, decisions (0 to 6 closed questions, each with the option the PO recommends)
 //   research  learned, options (2 to 4), recommendation {option, why}, unknowns
 //   design    approach, scope, out_of_scope (at least one thing)
-//   planning  steps (1 to 6: title, done_when, try_it, work_type), risks, size
+//   planning  steps (1 to 6: title, done_when, try_it, work_type; PLA-I73: esqueleto, depends_on, files, effort, muestra), risks, size
 // Every index in the data is 0-based (decisions[].recommended, recommendation.option), as propose's `suggested` is.
 // A decision is an assumption until the owner picks on his screen (src/api/company-idea.ts, event `idea.decision`):
 // the doc's Assumptions section carries one line per decision and that line is rewritten when he decides. His pick
@@ -15,14 +15,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { parseMuestra, type Muestra } from "../captures/muestra.js";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { agentRuns, docs, events } from "../db/schema.js";
+import { agentRuns, docs, events, type ProjectSettings } from "../db/schema.js";
 import { docSummary, putDoc } from "./docs.js";
 import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
-import { writeTx, type Ctx, type Q } from "./tx.js";
+import { writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 import { isOwnerAgent, ownerEs, ownerName } from "../owner.js";
 import { runPrefixOf } from "../runner/run-session.js";
 import { defineWords, say } from "../words.js";
@@ -36,7 +37,21 @@ export type StageDecision = { question: string; options: string[]; recommended: 
 export type IdeaData = { problem: string; who: string; why_now: string; decisions: StageDecision[] };
 export type ResearchData = { learned: string[]; options: { title: string; text: string }[]; recommendation: { option: number; why: string }; unknowns: string[] };
 export type DesignData = { approach: string; scope: string[]; out_of_scope: string[] };
-export type PlanStep = { title: string; done_when: string; try_it: string; work_type: string };
+export type PlanStep = {
+  title: string;
+  done_when: string;
+  try_it: string;
+  work_type: string;
+  // PLA-I73-5: the skeleton step goes first (tables, names, sample data, empty screens); the others say which earlier
+  // steps they need (0-based) and which files they touch, so steps with no shared files run at the same time.
+  esqueleto?: boolean;
+  depends_on?: number[];
+  files?: string[];
+  // PLA-I73-6: the effort of this step's Taller run (Motores), over the seat's.
+  effort?: "low" | "medium" | "high";
+  // PLA-I73-3: «Pruébalo» as the views El Probador will photograph, written with the plan; Taller delivers to it.
+  muestra?: Muestra;
+};
 export type PlanningData = { steps: PlanStep[]; risks: string[]; size: string | null };
 export type StageDataMap = { idea: IdeaData; research: ResearchData; design: DesignData; planning: PlanningData };
 export type StageData = StageDataMap[DeliverStage];
@@ -75,7 +90,21 @@ const SHAPES: Record<DeliverStage, z.ZodType> = {
   planning: z
     .object({
       steps: z
-        .array(z.object({ title: text(200).optional(), done_when: text(300).optional(), try_it: text(300).optional(), work_type: z.string().max(20).optional() }).strict())
+        .array(
+          z
+            .object({
+              title: text(200).optional(),
+              done_when: text(300).optional(),
+              try_it: text(300).optional(),
+              work_type: z.string().max(20).optional(),
+              esqueleto: z.boolean().optional(),
+              depends_on: z.array(z.number().int().min(0).max(MAX_STEPS - 1)).max(MAX_STEPS).optional(),
+              files: z.array(text(200)).max(12).optional(),
+              effort: z.enum(["low", "medium", "high"]).optional(),
+              muestra: z.unknown().optional(),
+            })
+            .strict(),
+        )
         .max(MAX_STEPS)
         .optional(),
       risks: list(12).optional(),
@@ -88,7 +117,7 @@ const SHAPE_HINT: Record<DeliverStage, string> = {
   idea: "data is {problem, who, why_now, decisions: [{question, options: [2 to 4 short labels], recommended: 0-based index, why}]} with 0 to 6 decisions",
   research: "data is {learned: [..], options: [{title, text}] (2 to 4), recommendation: {option: 0-based index, why}, unknowns: [..]}",
   design: "data is {approach, scope: [..], out_of_scope: [at least one thing]}",
-  planning: "data is {steps: [{title, done_when, try_it, work_type?}] (1 to 6), risks: [..], size?}",
+  planning: "data is {steps: [{title, done_when, try_it, work_type?, esqueleto?, depends_on?: [earlier 0-based indexes], files?: [globs], effort?: low|medium|high, muestra?}] (1 to 6), risks: [..], size?}",
 };
 
 // ---- Content.
@@ -197,7 +226,25 @@ function checkPlanning(raw: Partial<PlanningData>, miss: (field: string, hint: s
     if (thin(s.try_it, 3) || same(s.try_it ?? "", title)) miss(`${at}.try_it`, HINTS.try);
     const work_type = s.work_type ?? "code";
     if (!STEP_TYPES.includes(work_type)) throw malformed("planning", `${at}.work_type`, `one of ${STEP_TYPES.join(", ")}`);
-    return { title, done_when: tidy(s.done_when), try_it: tidy(s.try_it), work_type };
+    const step: PlanStep = { title, done_when: tidy(s.done_when), try_it: tidy(s.try_it), work_type };
+    if (s.esqueleto) {
+      if (i !== 0) throw malformed("planning", `${at}.esqueleto`, "only the first step can be the skeleton");
+      step.esqueleto = true;
+    }
+    if (s.depends_on?.length) {
+      const deps = [...new Set(s.depends_on)].sort((a, b) => a - b);
+      if (deps.some((d) => d >= i)) throw malformed("planning", `${at}.depends_on`, "indexes of earlier steps only (0-based)");
+      step.depends_on = deps;
+    }
+    const files = (s.files ?? []).map(tidy).filter(Boolean);
+    if (files.length) step.files = files;
+    if (s.effort) step.effort = s.effort;
+    if (s.muestra !== undefined) {
+      const m = parseMuestra(s.muestra);
+      if (!m.ok) throw malformed("planning", `${at}.${m.field}`, m.hint);
+      step.muestra = m.muestra;
+    }
+    return step;
   });
   if (!steps.length) miss("steps", `1 to ${MAX_STEPS} steps, each {title, done_when, try_it}`);
   const risks = (raw.risks ?? []).map(tidy);
@@ -444,8 +491,10 @@ export async function deliverStage(db: Db, input: DeliverStageInput, ctx: Ctx) {
         warning: `the owner wrote on this idea after your run started (${late.since}); do not move the stage: read get_task, fold his words in and deliver again from the next run. A set_task stage move from this run is refused (IDEA_OWNER_NEWER).`,
       };
     }
+    // PLA-I73-6: a plan that starts with a skeleton starts building it now, before «Constrúyelo».
+    const early = stage === "planning" ? await startEarlySkeleton(tx, emit, p, t, data as PlanningData, d.version) : null;
     const next = t.stage === stage ? STAGES[STAGES.indexOf(stage as Stage) + 1] : undefined;
-    return { key: t.key, stage: t.stage, delivered: stage, doc: docSummary(d), ...(next ? { next: `set_task {key: "${t.key}", stage: "${next}", version: ${t.version}} moves it on` } : {}) };
+    return { key: t.key, stage: t.stage, delivered: stage, doc: docSummary(d), ...(early ? { early_skeleton: early } : {}), ...(next ? { next: `set_task {key: "${t.key}", stage: "${next}", version: ${t.version}} moves it on` } : {}) };
   });
 }
 
@@ -465,7 +514,7 @@ export const registerStageTools = (
         "stage idea: data {problem, who, why_now, decisions}. decisions are the open questions you would otherwise ask (0 to 6): each {question, options (2 to 4 short labels), recommended (0-based index), why}. Nothing waits: your recommended option is assumed, the owner can change it on their screen, and a change sends the idea back to you with his note.",
         "stage research: data {learned: [..], options: [{title, text}] (2 to 4), recommendation: {option (0-based index), why}, unknowns: [..] (may be empty)}.",
         "stage design: data {approach, scope: [..], out_of_scope: [at least one thing it will not do]}.",
-        `stage planning: data {steps (1 to ${MAX_STEPS}): [{title, done_when, try_it, work_type code|ops|research|bug|debt}], risks: [..], size (optional, one line)}. done_when states something a person can see or check; try_it says what someone can try once that step lands.`,
+        `stage planning: data {steps (1 to ${MAX_STEPS}): [{title, done_when, try_it, work_type code|ops|research|bug|debt, esqueleto? (first step only: the module's tables, names, sample data and empty screens), depends_on? (earlier steps, 0-based), files? (globs it touches), effort? low|medium|high, muestra? (its «Pruébalo» as finish's muestra)}], risks: [..], size (optional, one line)}. Steps that depend only on the skeleton and share no files run at the same time; the ticket of each step gets its blocked_by and areas from the plan when the PO files none, and its muestra at finish when Taller passes none. done_when states something a person can see or check; try_it says what someone can try once that step lands.`,
         "Refusals store nothing: STAGE_REQUIREMENTS_MISSING lists every field to fix (missing) with how (fix): empty or filler text (TBD, n/a), a done_when that only says it works, no out_of_scope, a step without try_it. INVALID_FILTER names one malformed field. Send the whole data again; a new delivery replaces the doc.",
         "Plain words for the owner: no ticket keys or branch names in questions, labels or steps.",
         "PLA-149: when the owner decided or wrote on the idea after your run started, the reply carries owner_newer {since, words} and a warning instead of next: the idea stays on its stage (set_task stage from this run is IDEA_OWNER_NEWER) and you are woken again with his words.",
@@ -487,3 +536,26 @@ export const registerStageTools = (
       }),
   );
 };
+
+// PLA-I73-6: when the plan's first step is the skeleton and the project builds early (settings.velocidad
+// .esqueleto_temprano, on by default), Taller is woken on the idea itself to build that step on the idea's branch.
+// Step 1's ticket starts from that branch if the plan is still this version (src/runner/stack.ts earlyBaseOf).
+export const EARLY_REASON = (idea: string, branch: string) =>
+  `early skeleton for ${idea}: its plan is delivered and step 1 is the skeleton. Before the owner says «Constrúyelo», build only that step in this workspace (branch ${branch}): read the idea (get_task ${idea}) and its Plan doc, then make the tables and migrations, the names, the sample data and the empty screens it lists. There is no ticket yet: do not call start, claim or finish, and open no PR. Commit and push the branch, run the related tests, and end with your thread line. Step 1's ticket will start from this branch. If the plan changes, a new wake says so: rework the branch for the new plan.`;
+
+async function startEarlySkeleton(tx: Q, emit: Emit, p: { id: string; slug: string; settings: ProjectSettings }, t: { id: string; key: string; promotedTo: string | null }, data: PlanningData, docVersion: number): Promise<string | null> {
+  if (!data.steps[0]?.esqueleto || t.promotedTo) return null;
+  const { velocidadOf } = await import("../runner/velocidad.js");
+  if (!velocidadOf(p.settings).esqueleto_temprano) return null;
+  // Loaded here: the runner's modules import this one.
+  const { queueWake, serviceAgent } = await import("../runner/events.js");
+  const { branchFor } = await import("../runner/worktree.js");
+  const { workPatternOf } = await import("../camino/store.js");
+  const taller = await serviceAgent(tx, "taller", { id: p.id, slug: p.slug });
+  if (!taller) return null;
+  const branch = branchFor(t.key, await workPatternOf(tx as never, p.id));
+  const w = await queueWake(tx, p as never, { id: t.id, key: t.key }, { agent: taller, taskKey: t.key, reason: EARLY_REASON(t.key, branch) }, DELIVERED);
+  if (w.kind !== "queued" && !w.existingRunId) return null;
+  await emit("esqueleto.temprano", { id: t.id, key: t.key }, { doc_version: docVersion, branch });
+  return branch;
+}

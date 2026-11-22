@@ -732,3 +732,37 @@ test("PLA-127: a marks request goes request → queue → running → deliver_ma
   assert.equal(marks.latestRequest("micasa")?.status, "ready");
   await finishAll(f);
 });
+
+// PLA-I73-5: lanes. With no caps set by hand, a project runs settings.velocidad.carriles Taller steps at once (2 by
+// default), never two whose areas overlap.
+test("PLA-I73-5: two Taller steps with separate files start together, a third waits; carriles 1 or shared files keep one", async () => {
+  await t2Reset();
+  await raw.query(`update projects set settings = settings - 'runner' - 'velocidad' where slug = 'micasa'`);
+  const f = fakes();
+  const a = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Panel", { areas: ["src/app/panel/**"] }));
+  const b = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Revista", { areas: ["src/app/catalogo/**"] }));
+  const c = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Asesora", { areas: ["src/app/asesora/**"] }));
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.deepEqual([await statusOf(a), await statusOf(b)].map((s) => s.status), ["running", "running"]);
+  assert.equal((await statusOf(c)).status, "queued");
+  await finishAll(f);
+
+  await t2Reset();
+  const g = fakes();
+  const d = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Vestidos", { areas: ["src/db/**"] }));
+  const e = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Favoritas", { areas: ["src/db/favoritas.ts"] }));
+  await runner.drainQueue(db, new Date(), g.deps as never);
+  assert.deepEqual([(await statusOf(d)).status, await statusOf(e)], ["running", { status: "queued", held_code: "areas" }]);
+  await finishAll(g);
+
+  await t2Reset();
+  await raw.query(`update projects set settings = settings || '{"velocidad": {"carriles": 1}}'::jsonb where slug = 'micasa'`);
+  const h = fakes();
+  const x = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Uno solo", { areas: ["src/a/**"] }));
+  const y = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Otro", { areas: ["src/b/**"] }));
+  await runner.drainQueue(db, new Date(), h.deps as never);
+  assert.equal((await statusOf(x)).status, "running");
+  assert.equal((await statusOf(y)).status, "queued");
+  await finishAll(h);
+  await raw.query(`update projects set settings = settings - 'velocidad' where slug = 'micasa'`);
+});
