@@ -142,6 +142,11 @@ test("I52-4 helpers: what a frame shows, where the viewer opens, the state line 
   assert.equal(pb.stateLine(PROB), null);
   assert.equal(pb.stateLine({ ...PROB, state: { ...PROB.state, error: "1 de 6 fotos no salieron" } }), "Faltan fotos: 1 de 6 fotos no salieron");
   assert.equal(pb.stateLine({ ...PROB, state: { ...PROB.state, state: "tomando" } }), "Tomando las fotos de la entrega…");
+  // PLA-158 (F-27): a pass that waits says on what, on the line and on the card.
+  const esperando = { ...PROB, state: { ...PROB.state, state: "tomando" as const, waiting: "Espera a que terminen las fotos de otra entrega." } };
+  assert.equal(pb.stateLine(esperando), "Tomando las fotos de la entrega… Espera a que terminen las fotos de otra entrega.");
+  assert.equal(pb.tomandoLine(esperando, "Aparecen aquí en cuanto estén."), "Espera a que terminen las fotos de otra entrega.");
+  assert.equal(pb.tomandoLine({ ...PROB, state: { ...PROB.state, state: "tomando" } }, "Aparecen aquí en cuanto estén."), "Aparecen aquí en cuanto estén.");
   assert.match(pb.siAceptas(null, "MIA-28")[0], /^Pasa a tu copia de prueba; lo publicado no cambia\. A producción solo llega cuando tú lances\./);
   assert.equal(pb.siAceptas(null, "MIA-28")[1], "Si no: MIA-28 espera a esta.");
 });

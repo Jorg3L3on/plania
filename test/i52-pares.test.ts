@@ -254,6 +254,50 @@ describe("PLA-154: antes never comes from Plania's own delivery copy", () => {
   });
 });
 
+describe("PLA-158 (F-27): a pass never waits silently", () => {
+  test("the delivery copy held by another delivery (a live copy left open) closes and the pass goes on, saying so meanwhile", async () => {
+    upPorts.add(3000);
+    upPorts.add(3001);
+    await prueba.encenderEntrega(db, "zigzag", { key: "OTRA", branch: "jl/otra" });
+    for (let i = 0; i < 200 && prueba.entregaRead("zigzag")?.phase !== "live"; i++) await new Promise((r) => setTimeout(r, 5));
+    const key = await delivery("Entrega nueva gana la copia");
+    let during: Json | null = null;
+    const s = await pass(key, {
+      apagarEntrega: async (d: typeof db, slug: string) => {
+        during = (await taskRow(key)).probador;
+        return prueba.apagarEntrega(d, slug);
+      },
+    });
+    assert.equal(s?.state, "lista");
+    assert.equal(during!.state, "tomando");
+    assert.match(during!.waiting, /copia en vivo de otra entrega/, "the card says what the pass waits on");
+    assert.equal(prueba.entregaRead("zigzag")?.key, key, "the new delivery holds the copy now");
+    assert.equal((await taskRow(key)).probador.waiting ?? null, null, "nothing to wait on once done");
+  });
+
+  test("a pass behind another one of the same project says it waits for it, then works", async () => {
+    const first = await delivery("Primera en la fila");
+    const second = await delivery("Segunda en la fila");
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = async (d: unknown, input: Json) => {
+      await gate;
+      return fakeCapture(d as never, input as never);
+    };
+    const a = pass(first, { capture: slow });
+    await until(async () => (await taskRow(first)).probador?.state === "tomando");
+    const b = pass(second);
+    await until(async () => !!(await taskRow(second)).probador?.waiting);
+    const waiting = (await taskRow(second)).probador;
+    assert.equal(waiting.state, "tomando");
+    assert.equal(waiting.waiting, "Espera a que terminen las fotos de otra entrega.");
+    release();
+    assert.equal((await a)?.state, "lista");
+    assert.equal((await b)?.state, "lista");
+    assert.equal((await taskRow(second)).probador.waiting ?? null, null);
+  });
+});
+
 describe("antes y después", () => {
   test("photographs both sides; a path that was not there is nueva; the change is boxed; then the card may show", async () => {
     const key = await delivery("Pantalla de sucursales");

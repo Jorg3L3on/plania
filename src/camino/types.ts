@@ -150,7 +150,8 @@ export type DiscoveryGithub =
 
 export type DiscoveryMac = {
   folder: { path: string; exists: boolean; clone: boolean; remote: string | null; matches: boolean | null; clones: string[] } | null;
-  postgres: { ok: boolean; databases: string[] } | null;
+  /** PLA-158 (F-26): own is the database the project itself names (its env file's URL), listed even on another server. */
+  postgres: { ok: boolean; databases: string[]; own?: string | null } | null;
   env_example: string[] | null;
   scripts: string[] | null;
   folders: string[] | null;

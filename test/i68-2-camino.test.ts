@@ -233,12 +233,32 @@ describe("discovery", () => {
     assert.ok(d.mac.folder?.matches);
     assert.deepEqual(d.mac.env_example, ["DATABASE_URL", "AUTH_SECRET", "TMDB_KEY"]);
     assert.deepEqual(d.mac.migrations, { dir: "drizzle", count: 2, tool: "drizzle" });
-    assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_dev", "zigzag_test"] });
+    assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_dev", "zigzag_test"], own: null });
     const read = (await (await req("GET", "/projects/zigzag/camino")).json()) as Json;
     assert.ok(read.checked_at);
     assert.equal(read.config.branches.published, "main");
     assert.equal(read.config.branches.integration, "sandbox");
     assert.equal(read.config.source.branches, "settings");
+  });
+
+  test("PLA-158 (F-26): the database picker hides Plania's own test and copy bases and leads with the project's own", async () => {
+    const { pickDatabases, isLeftover } = await import("../src/camino/mac.js");
+    const listed = ["plania", "plania_test_ab12cd", "plania_demo", "zigzag_dev", "zigzag_dev_entrega", "zigzag_dev_prueba", "zigzag_dev_taller", "zigzag_dev_ini_zig_i3", "otra_demo"];
+    assert.deepEqual(pickDatabases(listed, null), ["plania", "zigzag_dev"]);
+    assert.deepEqual(pickDatabases(listed, "zigzag_app"), ["zigzag_app", "plania", "zigzag_dev"], "the project's own base, even on another server");
+    assert.ok(isLeftover("plania_test_x") && isLeftover("x_entrega") && !isLeftover("zigzag_dev"));
+    const clone = path.join(TMP, "projects", "zigzag");
+    writeFileSync(path.join(clone, ".env.local"), "DATABASE_URL=postgres://u:secreto@localhost:5433/zigzag_app\n");
+    const was = caminoDeps.listDatabases;
+    caminoDeps.listDatabases = async () => ["plania_test_1", "zigzag_dev", "zigzag_dev_entrega"];
+    try {
+      const d = await discover(db, await findProject(db, "zigzag"));
+      assert.deepEqual(d.mac.postgres, { ok: true, databases: ["zigzag_app", "zigzag_dev"], own: "zigzag_app" });
+      assert.ok(!JSON.stringify(d).includes("secreto"), "names only, never a value");
+    } finally {
+      caminoDeps.listDatabases = was;
+      rmSync(path.join(clone, ".env.local"));
+    }
   });
 
   test("a private repo whose plan has no rulesets says so; no token and an unknown repo are their own errors", async () => {
@@ -328,7 +348,12 @@ describe("findings", () => {
   test("PLA-132: who migrates production is fixed in its environment, and a saved environment that says it clears the finding", () => {
     const env = { id: "prod", name: "Producción", kind: "produccion", record: "prod", runs: { kind: "branch", branch: "main" }, url: null, server: { provider: null, project: null, note: null }, database: { provider: null, name: null, data: "real", roles_split: false, migrate_when: "mano", lock: false, sql_review: false, approve_destructive: true, backup: "ninguna" }, vars: [], health: { url: null, pages: [] }, publisher: "owner", freeze: false };
     const derived = cam.findings(base({ config: { envs: [env] } }), NOW, "es");
-    assert.deepEqual(derived.find((f) => f.id === "prod-unset")!.fix, { label: "Decir quién migra", go: "env:prod" });
+    // PLA-158 (F-25): its database has no service: that one field is named, and the fix lands on it.
+    const unset = derived.find((f) => f.id === "prod-unset")!;
+    assert.equal(unset.title, "Elige la base de datos de Producción");
+    assert.deepEqual(unset.fix, { label: "Elegir la base", go: "env:prod", focus: "env-prod-base" });
+    const notSaved = cam.findings(base({ config: { envs: [{ ...env, database: { ...env.database, provider: "neon" } }] } }), NOW, "es").find((f) => f.id === "prod-unset")!;
+    assert.deepEqual(notSaved.fix, { label: "Decir quién migra", go: "env:prod", focus: "env-prod-cuando" }, "with the service set it lands on «Cuándo se migra»");
     const saved = { ...env, database: { ...env.database, provider: "neon" } };
     const F = cam.findings(base({ config: { envs: [saved], source: { model: "settings", branches: "settings", merge: "default", envs: "camino" } } }), NOW, "es");
     assert.ok(!ids(F).includes("prod-unset"), "Despliegue already says who migrates");
@@ -418,4 +443,14 @@ describe("Propuestas leave Archivo", () => {
     assert.equal(corr.verParam({ kind: "camino", sec: "env:prod" }), "camino:env:prod");
     assert.equal(corr.atOf("?proyecto=zigzag&t=prs").tab, "camino");
   });
+});
+
+test("PLA-158 (F-24): in «Revisar y aplicar» only a change's row is the grid; its plain lines wrap by words", () => {
+  const css = readFileSync(new URL("../ui/src/camino.css", import.meta.url), "utf8");
+  assert.ok(!/^\.cam-rvs li \{/m.test(css), "no descendant rule turns the plain lines into the row's grid");
+  assert.match(css, /^\.cam-rvs > ul > li \{[^}]*grid-template-columns: 20px minmax\(0, 1fr\) auto/m);
+  assert.match(css, /^\.cam-rvs > ul > li > \* \{ min-width: 0; \}/m);
+  assert.match(css, /^\.cam-lines > li \{[^}]*display: block/m);
+  assert.match(css, /^\.cam-d \{[^}]*min-width: 0;[^}]*overflow-wrap: break-word/m);
+  assert.ok(!/overflow-wrap: anywhere/.test(css.slice(css.indexOf(".cam-rvs"), css.indexOf(".cam-diff {"))), "words are not broken anywhere");
 });

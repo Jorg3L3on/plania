@@ -107,7 +107,7 @@ export const Experto = ({ id, children, open, onToggle }: { id: string; children
 };
 
 const FixButton = ({ fix, links, onRecheck, busy }: { fix: Fix; links: CaminoLinks; onRecheck: () => void; busy: boolean }) => {
-  if (fix.go) return <Link className="cor-btn secondary small cam-fix" to={links.hrefOf(fix.go)} data-fix={fix.go}>{fix.label}</Link>;
+  if (fix.go) return <Link className="cor-btn secondary small cam-fix" to={`${links.hrefOf(fix.go)}${fix.focus ? `#${fix.focus}` : ""}`} data-fix={fix.go}>{fix.label}</Link>;
   if (fix.ajustes) return <Link className="cor-btn secondary small cam-fix" to={links.ajustesHref(fix.ajustes)} data-fix={`ajustes:${fix.ajustes}`}>{fix.label}</Link>;
   return (
     <Btn kind="secondary" small className="cam-fix" disabled={busy} onClick={onRecheck} data-fix="recheck">

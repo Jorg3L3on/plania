@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as R
 import { Link } from "react-router";
 import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type VivoRead } from "@/lib/api";
 import { acceptWords, evidenceView, MARK_MAX } from "@/lib/evidencia";
-import { firstVista, kindWord, probadorWords, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
+import { firstVista, kindWord, probadorWords, frameOf, sideFor, siAceptas, stateLine, tomandoLine, type Side, type Width } from "@/lib/probador";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { Btn, Key, Label, Opt, ReadError, You } from "./parts";
@@ -291,7 +291,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
       return (
         <div className="cor-noshot" data-stage="sin-fotos">
           <b>{r?.state?.state === "tomando" ? w.takingPhotos : w.noPhotos}</b>
-          <span className="cor-text">{r?.state?.state === "tomando" ? w.photosSoon : (state ?? (d.cambio === "no_se_ve" ? w.judgeNoScreen : w.judgeOrAsk))}</span>
+          <span className="cor-text">{r?.state?.state === "tomando" ? tomandoLine(r, w.photosSoon) : (state ?? (d.cambio === "no_se_ve" ? w.judgeNoScreen : w.judgeOrAsk))}</span>
         </div>
       );
     if (shownSide === "comparar")

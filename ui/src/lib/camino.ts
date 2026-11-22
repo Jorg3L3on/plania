@@ -5,13 +5,15 @@
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
 import type { Badge, CaminoRead, ProviderId } from "./camino-types.js";
 import { COMMITS_PAGE_WORDS } from "./camino-commits-words.js";
+import { envFocus } from "./camino-entornos.js";
 
 export type Sev = "bad" | "warn" | "info" | "ok";
 type Pair = readonly [string, string];
 export type SectionId = "resumen" | "conn" | "propuestas" | "codigo" | "commits" | "ci" | "hist" | `env:${string}`;
 /** A fix: open a section (go), read GitHub again (recheck), or open the project's Ajustes at a section (ajustes).
  * PLA-132: no finding sends the owner to Ajustes any more; the release step and the code live here. */
-export type Fix = { label: string; go?: SectionId; act?: "recheck"; ajustes?: string };
+// PLA-158 (F-25): focus is the part of the section to land on (an anchor in it, e.g. an environment's database).
+export type Fix = { label: string; go?: SectionId; act?: "recheck"; ajustes?: string; focus?: string };
 export type Finding = { id: string; sev: Sev; sec: SectionId; title: string; detail: string; fix: Fix | null };
 
 export const SEV_ORDER: Record<Sev, number> = { bad: 0, warn: 1, info: 2, ok: 3 };
@@ -74,7 +76,7 @@ export const CAMINO_WORDS = defineWords({
       codigo: { rule: (b: string) => `Proteger ${b}: solo entra por propuesta y no se puede borrar`, merge: "Cada propuesta entra como un solo commit y su rama se borra al fusionar" },
       commits: { conv: (n: string) => `Escribir los commits con el formato ${n}`, ai: "Quitar la línea de coautor de IA antes de subir" },
       ci: { none: "Crear un flujo de pruebas con los scripts del proyecto", have: (n: number) => `Ya corren ${n} ${n === 1 ? "flujo" : "flujos"} de pruebas: revisa en Modo experto cuáles se exigen`, require: (names: string, b: string) => `Exigir ${names} para entrar a ${b}` },
-      env: { sql: "Revisar el SQL antes de migrar", approve: "Pedir tu aprobación si una migración borra datos", backup: "Copia de la base antes de migrar", health: "Comprobar que abre después de publicar" },
+      env: { sql: "Revisar el SQL antes de migrar", approve: "Pedir tu aprobación si una migración borra datos", backup: "Copia de la base antes de migrar", health: "Comprobar que abre después de publicar", when: "Migrar en su propio paso, antes de recibir visitas", pickDb: (e: string) => `Elige la base de datos de ${e}` },
     },
     strip: {
       code: "Código",
@@ -119,6 +121,7 @@ export const CAMINO_WORDS = defineWords({
       envCount: (e: string, applied: number, list: number) => [`${e}: las migraciones no cuadran`, `El registro dice ${applied} aplicadas, pero su lista tiene ${list}.`] as Pair,
       envMissing: (e: string, n: number) => [`${e}: ${n === 1 ? "falta 1 migración" : `faltan ${n} migraciones`}`, `El código tiene más migraciones de las que el registro dice aplicadas.`] as Pair,
       prodUnset: ["Nadie dijo quién migra la base de producción", "Una publicación con migraciones espera hasta que lo digas."] as Pair,
+      prodNoDb: (e: string) => [`Elige la base de datos de ${e}`, "Es el dato que falta para saber quién migra. Una publicación con migraciones espera hasta entonces."] as Pair,
       noteStale: ["La nota del proyecto está vieja", "Algo cambió después de escribirla. Los agentes la leen al empezar."] as Pair,
       aiTrailers: (n: number, of: number, chosen: boolean) => [`${n} de ${of} commits llevan coautor de IA`, chosen ? "Tu regla no lo permite. Plania quitará esa línea antes de subir." : "Todavía no elegiste una regla de commits, y por defecto no se permite. Plania quitará esa línea antes de subir."] as Pair,
       noConvention: ["Elige una convención de commits", "Los agentes escriben como quieren hasta que elijas una."] as Pair,
@@ -144,6 +147,7 @@ export const CAMINO_WORDS = defineWords({
       env: "Abrir el entorno",
       commits: "Elegir",
       who: "Decir quién migra",
+      pickDb: "Elegir la base",
       see: "Ver",
     },
     conn: {
@@ -298,7 +302,7 @@ export const CAMINO_WORDS = defineWords({
       codigo: { rule: (b: string) => `Protect ${b}: only through a PR and it cannot be deleted`, merge: "Each PR enters as a single commit and its branch is deleted on merge" },
       commits: { conv: (n: string) => `Write commits in the ${n} format`, ai: "Strip the AI co-author line before pushing" },
       ci: { none: "Create a test workflow from the project's scripts", have: (n: number) => `${n} test ${n === 1 ? "workflow" : "workflows"} already run: see Expert mode for which ones are required`, require: (names: string, b: string) => `Require ${names} to enter ${b}` },
-      env: { sql: "Review the SQL before migrating", approve: "Ask for your approval when a migration deletes data", backup: "Back up the database before migrating", health: "Check that it opens after releasing" },
+      env: { sql: "Review the SQL before migrating", approve: "Ask for your approval when a migration deletes data", backup: "Back up the database before migrating", health: "Check that it opens after releasing", when: "Migrate in its own step, before it takes traffic", pickDb: (e: string) => `Pick ${e}'s database` },
     },
     strip: {
       code: "Code",
@@ -343,6 +347,7 @@ export const CAMINO_WORDS = defineWords({
       envCount: (e: string, applied: number, list: number) => [`${e}: the migrations do not add up`, `The record says ${applied} applied, but its list has ${list}.`] as Pair,
       envMissing: (e: string, n: number) => [`${e}: ${n} ${n === 1 ? "migration" : "migrations"} missing`, "The code has more migrations than the record says were applied."] as Pair,
       prodUnset: ["Nobody said who migrates the production database", "A release with migrations waits until you say."] as Pair,
+      prodNoDb: (e: string) => [`Pick ${e}'s database`, "It is the one thing missing to know who migrates. A release with migrations waits until then."] as Pair,
       noteStale: ["The project's note is stale", "Something changed after it was written. Agents read it when they start."] as Pair,
       aiTrailers: (n: number, of: number, chosen: boolean) => [`${n} of ${of} commits carry an AI co-author`, chosen ? "Your rule does not allow it. Plania will strip that line before pushing." : "You have not picked a commit rule yet, and by default it is not allowed. Plania will strip that line before pushing."] as Pair,
       noConvention: ["Pick a commit convention", "Agents write as they like until you pick one."] as Pair,
@@ -368,6 +373,7 @@ export const CAMINO_WORDS = defineWords({
       env: "Open the environment",
       commits: "Pick",
       who: "Say who migrates",
+      pickDb: "Pick the database",
       see: "See",
     },
     conn: {
@@ -700,7 +706,10 @@ export function findings(r: CaminoRead, now: Date, language: Language = getLangu
     const rel = r.settings.release;
     const prodEnv = c.envs.find((e) => e.record === rel.env) ?? c.envs.find((e) => e.kind === "produccion") ?? null;
     const fromEnv = prodEnv && c.source.envs === "camino" ? (!prodEnv.database ? "none" : prodEnv.database.provider ? prodEnv.database.migrate_when : null) : null;
-    if (!fromEnv && !rel.prod_migrations) add("prod-unset", "info", "resumen", w.f.prodUnset, prodEnv ? { label: w.fix.who, go: `env:${prodEnv.id}` } : undefined);
+    // PLA-158 (F-25): when the environment has a database but no service, that is the one field missing: say it, and land on it.
+    const noDb = !!prodEnv?.database && !prodEnv.database.provider;
+    if (!fromEnv && !rel.prod_migrations)
+      add("prod-unset", "info", "resumen", noDb ? w.f.prodNoDb(prodEnv!.name) : w.f.prodUnset, prodEnv ? { label: noDb ? w.fix.pickDb : w.fix.who, go: `env:${prodEnv.id}`, focus: envFocus(prodEnv.id, noDb ? "base" : "cuando") } : undefined);
   }
 
   // Plania's own note

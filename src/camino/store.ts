@@ -13,6 +13,10 @@ import { effectiveConfig, RUNNER_WORK_PATTERN, type EffectiveConfig } from "./co
 import { discoverGithub, ghApi, type GhApi } from "./github.js";
 import { caminoKeys } from "./keys.js";
 import { discoverMac } from "./mac.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { envValue } from "../captures/prueba.js";
+import { ENV_FILES } from "../maquinas/env.js";
 import { caminoSay } from "./words.js";
 import { runActionlint, type Actionlint } from "./actionlint.js";
 import type { HttpFetch } from "./providers.js";
@@ -74,6 +78,32 @@ export async function workPatternOf(db: Db, projectId: string): Promise<string> 
   return row.config.branches?.work_pattern?.trim() || RUNNER_WORK_PATTERN;
 }
 
+/** PLA-158 (F-26): the name of the database the project's own env file (in its folder) points at, read as the copies
+ * read it (appBaseUrl: the copies' variable, else the usual database variables), or null. Names only, never a value. */
+export function ownDatabaseOf(p: Project, folder: string): string | null {
+  const cfg = p.settings.capture?.database;
+  const vars = cfg ? [cfg.env_var] : ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "PG_URL", "DB_URL"];
+  for (const f of p.settings.maquinas?.env_file ? [p.settings.maquinas.env_file] : ENV_FILES) {
+    let text: string;
+    try {
+      text = readFileSync(path.join(folder, f), "utf8");
+    } catch {
+      continue;
+    }
+    for (const v of vars) {
+      const url = envValue(text, v);
+      if (!url || !/^postgres(ql)?:/.test(url)) continue;
+      try {
+        const name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+        if (/^[A-Za-z0-9_-]{1,63}$/.test(name)) return name;
+      } catch {
+        // not a URL: try the next one
+      }
+    }
+  }
+  return null;
+}
+
 /** Runs discovery and stores it. Errors become the discovery's own ok:false, never a throw. */
 export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps): Promise<Discovery> {
   const t0 = Date.now();
@@ -89,7 +119,7 @@ export async function discover(db: Db, p: Project, deps: CaminoDeps = caminoDeps
       ? { ok: false, error: "no_token" }
       : await discoverGithub(api, repo, roles, now).catch((e) => ({ ok: false as const, error: "network" as const, detail: e instanceof Error ? e.message.slice(0, 200) : "" }));
   const folder = p.settings.local?.no_code ? null : repoPathOf(p.slug, p.settings, deps.env);
-  const mac = await discoverMac(folder, repo, { listDatabases: deps.listDatabases, projectsRoot: projectsRoot(deps.env) });
+  const mac = await discoverMac(folder, repo, { listDatabases: deps.listDatabases, projectsRoot: projectsRoot(deps.env), ownDatabase: folder ? ownDatabaseOf(p, folder) : null });
   // PLA-I70-3: a network failure never erases the last good read; it is kept, marked stale with its age.
   const prevGh = row.discovery?.github;
   const kept: Discovery["github"] =

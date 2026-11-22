@@ -119,6 +119,14 @@ describe("etapaOf: one stage per status", () => {
     assert.deepEqual(e.holder, { agent: "owner", role: "ceo" });
     assert.equal(e.since, ago(9).toISOString());
   });
+  test("PLA-158 (F-27): pictures still coming: the board line says what the pass waits on", () => {
+    const base = { status: "In review", qa: { applies: false, lane: null }, pr: { state: "open", ci: "success", head: "abc1234" }, delivery: { returned: false, open: true, at: ago(9) }, photos: true };
+    assert.equal(of(base as never).reason, "Plania toma las fotos de la entrega.");
+    const e = of({ ...base, photosWaiting: "Espera a que terminen las fotos de otra entrega." } as never);
+    assert.equal(e.etapa, "en_revision");
+    assert.equal(e.reason, "Plania toma las fotos de la entrega. Espera a que terminen las fotos de otra entrega.");
+  });
+
   test("te_toca: Needs owner", () => {
     assert.equal(of({ status: "Needs owner" }).etapa, "te_toca");
   });

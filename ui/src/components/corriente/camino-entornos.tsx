@@ -6,10 +6,10 @@
 // window. Every edit is one staged change of the project's environments.
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { api } from "@/lib/api";
 import { caminoWords, catalog, serviceName } from "@/lib/camino";
-import { entornosWords, envChanges, KINDS, LISTABLE, MIGRATE_WHEN, newEnv, rollbackOf, rolesSql, varsDiff, whoMigrates } from "@/lib/camino-entornos";
+import { entornosWords, envChanges, envFocus, KINDS, LISTABLE, MIGRATE_WHEN, newEnv, prodRecommended, rollbackOf, rolesSql, varsDiff, whoMigrates } from "@/lib/camino-entornos";
 import type { CaminoEnv, CaminoRead, EnvKind, ProviderId } from "@/lib/camino-types";
 import { Btn } from "./parts";
 import { Blk, Ed, Experto, Recom, type CaminoLinks } from "./camino";
@@ -202,6 +202,23 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
   const [count, setCount] = useState<number | null>(null);
   const [present, setPresent] = useState<string[] | null>(null);
   useEffect(() => setCount(null), [id]);
+  // PLA-158 (F-25): a link that names a part of this environment (#env-<id>-base, -cuando: «Decir quién migra», a
+  // finding's fix) opens Modo experto and lands on that field.
+  const location = useLocation();
+  const [expert, setExpert] = useState<boolean | undefined>(undefined);
+  const land = (anchor: string) => {
+    setExpert(true);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(anchor);
+      el?.scrollIntoView({ block: "center" });
+      el?.focus({ preventScroll: true });
+    });
+  };
+  useEffect(() => {
+    const h = decodeURIComponent(location.hash.replace(/^#/, ""));
+    if (h === envFocus(id, "base") || h === envFocus(id, "cuando")) land(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.hash, id]);
   const vars = useQuery({
     queryKey: ["camino-vars", r.slug, e?.server.provider ?? "", e?.server.project ?? ""],
     queryFn: () => api.caminoProviderVars(r.slug, e!.server.provider!, e!.server.project!, e!.kind === "produccion" ? "production" : "preview"),
@@ -222,6 +239,9 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
   const pages = ["/", ...(r.settings.capture_pages ?? [])];
   const who = whoMigrates(e);
   const tool = mac?.migrations;
+  // PLA-158 (F-25): a database service with a saved key counts as known for production's recommendation.
+  const knownDb = (Object.keys(r.config.connections) as ProviderId[]).find((p) => cat.find((s) => s.id === p)?.kind === "db") ?? null;
+  const rec = e.database ? prodRecommended(e.database, knownDb) : null;
   // PLA-132: «Fusionar desde Plania» (settings.release.mode), moved here from Ajustes.
   const release = r.settings.release;
   const merge = ((cambios.staged("release_mode") as { mode: "command" | "merge" } | undefined)?.mode ?? release?.mode ?? "command") === "merge";
@@ -247,14 +267,18 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
         </div>
       </div>
 
-      {prod && e.database && (
+      {prod && e.database && rec && (
         <Recom
-          lines={[xe.sql, xe.approve, xe.backup]}
-          done={e.database.sql_review && e.database.approve_destructive && e.database.backup !== "ninguna"}
-          onUse={() => setDb({ sql_review: true, approve_destructive: true, backup: e.database!.backup === "ninguna" ? "proveedor" : e.database!.backup })}
+          lines={[...(rec.missing ? [xe.pickDb(e.name)] : []), xe.sql, xe.approve, xe.backup, xe.when]}
+          done={rec.done}
+          onUse={() => {
+            setDb(rec.patch);
+            // PLA-158 (F-25): the service is the owner's to pick: open that part.
+            if (rec.missing) land(envFocus(e.id, "base"));
+          }}
         />
       )}
-      <Experto id={`env-${e.id}`}>
+      <Experto id={`env-${e.id}`} open={expert} onToggle={setExpert}>
       <Blk cap={w.runs}>
         <div className="cam-grid3">
           <label className="cam-field">
@@ -407,7 +431,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
       </Blk>
 
       {e.kind !== "versiones" && (
-        <Blk cap={w.db} hint={dbInfo ? <span className={cls("cam-bdg", dbInfo.badge)}>{cw.conn.badge[dbInfo.badge]}</span> : undefined}>
+        <Blk id={envFocus(e.id, "base")} tabIndex={-1} cap={w.db} hint={dbInfo ? <span className={cls("cam-bdg", dbInfo.badge)}>{cw.conn.badge[dbInfo.badge]}</span> : undefined}>
           <div className="cam-chips" role="group" aria-label={w.db}>
             <button type="button" className="cam-pill" aria-pressed={!e.database} onClick={() => set({ database: null })}>
               {w.noneDb}
@@ -439,8 +463,11 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
                   </span>
                   <select className="cor-input cor-mono" value={e.database.name ?? ""} onChange={(ev) => setDb({ name: ev.target.value || null })} data-campo="base-local">
                     <option value="">—</option>
-                    {(mac?.postgres?.databases ?? []).map((d) => (
-                      <option key={d}>{d}</option>
+                    {/* PLA-158 (F-26): Plania's own test and copy bases are gone from the list; the project's own leads it. */}
+                    {[...new Set([...(mac?.postgres?.databases ?? []), ...(e.database.name ? [e.database.name] : [])])].map((d) => (
+                      <option key={d} value={d}>
+                        {d === mac?.postgres?.own ? `${d} · ${w.ownDb}` : d}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -476,7 +503,7 @@ export const Entorno = ({ r, cambios, id, links }: { r: CaminoRead; cambios: Cam
               )}
               <Tg on={e.database.roles_split} title={w.roles} sub={w.rolesSub} onClick={() => setDb({ roles_split: !e.database!.roles_split })} />
               {e.database.roles_split && <pre className="cam-preview">{rolesSql(e.database.name ?? e.id)}</pre>}
-              <div className="cam-field">
+              <div className="cam-field" id={envFocus(e.id, "cuando")} tabIndex={-1}>
                 <span className="cam-lab">{w.when}</span>
                 <div className="cam-grid3" role="group" aria-label={w.when}>
                   {MIGRATE_WHEN.filter((k) => (prod ? k !== "llegar" : k !== "build")).map((k) => (

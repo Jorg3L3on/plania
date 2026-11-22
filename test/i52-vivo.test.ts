@@ -111,6 +111,30 @@ describe("En vivo", () => {
     await assert.rejects(get(`${r.local_url}/`), "the proxy is closed");
   });
 
+  test("PLA-158 (F-27): a tab left open on the live copy (its live-reload socket) never keeps it from closing", async () => {
+    const { connect } = await import("node:net");
+    const ws = http.createServer();
+    ws.on("upgrade", (_req, socket) => socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"));
+    await new Promise<void>((r) => ws.listen(0, "127.0.0.1", () => r()));
+    try {
+      vivo.setVivoDeps({ target: () => ({ port: (ws.address() as AddressInfo).port, worktree: null }), signIn: async () => [], tailscale: null });
+      const r = await vivo.startVivo(db, "zigzag");
+      const tab = connect(Number(new URL(r.local_url!).port), "127.0.0.1");
+      const switched = new Promise<void>((resolve) => tab.once("data", () => resolve()));
+      tab.on("error", () => undefined);
+      tab.write("GET /_next/webpack-hmr HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+      await switched;
+      const t0 = Date.now();
+      await vivo.stopVivo("zigzag");
+      assert.ok(Date.now() - t0 < 1500, `stopped in ${Date.now() - t0} ms`);
+      assert.equal(vivo.vivoRead("zigzag"), null);
+      tab.destroy();
+    } finally {
+      ws.closeAllConnections();
+      ws.close();
+    }
+  });
+
   test("when signing in fails it still opens, and says who to enter as (Copiar contraseña)", async () => {
     vivo.setVivoDeps({ target: () => ({ port: upPort, worktree: null }), signIn: async () => { throw new Error("No se pudo entrar con asesora@example.com (seguía en /panel/entrar)"); }, tailscale: null });
     const r = await vivo.startVivo(db, "zigzag");

@@ -219,11 +219,15 @@ export type DecisionChecks = { open: number; ci: "pending" | "success" | "failur
 export type DecisionAsker = { agent: string; role: string };
 // PLA-82 (F-32): present only when the release carries migrations, so a plain release keeps its shape.
 // PLA-I68-1: and who migrates production (null: nobody said, so the release waits).
-function releaseMigrations(p: Project, plan: ReleasePlan): Pick<DecisionRelease, "migrations" | "migrate" | "prod_migrations"> {
+function releaseMigrations(p: Project, plan: ReleasePlan): Pick<DecisionRelease, "migrations" | "migrate" | "prod_migrations" | "prod_fix"> {
   const tags = plan.migrations ?? [];
   const files = plan.migration_files ?? [];
   const migrations = [...tags, ...files.map((f) => f.split("/").pop()!)];
-  return migrations.length ? { migrations, migrate: migrateMode(p, { migrations: tags, migration_files: files }), prod_migrations: plan.prod_migrations ?? null } : {};
+  if (!migrations.length) return {};
+  const prod_migrations = plan.prod_migrations ?? null;
+  // PLA-158 (F-25): where «Decir quién migra» lands: Camino's production environment, and the field it lacks.
+  const prod_fix = !prod_migrations && plan.prod_env ? { env: plan.prod_env.id, name: plan.prod_env.name, missing: plan.prod_env.db_missing ?? null } : null;
+  return { migrations, migrate: migrateMode(p, { migrations: tags, migration_files: files }), prod_migrations, ...(prod_fix ? { prod_fix } : {}) };
 }
 
 export type DecisionRelease = {
@@ -240,6 +244,8 @@ export type DecisionRelease = {
   migrate?: "auto" | "manual" | null;
   // PLA-I68-1: who migrates production; null with migrations means Publicar waits for the owner to say.
   prod_migrations?: "deploy" | "owner" | "none" | null;
+  // PLA-158 (F-25): while nobody said, the production environment to open and the field it lacks (null: only when).
+  prod_fix?: { env: string; name: string; missing: "provider" | null };
 };
 export type Decision = {
   id: string;
