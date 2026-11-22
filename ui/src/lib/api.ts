@@ -145,6 +145,9 @@ export const api = {
   vaciarYSembrar: (slug: string, rows: number, copia?: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar${copiaQ(copia)}`, { rows }),
   // PLA-I72: the copies, their numbers, the leftovers and the sign-in (src/maquinas/copias.ts, numeros.ts, sobrantes.ts).
   copias: (slug: string) => request<CopiasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/copias`),
+  // PLA-I74-6: «Revisar proyecto».
+  revision: (slug: string) => request<{ revision: import("./revision").RevisionRead }>("GET", `/projects/${encodeURIComponent(slug)}/revision`),
+  revisar: (slug: string) => request<{ started: boolean; revision: import("./revision").RevisionRead }>("POST", `/projects/${encodeURIComponent(slug)}/revision`),
   copiaAct: (slug: string, id: string, action: "encender" | "apagar" | "reiniciar" | "borrar" | "quedarse" | "rehacer", body: { keep?: boolean } = {}) =>
     request<CopiasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/copias/${encodeURIComponent(id)}/${action}`, body),
   borrarCache: (slug: string, id: string) => request<{ removed: string[]; freed_bytes: number }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/copias/${encodeURIComponent(id)}/borrar-cache`, {}),

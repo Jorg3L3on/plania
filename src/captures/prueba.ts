@@ -35,6 +35,7 @@ import type { CopySuffix } from "../self/plania-self.js";
 import { processCommand } from "../lib/proc-command.js";
 import { killTree, shellCommand } from "../lib/proc-tree.js";
 import { defineWords, say } from "../words.js";
+import { DEFAULT_WAITS, measuredWaits } from "./waits.js";
 
 // PLA-I2-10: why a copy did not start, its footprints' purposes and its refusals, in the install's language; the
 // Spanish is unchanged.
@@ -138,7 +139,8 @@ export const PRUEBA_WORDS = defineWords({
 // PLA-I2-5: the default; a project's test copy sits on its own working branch, startBranchOf(p.settings).
 export const BRANCH = DEFAULT_START_BRANCH;
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
-const READY_MS = 180_000; // a first Next.js compile can take a while
+// A first Next.js compile can take a while. PLA-I74-7: a copy's own start waits twice the last check-up's cold start.
+const READY_MS: number = DEFAULT_WAITS.ready_ms;
 const POLL_MS = 1_000;
 const PORT_SPAN = 50; // ports tried from settings.capture.port up
 // Plania's own servers and the local databases: never handed to a test copy.
@@ -537,11 +539,12 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
 
   // Wait until it answers.
   const ready = urlOf(port) + (s.ready_path ?? "/");
-  const until = now() + (deps.readyMs ?? READY_MS);
+  const readyMs = deps.readyMs ?? (await measuredWaits(db, p.slug)).ready_ms;
+  const until = now() + readyMs;
   for (;;) {
     if (copies.get(c.id) !== c || c.stopping || exited) return;
     if (await (deps.up ?? defaultUp)(ready)) break;
-    if (now() > until) return fail(db, c, w.noAnswer(what, Math.round((deps.readyMs ?? READY_MS) / 1000)));
+    if (now() > until) return fail(db, c, w.noAnswer(what, Math.round(readyMs / 1000)));
     await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
   }
 
@@ -872,7 +875,7 @@ export function envValue(text: string, name: string): string | null {
 }
 
 /** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
-export function entregaUrl(base: string, suffix: CopySuffix | "_taller" | "_plantilla" = "_entrega"): { url: string; name: string } | null {
+export function entregaUrl(base: string, suffix: CopySuffix | "_taller" | "_plantilla" | "_revision" = "_entrega"): { url: string; name: string } | null {
   let u: URL;
   try {
     u = new URL(base);
