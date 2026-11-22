@@ -694,6 +694,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `MARKS_INVALID` | 400 | deliver_marks: no mark was usable after cleaning and checking (detail: reasons) |
 | `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
+| `MUESTRA_SELECTOR` | 400 | finish: a muestra follow, click or fill is not a selector the browser reads, e.g. Playwright's :has-text( or >> (detail: field, value, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `PUESTO_INVALID` | 400 | a role of the owner's own needs a title (1-60 characters), a line (up to 200) and a base role from the catalog (detail: field) |
@@ -778,6 +779,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
+| `IDEA_OWNER_NEWER` | 409 | set_task stage: the owner decided or wrote on the idea after this run started; it stays on its stage and its agent is woken again with his words (detail: since, words) |
 | `IDEA_STAGE_NOT_YOURS` | 409 | Research moves an idea only out of research, Artist only out of design (detail: role, stage, owns) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |

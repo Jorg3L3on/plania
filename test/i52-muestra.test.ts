@@ -152,6 +152,22 @@ describe("finish and the muestra", () => {
     );
   });
 
+  test("PLA-158 (F-28): a Playwright-only selector is MUESTRA_SELECTOR at finish, naming the field and the value", async () => {
+    const key = (await call("list_tasks", { ...P, search: "Pantalla de sucursales" })).tasks[0].key;
+    const { db } = makeDb();
+    const follow = 'a[href^="/panel/x/"]:has-text("Ana")';
+    const bad = { ...MUESTRA, vistas: [{ ...MUESTRA.vistas[0]!, follow }] };
+    await assert.rejects(
+      surface.finish(db, { ...P, key, result: pass(), pr_url: PR, muestra: bad }, { actor: A } as never),
+      (e: any) => e.code === "MUESTRA_SELECTOR" && e.detail.field === "muestra.vistas.0.follow" && e.detail.value === follow && /has-text/.test(e.detail.hint),
+    );
+    const click = { ...MUESTRA, vistas: [{ ...MUESTRA.vistas[0]!, acciones: [{ click: "Guardar" }, { click: "text=Guardar" }] }] };
+    await assert.rejects(
+      surface.finish(db, { ...P, key, result: pass(), pr_url: PR, muestra: click }, { actor: A } as never),
+      (e: any) => e.code === "MUESTRA_SELECTOR" && e.detail.field === "muestra.vistas.0.acciones.1.click",
+    );
+  });
+
   test("a change that does not touch the screen finishes without one", async () => {
     const key = await ticket("Sucursales en la base", "jl/db");
     const r = await call("finish", { ...P, key, result: pass(), pr_url: PR, branch: "jl/db" });
@@ -183,5 +199,17 @@ describe("the protocol", () => {
     assert.equal(PROTOCOL_VERSION, "2.25");
     assert.match(instructions(false), /finish \{key, result, pr_url, branch, muestra\}/);
     assert.match(instructions(false), /MUESTRA_REQUIRED/);
+  });
+});
+
+describe("PLA-158 (F-28): selectors the browser reads", () => {
+  test("Playwright and jQuery forms and open brackets or quotes are refused; plain CSS and visible text pass", async () => {
+    const { selectorProblem } = await import("../src/captures/muestra.js");
+    for (const s of ['a:has-text("Ana")', "button:text('Ok')", "li:contains(Ana)", "button:visible", "nav >> a", "text=Guardar", "xpath=//a", 'a[href^="/x/"', "a[href='/x/]", "li:nth-child(2"])
+      assert.ok(selectorProblem(s, "selector"), s);
+    for (const s of ['a[href^="/panel/x/"]', "table tbody tr:first-child a", "#nueva > button.primary", 'input[name="q"]', "li:nth-child(2) a:not(.off)"])
+      assert.equal(selectorProblem(s, "selector"), null, s);
+    for (const s of ["Guardar cambios", "Don't save", "Ver (3)", "Sí, ¿seguro?"]) assert.equal(selectorProblem(s, "text"), null, s);
+    for (const s of ["text=Guardar", 'button:has-text("Ok")', "Ver (3", 'a[title="x]']) assert.ok(selectorProblem(s, "text"), s);
   });
 });
