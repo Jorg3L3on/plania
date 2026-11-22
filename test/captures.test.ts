@@ -50,7 +50,7 @@ function png(width: number, height: number, tag = ""): Buffer {
 
 const BASE = "http://localhost:3999";
 // PLA-166: hydrateAfter: how many readiness checks the login form fails before React attaches; a submit before that is lost.
-type Fake = { logins: string[]; shots: string[]; broken: Set<string>; closed: number; hydrateAfter?: number; checks?: number };
+type Fake = { logins: string[]; shots: string[]; broken: Set<string>; closed: number; hydrateAfter?: number; checks?: number; dropFirstSubmit?: boolean };
 // A browser over a pretend app: /panel/** wants the login; /panel lists one ficha at /panel/novias/n1.
 function fakeBrowser(state: Fake, password: () => string | null): () => Promise<Browser> {
   return async () => {
@@ -76,6 +76,12 @@ function fakeBrowser(state: Fake, password: () => string | null): () => Promise<
           }
           if (js.includes("requestSubmit") && (state.checks ?? 0) <= (state.hydrateAfter ?? 0)) {
             state.logins.push("lost");
+            return "ok" as T;
+          }
+          if (js.includes("requestSubmit") && state.dropFirstSubmit) {
+            // PLA-168: a cold dev server that never answers the first submit in time.
+            state.dropFirstSubmit = false;
+            state.logins.push("slow");
             return "ok" as T;
           }
           if (js.includes("requestSubmit")) {
@@ -292,6 +298,14 @@ describe("capture run (fake browser)", () => {
     assert.equal(r.failed, 0, JSON.stringify(r.stills));
     assert.deepEqual(fake.logins, ["asesora@example.com"], "filled after the form was live, never lost");
     assert.ok((fake.checks ?? 0) >= 4, "it asked until the form was live");
+  });
+
+  test("PLA-168: a login the cold app never answers is tried once more, and the pass goes on signed in", async () => {
+    fake.logins.length = 0;
+    fake.dropFirstSubmit = true;
+    const r = await runCapture(db, { project: "zigzag", checkout, pages: ["panel"], actor }, { ...deps(), launch: fakeBrowser(fake, () => lastPassword), loginWaitMs: 600 });
+    assert.equal(r.failed, 0, JSON.stringify(r.stills));
+    assert.deepEqual(fake.logins, ["slow", "asesora@example.com"]);
   });
 
   test("a wrong password is not a session: the page that asks to log in again is an error, never a still of the login", async () => {
