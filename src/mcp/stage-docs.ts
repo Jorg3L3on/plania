@@ -13,17 +13,18 @@
 // the reads fall back to parsing the Markdown (deliveredOf).
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { docs, events } from "../db/schema.js";
+import { agentRuns, docs, events } from "../db/schema.js";
 import { docSummary, putDoc } from "./docs.js";
 import { ToolError } from "./errors.js";
 import { STAGES, STAGE_DOCS, type Stage } from "./ideas.js";
 import { findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
-import { ownerEs, ownerName } from "../owner.js";
+import { isOwnerAgent, ownerEs, ownerName } from "../owner.js";
+import { runPrefixOf } from "../runner/run-session.js";
 import { defineWords, say } from "../words.js";
 
 export const DELIVERED = "stage.delivered";
@@ -255,6 +256,8 @@ export const STAGE_DOC_WORDS = defineWords({
     poRecommended: (rec: string) => ` El PO recomendaba ${rec}.`,
     option: (n: number, title: string) => `**Opción ${n}: ${title}.**`,
     size: "Tamaño",
+    // PLA-149: the wake reason for a stage delivered by a run older than the owner's words.
+    late: (words: string) => `${ownerEs(undefined, { capital: true })} escribió esto y llegó después de que empezaste: revisa y vuelve a entregar. ${words}`,
   },
   en: {
     q: (s: string) => `"${s}"`,
@@ -263,6 +266,7 @@ export const STAGE_DOC_WORDS = defineWords({
     poRecommended: (rec: string) => ` The PO recommended ${rec}.`,
     option: (n: number, title: string) => `**Option ${n}: ${title}.**`,
     size: "Size",
+    late: (words: string) => `${ownerName("en", { capital: true })} wrote this and it arrived after you started: review it and deliver again. ${words}`,
   },
 });
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -369,6 +373,37 @@ export async function deliveredFor(db: Q, taskId: string) {
   return deliveredOf(evs);
 }
 
+// ---- PLA-149: the owner's words that arrived while the delivering run worked.
+// A real case: the owner changed a decision at 22:10:25; the Artist run that started at 22:09:40 delivered the design
+// at 22:15 without it and moved the idea on. A runner run (actor.session_id, or X-Plania-Run) that delivers after an
+// owner decision or note on the idea made since it started gets those words back, and the idea is held on its stage.
+// A caller that is not a runner run is never held.
+export type OwnerNewer = { since: string; words: string[] };
+
+export async function ownerNewerThanRun(tx: Q, ctx: Pick<Ctx, "actor" | "runSession">, taskId: string): Promise<OwnerNewer | null> {
+  const prefix = runPrefixOf(ctx.actor?.session_id) ?? runPrefixOf(ctx.runSession);
+  if (!prefix) return null;
+  const [run] = await tx
+    .select({ startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt })
+    .from(agentRuns)
+    .where(sql`replace(${agentRuns.id}::text, '-', '') like ${`${prefix}%`}`)
+    .orderBy(desc(agentRuns.queuedAt))
+    .limit(1);
+  const since = run?.startedAt ?? run?.queuedAt;
+  if (!since) return null;
+  const evs = await tx
+    .select({ type: events.type, actor: events.actor, payload: events.payload })
+    .from(events)
+    .where(and(eq(events.taskId, taskId), inArray(events.type, [DECISION, "note"]), gt(events.createdAt, since)))
+    .orderBy(asc(events.id));
+  const mine = evs.filter((e) => isOwnerAgent(e.actor?.agent));
+  if (!mine.length) return null;
+  // His pick writes a note too (company-idea.ts decisionNote); the note carries the words, the pick is the fallback.
+  const notes = mine.filter((e) => e.type === "note").map((e) => String(e.payload?.text ?? e.payload?.note ?? "").trim()).filter(Boolean);
+  const words = notes.length ? notes : mine.map((e) => [e.payload?.label, e.payload?.question].filter((x) => typeof x === "string" && x).join(": ")).filter(Boolean);
+  return { since: since.toISOString(), words: words.map((w) => w.slice(0, 600)) };
+}
+
 // ---- The write.
 export type DeliverStageInput = { project: string; key: string; stage: string; data: unknown };
 
@@ -387,6 +422,28 @@ export async function deliverStage(db: Db, input: DeliverStageInput, ctx: Ctx) {
     const [existing] = await tx.select({ version: docs.version }).from(docs).where(and(eq(docs.taskId, t.id), eq(docs.title, title))).limit(1);
     const d = await putDoc(tx, emit, ctx, p.id, t, { title, markdown: renderStageDoc(stage, data, picks), version: existing?.version });
     await emit(DELIVERED, t, { stage, data, doc_version: d.version });
+    // PLA-149: owner words newer than this run hold the idea here and wake its agent again with them.
+    const late = await ownerNewerThanRun(tx, ctx, t.id);
+    if (late) {
+      const reason = say(STAGE_DOC_WORDS).late(late.words.map((w) => `«${w}»`).join(" ")).slice(0, 2000);
+      let wake: string = "none";
+      if (t.stage === stage) {
+        // Loaded here: the runner's modules import this one.
+        const { agentOfCtx, queueWake } = await import("../runner/events.js");
+        const agent = await agentOfCtx(tx, ctx);
+        const w = await queueWake(tx, p, { id: t.id, key: t.key }, { agent, taskKey: t.key, reason }, DELIVERED);
+        // "coalesced": the run is still live, and its absorbed reasons queue it again when it ends (runner.ts).
+        wake = w.kind === "queued" ? "queued" : w.reason;
+      }
+      return {
+        key: t.key,
+        stage: t.stage,
+        delivered: stage,
+        doc: docSummary(d),
+        owner_newer: { ...late, wake },
+        warning: `the owner wrote on this idea after your run started (${late.since}); do not move the stage: read get_task, fold his words in and deliver again from the next run. A set_task stage move from this run is refused (IDEA_OWNER_NEWER).`,
+      };
+    }
     const next = t.stage === stage ? STAGES[STAGES.indexOf(stage as Stage) + 1] : undefined;
     return { key: t.key, stage: t.stage, delivered: stage, doc: docSummary(d), ...(next ? { next: `set_task {key: "${t.key}", stage: "${next}", version: ${t.version}} moves it on` } : {}) };
   });
@@ -411,6 +468,7 @@ export const registerStageTools = (
         `stage planning: data {steps (1 to ${MAX_STEPS}): [{title, done_when, try_it, work_type code|ops|research|bug|debt}], risks: [..], size (optional, one line)}. done_when states something a person can see or check; try_it says what someone can try once that step lands.`,
         "Refusals store nothing: STAGE_REQUIREMENTS_MISSING lists every field to fix (missing) with how (fix): empty or filler text (TBD, n/a), a done_when that only says it works, no out_of_scope, a step without try_it. INVALID_FILTER names one malformed field. Send the whole data again; a new delivery replaces the doc.",
         "Plain words for the owner: no ticket keys or branch names in questions, labels or steps.",
+        "PLA-149: when the owner decided or wrote on the idea after your run started, the reply carries owner_newer {since, words} and a warning instead of next: the idea stays on its stage (set_task stage from this run is IDEA_OWNER_NEWER) and you are woken again with his words.",
       ].join(" "),
       inputSchema: {
         actor,

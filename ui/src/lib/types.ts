@@ -394,7 +394,8 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   state?: InitiativeState;
   state_note?: { text: string; at: string | null; stale: boolean };
   branch: string | null;
-  pr?: { number: number | null; url: string } | null;
+  /** PLA-157: state is the PR's own (open / merged / closed), null when only the URL is known. */
+  pr?: { number: number | null; url: string; state?: string | null } | null;
   claim: { owner: Actor; claimed_at: string; lease_until: string; last_seen_at: string | null; live: boolean } | null;
   workspace: Workspace | null;
   log: LogEntry[];

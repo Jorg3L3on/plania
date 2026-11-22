@@ -78,6 +78,7 @@ import {
 import { areasOverlap, claim, setTask } from "../mcp/writes.js";
 import { isShared, sharedAreasOf } from "./touched.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
+import { tallerDatabase } from "../captures/prueba.js";
 import { EVENT_SUMMARY, enqueueWake, serviceAgent, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
@@ -1439,7 +1440,15 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // that inject spawn keep the piped child.
   // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
   // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
-  const runEnvValue = childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  // PLA-158 (F-31): a builder's run on a project whose copies have their own bases works on <db>_taller, never the
+  // app's database: the variable goes in the process environment, which wins over the app's env files.
+  let tallerEnv: Record<string, string> = {};
+  if (role === "taller" && run.lane === "work" && !trial && !readOnly) {
+    const made = await tallerDatabase(db, project);
+    if (made && !made.ok) return fail(`fail: no taller database (${made.error})`);
+    if (made) tallerEnv = made.env;
+  }
+  const runEnvValue = childEnv(env, { ...tallerEnv, PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
   // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
   const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
   if (selfProblem) return fail(`fail: ${selfProblem}`);

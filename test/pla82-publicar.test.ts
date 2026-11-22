@@ -19,6 +19,17 @@ const { settleInitiatives, ONLY_PUBLISH_LEFT, CLOSED_BY_RELEASE } = await import
 const { migrarBaseDeLaApp } = await import("../src/captures/publicado.js");
 const hojas = (await import(new URL("../ui/src/lib/publicar.ts", import.meta.url).href)) as Record<string, any>;
 
+test("PLA-158 (F-25): «Decir quién migra» lands on production's missing field in Despliegue", () => {
+  assert.deepEqual(hojas.prodFixLink({ prod_fix: { env: "produccion", name: "Producción", missing: "provider" } }, "es"), {
+    label: "Elige la base de datos de Producción",
+    why: "Falta un dato: la base de datos de Producción. Con ella, Plania sabe quién migra.",
+    env: "produccion",
+    focus: "env-produccion-base",
+  });
+  assert.deepEqual(hojas.prodFixLink({ prod_fix: { env: "produccion", name: "Producción", missing: null } }, "es"), { label: "Decir quién migra", why: null, env: "produccion", focus: "env-produccion-cuando" });
+  assert.deepEqual(hojas.prodFixLink({}, "es"), { label: "Decir quién migra", why: null, env: null, focus: null });
+});
+
 type Json = Record<string, any>;
 let raw: pg.Client;
 let db: ReturnType<typeof makeDb>["db"];

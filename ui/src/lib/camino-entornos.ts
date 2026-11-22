@@ -51,6 +51,21 @@ export function whoMigrates(e: CaminoEnv): "deploy" | "owner" | "none" | null {
   return w === "paso" || w === "build" || w === "llegar" ? "deploy" : w === "mano" ? "owner" : "none";
 }
 
+/** PLA-158 (F-25): the anchor of one part of an environment's editor, which opens Modo experto on it. */
+export const envFocus = (env: string, part: "base" | "cuando"): string => `env-${env}-${part}`;
+
+type DbSettings = NonNullable<CaminoEnv["database"]>;
+/** PLA-158 (F-25): production's «Usar lo recomendado». It set the SQL review, the approval and the backup but not when
+ * it migrates, so Publicar kept waiting: who migrates needs the database's service and a moment (prodMigrationsFromEnv).
+ * Now the moment is the recommended «paso» whenever the service is known (the environment's own, else a database
+ * service with a saved key), and when it is not, missing says so: that one field is the owner's to pick. */
+export function prodRecommended(db: DbSettings, known: ProviderId | null = null): { patch: Partial<DbSettings>; done: boolean; missing: "provider" | null } {
+  const provider = db.provider ?? known;
+  const patch: Partial<DbSettings> = { sql_review: true, approve_destructive: true, backup: db.backup === "ninguna" ? "proveedor" : db.backup, ...(provider ? { provider, migrate_when: "paso" as const } : {}) };
+  const done = db.sql_review && db.approve_destructive && db.backup !== "ninguna" && !!db.provider && db.migrate_when === "paso";
+  return { patch, done, missing: provider ? null : "provider" };
+}
+
 /** The SQL to give an app its own users instead of the database owner (run by the owner; Plania never holds them). */
 export function rolesSql(db: string): string {
   const d = db.replace(/[^A-Za-z0-9_]/g, "_") || "app";
@@ -104,6 +119,7 @@ export const ENTORNOS_WORDS = defineWords({
     window: "Ventana para restaurar",
     dbName: "Base",
     dbNameHint: "de las bases de esta Mac",
+    ownDb: "la del proyecto",
     data: "Datos",
     dataOpts: { falsos: "Falsos (semilla)", copia: "Copia sin datos personales", real: "Reales" } as Record<string, string>,
     realNote: "Datos reales: ningún agente se conecta aquí. Solo el paso de migrar, con tu aprobación si borra algo.",
@@ -221,6 +237,7 @@ export const ENTORNOS_WORDS = defineWords({
     window: "Restore window",
     dbName: "Database",
     dbNameHint: "from this Mac's databases",
+    ownDb: "the project's",
     data: "Data",
     dataOpts: { falsos: "Fake (seed)", copia: "Copy without personal data", real: "Real" } as Record<string, string>,
     realNote: "Real data: no agent connects here. Only the migrate step, with your approval if it deletes anything.",

@@ -801,7 +801,7 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null; prod_migrations?: "deploy" | "owner" | "none" | null };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null; prod_migrations?: "deploy" | "owner" | "none" | null; prod_fix?: { env: string; name: string; missing: "provider" | null } };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar" | "aprobar" | "once" | "rechazar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
@@ -821,7 +821,8 @@ export type QaRead = {
 // PLA-I52-4: GET /api/projects/:slug/probador/:key (src/captures/probador.ts probadorRead).
 export type MuestraVista = { key: string; label: string; path: string; estado?: string; session?: boolean };
 export type Muestra = { frase: string; vistas: MuestraVista[]; pasos: string[] };
-export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string };
+// PLA-158 (F-27): waiting says what a pass in «tomando» waits on, in the owner's words (null while it works).
+export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string; waiting?: string | null };
 export type ParShot = { id: string; image_url: string; width: number; height: number | null; taken_at: string } | null;
 export type ParSide = { still: ParShot; error: string | null; missing: boolean };
 export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };

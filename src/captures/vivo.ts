@@ -55,6 +55,9 @@ export type VivoDeps = {
 };
 
 type Live = { slug: string; key: string | null; server: http.Server; port: number; target: number; cookies: { name: string; value: string }[]; read: VivoRead };
+// PLA-158 (F-27): the sockets each proxy passed through as an upgrade (the dev server's live reload). They are no
+// longer the HTTP server's requests, so closeAllConnections() never ends them and server.close() waited for them.
+const upgraded = new WeakMap<http.Server, Set<Socket>>();
 const lives = new Map<string, Live>();
 let deps: VivoDeps = {};
 export function setVivoDeps(d: VivoDeps): void {
@@ -130,8 +133,12 @@ function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
     req.pipe(up);
   });
   // Dev servers keep a socket open for live reload: pass upgrades straight through.
+  const open = new Set<Socket>();
+  upgraded.set(server, open);
   server.on("upgrade", (req, socket: Socket, head) => {
     if (!isLoopback(socket.remoteAddress)) return socket.destroy();
+    open.add(socket);
+    socket.once("close", () => open.delete(socket));
     const up = connect(live.target, "127.0.0.1", () => {
       const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
@@ -240,13 +247,20 @@ export function vivoRead(slug: string): VivoRead | null {
   return lives.get(slug)?.read ?? null;
 }
 
+const STOP_WAIT_MS = 2_000;
+
 // Off: the proxy closes and its tailnet entry goes. Called when the delivery's copy stops.
 export async function stopVivo(slug: string): Promise<void> {
   const l = lives.get(slug);
   if (!l) return;
   lives.delete(slug);
-  await new Promise<void>((resolve) => l.server.close(() => resolve()));
+  // PLA-158 (F-27): a tab the owner left open on the live copy holds its live-reload socket (and keep-alive
+  // requests) for as long as it stays open, and close() waited for them: a later delivery's photo pass, which stops
+  // this proxy with the old copy, waited 1266 s. Every connection is ended first, and the wait is bounded.
+  const closed = new Promise<void>((resolve) => l.server.close(() => resolve()));
   l.server.closeAllConnections?.();
+  for (const s of upgraded.get(l.server) ?? []) s.destroy();
+  await Promise.race([closed, new Promise<void>((resolve) => setTimeout(resolve, STOP_WAIT_MS).unref?.())]);
   const ts = deps.tailscale === undefined ? realTailscale() : deps.tailscale;
   if (ts && l.read.tailnet) await ts.off(l.port).catch(() => undefined);
 }

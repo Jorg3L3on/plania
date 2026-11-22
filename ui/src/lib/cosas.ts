@@ -10,6 +10,7 @@
 // GET /api/company/projects/:slug/ficha (open ideas with their state, which idea became which initiative) give.
 import type { Decision, DecisionAction, EtapaHolder, EtapaId, FichaIdea, OrgFicha, OrgMoveAction, OrgProject, PedidoState, PedidoStop, ProjectTicket, Tokens } from "./api";
 import { etapaWord, wordOf } from "./etapas";
+import { ideaName } from "./nombre";
 import { seatName } from "./corriente";
 import { arranqueLine } from "./arranque";
 import { prodWaits, publicarWords } from "./publicar";
@@ -294,6 +295,8 @@ export type Cosa = {
   /** The idea it was born from (an initiative that was a pedido or an idea). */
   idea_key: string | null;
   title: string;
+  /** PLA-148 (F-6): an idea's or request's whole text when `title` is its short name (for the hover). */
+  full?: string;
   grupo: Exclude<Grupo, "hecho">;
   hilo: Hilo;
   /** What it waits for, in a sentence (the server's reasons, src/api/etapa.ts and the tube). */
@@ -482,7 +485,9 @@ function ideaThing(i: { key: string; title: string; origin: string | null; stop:
   const at = IDEA_STOPS.indexOf(i.stop);
   const valve = i.state === "valvula";
   const hilo = (ideaTono: TramoTono, valvula: Valvula): Hilo => ({ idea: at, ideaTono, valvula, tramos: [], publicado: false, at: valvula === "atorada" || valvula === "pasando" ? "valvula" : i.stop });
-  const base = { key: i.key, tipo, idea_key: null, title: i.title, decisions: decisions.map((d) => d.id) };
+  // PLA-148 (F-6): the short name on the row; the whole text on hover.
+  const name = ideaName(i.title) || i.title;
+  const base = { key: i.key, tipo, idea_key: null, title: name, ...(name !== i.title ? { full: i.title } : {}), decisions: decisions.map((d) => d.id) };
   const stopName = w.paradas[i.stop];
   const waits = i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => w.docMissing(d)) : null;
 
@@ -536,7 +541,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
     const pd = pedidos.get(i.key);
     if (i.guardada || pd?.guardada) {
       guardadas++;
-      guardadasList.push({ key: i.key, title: i.summary || i.title });
+      guardadasList.push({ key: i.key, title: ideaName(i.summary || i.title) || i.title });
       continue;
     }
     out.push(
@@ -560,7 +565,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
     if (seen.has(pd.key)) continue;
     if (pd.guardada) {
       guardadas++;
-      guardadasList.push({ key: pd.key, title: pd.title });
+      guardadasList.push({ key: pd.key, title: ideaName(pd.title) || pd.title });
       continue;
     }
     out.push(ideaThing({ key: pd.key, title: pd.title, origin: "owner", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine, w }));

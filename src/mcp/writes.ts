@@ -578,6 +578,12 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInp
       assertStageOwner(agent ? roleOf(agent) : null, t.stage);
     }
     if (step === "forward") await assertForwardStage(tx, t.id, t.stage ?? "", input.stage);
+    // PLA-149: a run older than the owner's last words on the idea does not move it on; deliver_stage woke it again.
+    if (step === "forward" && !ctx.human && !ctx.system) {
+      const { ownerNewerThanRun } = await import("./stage-docs.js");
+      const late = await ownerNewerThanRun(tx, ctx, t.id);
+      if (late) throw new ToolError("IDEA_OWNER_NEWER", { stage: t.stage, since: late.since, words: late.words, hint: "the owner wrote after your run started: read his words, deliver the stage again from the next run, then move it" });
+    }
     if (step !== "same") patch.stage = input.stage;
   }
   if (input.promoted_to !== undefined) {

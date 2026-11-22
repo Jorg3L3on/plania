@@ -89,6 +89,8 @@ export type EtapaFacts = {
   delivery: { returned: boolean; open: boolean; at: Date } | null;
   // PLA-52: El Probador has not finished the delivery's pictures (probadorGate, the rule the delivery card reads).
   photos?: boolean;
+  // PLA-158 (F-27): what that pass waits on (probador.waiting), so the board line says it instead of only «toma las fotos».
+  photosWaiting?: string | null;
 };
 
 // PLA-I2-10: each stage's reason in the install's language; the Spanish is unchanged.
@@ -196,7 +198,7 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
         return make("en_revision", { reason: ci === "failure" ? ew().ciFail : ew().ciRun });
       }
       // PLA-52: no card is raised before the pictures exist, so it is not the owner's turn yet either.
-      if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: ew().photos });
+      if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: f.photosWaiting ? `${ew().photos} ${f.photosWaiting}` : ew().photos });
       if (f.delivery?.open) return make("te_toca", { holder: { ...OWNER_AUTHOR }, since: iso(f.delivery.at) ?? at, reason: ew().delivered });
       return make("en_revision", { reason: f.pr?.state === "closed" ? ew().prClosed : null });
     }
@@ -470,6 +472,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
         ((parent.id === here?.id && t.status === "Backlog" && t.statusChangedAt !== null) || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
       delivery: d ? { returned: action === "cambios", open: !action, at: date(d.at)! } : null,
       photos: !!pr && probadorGate(p, t, (pr.head_sha as string | null) ?? null).pending,
+      photosWaiting: t.probador?.state === "tomando" ? (t.probador.waiting ?? null) : null,
     };
     const etapa = etapaOf(facts, now);
     if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas), arranque: arranqueBy.get(t.key) ?? null, tokens: tokensBy.get(t.id) ?? NO_TOKENS });

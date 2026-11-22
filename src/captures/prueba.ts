@@ -81,6 +81,10 @@ export const PRUEBA_WORDS = defineWords({
     serverIni: (title: string, key: string, branch: string) => `Servidor de la copia de ${title} para la iniciativa ${key} (${branch}), en Máquinas`,
     dbIni: (slug: string, key: string) => `Base de la copia de ${slug} para la iniciativa ${key} (copia de la de inicio, con las migraciones de la rama)`,
     noBranch: "la iniciativa no tiene rama todavía",
+    // PLA-158 (F-31)
+    dbTaller: (slug: string) => `Base de trabajo de Taller en ${slug} (copia de la de la app), para que sus pruebas y migraciones no toquen la de la app`,
+    tallerNotLocal: (name: string) => `${name} no es una base local de Postgres; Taller no trabaja sobre la base de la app`,
+    noTallerDb: (name: string) => `No se pudo copiar la base de la app para Taller (${name})`,
   },
   en: {
     noStart: (why: string) => `Could not turn it on: ${why}`,
@@ -124,6 +128,9 @@ export const PRUEBA_WORDS = defineWords({
     serverIni: (title: string, key: string, branch: string) => `Server of ${title}'s copy for initiative ${key} (${branch}), in Máquinas`,
     dbIni: (slug: string, key: string) => `Database of ${slug}'s copy for initiative ${key} (a copy of the start copy's, with the branch's migrations)`,
     noBranch: "the initiative has no branch yet",
+    dbTaller: (slug: string) => `Taller's working database on ${slug} (a copy of the app's), so its tests and migrations never touch the app's own`,
+    tallerNotLocal: (name: string) => `${name} is not a local Postgres database; Taller does not work on the app's database`,
+    noTallerDb: (name: string) => `Could not copy the app's database for Taller (${name})`,
   },
 });
 
@@ -860,7 +867,7 @@ export function envValue(text: string, name: string): string | null {
 }
 
 /** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
-export function entregaUrl(base: string, suffix: CopySuffix = "_entrega"): { url: string; name: string } | null {
+export function entregaUrl(base: string, suffix: CopySuffix | "_taller" = "_entrega"): { url: string; name: string } | null {
   let u: URL;
   try {
     u = new URL(base);
@@ -1107,6 +1114,60 @@ export function appBaseUrl(p: typeof projects.$inferSelect): string | null {
     }
   }
   return null;
+}
+
+// ---- PLA-158 (F-31): Taller's own database
+// During each Taller run the app's own database got the branch's migrations: its tests, or the dev server reading the
+// app's env file, used the app's database variable. A project that declares settings.capture.database gets its
+// Taller runs pointed at <db>_taller instead, through the run's process environment (it wins over .env files for
+// Next.js and dotenv). The base is made once from the app's, as the copies' are, and is not refreshed: Taller's
+// own migrations are what it is for. Not for Plania itself, which has its own rules (PLA-I2-9).
+export type TallerDb = { ok: true; env: Record<string, string>; name: string } | { ok: false; error: string } | null;
+const tallerMaking = new Map<string, Promise<TallerDb>>();
+
+export function tallerDatabase(db: Db, p: typeof projects.$inferSelect): Promise<TallerDb> {
+  const cfg = p.settings.capture?.database;
+  if (!cfg || isSelfProject(repoPathOf(p.slug, p.settings, env()), deps.serverRoot ?? serverRoot())) return Promise.resolve(null);
+  // Two Taller runs starting together make it once.
+  const had = tallerMaking.get(p.slug);
+  if (had) return had;
+  const job = makeTallerDatabase(db, p, cfg.env_var).finally(() => tallerMaking.delete(p.slug));
+  tallerMaking.set(p.slug, job);
+  return job;
+}
+
+async function makeTallerDatabase(db: Db, p: typeof projects.$inferSelect, envVar: string): Promise<TallerDb> {
+  const w = say(PRUEBA_WORDS);
+  const base = appBaseUrl(p);
+  // The app's env file does not name it: there is no app database for the run to reach through it.
+  if (!base) return null;
+  const target = entregaUrl(base, "_taller");
+  if (!target) return { ok: false, error: w.tallerNotLocal(envVar) };
+  const exec = deps.exec ?? shellExec;
+  const cwd = repoPathOf(p.slug, p.settings, env());
+  const pgPath = await pgPathFor(base);
+  const pgEnv = (extra: Record<string, string>) => checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, ...extra });
+  // The URLs go in the environment, never in the command line.
+  const there = await exec(`psql "$PLANIA_BASE_URL" -X -tA -c "select datname from pg_database where datname = '${target.name}'"`, { cwd, timeoutMs: 30_000, env: pgEnv({}) });
+  if (there.code !== 0) return { ok: false, error: w.noTallerDb(target.name) };
+  if (!there.stdout.split(/\s+/).includes(target.name)) {
+    const make = `psql "$PLANIA_BASE_URL" -X -v ON_ERROR_STOP=1 -q -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -X -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
+    const made = await exec(make, { cwd, timeoutMs: 300_000, env: pgEnv({ PLANIA_NEW_URL: target.url }) });
+    if (made.code !== 0) {
+      // A half copy would be taken as made next time: drop it.
+      await exec(`psql "$PLANIA_BASE_URL" -X -q -c 'drop database if exists ${target.name} with (force)'`, { cwd, timeoutMs: 60_000, env: pgEnv({}) });
+      return { ok: false, error: w.noTallerDb(target.name) };
+    }
+    if (deps.footprints !== false) {
+      const u = new URL(target.url);
+      await registerFootprint(
+        db,
+        { project: p.slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: w.dbTaller(p.slug), teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+        ctx(),
+      ).catch(() => undefined);
+    }
+  }
+  return { ok: true, env: { [envVar]: target.url }, name: target.name };
 }
 
 /** Whether a project's copies get bases of their own (settings.capture.database, or Plania itself). */

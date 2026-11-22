@@ -62,6 +62,8 @@ export const ERRORS = {
   RESERVED_ACTOR: [400, "actor.agent is owner: only the screen writes as the owner"],
   MUESTRA_REQUIRED: [400, "finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint)"],
   MUESTRA_INVALID: [400, "finish: muestra does not fit its shape (detail: field, hint)"],
+  // PLA-158 (F-28)
+  MUESTRA_SELECTOR: [400, "finish: a muestra follow, click or fill is not a selector the browser reads, e.g. Playwright's :has-text( or >> (detail: field, value, hint)"],
   TASK_MISSING_PR_URL: [400, "Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR"],
   TEMPLATE_INVALID: [400, "create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing)"],
   TEXT_HAS_DATE: [400, "decision text starts with a date: the server stamps dates"],
@@ -128,6 +130,8 @@ export const ERRORS = {
   EVIDENCE_REQUIRED: [409, "In review without evidence for the work_type from the current claim (detail: accepts, since)"],
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   IDEA_STAGE_NOT_YOURS: [409, "Research moves an idea only out of research, Artist only out of design (detail: role, stage, owns)"],
+  // PLA-149
+  IDEA_OWNER_NEWER: [409, "set_task stage: the owner decided or wrote on the idea after this run started; it stays on its stage and its agent is woken again with his words (detail: since, words)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
   PEDIDO_SIN_ORDEN: [409, "an idea the owner asked for on screen (origin owner) gets promoted_to only after their «Constrúyelo» on the Pedido tab"],
