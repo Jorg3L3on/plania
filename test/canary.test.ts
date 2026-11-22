@@ -54,6 +54,7 @@ async function world(locker: "npm" | "pnpm", opts: Parameters<typeof makeWorld>[
   m.runner.resetRunnerForTests();
   m.qa.resetQaForTests();
   m.prueba.resetPrueba();
+  m.turns.resetTurnWatchForTests();
   // Only this world's project runs: the others stay paused, so a tick never wakes an earlier world's agents. An
   // earlier row's project is removed (its agents, runs and events with it): the floor reads stay one project wide.
   await raw.query(`update projects set runs_paused = true`);
@@ -132,21 +133,36 @@ async function walk(w: World, at: Partial<Record<(typeof DECISIONS)[number] | "e
   await at.end?.();
 }
 
-/** What every row asserts once the path settled. */
-async function settled(w: World, decisions = DECISIONS) {
+/** What every row asserts once the path settled. healed: the watchdog heals the row expects (0 on a path that works). */
+async function settled(w: World, decisions = DECISIONS, opts: { healed?: number } = {}) {
   assert.deepEqual(w.fakeErrors, []);
   assert.deepEqual(w.clicks.map((c) => c.what), decisions, "the owner made only the decision clicks");
-  // Nobody's turn never lasts past one tick (the next tick must find someone).
-  for (let i = 1; i < w.turns.length; i += 1) {
-    assert.ok(!(w.turns[i]!.who === "nobody" && w.turns[i - 1]!.who === "nobody"), `nobody's turn for two ticks: ${JSON.stringify(w.turns.slice(Math.max(0, i - 3), i + 1))}`);
+  const healedNow = Number((await w.one(`select count(*)::int n from events where project_id = $1 and type = 'turn.healed'`, [w.pid]))!.n);
+  // Nobody's turn never lasts past one tick (the next tick must find someone). Where the row expects a heal, a gap may
+  // last the watchdog's two minutes and its heal: three ticks of the fast clock, never more.
+  const longest = (opts.healed ?? 0) > 0 ? 3 : 1;
+  let streak = 0;
+  for (let i = 0; i < w.turns.length; i += 1) {
+    streak = w.turns[i]!.who === "nobody" ? streak + 1 : 0;
+    assert.ok(streak <= longest, `nobody's turn for ${streak} ticks: ${JSON.stringify(w.turns.slice(Math.max(0, i - 4), i + 1))}`);
   }
+  // Plania's own turnOf agrees: no step is nobody's for longer than that either.
+  const streaks = new Map<string, number>();
+  for (const t of w.turns) {
+    const now = new Set((t.plania ?? []).filter((x) => x.turn === "nobody").map((x) => x.key));
+    for (const k of [...streaks.keys()]) if (!now.has(k)) streaks.delete(k);
+    for (const k of now) {
+      streaks.set(k, (streaks.get(k) ?? 0) + 1);
+      assert.ok(streaks.get(k)! <= longest, `turnOf says ${k} is nobody's for ${streaks.get(k)} ticks: ${JSON.stringify(t.plania)}`);
+    }
+  }
+  assert.equal(healedNow, opts.healed ?? 0, `watchdog heals (turn.healed): ${healedNow}`);
   const step = (await w.task(w.stepKey!))!;
   assert.ok(["Released", "Done"].includes(step.status), `step ${step.key} is ${step.status}`);
   const env = await w.one(`select commit from env_states where project_id = $1 and env = 'prod'`, [w.pid]);
   assert.ok(env?.commit, "prod records the deployed commit");
   assert.deepEqual(w.github.unknown, [], "every GitHub call Plania made is one the fake knows");
-  // The watchdog (PLA-I74-5) heals nothing on a path that works.
-  assert.equal(Number((await w.one(`select count(*)::int n from events where project_id = $1 and type = 'turn.healed'`, [w.pid]))!.n), 0, "nothing needed healing");
+
 }
 
 /** The key events, in order (each appears, and after the one before it). */
@@ -266,7 +282,7 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  test("PLA-167 / watchdog: a run ends without releasing its step; with no note, the step is healed within two ticks", todo("PLA-I74-5"), async () => {
+  test("PLA-167 / watchdog: a run ends without releasing its step; with no note, the watchdog heals it within its two minutes", async () => {
     let first = true;
     const taller = async (run: Run, w: World) => {
       if (first && run.key) {
@@ -282,12 +298,14 @@ describe("PLA-I74-3: scenario rows", () => {
       await meGusta(w);
       await construir(w);
       await w.until("the first Taller run over, its step still In progress", async () => !first && (await liveRuns(w)) === 0, 8);
-      // The bar: healed within two minutes. Here: within three ticks, with turn.healed saying why.
-      await w.until("the held step healed", async () => (await healed(w)) >= 1 && (await liveRuns(w)) + (w.spawned.filter((r) => r.role === "taller").length - 1) > 0, 3);
+      // The bar: healed within two minutes. On the fast clock (a minute a tick): seen, two minutes, the heal.
+      await w.until("the held step healed and Taller on it again", async () => (await healed(w)) >= 1 && w.spawned.filter((r) => r.role === "taller").length >= 2, 4);
+      const heal = (await w.one(`select payload from events where project_id = $1 and type = 'turn.healed' order by id limit 1`, [w.pid]))!.payload;
+      assert.match(JSON.stringify(heal), /held_by_ended_run|ended|release/i, `the heal says why: ${JSON.stringify(heal)}`);
       await aceptar(w);
       await publicar(w);
       await enProduccion(w);
-      await settled(w);
+      await settled(w, DECISIONS, { healed: 1 });
     });
   });
 
@@ -396,7 +414,7 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
-  test("PLA-52 / watchdog: Plania restarts while Taller's run starts, before it took the step; the step is not left Ready with nobody", todo("PLA-I74-5"), async () => {
+  test("PLA-52 / watchdog: Plania restarts while Taller's run starts, before it took the step; the watchdog wakes Taller on it", async () => {
     let swept = -1;
     let first = true;
     const taller = async (run: Run, w: World) => {
@@ -411,11 +429,11 @@ describe("PLA-I74-3: scenario rows", () => {
       await meGusta(w);
       await construir(w);
       await w.until("the restart's sweep", async () => swept >= 0, 6);
-      await w.until("a Taller run on the step again", async () => w.spawned.filter((r) => r.role === "taller").length >= 2, 3);
+      await w.until("a Taller run on the step again", async () => w.spawned.filter((r) => r.role === "taller").length >= 2, 4);
       await aceptar(w);
       await publicar(w);
       await enProduccion(w);
-      await settled(w);
+      await settled(w, DECISIONS, { healed: 1 });
     });
   });
 

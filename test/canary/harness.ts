@@ -45,6 +45,8 @@ export async function loadMods() {
     ship: await import("../../src/mcp/release-ship.js"),
     actions: await import("../../src/api/company-actions.js"),
     queries: await import("../../src/mcp/queries.js"),
+    turns: await import("../../src/jobs/turns.js"),
+    etapa: await import("../../src/api/etapa.js"),
   };
 }
 
@@ -345,8 +347,9 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
 
   // ---- One tick: what the server's jobs do every minute, in order, with the fakes wired in.
 
-  const turns: { tick: number; who: string; why: string }[] = [];
+  const turns: { tick: number; who: string; why: string; plania?: { key: string; turn: string; why: string | null }[] }[] = [];
   let ticks = 0;
+  const born = Date.now();
   const qaDeps = () => ({ runner: deps, env: deps.env, worktreeRoot: worktrees, git: realGit, exec: realExec, startApp: async () => ({ ok: true, error: null, stop: async () => undefined }), capture, freePort: async () => 4900 + n, publicUrl: "http://localhost:3738" });
   const probadorDeps = () => ({ force: true, settleMs: 0, orphanMs: 60_000, capture, waitMs: w.probadorWaitMs, pollMs: 5 });
   async function tick(): Promise<void> {
@@ -365,9 +368,15 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     await m.github.pollGithubProject(db, p, { fetch: github.fetch as never, env: { GITHUB_TOKEN: "canary-token" }, now });
     await m.vercel.pollVercelProject(db, p, { fetch: host.fetch as never, env: { VERCEL_TOKEN: "canary-token" }, now });
     for (const job of m.jobs.JOBS.filter((j: { name: string }) => ["blockers", "leases"].includes(j.name))) await job.runOnce(db, now);
+    // PLA-I74-5: the turn watchdog, on the fast clock: one minute per tick, so its two minutes of grace are two ticks.
+    const fast = new Date(Math.max(Date.now(), born + ticks * 60_000));
+    await m.turns.sweepTurns(db, fast);
     await m.runner.waitForAllRuns();
     const t = await turn();
-    turns.push({ tick: ticks, ...t });
+    // Plania's own answer (turnOf, on the board) for every open step, next to the canary's.
+    const etapas = await m.etapa.projectEtapas(db, p, fast);
+    const plania = [...etapas.byTicket.values()].filter((r: Json) => r.turn).map((r: Json) => ({ key: r.key, turn: r.turn.turn, why: r.turn.why ?? r.turn.reason ?? r.turn.card ?? r.turn.on ?? null }));
+    turns.push({ tick: ticks, ...t, plania });
   }
 
   /** Ticks until cond holds; fails naming the last turns when it does not within max ticks. */
