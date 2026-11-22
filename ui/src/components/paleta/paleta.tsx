@@ -16,7 +16,7 @@ import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { ASK_MAX, modesOf, nextMode, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
-import { atajo, atajoTexto, esMac, filasDe, mover, paletaWords, proyectoDeRuta, proyectoInicial, type Fila, type Lugar, type ProyectoLista } from "@/lib/paleta";
+import { agrupar, atajo, atajoTexto, esMac, filasDe, mover, paletaWords, proyectoDeRuta, proyectoInicial, type Fila, type Lugar, type ProyectoLista } from "@/lib/paleta";
 import { cn } from "@/lib/utils";
 
 // PLA-I2-10: the ask modes in the screen's language (fixed for the page load).
@@ -101,7 +101,6 @@ function FilaVista({ f, modo, texto, enviando, nombre }: { f: Fila; modo: AskMod
       <>
         <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{f.label}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{w.ir}</span>
       </>
     );
   }
@@ -109,7 +108,7 @@ function FilaVista({ f, modo, texto, enviando, nombre }: { f: Fila; modo: AskMod
     <>
       <ProjectMark slug={f.slug} className="size-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{f.title}</span>
-      <span className="shrink-0 text-xs text-muted-foreground">{f.kind === "destino" ? w.usar : w.ir}</span>
+      {f.kind === "destino" ? <span className="shrink-0 text-xs text-muted-foreground">{w.usar}</span> : null}
     </>
   );
 }
@@ -209,6 +208,11 @@ export function Paleta({ abierta, onAbierta, proyectos, pantallas }: { abierta: 
   }
 
   const filaId = (n: number) => `${listaId}-${n}`;
+  // The chosen row stays in view as the arrows move it (instantly: the key must feel immediate).
+  useEffect(() => {
+    if (abierta) document.getElementById(filaId(i))?.scrollIntoView({ block: "nearest" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i, abierta]);
   const enArroba = texto.startsWith("@");
 
   return (
@@ -309,29 +313,40 @@ export function Paleta({ abierta, onAbierta, proyectos, pantallas }: { abierta: 
             </p>
           ) : null}
 
-          <ul id={listaId} role="listbox" aria-label={w.titulo} className="grid max-h-[min(50svh,360px)] overflow-y-auto overscroll-contain p-1.5">
+          {/* One listbox; each section (projects, pages) is a group under its own title. Pedir heads it, untitled. */}
+          <div id={listaId} role="listbox" aria-label={w.titulo} className="grid max-h-[min(50svh,360px)] content-start gap-1 overflow-y-auto overscroll-contain p-1.5">
             {filas.length === 0 ? (
-              <li className="px-2.5 py-3 text-muted-foreground" role="presentation">
-                {w.nada}
-              </li>
+              <p className="px-2.5 py-3 text-muted-foreground">{w.nada}</p>
             ) : (
-              filas.map((f, n) => (
-                <li
-                  key={`${f.kind}-${"slug" in f ? f.slug : f.to}`}
-                  id={filaId(n)}
-                  role="option"
-                  aria-selected={n === i}
-                  aria-disabled={f.kind === "pedir" && (!f.listo || enviando) ? true : undefined}
-                  onMouseMove={() => n !== i && setActiva(n)}
-                  onClick={() => activar(f)}
-                  className={cn("flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 sm:min-h-9", n === i && "bg-foreground/[0.07]")}
-                  data-fila={f.kind}
-                >
-                  <FilaVista f={f} modo={modo} texto={texto} enviando={enviando} nombre={nombre} />
-                </li>
-              ))
+              agrupar(filas).map((g) => {
+                const tituloId = g.seccion ? `${listaId}-${g.seccion}` : undefined;
+                return (
+                  <div key={`${g.seccion ?? "pedir"}-${g.filas[0]!.n}`} role="group" aria-labelledby={tituloId} className="grid" data-seccion-paleta={g.seccion ?? "pedir"}>
+                    {g.seccion ? (
+                      <p id={tituloId} className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">
+                        {g.seccion === "paginas" ? w.paginas : w.proyectos}
+                      </p>
+                    ) : null}
+                    {g.filas.map(({ fila: f, n }) => (
+                      <div
+                        key={`${f.kind}-${"slug" in f ? f.slug : f.to}`}
+                        id={filaId(n)}
+                        role="option"
+                        aria-selected={n === i}
+                        aria-disabled={f.kind === "pedir" && (!f.listo || enviando) ? true : undefined}
+                        onMouseMove={() => n !== i && setActiva(n)}
+                        onClick={() => activar(f)}
+                        className={cn("flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 sm:min-h-9", n === i && "bg-foreground/[0.07]")}
+                        data-fila={f.kind}
+                      >
+                        <FilaVista f={f} modo={modo} texto={texto} enviando={enviando} nombre={nombre} />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
             )}
-          </ul>
+          </div>
 
           {/* The keys, on a computer only. */}
           <p className="hidden flex-wrap gap-x-3 gap-y-1 border-t px-3 py-2 text-[11px] text-muted-foreground sm:flex" aria-hidden>

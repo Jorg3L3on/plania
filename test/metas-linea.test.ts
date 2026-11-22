@@ -33,3 +33,24 @@ test("Inicio draws the line, not the board, and «Nueva» opens the dialog in pl
   assert.match(home, /<GoalDialog open=\{open\} goal=\{null\}/);
   assert.match(home, /onClick=\{\(\) => setOpen\(true\)\}/);
 });
+
+test("the wide panel lists the first three active company goals in the board's order, and how many more", async () => {
+  const { metasPrincipales } = await import("../ui/src/lib/metas-linea.js");
+  const g = (id: string, position: number, over: Partial<{ project: string | null; status: string }> = {}) => ({ id, title: id, position, project: over.project ?? null, status: over.status ?? "active", progress: { done: 0, total: 0 } });
+  const goals = [g("d", 4), g("a", 1), g("x", 0, { status: "done" }), g("p", 0, { project: "zeep" }), g("c", 3), g("b", 2)];
+  const r = metasPrincipales(goals);
+  assert.deepEqual(r.lista.map((x) => x.id), ["a", "b", "c"]);
+  assert.equal(r.mas, 1);
+  assert.deepEqual(metasPrincipales([]), { lista: [], mas: 0 });
+});
+
+test("La máquina and Metas share one row from xl, the machine wide and Metas a 320px column; they stack below", () => {
+  const home = readFileSync(new URL("../ui/src/pages/home.tsx", import.meta.url), "utf8");
+  assert.match(home, /ver\.maquina && ver\.metas && "xl:grid-cols-\[minmax\(0,1fr\)_320px\]"/);
+  // The row holds both, machine first, so on a phone the projects come before the goals.
+  const fila = home.slice(home.indexOf("data-fila-maquina-metas"));
+  assert.ok(fila.indexOf("<LaMaquina") < fila.indexOf("<GoalsHome"));
+  const src = readFileSync(new URL("../ui/src/components/goals/goals-board.tsx", import.meta.url), "utf8");
+  // The goals' list only where there is room for it.
+  assert.match(src, /<ul className="hidden gap-3 border-t pt-3 xl:grid">/);
+});

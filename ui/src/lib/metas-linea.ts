@@ -47,3 +47,16 @@ export function metasLineaTexto(m: ReturnType<typeof metasLinea>, language: Lang
   if (m.activas === 0) return [w.sinActivas];
   return m.total > 0 ? [w.activas(m.activas), w.tareas(m.done, m.total)] : [w.activas(m.activas)];
 }
+
+type MetaConTitulo = MetaLeida & { id: string; title: string; position: number };
+
+/**
+ * The side panel's list (wide screens only): the company's active goals in the board's order, the first `n`, and how
+ * many more the goals screen holds.
+ */
+export function metasPrincipales<T extends MetaConTitulo>(goals: readonly T[], n = 3): { lista: T[]; mas: number } {
+  const activas = goals
+    .filter((g) => g.project === null && g.status === "active")
+    .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title));
+  return { lista: activas.slice(0, n), mas: Math.max(0, activas.length - n) };
+}

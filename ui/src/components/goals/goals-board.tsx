@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { words } from "@/lib/i18n";
 import { GOALS_WORDS } from "@/lib/goals-words";
-import { metasLinea, metasLineaTexto, metasLineaWords } from "@/lib/metas-linea";
+import { metasLinea, metasLineaTexto, metasLineaWords, metasPrincipales } from "@/lib/metas-linea";
+import { cn } from "@/lib/utils";
 
 function useGoalNames() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
@@ -115,10 +116,11 @@ function GoalsBlock({
 }
 
 /**
- * Inicio's goals: one line, not the board. «Metas», how many company goals are active and their tasks done, a thin
- * bar for that share (it grows from the left when it changes, never on load), «Ver metas» and «Nueva», which opens
- * the same dialog in place. The cards live on the goals screen. Nothing shows until the list is read: it is the
- * page's last line, so it shifts nothing under it.
+ * Inicio's goals. Below the wide breakpoint, one line under La máquina: «Metas», how many company goals are active
+ * and their tasks done, a thin bar, «Ver metas» and «Nueva». From xl it is the narrow column beside La máquina: the
+ * same summary, then the first three active goals each with its own bar, and it stays in view while the
+ * projects scroll. «Nueva» opens the same dialog in place. Nothing shows until the list is read.
+ * Bars grow from the left when a value changes, never on load.
  */
 export function GoalsHome() {
   const w = words(GOALS_WORDS);
@@ -130,24 +132,49 @@ export function GoalsHome() {
   const goals = list.data.goals;
   const m = metasLinea(goals);
   const partes = metasLineaTexto(m);
-  const pct = m.total > 0 ? m.done / m.total : 0;
+  const { lista, mas } = metasPrincipales(goals);
   return (
-    <section aria-label={w.goals} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card/60 px-4 py-2.5" data-metas-linea>
-      <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
-        <span className="font-medium">{w.goals}</span>
-        {partes.map((t) => (
+    <section
+      aria-labelledby="metas-titulo"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card/60 px-4 py-2.5 xl:grid xl:content-start xl:gap-4 xl:rounded-2xl xl:p-4"
+      data-metas-linea
+    >
+      <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm xl:grid xl:gap-0.5">
+        <span id="metas-titulo" className="font-medium xl:font-display xl:text-xl xl:font-bold xl:tracking-tight">
+          {w.goals}
+        </span>
+        {partes.map((t, k) => (
           <span key={t} className="text-muted-foreground">
-            <span aria-hidden className="mr-2">·</span>
+            <span aria-hidden className={cn("mr-2", k === 0 && "xl:hidden")}>·</span>
             {t}
           </span>
         ))}
       </p>
-      {m.total > 0 ? (
-        <span aria-hidden className="h-1 w-20 overflow-hidden rounded-full bg-foreground/[0.08]">
-          <span className="block h-full origin-left bg-status-done transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none" style={{ transform: `scaleX(${pct})` }} />
-        </span>
+      {m.total > 0 ? <Barra done={m.done} total={m.total} className="w-20 xl:w-full" /> : null}
+
+      {/* The first goals, only where there is room for them. */}
+      {lista.length > 0 ? (
+        <ul className="hidden gap-3 border-t pt-3 xl:grid">
+          {lista.map((g) => (
+            <li key={g.id} className="grid gap-1.5">
+              <span className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate" title={g.title}>
+                  {g.title}
+                </span>
+                {g.progress.total > 0 ? (
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={w.progress(g.progress.done, g.progress.total)}>
+                    {g.progress.done}/{g.progress.total}
+                  </span>
+                ) : null}
+              </span>
+              {g.progress.total > 0 ? <Barra done={g.progress.done} total={g.progress.total} /> : null}
+            </li>
+          ))}
+          {mas > 0 ? <li className="text-xs text-muted-foreground">{w.more(mas)}</li> : null}
+        </ul>
       ) : null}
-      <span className="flex items-center gap-1">
+
+      <span className="flex items-center gap-1 xl:-mx-2">
         {m.hay ? (
           <Link to="/goals" className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
             {w.seeGoals}
@@ -159,6 +186,15 @@ export function GoalsHome() {
       </span>
       <GoalDialog open={open} goal={null} projects={projects} parents={goals.filter((g) => g.project === null)} onOpenChange={setOpen} />
     </section>
+  );
+}
+
+/** A thin share-done bar; the fill grows from the left on change (a transition, so still on load). */
+function Barra({ done, total, className }: { done: number; total: number; className?: string }) {
+  return (
+    <span aria-hidden className={cn("block h-1 overflow-hidden rounded-full bg-foreground/[0.08]", className)}>
+      <span className="block h-full origin-left bg-status-done transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none" style={{ transform: `scaleX(${total > 0 ? done / total : 0})` }} />
+    </span>
   );
 }
 

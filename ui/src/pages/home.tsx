@@ -126,11 +126,16 @@ export function HomePage() {
       <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
 
       {/* La máquina holds the projects: its own figures stay small, the projects are most of it. */}
-      {ver.maquina ? <LaMaquina machine={machine.data} servers={model.servers} tiles={model.tiles} cifras={ver.cifrasMaquina} nowMs={nowMs} /> : null}
-
-      <Seccion show={ver.metas} id="metas">
-        <GoalsHome />
-      </Seccion>
+      {/* One row from xl: La máquina takes the room (its project tiles need it), Metas a 320px column beside it that
+          stays in view. Below xl they stack and Metas is one line under the projects. Either alone takes the row. */}
+      {ver.maquina || ver.metas ? (
+        <div className={cn("grid items-start gap-5", ver.maquina && ver.metas && "xl:grid-cols-[minmax(0,1fr)_320px]")} data-fila-maquina-metas>
+          {ver.maquina ? <LaMaquina machine={machine.data} servers={model.servers} tiles={model.tiles} cifras={ver.cifrasMaquina} nowMs={nowMs} /> : null}
+          <Seccion show={ver.metas} id="metas" className="xl:sticky xl:top-[calc(var(--header-h)+1.25rem)]">
+            <GoalsHome />
+          </Seccion>
+        </div>
+      ) : null}
     </div>
   );
 }

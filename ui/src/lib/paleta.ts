@@ -18,10 +18,9 @@ export const PALETA_WORDS = defineWords({
     pedirEn: (p: string) => `Pedir en ${p}`,
     preguntarEn: (p: string) => `Preguntar en ${p}`,
     escribe: "Escribe lo que necesitas",
-    ir: "Ir a",
     usar: "Pedir aquí",
     proyectos: "Proyectos",
-    pantallas: "Pantallas",
+    paginas: "Páginas",
     nada: "Nada con ese nombre",
     enviando: "Enviando…",
     fallo: "No se pudo enviar. Tu texto sigue aquí; inténtalo de nuevo. Si la máquina está dormida, espera a que despierte.",
@@ -40,10 +39,9 @@ export const PALETA_WORDS = defineWords({
     pedirEn: (p: string) => `Ask ${p}`,
     preguntarEn: (p: string) => `Ask ${p} a question`,
     escribe: "Type what you need",
-    ir: "Go to",
     usar: "Ask here",
     proyectos: "Projects",
-    pantallas: "Screens",
+    paginas: "Pages",
     nada: "Nothing by that name",
     enviando: "Sending…",
     fallo: "Could not send. Your text is still here; try again. If the machine is asleep, wait until it wakes up.",
@@ -121,12 +119,14 @@ export function arroba(texto: string): string | null {
   return m ? plano(m[1]!) : null;
 }
 
-const MAX_LUGARES = 6;
+/** Projects listed under the field at most; the pages (a handful) always all show. */
+const MAX_PROYECTOS = 5;
 
 /**
  * The rows under the field. After an @: only projects, and choosing one makes it the destination. Otherwise the first
- * row is always «Pedir en <project>» (Enter sends; it waits for words), then the projects and screens whose name has
- * what was typed, to go to. A long request names no screen, so nothing else shows under it.
+ * row is always «Pedir en <project>» (Enter sends; it waits for words), then the projects (five at most) and the pages
+ * whose name has what was typed, to go to; each kind is its own section. A long request names no page, so nothing
+ * else shows under it.
  */
 export function filasDe(texto: string, proyectos: readonly ProyectoLista[], pantallas: readonly Lugar[], destino: string | null): Fila[] {
   const q = arroba(texto);
@@ -134,11 +134,31 @@ export function filasDe(texto: string, proyectos: readonly ProyectoLista[], pant
   const filas: Fila[] = destino ? [{ kind: "pedir", slug: destino, listo: texto.trim().length > 0 }] : [];
   const buscado = plano(texto);
   if (buscado.length > 40) return filas;
-  const lugares: Fila[] = [
-    ...proyectos.filter((p) => coincide(buscado, p.title, p.slug)).map((p): Fila => ({ kind: "proyecto", slug: p.slug, title: p.title, to: `/p/${encodeURIComponent(p.slug)}` })),
-    ...pantallas.filter((s) => coincide(buscado, s.label)).map((s): Fila => ({ kind: "pantalla", to: s.to, label: s.label })),
-  ];
-  return [...filas, ...lugares.slice(0, MAX_LUGARES)];
+  const enProyectos = proyectos
+    .filter((p) => coincide(buscado, p.title, p.slug))
+    .slice(0, MAX_PROYECTOS)
+    .map((p): Fila => ({ kind: "proyecto", slug: p.slug, title: p.title, to: `/p/${encodeURIComponent(p.slug)}` }));
+  const enPaginas = pantallas.filter((s) => coincide(buscado, s.label)).map((s): Fila => ({ kind: "pantalla", to: s.to, label: s.label }));
+  return [...filas, ...enProyectos, ...enPaginas];
+}
+
+export type Seccion = "proyectos" | "paginas";
+
+/** The section a row belongs to: projects (to ask or to go to) or the app's pages. Pedir heads the list, untitled. */
+export function seccionDe(f: Fila): Seccion | null {
+  return f.kind === "pedir" ? null : f.kind === "pantalla" ? "paginas" : "proyectos";
+}
+
+/** The rows grouped by section in their order, so each section is drawn under its own title. */
+export function agrupar(filas: readonly Fila[]): { seccion: Seccion | null; filas: { fila: Fila; n: number }[] }[] {
+  const grupos: { seccion: Seccion | null; filas: { fila: Fila; n: number }[] }[] = [];
+  filas.forEach((fila, n) => {
+    const seccion = seccionDe(fila);
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.seccion === seccion) ultimo.filas.push({ fila, n });
+    else grupos.push({ seccion, filas: [{ fila, n }] });
+  });
+  return grupos;
 }
 
 /** Arrow keys move the choice round the rows; Home and End jump. Any other key: no move. */

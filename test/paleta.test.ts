@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { arroba, atajo, atajoTexto, esMac, filasDe, mover, PALETA_WORDS, plano, proyectoDeRuta, proyectoInicial } from "../ui/src/lib/paleta.js";
+import { agrupar, arroba, atajo, atajoTexto, esMac, filasDe, mover, PALETA_WORDS, plano, proyectoDeRuta, proyectoInicial } from "../ui/src/lib/paleta.js";
 
 const cerrada = { abierta: false, otroDialogo: false };
 
@@ -57,7 +57,7 @@ const pantallas = [
 test("the rows: Pedir first, then the projects and screens by name; a long request lists nothing else", () => {
   const vacio = filasDe("", proyectos, pantallas, "zeep");
   assert.deepEqual(vacio[0], { kind: "pedir", slug: "zeep", listo: false }, "Pedir waits for words");
-  assert.equal(vacio.length, 1 + 5, "with nothing typed every project and screen shows, up to six");
+  assert.equal(vacio.length, 1 + 2 + 3, "with nothing typed every project and every page shows");
 
   const maq = filasDe("maquina", proyectos, pantallas, "zeep");
   assert.deepEqual(maq.map((f) => f.kind), ["pedir", "pantalla"], "accents do not matter");
@@ -108,4 +108,19 @@ test("the component: the shell's one palette; a failed send keeps the words; no 
   assert.doesNotMatch(src.replace(/max-sm:[^\s"]+/g, ""), /data-open:animate-in|slide-in-from/);
   // Both languages carry the same words (the I2-10 guard checks the shape; this checks the key hints exist).
   assert.deepEqual(Object.keys(PALETA_WORDS.es.teclas), Object.keys(PALETA_WORDS.en.teclas));
+});
+
+test("the rows come in sections: Pedir untitled, then Proyectos, then Páginas; five projects at most, every page", () => {
+  const muchos = Array.from({ length: 8 }, (_, k) => ({ slug: `p${k}`, title: `Proyecto ${k}` }));
+  const filas = filasDe("", muchos, pantallas, "p0");
+  const grupos = agrupar(filas);
+  assert.deepEqual(grupos.map((g) => [g.seccion, g.filas.length]), [[null, 1], ["proyectos", 5], ["paginas", 3]], "the pages are never pushed out");
+  // Each row keeps its place in the whole list, so the arrows and aria-activedescendant run across sections.
+  assert.deepEqual(grupos.flatMap((g) => g.filas.map((f) => f.n)), filas.map((_, n) => n));
+  assert.deepEqual(agrupar(filasDe("@", proyectos, pantallas, "zeep")).map((g) => g.seccion), ["proyectos"]);
+  assert.deepEqual([PALETA_WORDS.es.proyectos, PALETA_WORDS.es.paginas], ["Proyectos", "Páginas"]);
+  // No «Ir a» on any row: the section title says what the rows are.
+  const src = readFileSync(new URL("../ui/src/components/paleta/paleta.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /w\.ir\b/);
+  assert.equal("ir" in PALETA_WORDS.es, false);
 });
