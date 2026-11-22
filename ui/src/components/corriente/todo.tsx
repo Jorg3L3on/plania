@@ -109,7 +109,7 @@ const Row = ({ c, links, act, lado, tramos }: { c: Cosa; links: TodoLinks; act?:
           <Label tone={toca ? "amber" : undefined}>{tipoName(c.tipo)}</Label>
           {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
-        <b className="cor-cosa-t" title={c.title}>
+        <b className="cor-cosa-t" title={c.full ?? c.title}>
           {c.title}
         </b>
         <TokensLine c={c} />

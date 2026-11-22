@@ -13,6 +13,9 @@ import { Btn, Key, Label, ReadError, State } from "./parts";
 import { LOCALE } from "@/lib/locale";
 import { words } from "@/lib/i18n";
 import { TABLERO_WORDS } from "@/lib/tablero-words";
+import { TASK_PATCH_WORDS } from "@/lib/task-patch-words";
+import { canReopen, prChip, reopenPatch } from "@/lib/paso";
+import { useState, type FormEvent } from "react";
 
 export type BoardLinks = { paso: (key: string) => string; iniciativa: (key: string) => string; entrega: (d: Decision) => string; sueltos: string; doc: (id: string) => string };
 
@@ -127,6 +130,44 @@ const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; 
   );
 };
 
+/** PLA-157 (b): «Reabrir» on a closed step. The lifecycle's reopen is the owner's and needs a reason; it goes back to In review. */
+const Reabrir = ({ slug, k, version }: { slug: string; k: string; version: number }) => {
+  const client = useQueryClient();
+  const w = words(TABLERO_WORDS);
+  const [reason, setReason] = useState("");
+  const m = useMutation({
+    mutationFn: (patch: { status: string; reason: string; version: number }) => api.patchTask(slug, k, patch),
+    onSuccess: () => {
+      toast(w.reopened);
+      setReason("");
+    },
+    onError: (e) => toast.error((e instanceof ApiError && words(TASK_PATCH_WORDS).refused[e.code]) || w.reopenFailed),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["task", slug] });
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const patch = reopenPatch(reason, version);
+    if (patch) m.mutate(patch);
+  };
+  return (
+    <section className="cor-trabajo" aria-label={w.reopenLabel} data-reabrir={k}>
+      <form className="cor-say" onSubmit={submit}>
+        <Label as="p">{w.reopenLabel}</Label>
+        <span className="cor-ajuste-row">
+          <input className="cor-input" value={reason} maxLength={1000} required aria-label={w.reopenPlaceholder} placeholder={w.reopenPlaceholder} onChange={(e) => setReason(e.target.value)} />
+          <Btn kind="secondary" type="submit" disabled={!reason.trim() || m.isPending} data-control="paso-reabrir">
+            {m.isPending ? w.reopening : w.reopen}
+          </Btn>
+        </span>
+        <span className="cor-cap">{w.reopenHint}</span>
+      </form>
+    </section>
+  );
+};
+
 export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back, acts, decisions = [] }: { p: OrgProject; k: string; links: BoardLinks; back: string; backLabel?: string; acts?: CorrienteActs; decisions?: Decision[] }) => {
   const q = useQuery({ queryKey: ["task", p.slug, k], queryFn: () => api.task(p.slug, k) });
   const cerrar = useCerrar();
@@ -199,7 +240,7 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
                     <li>
                       <a className="cor-row" href={t.pr.url} target="_blank" rel="noreferrer">
                         <span style={{ flex: 1 }}>{t.pr.number ? `PR #${t.pr.number}` : "PR"}</span>
-                        <State>{t.status === "Merged" || t.status === "Released" || t.status === "Done" ? w.merged : w.open}</State>
+                        <State>{{ merged: w.merged, open: w.open, closed: w.closedPr }[prChip(t.status, t.pr.state)]}</State>
                       </a>
                     </li>
                   )}
@@ -235,6 +276,7 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
               </section>
             </div>
             {acts && here && <PasoActs p={p} t={here} acts={acts} decisions={decisions} />}
+            {canReopen(t) && <Reabrir slug={p.slug} k={k} version={t.version} />}
             {/* PLA-I71-1: «Dile algo» and «Reanudar corrida», moved here from Equipo. */}
             {acts && t.kind !== "initiative" && <Trabajo p={p} k={k} acts={acts} />}
           </>
