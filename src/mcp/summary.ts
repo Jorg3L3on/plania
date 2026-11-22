@@ -16,6 +16,11 @@ const ownerOf = (p: Record<string, unknown>) => str((p.owner as Actor | undefine
 const branchOf = (p: Record<string, unknown>) => (p.workspace as { branch?: string } | undefined)?.branch;
 const branchIn = (v: unknown) => str((v as Record<string, unknown> | undefined)?.branch);
 const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+// PLA-158 (F-17): the merge base and the deploy target under every payload shape that writes them (the GitHub poll
+// writes base_branch, the thread action base; a release by branch writes branch, by env env). Empty when none.
+const baseOf = (p: Record<string, unknown>) => str(p.base_branch || p.base);
+const targetOf = (p: Record<string, unknown>) => str(p.branch || p.env);
+const inPart = (word: string, v: string) => (v ? ` ${word} ${v}` : "");
 
 // k: the task key ("" when none). p: the payload (with __type for the fallback). by: who did it.
 type Line = (k: string, p: Record<string, unknown>, by: string) => string;
@@ -48,7 +53,7 @@ export const SUMMARY = defineWords<SummaryWords>({
       "question.asked": (k, p) => `${k} pregunta ${ownerEs("a")}: ${cut(p.question)}`,
       "question.answered": (k, p) => `${k} respondida: ${cut(p.answer)}`,
       "pr.opened": (k, p) => `${prNum(p)} abierto${k ? ` (${k})` : ""}: ${str(p.title)}`,
-      "pr.merged": (k, p) => `${prNum(p)} mezclado en ${str(p.base_branch)}${k ? ` (${k})` : ""}`,
+      "pr.merged": (k, p) => `${prNum(p)} mezclado${inPart("en", baseOf(p))}${k ? ` (${k})` : ""}`,
       "pr.status_drift": (k, p) => `${prNum(p)} mezclado pero ${k} sigue en ${str(p.status)}`,
       "pr.closed": (k, p) => `${prNum(p)} cerrado sin mezclar${k ? ` (${k})` : ""}`,
       "pr.ci_failed": (k, p) => `${k}: CI en rojo (${str(p.check)})`,
@@ -62,7 +67,7 @@ export const SUMMARY = defineWords<SummaryWords>({
         return `${k} entregó su muestra (${n} ${n === 1 ? "vista" : "vistas"})`;
       },
       "task.no_pr": (k, p) => `${k} cerrado sin PR: ${cut(p.reason)}`,
-      "release.recorded": (k, p) => `${k ? `${k} ` : ""}desplegado en ${str(p.env)}`,
+      "release.recorded": (k, p) => `${k ? `${k} ` : ""}desplegado${inPart("en", targetOf(p))}`,
       "blocker.parsed": (k, p) => `${k} paso para ${ownerEs()}: ${cut(p.text)}`,
       "blocker.withdrawn": (k, p, by) => `${k} paso retirado por ${by}: ${cut(p.text)}`,
       "result.added": (k, p, by) => `${k} evidencia ${str(p.kind)}: ${str(p.verdict)} (${by})`,
@@ -91,7 +96,7 @@ export const SUMMARY = defineWords<SummaryWords>({
       "question.asked": (k, p) => `${k} question for ${ownerName("en")}: ${cut(p.question)}`,
       "question.answered": (k, p) => `${k} answered: ${cut(p.answer)}`,
       "pr.opened": (k, p) => `${prNum(p)} opened${k ? ` (${k})` : ""}: ${str(p.title)}`,
-      "pr.merged": (k, p) => `${prNum(p)} merged into ${str(p.base_branch)}${k ? ` (${k})` : ""}`,
+      "pr.merged": (k, p) => `${prNum(p)} merged${inPart("into", baseOf(p))}${k ? ` (${k})` : ""}`,
       "pr.status_drift": (k, p) => `${prNum(p)} merged but ${k} is still ${str(p.status)}`,
       "pr.closed": (k, p) => `${prNum(p)} closed without merging${k ? ` (${k})` : ""}`,
       "pr.ci_failed": (k, p) => `${k}: CI failed (${str(p.check)})`,
@@ -105,7 +110,7 @@ export const SUMMARY = defineWords<SummaryWords>({
         return `${k} delivered its preview (${n} ${n === 1 ? "view" : "views"})`;
       },
       "task.no_pr": (k, p) => `${k} closed without a PR: ${cut(p.reason)}`,
-      "release.recorded": (k, p) => `${k ? `${k} ` : ""}deployed to ${str(p.env)}`,
+      "release.recorded": (k, p) => `${k ? `${k} ` : ""}deployed${inPart("to", targetOf(p))}`,
       "blocker.parsed": (k, p) => `${k} step for ${ownerName("en")}: ${cut(p.text)}`,
       "blocker.withdrawn": (k, p, by) => `${k} step withdrawn by ${by}: ${cut(p.text)}`,
       "result.added": (k, p, by) => `${k} evidence ${str(p.kind)}: ${str(p.verdict)} (${by})`,
