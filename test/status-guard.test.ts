@@ -29,7 +29,6 @@ const ALLOW: Record<string, number> = {
   "src/api/company-org.ts": 7,
   "src/api/company-pedido.ts": 6,
   "src/api/company-pedidos.ts": 1,
-  "src/api/company-runs.ts": 3,
   "src/api/cronometro.ts": 13,
   "src/api/etapa.ts": 28,
   "src/api/guia.ts": 1,
