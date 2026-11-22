@@ -296,13 +296,20 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
 // stays put), its initiative is building (Active or Shipping), it waits on at least one ticket, every ticket it
 // waits on has landed (Merged, Released or Done: its code is in the branch), and no other blocker holds.
 // The move to Ready wakes Taller like any move (src/runner/events.ts).
+// PLA-I73-2 (stacked steps): with settings.velocidad.apilar on (the default), one blocker that is In review with a
+// branch counts too. The step then starts on top of that branch (src/runner/stack.ts), so Taller builds while the
+// previous step waits for its photos and the owner; it is accepted only after the one under it (stackHold).
+const apilarOn = sql`coalesce((select pp.settings->'velocidad'->>'apilar' from ${projects} pp where pp.id = ${tasks.projectId}), 'true') <> 'false'`;
 const chainedReady = sql`(${tasks.kind} = 'ticket' and ${tasks.status} = 'Backlog' and ${tasks.statusChangedAt} is null
   and exists (select 1 from ${tasks} i where i.id = ${tasks.parentId} and i.status in ('Active', 'Shipping'))
   and exists (select 1 from ${taskBlockers} tb where tb.task_id = ${tasks.id})
   and not exists (
     select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
     where tb.task_id = ${tasks.id} and b.status not in ('Merged', 'Released', 'Done')
+      and not (b.status = 'In review' and b.branch is not null and ${apilarOn})
   )
+  and (select count(*) from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+    where tb.task_id = ${tasks.id} and b.status not in ('Merged', 'Released', 'Done')) <= 1
   and not ${hasUnsatisfiedBlocker(tasks.id)})`;
 
 export async function promoteChained(tx: Q, emit: Emit, projectId: string): Promise<string[]> {

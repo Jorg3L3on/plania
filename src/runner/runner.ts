@@ -117,6 +117,7 @@ import { DEFAULT_START_BRANCH, startBranchOf } from "./start-branch.js";
 import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
+import { stackBaseOf, type StackBase } from "./stack.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 import { carryReferences, markOpened, referenceLines, type ReferenceLine } from "./references.js";
@@ -266,7 +267,7 @@ type WakeContext = {
   role: RunnerRole | null;
   project: Project | null;
   task: ReadyWork | null;
-  taskRow: { branch: string | null; base: string | null } | null;
+  taskRow: { id?: string | null; branch: string | null; base: string | null } | null;
 };
 
 // PLA-I32-5: an agent's project is its team's (project_id); Asistente's is its home project (where its runs
@@ -280,12 +281,12 @@ async function projectOfAgent(db: Q, agent: Agent): Promise<Project | null> {
   return row ?? null;
 }
 
-async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ branch: string | null; base: string | null }> {
-  const rows = await db.execute<{ branch: string | null; base: string | null }>(sql`
-    select t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
+async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ id: string | null; branch: string | null; base: string | null }> {
+  const rows = await db.execute<{ id: string | null; branch: string | null; base: string | null }>(sql`
+    select t.id as id, t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
     from tasks t left join tasks p on p.id = t.parent_id
     where t.project_id = ${projectId} and t.key = ${key} limit 1`);
-  return rows.rows[0] ?? { branch: null, base: null };
+  return rows.rows[0] ?? { id: null, branch: null, base: null };
 }
 
 // PLA-89: Research and Artist are woken for an idea's stage (research, design). A wake queued for a stage the idea
@@ -959,6 +960,8 @@ export function userPrompt(input: {
   changes?: string | null;
   // PLA-I67-4: the seat's references, copied into the run's temp folder (src/runner/references.ts).
   references?: ReferenceLine[];
+  // PLA-I73-2: the delivered step this one is stacked on (its branch is this worktree's starting point).
+  stackedOn?: { key: string; title: string; branch: string } | null;
 }): string {
   const company = input.role === "asistente";
   const startBranch = input.project.startBranch ?? DEFAULT_START_BRANCH;
@@ -986,6 +989,12 @@ export function userPrompt(input: {
   );
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base ${startBranch}.`);
+  }
+  if (input.stackedOn) {
+    const b = input.stackedOn;
+    lines.push(
+      `This step is stacked on ${b.key} «${b.title}», delivered and still in review: your branch starts from ${b.branch}, so its code is already here. Build on it, do not redo it. Your PR still goes into ${startBranch}; until ${b.key} merges it also shows that step's commits, which is expected. If ${b.key} is sent back and changes, rebase onto origin/${b.branch} before you deliver.`,
+    );
   }
   lines.push(...packLines(input.packs ?? []));
   lines.push(...kitLines(input.kit ?? []));
@@ -1225,6 +1234,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // Where the run works: the ticket's worktree, or a scratch folder for a PO with no ticket.
   let cwd: string;
   let worktree: string | null = null;
+  let stacked: StackBase | null = null;
   let branch: string | null = null;
   let readCopy: { branch: string | null; commit: string | null; fallback?: string } | null = null;
   if (trial) {
@@ -1238,7 +1248,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key, await workPatternOf(db, project.id));
     // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
-    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings) }, carefulGit(deps.git ?? defaultGit)));
+    // PLA-I73-2: a step stacked on a delivered one starts from that step's branch.
+    stacked = ctx.taskRow?.id ? await stackBaseOf(db, ctx.taskRow.id) : null;
+    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted, base: startBranchOf(project.settings), ...(stacked ? { from: stacked.branch } : {}) }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
       if (made.summary === "fail: no repo" && role !== "taller") {
         cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
@@ -1387,6 +1399,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     goal,
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
+    stackedOn: stacked,
     sessionId: planiaSession,
     reason: run.reason?.trim() || null,
     packs,

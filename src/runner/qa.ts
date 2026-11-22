@@ -61,6 +61,7 @@ import { loadSettings } from "./limits.js";
 import { modelFor, type QaSettings } from "./qa-settings.js";
 import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
+import { velocidadOf } from "./velocidad.js";
 import { startBranchOf } from "./start-branch.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 import { defineWords, say } from "../words.js";
@@ -203,6 +204,11 @@ export async function qaAgentOf(db: Db, p: Project): Promise<Agent | null> {
   if (a.projectId !== p.id && p.settings.qa?.enabled !== true) return null;
   return a;
 }
+
+/** PLA-I73-2: the verification lane. A project with checks (settings.qa.verify) and no QA seat still gets them run by
+ *  Plania on every delivery, in the delivery's checkout, before the owner sees it; with no seat there is no review,
+ *  so the checks decide. settings.velocidad.verificar false turns it off. */
+export const checksOnlyLane = (p: Project): boolean => p.settings.qa?.enabled !== false && velocidadOf(p.settings).verificar && (p.settings.qa?.verify?.length ?? 0) > 0;
 
 export const qaTicket = (t: Pick<Task, "kind" | "workType" | "title">) => t.kind === "ticket" && QA_WORK.has(t.workType ?? "code") && !t.title.includes("[PRUEBA]");
 
@@ -497,7 +503,7 @@ export async function sweepQa(db: Db, now = new Date(), deps: QaDeps = {}): Prom
     const [p] = await db.select().from(projects).where(eq(projects.id, lane.projectId)).limit(1);
     const [t] = await db.select().from(tasks).where(eq(tasks.id, lane.taskId)).limit(1);
     const qa = p ? await qaAgentOf(db, p) : null;
-    if (!p || !t || !qa) {
+    if (!p || !t || (!qa && !checksOnlyLane(p))) {
       await endLane(db, lane, "error", say(QA_WORDS).noQa);
       continue;
     }
@@ -513,6 +519,7 @@ export async function sweepQa(db: Db, now = new Date(), deps: QaDeps = {}): Prom
         continue;
       }
       await db.update(qaLanes).set({ status: "checking", hold: null, startedAt: now }).where(eq(qaLanes.id, lane.id));
+      await db.insert(events).values({ projectId: p.id, taskId: t.id, taskKey: t.key, type: "verify.started", actor: qaActor("qa"), payload: { lane_id: lane.id } });
       const job = runChecks(db, lane, p, t, deps)
         .catch(async (e) => endLane(db, lane, "error", say(QA_WORDS).crashed(e instanceof Error ? e.message.split("\n")[0]! : String(e))))
         .finally(() => checking.delete(lane.id));
@@ -521,6 +528,12 @@ export async function sweepQa(db: Db, now = new Date(), deps: QaDeps = {}): Prom
       continue;
     }
     if (lane.status === "reviewing") {
+      if (!qa) {
+        // PLA-I73-2: checks only, no seat to review: the checks passed, that is the verdict.
+        await finalize(db, lane, p, t, null, deps, true);
+        out.concluded += 1;
+        continue;
+      }
       const r = await driveReview(db, lane, p, t, qa, now, deps);
       if (r === "concluded") out.concluded += 1;
       else if (r === "held") out.held += 1;
@@ -540,7 +553,7 @@ async function openLanes(db: Db): Promise<number> {
   for (const t of rows) {
     if (!qaTicket(t)) continue;
     const [p] = await db.select().from(projects).where(eq(projects.id, t.projectId)).limit(1);
-    if (!p || !(await qaAgentOf(db, p))) continue;
+    if (!p || (!(await qaAgentOf(db, p)) && !checksOnlyLane(p))) continue;
     const pr = await prHead(db, t);
     const last = await latestLane(db, t.id);
     if (last && (ACTIVE as readonly string[]).includes(last.status)) continue;
@@ -728,7 +741,7 @@ export function testsOf(verify: QaVerifyItem[]): { pass: number; total: number }
   return { pass, total };
 }
 
-async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaReport & { model: string | null }) | null, deps: QaDeps): Promise<void> {
+async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaReport & { model: string | null }) | null, deps: QaDeps, checksOnly = false): Promise<void> {
   const items = await poChecksOf(db, t.id);
   // AUDIT-6: the axes are stored when the report has them; walked only when this project asks for the walk-through.
   const review: QaReview | null = report
@@ -742,7 +755,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
     : null;
   const marks = report?.marks ?? [];
   const verifyOk = lane.verify.every((v) => v.ok);
-  const pass = verifyOk && review?.verdict === "pass" && marks.every((m) => m.mark === "pass");
+  const pass = verifyOk && (checksOnly ? true : review?.verdict === "pass") && marks.every((m) => m.mark === "pass");
   const status = pass ? "pass" : "fail";
   const done = { ...lane, review, marks };
   const notes = pass ? null : notesOf(done, items);
@@ -803,6 +816,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
     ),
     counts: { pass: tests.pass, fail: tests.total - tests.pass },
   });
+  await db.insert(events).values({ projectId: p.id, taskId: t.id, taskKey: t.key, type: "verify.done", actor: qaActor("qa"), payload: { lane_id: lane.id, pass, checks_only: checksOnly } });
   await db.insert(events).values({
     projectId: p.id,
     taskId: t.id,

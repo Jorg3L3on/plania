@@ -8,6 +8,7 @@
 //   responder answers the message's question (the screen's answer, as on Solo tú).
 // Each writes action_state {action, at, result} on the message, so the buttons go away. A refusal is 409 with
 // a reason and changes nothing; a message already acted on is 409 ALREADY_ACTED.
+import { stackHold } from "../runner/stack.js";
 import { mergeRules, missingChecks, type Rollup } from "../camino/guard.js";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -31,6 +32,7 @@ export const THREAD_ACTION_WORDS = defineWords({
   es: {
     changesNote: (text: string) => `Cambios que pide ${ownerEs()}: ${text}`,
     baseNotWork: "El PR no apunta a la rama de trabajo: desde aquí solo se fusiona ahí.",
+    stackFirst: (title: string) => `Primero acepta «${title}»: este paso está construido encima de él.`,
     prNotOpen: (n: unknown) => `El PR #${n} está cerrado sin fusionar: pide cambios o abre otro.`,
     noMergeCommit: "GitHub no muestra el commit de fusión.",
     mergeFailed: "No se pudo fusionar el PR.",
@@ -52,6 +54,7 @@ export const THREAD_ACTION_WORDS = defineWords({
   en: {
     changesNote: (text: string) => `Changes ${ownerName("en")} asks for: ${text}`,
     baseNotWork: "The PR does not aim at the working branch: from here it only merges there.",
+    stackFirst: (title: string) => `Accept «${title}» first: this step is built on top of it.`,
     prNotOpen: (n: unknown) => `PR #${n} was closed without merging: ask for changes or open another.`,
     noMergeCommit: "GitHub does not show the merge commit.",
     mergeFailed: "The PR could not be merged.",
@@ -114,6 +117,10 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     if (!r.ok) throw new ToolError("RELEASE_MERGE_FAILED", { step, output: r.stderr.slice(0, 500) });
     return r.stdout.trim();
   };
+  // PLA-I73-2: a stacked step carries the commits of the step under it; merging it first would land that step
+  // without its own review. The step under it goes first.
+  const under = await stackHold(db, t.id);
+  if (under) return refuse("STACK_ORDER", w().stackFirst(under.title), { under: under.key });
   try {
     const view = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "baseRefName,state,headRefOid,url"])) as {
       baseRefName: string;

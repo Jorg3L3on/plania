@@ -25,7 +25,8 @@ run, at the commit you deliver, whose output you read. Anything else is a hope.
    all that exist, not the one you expect to pass.
 2. **Commit first.** `git status` is clean, and `git rev-parse HEAD` is the commit you will name. Proof
    for uncommitted code is proof for something you are not delivering.
-3. **Run each check whole.** Not a filtered subset, not watch mode, not "the tests I touched".
+3. **Run each check whole, once, on the commit you deliver.** Not a filtered subset, not watch mode, not
+   "the tests I touched". While you were building, related tests were enough; this is the run that counts.
 4. **Read the end of the output**: the exit code, the counts, the names of what failed. A long output
    is not a pass. Cut-off output or a timeout is not a pass.
 5. **On any failure**: fix it, commit, and run **everything** again. The earlier passes belonged to an

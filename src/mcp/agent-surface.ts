@@ -8,6 +8,7 @@ import { runVerifyList, verifyPlan } from "../runner/verify.js";
 import type { Exec } from "../captures/run.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
+import { planStepFor } from "./plan-step.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
 import { writeTx, type Ctx } from "./tx.js";
 import { claim, setTaskInTx } from "./writes.js";
@@ -100,6 +101,11 @@ async function muestraCheck(
     muestra = parsed.muestra;
   }
   const t = await requireTask(db, p.id, input.key);
+  // PLA-I73-3: no muestra passed and none stored: the plan's «Pruébalo» for this step is the muestra.
+  if (!muestra && !t.muestra) {
+    const planned = (await planStepFor(db, t))?.muestra ?? null;
+    if (planned && !muestraSelectorIssue(planned)) muestra = planned;
+  }
   const capture = p.settings?.capture;
   if (!capture || t.kind !== "ticket" || (t.workType ?? "code") !== "code") return { muestra };
   const branch = input.branch?.trim() || t.branch || t.workspace?.branch;

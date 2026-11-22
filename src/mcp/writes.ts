@@ -24,6 +24,9 @@ import {
   writeReply,
   type WriteWarning,
 } from "./queries.js";
+import { stackedOn } from "../runner/stack.js";
+import { planDefaults } from "./plan-step.js";
+import { defineWords, say } from "../words.js";
 import { parseBlockers, promoteUnblocked, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
 import { LEGACY_APPROVAL_HINT, assertDelegationHourlyCap, delegationEnabled, parseDelegationEvidence } from "./delegate.js";
 import { assertBranchName, assertTicketBranch, registerIntegrationBranch } from "./branches.js";
@@ -275,6 +278,15 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   const parent = kind === "idea" || !input.parent_key ? undefined : await resolveParent(tx, p.id, input.parent_key);
   const assigned = await assignKey(tx, p, kind, parent, input.key);
   warnings.push(...assigned.warnings);
+  // PLA-I73-5: a step of a plan that names its dependencies and files gets them when the PO filed none.
+  let planAreas: string[] | null = null;
+  if (kind === "ticket" && parent && input.phase && !input.blocked_by?.length) {
+    const d = await planDefaults(tx, p.id, parent, input.phase);
+    if (d) {
+      blockedBy.keys.push(...d.blockers.filter((k) => !blockedBy.keys.includes(k)));
+      if (!input.areas?.length && d.areas.length) planAreas = d.areas;
+    }
+  }
   const blockerIds = await resolveTaskBlockers(tx, p.id, blockedBy.keys, assigned.key);
   const common = {
     dueOn: checkDueOn(input.due_on) ?? null,
@@ -285,7 +297,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     summary: input.summary ?? "",
     scope: input.scope ?? "",
     status,
-    areas: normalizeAreas(input.areas) ?? [],
+    areas: normalizeAreas(input.areas) ?? planAreas ?? [],
     ownerAgent: input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null,
     ownerWords: ctx.human && input.owner_words?.trim() ? input.owner_words.trim() : null,
   };
@@ -491,6 +503,12 @@ async function assertChildrenClosed(tx: Q, t: Task): Promise<void> {
     .orderBy(tasks.key);
   if (open.length) throw new ToolError("INITIATIVE_CHILDREN_OPEN", { open: open.map((c) => c.key) });
 }
+
+// PLA-I73-2: the note on a step stacked on one that went back to Taller.
+export const STACK_WORDS = defineWords({
+  es: { sentBack: (key: string) => `El paso de abajo (${key}) volvió a Taller. Cuando lo entregue de nuevo, actualiza esta rama encima de la suya antes de entregar.` },
+  en: { sentBack: (key: string) => `The step under this one (${key}) went back to Taller. Once it is delivered again, rebase this branch onto its branch before delivering.` },
+});
 
 export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInput, ctx: Ctx) {
   // PLA-I2-14: the old field and status spellings still read, with an OLD_SPELLING warning.
@@ -727,6 +745,11 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInp
     if (patch.status === "Done" && t.kind === "ticket") await tickDerived(tx, emit, u, ctx.actor);
     // A ticket reaching In review or later may be what a Blocked ticket waited for.
     await promoteUnblocked(tx, emit, p.id);
+    // PLA-I73-2: a step sent back from review may have steps stacked on it: they are told, so their next run
+    // rebases onto its new commits before delivering.
+    if (t.status === "In review" && patch.status === "Ready") {
+      for (const d of await stackedOn(tx, t.id)) await emit("note", d as never, { text: say(STACK_WORDS).sentBack(u.key) });
+    }
   }
   if (rekey) {
     changedNames.push("key");

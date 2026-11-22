@@ -906,3 +906,68 @@ test("PLA-18 #3: Seguir on a run a budget stopped releases its lease and wakes t
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
 });
+
+// ---- PLA-I73-2: stacked steps. A step whose one blocker is delivered (In review, with a branch) starts on top of it.
+const stack = await import("../src/runner/stack.js");
+const deliver = async (key: string, branch: string) => {
+  await raw.query(`update tasks set status = 'In review', branch = $2 where key = $1`, [key, branch]);
+  await writeTxSweep();
+};
+const writeTxSweep = async () => {
+  const { promoteDue: due } = await import("../src/jobs/blockers.js");
+  await due(db);
+};
+const taskId = async (key: string) => (await raw.query(`select id from tasks where key = $1`, [key])).rows[0].id as string;
+
+test("PLA-I73-2 #1: a step behind one delivered step goes Ready, wakes Taller and is cut from that step's branch", async () => {
+  const i = await leg("Active");
+  await backlog("ST-A1", { parent_key: i, phase: 1, status: "Ready" });
+  await backlog("ST-A2", { parent_key: i, phase: 2, blocked_by: ["ST-A1"] });
+  await backlog("ST-A3", { parent_key: i, phase: 3, blocked_by: ["ST-A2"] });
+  await raw.query(`delete from agent_runs`);
+  await deliver("ST-A1", "plania/st-a1");
+  assert.equal(await statusOf("ST-A2"), "Ready");
+  assert.equal(await statusOf("ST-A3"), "Backlog", "only one step ahead: ST-A2 has not been delivered");
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "ST-A2"]]);
+  assert.deepEqual(await stack.stackBaseOf(db, await taskId("ST-A2")), { key: "ST-A1", title: "Ticket ST-A1", branch: "plania/st-a1", status: "In review" });
+  // Not accepted before the step under it.
+  assert.equal((await stack.stackHold(db, await taskId("ST-A2")))?.key, "ST-A1");
+  await land("ST-A1");
+  assert.equal(await stack.stackHold(db, await taskId("ST-A2")), null);
+  assert.equal(await stack.stackBaseOf(db, await taskId("ST-A2")), null, "once landed, the start branch has its code");
+});
+
+test("PLA-I73-2 #2: no stacking with apilar off, with no branch, or behind two open steps", async () => {
+  const i = await leg("Active");
+  await backlog("ST-B1", { parent_key: i, status: "Ready" });
+  await backlog("ST-B2", { parent_key: i, blocked_by: ["ST-B1"] });
+  await raw.query(`update tasks set status = 'In review' where key = 'ST-B1'`); // no branch
+  await backlog("ST-C1", { parent_key: i, status: "Ready" });
+  await backlog("ST-C2", { parent_key: i, status: "Ready" });
+  await backlog("ST-C3", { parent_key: i, blocked_by: ["ST-C1", "ST-C2"] });
+  await raw.query(`update tasks set status = 'In review', branch = 'plania/st-c1' where key = 'ST-C1'`);
+  await writeTxSweep();
+  assert.equal(await statusOf("ST-B2"), "Backlog");
+  assert.equal(await statusOf("ST-C3"), "Backlog", "two steps still open under it");
+
+  await raw.query(`update projects set settings = jsonb_set(settings, '{velocidad}', '{"apilar": false}') where slug = 'micasa'`);
+  try {
+    await backlog("ST-D1", { parent_key: i, status: "Ready" });
+    await backlog("ST-D2", { parent_key: i, blocked_by: ["ST-D1"] });
+    await deliver("ST-D1", "plania/st-d1");
+    assert.equal(await statusOf("ST-D2"), "Backlog", "apilar off waits for the merge as before");
+  } finally {
+    await raw.query(`update projects set settings = settings - 'velocidad' where slug = 'micasa'`);
+  }
+});
+
+test("PLA-I73-2 #3: a step sent back from review leaves a note on the step stacked on it", async () => {
+  const i = await leg("Active");
+  await backlog("ST-E1", { parent_key: i, status: "Ready" });
+  await backlog("ST-E2", { parent_key: i, blocked_by: ["ST-E1"] });
+  await deliver("ST-E1", "plania/st-e1");
+  assert.equal(await statusOf("ST-E2"), "Ready");
+  await move("ST-E1", "Ready");
+  const notes = (await raw.query(`select payload from events where task_key = 'ST-E2' and type = 'note' order by id`)).rows.map((r) => r.payload.text as string);
+  assert.ok(notes.some((t) => /volvió a Taller/.test(t) && t.includes("ST-E1")), JSON.stringify(notes));
+});

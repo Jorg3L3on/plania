@@ -294,13 +294,13 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
 }
 
 /** PLA-97: the datos of the initiative's earlier accepted steps (Merged, Released or Done), in step order; none for a
- * standalone ticket. */
+ * standalone ticket. PLA-I73-2: a step delivered and still In review counts too, since a stacked step carries its code. */
 export async function earlierDatos(db: Db, t: Pick<Task, "id" | "parentId" | "projectId">): Promise<string[]> {
   if (!t.parentId) return [];
   const rows = await db
     .select({ key: tasks.key, phase: tasks.phase, muestra: tasks.muestra })
     .from(tasks)
-    .where(and(eq(tasks.projectId, t.projectId), eq(tasks.parentId, t.parentId), ne(tasks.id, t.id), inArray(tasks.status, ["Merged", "Released", "Done"])));
+    .where(and(eq(tasks.projectId, t.projectId), eq(tasks.parentId, t.parentId), ne(tasks.id, t.id), inArray(tasks.status, ["Merged", "Released", "Done", "In review"])));
   return rows
     .filter((r) => !!r.muestra?.datos?.trim())
     .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || a.key.localeCompare(b.key, "en", { numeric: true }))

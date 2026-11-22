@@ -230,7 +230,7 @@ describe("check 2: migration 0062 on a database with the old values", () => {
 });
 
 test("check 4: the protocol version moved and the README tables carry the neutral names", () => {
-  assert.equal(PROTOCOL_VERSION, "2.25");
+  assert.equal(PROTOCOL_VERSION, "2.26");
   const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
   assert.match(readme, /WAITING_ON_OWNER_FREE_TEXT|Needs owner/);
   assert.doesNotMatch(readme.slice(readme.indexOf("<!-- mcp-tools:start -->"), readme.indexOf("<!-- errors:end -->")), /delegated_by_jorge.*\|.*required|RESERVED_ACTOR.*jorge/i);

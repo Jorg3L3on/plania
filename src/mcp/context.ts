@@ -3,6 +3,8 @@ import { branchRoles } from "../camino/roles.js";
 import { branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { auditForKeys } from "./orden.js";
+import { planStepFor } from "./plan-step.js";
+import { stackBaseOf } from "../runner/stack.js";
 import { ToolError } from "./errors.js";
 import { footprintsOf, sessionFootprint } from "./footprint-read.js";
 import { listEvents, liveOwner, taskSummary } from "./queries.js";
@@ -58,6 +60,22 @@ export async function getContext(
   const keys = new Set([...tickets.map((t) => t.key), ...(initiative ? [initiative.key] : [])]);
   const initiativeSummary = initiative ? await taskSummary(db, initiative) : null;
   const ticketSummaries = await Promise.all(tickets.map((t) => taskSummary(db, t)));
+  // PLA-I73-3: what the plan said about each step: its «Pruébalo» (and the views to deliver as the muestra), the
+  // steps it needs and the files it touches; and the delivered step it is stacked on (PLA-I73-2).
+  const planSteps = (
+    await Promise.all(
+      tickets.map(async (t) => {
+        const step = await planStepFor(db, t);
+        const under = await stackBaseOf(db, t.id);
+        if (!step && !under) return null;
+        return {
+          key: t.key,
+          ...(step ? { done_when: step.done_when, try_it: step.try_it, ...(step.muestra ? { muestra: step.muestra } : {}), ...(step.files ? { files: step.files } : {}), ...(step.esqueleto ? { esqueleto: true } : {}) } : {}),
+          ...(under ? { stacked_on: { key: under.key, branch: under.branch } } : {}),
+        };
+      }),
+    )
+  ).filter((x) => x !== null);
   return {
     project: p.slug,
     branch: branch ?? null,
@@ -69,6 +87,7 @@ export async function getContext(
     // 2.12: what the owner asked for on screen, newest first, whatever the branch.
     requests: await openRequests(db, p.id),
     tickets: ticketSummaries,
+    ...(planSteps.length ? { plan_steps: planSteps } : {}),
     my_claims: await Promise.all(
       mine.map(async (t) => ({
         key: t.key,

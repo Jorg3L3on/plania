@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects, type Project, type ProjectSettings } from "../db/schema.js";
+import { checkVelocidad } from "../runner/velocidad.js";
 import { ToolError } from "./errors.js";
 import { headlineWarnings } from "./owner-lines.js";
 import { checkReleaseSettings } from "./release-plan.js";
@@ -32,6 +33,7 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>,
   }
   if (next.release_on !== undefined && !["env", "branch"].includes(String(next.release_on))) throw new ToolError("INVALID_FILTER", { field: "settings.release_on", allowed: ["env", "branch"] });
   if (next.auto_done !== undefined && typeof next.auto_done !== "boolean") throw new ToolError("INVALID_FILTER", { field: "settings.auto_done", allowed: [true, false] });
+  checkVelocidad(next.velocidad);
   if (next.claim_from !== undefined && !["backlog", "ready"].includes(String(next.claim_from))) throw new ToolError("INVALID_FILTER", { field: "settings.claim_from", allowed: ["backlog", "ready"] });
   if (next.branch_pattern !== undefined) {
     try {

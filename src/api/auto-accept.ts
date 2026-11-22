@@ -9,10 +9,14 @@
 // id. Anything else waits for the owner as before, and autoVerdict says why in one short sentence.
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, projects, pullRequests, tasks, threadMessages, type Project } from "../db/schema.js";
+import { checks, events, projects, pullRequests, tasks, threadMessages, type Project } from "../db/schema.js";
 import { loadSettings } from "../runner/limits.js";
 import { resolveThread } from "../runner/threads.js";
 import { decisionsRead, passOnHead, type Decision } from "./company-decisions.js";
+import { stackHold } from "../runner/stack.js";
+import { velocidadOf } from "../runner/velocidad.js";
+import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
+import { readAt, riesgoOf } from "./riesgo.js";
 import { startBranchOf } from "../runner/start-branch.js";
 import { threadAction } from "./thread-actions.js";
 import { defineWords, say } from "../words.js";
@@ -31,6 +35,7 @@ export const AUTO_ACCEPT_WORDS = defineWords({
     prClosed: "El PR ya no está abierto.",
     wrongBase: "El PR no va a la rama de trabajo.",
     noPassOnHead: "Falta una prueba que pase en el último commit.",
+    stackFirst: (title: string) => `Espera a que entre «${title}», que va debajo.`,
   },
   en: {
     notAPr: "Only a delivery with a PR is accepted by itself.",
@@ -44,6 +49,7 @@ export const AUTO_ACCEPT_WORDS = defineWords({
     prClosed: "The PR is no longer open.",
     wrongBase: "The PR does not go to the working branch.",
     noPassOnHead: "A passing test on the latest commit is missing.",
+    stackFirst: (title: string) => `Waits for «${title}», which goes under it, to land.`,
   },
 });
 
@@ -51,7 +57,7 @@ const UUID = /^m-([0-9a-f-]{36})$/;
 const pending = (d: Decision) => d.state === null && d.actions.some((a) => a === "fusionar" || a === "aceptar");
 
 // null: it would be accepted now. Otherwise why not, for the floor.
-export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<string | null> {
+export async function autoVerdict(db: Db, p: Project, d: Decision, deps: { git?: GitFn } = {}): Promise<string | null> {
   const w = say(AUTO_ACCEPT_WORDS);
   const id = UUID.exec(d.id)?.[1];
   if (d.kind !== "pr" || !id) return w.notAPr;
@@ -61,9 +67,21 @@ export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<stri
   const key = msg?.links.find((l) => l.kind === "ticket")?.ref;
   const [t] = key ? await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1) : [];
   if (!msg || !t || t.status !== "In review") return w.notInReview;
+  const under = await stackHold(db, t.id);
+  if (under) return w.stackFirst(under.title);
   // PLA-I52-7: with only «solo lo que no se ve» on, a delivery that changes the screen (or that finish could not
   // classify) waits for the owner.
-  if (!p.settings.auto_accept && t.cambio !== "no_se_ve") return t.cambio ? w.visible : w.unknownVisible;
+  // PLA-I73-3: with one review per module, a visible change is accepted on its photos (the owner sees every step's
+  // before and after at Publicar); a risky one still waits.
+  const modulo = velocidadOf(p.settings).revision === "por_modulo";
+  if (!p.settings.auto_accept && !modulo && t.cambio !== "no_se_ve") return t.cambio ? w.visible : w.unknownVisible;
+  if (modulo && !p.settings.auto_accept) {
+    if (t.cambio !== "no_se_ve" && !t.muestra) return t.cambio ? w.visible : w.unknownVisible;
+    const files = await touchedFiles(db, t.id);
+    const branch = t.branch ?? t.workspace?.branch ?? null;
+    const risk = await riesgoOf(files, branch ? readAt(deps.git ?? defaultGit, repoPathOf(p.slug, p.settings), branch) : async () => null);
+    if (risk) return risk.reason;
+  }
   const [waived] = await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(eq(checks.taskId, t.id), isNotNull(checks.waivedAt)));
   if (Number(waived?.n ?? 0) > 0) return w.waived;
   if (d.evidence?.verdict !== "pass" || (d.evidence.fail ?? 0) > 0) return w.noPass;
@@ -82,7 +100,8 @@ export type AutoAccept = { on: boolean; hold: string | null; invisible?: boolean
 export async function autoAcceptOf(db: Db, p: Project, decisions: Decision[]): Promise<AutoAccept> {
   const on = !!p.settings.auto_accept;
   const invisible = !!p.settings.auto_accept_invisible;
-  if (!on && !invisible) return { on, hold: null };
+  const modulo = velocidadOf(p.settings).revision === "por_modulo";
+  if (!on && !invisible && !modulo) return { on, hold: null };
   const d = decisions.filter((x) => x.project === p.slug && x.kind === "pr" && pending(x)).sort((a, b) => a.at.localeCompare(b.at))[0];
   return { on, hold: d ? await autoVerdict(db, p, d) : null, ...(invisible ? { invisible } : {}) };
 }
@@ -91,7 +110,7 @@ export async function autoAcceptOf(db: Db, p: Project, decisions: Decision[]): P
 export async function sweepAutoAccept(db: Db, now = new Date()): Promise<{ accepted: string[]; held: { ref: string | null; reason: string }[] }> {
   const out = { accepted: [] as string[], held: [] as { ref: string | null; reason: string }[] };
   if ((await loadSettings(db)).companyPaused) return out;
-  const on = (await db.select().from(projects)).filter((p) => (p.settings.auto_accept || p.settings.auto_accept_invisible) && !p.runsPaused);
+  const on = (await db.select().from(projects)).filter((p) => (p.settings.auto_accept || p.settings.auto_accept_invisible || velocidadOf(p.settings).revision === "por_modulo") && !p.runsPaused);
   if (on.length === 0) return out;
   const decisions = await decisionsRead(db, now);
   for (const p of on) {
@@ -111,4 +130,10 @@ export async function sweepAutoAccept(db: Db, now = new Date()): Promise<{ accep
     }
   }
   return out;
+}
+
+// PLA-I73-3: every file a delivery touched, from the runner's task.areas_touched events.
+async function touchedFiles(db: Db, taskId: string): Promise<string[]> {
+  const rows = await db.select({ payload: events.payload }).from(events).where(and(eq(events.taskId, taskId), eq(events.type, "task.areas_touched")));
+  return [...new Set(rows.flatMap((r) => ((r.payload as { files?: unknown }).files as string[] | undefined) ?? []))];
 }
