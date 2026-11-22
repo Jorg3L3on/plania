@@ -184,6 +184,25 @@ test("PLA-151: an initiative turning Active wakes Taller on its first Ready step
   assert.deepEqual(await wakes(), [], "a blocked step still waits for its landing");
 });
 
+test("PLA-155: a PO run that leaves its ticket In progress with uncommitted code hands it to Taller, who wakes", async () => {
+  await raw.query(`delete from agent_runs`);
+  await backlog("EV-PO", { status: "Ready", owner_agent: "housi" });
+  await raw.query(`delete from agent_runs`);
+  await writes.claim(db, { project: "micasa", key: "EV-PO" } as never, { actor: { agent: "plania-runner", session_id: "run-0a4a01d4271a4e8f", machine: "m" } } as never);
+  const project = (await raw.query(`select * from projects where slug = 'micasa'`)).rows[0];
+  const p = { ...project, settings: project.settings, id: project.id, slug: project.slug };
+  const clean = async () => ({ code: 0, stdout: "", stderr: "" });
+  assert.equal(await runner.handPoCodeToTaller(db, p as never, "EV-PO", "/tmp/x", clean), false, "nothing uncommitted: left alone");
+  const dirty = async () => ({ code: 0, stdout: " M src/app/foto.tsx\n?? src/app/nueva.tsx\n", stderr: "" });
+  assert.equal(await runner.handPoCodeToTaller(db, p as never, "EV-PO", "/tmp/x", dirty), true);
+  const t = (await raw.query(`select t.status, a.slug from tasks t left join agents a on a.id = t.owner_agent where t.key = 'EV-PO'`)).rows[0];
+  assert.deepEqual([t.status, t.slug], ["Ready", "taller"]);
+  const note = (await raw.query(`select payload from events where type = 'note' and task_key = 'EV-PO' order by id desc limit 1`)).rows[0];
+  assert.match(note.payload.text, /src\/app\/foto\.tsx, src\/app\/nueva\.tsx/);
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "EV-PO"]], "Taller wakes on it");
+  assert.equal(await runner.handPoCodeToTaller(db, p as never, "EV-PO", "/tmp/x", dirty), false, "not In progress any more: once");
+});
+
 test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, or a roster slug)", async () => {
   await backlog("EV-ASK");
   // housi (PO) asked from a runner session run-<8 hex of its run id>.

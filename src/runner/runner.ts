@@ -75,10 +75,10 @@ import {
   type HeldCode,
   type MachineFacts,
 } from "./admission.js";
-import { areasOverlap } from "../mcp/writes.js";
+import { areasOverlap, claim, setTask } from "../mcp/writes.js";
 import { isShared, sharedAreasOf } from "./touched.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
-import { EVENT_SUMMARY, enqueueWake, wakePoIfWaiting } from "./events.js";
+import { EVENT_SUMMARY, enqueueWake, serviceAgent, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
 export { projectGoal };
@@ -1672,6 +1672,8 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     summary: summary.slice(0, 500),
     taskKey: run.taskKey,
   });
+  // PLA-155: a PO that wrote code on a «Hacerlo ya» ticket cannot commit it (its deny rules) and leaves it In progress.
+  if (roleOf(agent) === "product-owner" && run.taskKey && !consultaRun) await handPoCodeToTaller(db, project, run.taskKey, input.cwd, deps.git ?? defaultGit).catch(() => null);
   // PLA-I40-6: a PO that ends well with another request waiting gets one wake for it. PLA-104: Taller too, for its
   // oldest unblocked Ready ticket.
   if (status === "ok") await wakePoIfWaiting(db, agent, { id: project.id, slug: project.slug }, run.taskKey, deps.env ?? process.env).catch(() => null);
@@ -1688,6 +1690,43 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     }).catch(() => null);
   }
   await notifyQueue(db);
+}
+
+// PLA-155 (guided test 3): a PO run on a «Hacerlo ya» ticket wrote the code itself instead of handing it to Taller;
+// its deny rules blocked the commit, the push and the PR, and the run ended «ok» with the ticket In progress and the
+// change uncommitted in the ticket's worktree, which nobody could finish. When a PO run ends with its ticket still
+// In progress and uncommitted changes there, the ticket goes to Taller (Ready, owned by Taller, with a note); the
+// worktree is per ticket, so Taller finds the change and finishes it.
+export async function handPoCodeToTaller(db: Db, project: Project, key: string, cwd: string, git: GitFn): Promise<boolean> {
+  const [t] = await db
+    .select({ key: tasks.key, kind: tasks.kind, status: tasks.status, owner: tasks.owner })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.key, key)))
+    .limit(1);
+  if (!t || t.kind !== "ticket" || t.status !== "In progress" || !t.owner?.session_id) return false;
+  const st = await git(["status", "--porcelain"], cwd);
+  const changed = st.code === 0 ? st.stdout.split("\n").filter((l) => l.trim()).map((l) => l.slice(3)) : [];
+  if (changed.length === 0) return false;
+  const ref = { id: project.id, slug: project.slug };
+  const taller = await serviceAgent(db, "taller", ref);
+  if (!taller) return false;
+  // The run's own session gives the ticket back (In progress → Ready), as an expired runner lease does.
+  const base = sysCtx("runner.po_code");
+  await claim(db, { project: project.slug, key, action: "release" } as never, { ...base, system: false, actor: { ...t.owner, machine: hostname() } } as Ctx);
+  const [now] = await db.select({ version: tasks.version }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, key))).limit(1);
+  await setTask(
+    db,
+    {
+      project: project.slug,
+      key,
+      version: now!.version,
+      owner_agent: taller.slug,
+      note: `El PO escribió el cambio pero no puede confirmarlo: pasa a Taller. En el worktree del ticket quedan sin confirmar: ${changed.slice(0, 8).join(", ")}${changed.length > 8 ? ", …" : ""}. Revísalo, pruébalo, confírmalo y abre el PR.`,
+    } as never,
+    base,
+  );
+  await enqueueWake(db, { agent: taller, project: ref, taskKey: key, reason: "the PO left code it cannot commit", trigger: "event" });
+  return true;
 }
 
 // ---- Stop live runs (kill switches)
