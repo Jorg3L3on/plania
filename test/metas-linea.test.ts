@@ -51,6 +51,35 @@ test("La máquina and Metas share one row from xl, the machine wide and Metas a 
   const fila = home.slice(home.indexOf("data-fila-maquina-metas"));
   assert.ok(fila.indexOf("<LaMaquina") < fila.indexOf("<GoalsHome"));
   const src = readFileSync(new URL("../ui/src/components/goals/goals-board.tsx", import.meta.url), "utf8");
-  // The goals' list only where there is room for it.
-  assert.match(src, /<ul className="hidden gap-3 border-t pt-3 xl:grid">/);
+  // The main goal and the others' list only where there is room for them; below xl the strip shows the main goal.
+  assert.match(src, /<div className="hidden gap-2\.5 xl:grid" data-meta-principal>/);
+  assert.match(src, /<ul className="hidden gap-1\.5 border-t pt-3 text-sm xl:grid" data-metas-resto>/);
+  assert.match(src, /items-baseline gap-x-3 xl:hidden/);
+});
+
+test("the main goal leads: the first active goal, its why in the voice serif, its share and its initiatives as segments", () => {
+  const src = readFileSync(new URL("../ui/src/components/goals/goals-board.tsx", import.meta.url), "utf8");
+  const home = src.slice(src.indexOf("export function GoalsHome"), src.indexOf("export function GoalsProject"));
+  assert.match(home, /const \[principal, \.\.\.resto\] = lista;/);
+  assert.match(home, /<MetaPrincipal goal=\{principal\} \/>/);
+  const principal = src.slice(src.indexOf("function MetaPrincipal"), src.indexOf("function Barra"));
+  assert.match(principal, /font-voice/);
+  assert.match(principal, /segmentosMeta\(goal\)/);
+  assert.match(principal, /role="img" aria-label=\{l\.iniciativas\(/);
+});
+
+test("a goal's share never reads 100 with work left, nor 0 once something is done", async () => {
+  const { porcentaje } = await import("../ui/src/lib/metas-linea.js");
+  assert.deepEqual([porcentaje(14, 22), porcentaje(0, 5), porcentaje(1, 300), porcentaje(299, 300), porcentaje(4, 4), porcentaje(0, 0)], [64, 0, 1, 99, 100, 0]);
+});
+
+test("segments: one per initiative of the goal and its sub-goals, each once, done first; Won't do left out", async () => {
+  const { segmentosMeta } = await import("../ui/src/lib/metas-linea.js");
+  const i = (key: string, status: string) => ({ key, status });
+  const goal = {
+    initiatives: [i("A", "Planning"), i("B", "Done"), i("C", "Won't do"), i("D", "Active")],
+    children: [{ initiatives: [i("B", "Done"), i("E", "Shipping"), i("F", "On hold")] }],
+  };
+  assert.deepEqual(segmentosMeta(goal), ["hecha", "enCurso", "enCurso", "porEmpezar", "porEmpezar"]);
+  assert.deepEqual(segmentosMeta({ initiatives: [] }), []);
 });

@@ -35,7 +35,7 @@ export const HOME_WORDS = defineWords({
     noPublishDate: (where: string) => `Sin fecha de publicación${where}`,
     unpublished: (n: number) => `${n} ${n === 1 ? "cambio" : "cambios"} sin publicar`,
     baseAhead: "la base va adelante del código",
-    state: { moving: "en marcha", waiting: "te espera", quiet: "quieto", paused: "en pausa" },
+    state: { moving: "en marcha", waiting: "te espera", quiet: "quieto", paused: "en pausa", upToDate: "al día" },
     system: "sistema",
   },
   en: {
@@ -63,7 +63,7 @@ export const HOME_WORDS = defineWords({
     noPublishDate: (where: string) => `No publish date${where}`,
     unpublished: (n: number) => `${n} unpublished ${n === 1 ? "change" : "changes"}`,
     baseAhead: "the database is ahead of the code",
-    state: { moving: "running", waiting: "waiting on you", quiet: "quiet", paused: "paused" },
+    state: { moving: "running", waiting: "waiting on you", quiet: "quiet", paused: "paused", upToDate: "up to date" },
     system: "system",
   },
 });
@@ -276,11 +276,15 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now(), lang
   // En marcha means someone is on it now: a live claim, or a PR open for review. Merged or Released
   // with nobody on it is waiting to be closed, not moving.
   const moving = p.tasks.some((t) => t.kind === "ticket" && (t.claimed_by || t.status === "In review"));
+  // En pausa is what the owner paused: open work, all of it under initiatives On hold. A project with nothing open is
+  // al día, not paused (it used to read "en pausa" beside "Todo hecho", and a paused one read "quieto").
+  const paused = lanes.length > 0 && lanes.every((l) => l.initiative?.status === "On hold");
   const state =
     moving ? { word: word.moving, tone: "now" as Tone, rank: 0 }
     : waiting > 0 ? { word: word.waiting, tone: "owner" as Tone, rank: 1 }
+    : paused ? { word: word.paused, tone: "pending" as Tone, rank: 3 }
     : lanes.length > 0 ? { word: word.quiet, tone: "pending" as Tone, rank: 2 }
-    : { word: word.paused, tone: "pending" as Tone, rank: 3 };
+    : { word: word.upToDate, tone: "done" as Tone, rank: 4 };
   const inits = p.tasks.filter((t) => t.kind === "initiative");
   const progress = projectProgress(p.tasks);
   return {

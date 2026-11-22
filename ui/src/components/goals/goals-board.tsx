@@ -1,16 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { PlusIcon } from "lucide-react";
-import { Link } from "react-router";
+import { PlusIcon, TargetIcon } from "lucide-react";
 import { GoalCard } from "@/components/goals/goal-card";
 import { GoalDialog } from "@/components/goals/goal-dialog";
+import { EnlaceVer, TituloTarjeta } from "@/components/home/tarjeta";
 import type { Goal } from "@/components/goals/model";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { words } from "@/lib/i18n";
 import { GOALS_WORDS } from "@/lib/goals-words";
-import { metasLinea, metasLineaTexto, metasLineaWords, metasPrincipales } from "@/lib/metas-linea";
+import { metasLinea, metasLineaTexto, metasLineaWords, metasPrincipales, porcentaje, segmentosMeta, type Segmento } from "@/lib/metas-linea";
+import { dayText } from "@/lib/due";
+import { Cifra } from "@/components/home/cifra";
 import { cn } from "@/lib/utils";
 
 function useGoalNames() {
@@ -122,6 +124,10 @@ function GoalsBlock({
  * projects scroll. «Nueva» opens the same dialog in place. Nothing shows until the list is read.
  * Bars grow from the left when a value changes, never on load.
  */
+// Inicio's goals card. From xl, a 320px column beside La máquina: the first goal in the board's order leads (its title
+// in the display face, its why in the headline's serif, its share done large, and one segment per initiative so it
+// shows where the work stands), and the others follow as one quiet line each. Below xl it folds to one strip: the
+// main goal and its share. «Ver metas» and «Nueva» close it either way.
 export function GoalsHome() {
   const w = words(GOALS_WORDS);
   const l = metasLineaWords();
@@ -133,59 +139,111 @@ export function GoalsHome() {
   const m = metasLinea(goals);
   const partes = metasLineaTexto(m);
   const { lista, mas } = metasPrincipales(goals);
+  const [principal, ...resto] = lista;
+  const otras = resto.length + mas;
   return (
     <section
       aria-labelledby="metas-titulo"
       className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card/60 px-4 py-2.5 xl:grid xl:content-start xl:gap-4 xl:rounded-2xl xl:p-4"
       data-metas-linea
     >
-      <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm xl:grid xl:gap-0.5">
-        <span id="metas-titulo" className="font-medium xl:font-display xl:text-xl xl:font-bold xl:tracking-tight">
-          {w.goals}
-        </span>
-        {partes.map((t, k) => (
-          <span key={t} className="text-muted-foreground">
-            <span aria-hidden className={cn("mr-2", k === 0 && "xl:hidden")}>·</span>
-            {t}
+      {/* The same title as La máquina beside it: the green kicker, a heading only; «Ver metas» at the foot is the way in. */}
+      <TituloTarjeta id="metas-titulo" icon={TargetIcon}>
+        {w.goals}
+      </TituloTarjeta>
+
+      {principal ? (
+        <>
+          {/* Below xl: the main goal and its share, on the title's line. */}
+          <span className="flex min-w-0 flex-1 basis-56 items-baseline gap-x-3 xl:hidden">
+            <span className="min-w-0 truncate text-sm font-semibold" title={principal.title}>{principal.title}</span>
+            {principal.progress.total > 0 ? (
+              <Cifra value={`${porcentaje(principal.progress.done, principal.progress.total)}%`} className="font-display text-lg leading-none font-extrabold" />
+            ) : null}
+            {otras > 0 ? <span className="shrink-0 text-sm text-muted-foreground">{l.yMas(otras)}</span> : null}
           </span>
-        ))}
-      </p>
-      {m.total > 0 ? <Barra done={m.done} total={m.total} className="w-20 xl:w-full" /> : null}
+          <MetaPrincipal goal={principal} />
+          {otras > 0 ? (
+            <ul className="hidden gap-1.5 border-t pt-3 text-sm xl:grid" data-metas-resto>
+              {resto.map((g) => (
+                <li key={g.id} className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 truncate" title={g.title}>{g.title}</span>
+                  {g.progress.total > 0 ? (
+                    <span className="shrink-0 text-muted-foreground tabular-nums" title={w.progress(g.progress.done, g.progress.total)}>
+                      {porcentaje(g.progress.done, g.progress.total)}%
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+              {mas > 0 ? <li className="text-xs text-muted-foreground">{w.more(mas)}</li> : null}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        // No active goal: the line says so (none yet, or none active).
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">{partes.join(" · ")}</p>
+      )}
 
-      {/* The first goals, only where there is room for them. */}
-      {lista.length > 0 ? (
-        <ul className="hidden gap-3 border-t pt-3 xl:grid">
-          {lista.map((g) => (
-            <li key={g.id} className="grid gap-1.5">
-              <span className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate" title={g.title}>
-                  {g.title}
-                </span>
-                {g.progress.total > 0 ? (
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title={w.progress(g.progress.done, g.progress.total)}>
-                    {g.progress.done}/{g.progress.total}
-                  </span>
-                ) : null}
-              </span>
-              {g.progress.total > 0 ? <Barra done={g.progress.done} total={g.progress.total} /> : null}
-            </li>
-          ))}
-          {mas > 0 ? <li className="text-xs text-muted-foreground">{w.more(mas)}</li> : null}
-        </ul>
-      ) : null}
-
-      <span className="flex items-center gap-1 xl:-mx-2">
-        {m.hay ? (
-          <Link to="/goals" className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
-            {w.seeGoals}
-          </Link>
-        ) : null}
+      <span className="flex justify-between gap-3">
         <Button type="button" variant="ghost" size="sm" className="min-h-11 transition-[background-color,color,scale] active:scale-[0.97] motion-reduce:transition-none sm:min-h-8" onClick={() => setOpen(true)} data-control="metas-nueva">
           <PlusIcon aria-hidden /> {l.nueva}
         </Button>
+        {m.hay ? <EnlaceVer to="/goals">{w.seeGoals}</EnlaceVer> : null}
       </span>
       <GoalDialog open={open} goal={null} projects={projects} parents={goals.filter((g) => g.project === null)} onOpenChange={setOpen} />
     </section>
+  );
+}
+
+const SEG_CLASE: Record<Segmento, string> = {
+  hecha: "bg-status-done",
+  enCurso: "bg-status-now/70",
+  porEmpezar: "shadow-[inset_0_0_0_1.5px_var(--status-pending)]",
+};
+
+/** The main goal, xl only: title, why, share done, and its initiatives as segments (or the tasks' bar when it has none). */
+function MetaPrincipal({ goal }: { goal: Goal }) {
+  const l = metasLineaWords();
+  const segs = segmentosMeta(goal);
+  const cuenta = (s: Segmento) => segs.filter((x) => x === s).length;
+  const { done, total } = goal.progress;
+  const detalle = [total > 0 && l.tareasDe(done, total), goal.target_on && l.para(dayText(goal.target_on))].filter(Boolean).join(" · ");
+  return (
+    <div className="hidden gap-2.5 xl:grid" data-meta-principal>
+      <h3 className="m-0 font-display text-[21px] leading-[1.12] font-bold tracking-[-0.02em] text-balance">{goal.title}</h3>
+      {goal.why.trim() ? <p className="m-0 line-clamp-3 font-voice text-lg leading-[1.2] text-foreground/70 italic">{goal.why}</p> : null}
+      {total > 0 ? (
+        <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <Cifra value={`${porcentaje(done, total)}%`} className="font-display text-4xl leading-none font-extrabold tracking-[-0.03em]" />
+          {detalle ? <span className="text-xs text-muted-foreground">{detalle}</span> : null}
+        </span>
+      ) : detalle ? (
+        <span className="text-xs text-muted-foreground">{detalle}</span>
+      ) : null}
+      {segs.length > 0 ? (
+        <span className="grid gap-1.5">
+          {/* Each segment's colour eases when its initiative moves on; the order (done first) keeps it filling left to right. */}
+          <span className="flex gap-[3px]" role="img" aria-label={l.iniciativas(cuenta("hecha"), segs.length)}>
+            {segs.map((s, k) => (
+              <span key={k} className={cn("h-2 min-w-1 flex-1 rounded-[3px] transition-[background-color,box-shadow] duration-300 ease-out motion-reduce:transition-none", SEG_CLASE[s])} />
+            ))}
+          </span>
+          {/* The key carries the counts, only for the kinds there are. */}
+          <span aria-hidden className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-muted-foreground">
+            {(["hecha", "enCurso", "porEmpezar"] as const).map((s) =>
+              cuenta(s) > 0 ? (
+                <span key={s} className="inline-flex items-center gap-1.5">
+                  <span className={cn("h-1.5 w-2.5 rounded-[2px]", SEG_CLASE[s])} />
+                  {l.segmento[s](cuenta(s))}
+                </span>
+              ) : null,
+            )}
+          </span>
+        </span>
+      ) : total > 0 ? (
+        <Barra done={done} total={total} className="h-1.5" />
+      ) : null}
+    </div>
   );
 }
 

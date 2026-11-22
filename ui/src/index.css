@@ -387,7 +387,9 @@
     .city-tower:hover .city-bld { transform: translateY(-3px); }
   }
 
-  .city-win { display: block; height: var(--win-h); border-radius: 3px; }
+  /* A window that changes state (a ticket closes, work starts) eases into its new colour and glow instead of snapping:
+     the city's one message while it sits open all day. Colour only, nothing moves, so it stays with reduced motion. */
+  .city-win { display: block; height: var(--win-h); border-radius: 3px; transition: background-color 300ms ease, box-shadow 300ms ease, border-color 300ms ease; }
   .city-win[data-tone="lit"] { background: var(--lit); box-shadow: 0 0 8px rgb(255 217 138 / 0.55); }
   .city-win[data-tone="now"] { background: var(--status-now); box-shadow: 0 0 10px color-mix(in oklab, var(--status-now) 70%, transparent); animation: city-flicker 1.6s ease-in-out infinite; }
   .city-win[data-tone="review"] { background: var(--status-review); box-shadow: 0 0 8px color-mix(in oklab, var(--status-review) 50%, transparent); }

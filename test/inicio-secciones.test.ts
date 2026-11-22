@@ -74,15 +74,52 @@ test("the guide card shows only while the wizard has a step left; the wizard sta
   assert.ok(card.indexOf("<GuiaWizard") > card.lastIndexOf("</AnimatePresence>"));
 });
 
-test("La máquina holds the projects: one block, the projects' heading the largest, each tile with its own ports", () => {
+test("La máquina holds the projects, each tile with its own ports; the block keeps the plan's place", () => {
   const parts = readFileSync(new URL("../ui/src/components/home/parts.tsx", import.meta.url), "utf8");
   const page = readFileSync(new URL("../ui/src/pages/home.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(parts, /export function (LaMac|Proyectos)\b/, "no separate machine card or projects rail");
   const bloque = parts.slice(parts.indexOf("export function LaMaquina"), parts.indexOf('// 2.10: "Próximo"'));
-  assert.match(bloque, /<h2 id="proyectos-titulo" className="font-display text-xl/);
-  assert.doesNotMatch(bloque.slice(0, bloque.indexOf("<h2")), /<h2|font-display/, "the machine's own header stays small");
   assert.match(bloque, /<TileCard t=\{x\} puertos=\{porProyecto\.get\(x\.slug\) \?\? \[\]\} \/>/);
+  // «Proyectos» is a quiet subheading under the machine's title, with the owner's classes.
+  assert.match(bloque, /<h3 id="proyectos-titulo" className="font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none \[@media\(hover:hover\)_and_\(pointer:fine\)\]:hover:text-foreground">/);
+  // The audit's warning (F + D): a quiet chip per kind with its count and colour, then the first finding, under the
+  // header; the total rides on «Ver la máquina» as an amber count. The header holds no warning and nothing opens.
+  const cabecera = bloque.slice(bloque.indexOf("<header"), bloque.indexOf("</header>"));
+  assert.doesNotMatch(cabecera, /<button|aviso/);
+  const aviso = bloque.slice(bloque.indexOf("data-aviso-maquina"), bloque.indexOf("</AnimatePresence>", bloque.indexOf("data-aviso-maquina")));
+  assert.match(aviso, /tipos\.map\(\(k\) =>/);
+  assert.match(aviso, /<Cifra value=\{k\.n\}/);
+  assert.match(aviso, /truncate/);
+  assert.doesNotMatch(aviso, /<Link|<button/);
+  assert.match(bloque, /bg-status-now" \},\s*\{ kind: "orphan"[^}]*bg-status-owner" \},\s*\{ kind: "stale"[^}]*bg-status-pending" \}/, "each kind its own colour");
+  assert.equal(bloque.match(/to="\/machine"/g)?.length, 1, "one way to the machine");
   // In the plan's order: Próximo, La máquina, then the goals.
   const orden = ["<Proximo", "<LaMaquina", '<Seccion show={ver.metas}'].map((t) => page.indexOf(t));
   assert.ok(orden.every((n, k) => n > 0 && (k === 0 || n > orden[k - 1]!)), String(orden));
+});
+
+test("La máquina and Metas read the same way: a green kicker that is only a title, the way in at the foot in green", () => {
+  const parts = readFileSync(new URL("../ui/src/components/home/parts.tsx", import.meta.url), "utf8");
+  const goals = readFileSync(new URL("../ui/src/components/goals/goals-board.tsx", import.meta.url), "utf8");
+  const tarjeta = readFileSync(new URL("../ui/src/components/home/tarjeta.tsx", import.meta.url), "utf8");
+  const bloque = parts.slice(parts.indexOf("export function LaMaquina"), parts.indexOf('// 2.10: "Próximo"'));
+  const metas = goals.slice(goals.indexOf("export function GoalsHome"), goals.indexOf("function Barra"));
+  assert.match(bloque, /<TituloTarjeta id="la-mac-titulo" icon=\{CpuIcon\}>/);
+  assert.match(metas, /<TituloTarjeta id="metas-titulo" icon=\{TargetIcon\}>/);
+  assert.match(bloque, /<EnlaceVer to="\/machine" cuenta=\{warn\} etiqueta=\{warn > 0 \? w\.seeMachineWarnings\(warn\) : undefined\}>\{w\.seeMachine\}<\/EnlaceVer>/);
+  assert.match(bloque, /<span className="flex justify-end px-1">\s*<EnlaceVer to="\/machine"/, "the machine's way in sits at the foot's right");
+  assert.match(metas, /<EnlaceVer to="\/goals">\{w\.seeGoals\}<\/EnlaceVer>/);
+  // The title is a heading in the green kicker, never a link; the link is the same green.
+  const titulo = tarjeta.slice(tarjeta.indexOf("export function TituloTarjeta"), tarjeta.indexOf("export function EnlaceVer"));
+  assert.match(titulo, /<Kicker className="text-ink-done">/);
+  assert.doesNotMatch(titulo, /<Link/);
+  assert.match(tarjeta.slice(tarjeta.indexOf("export function EnlaceVer")), /font-semibold text-ink-done/);
+  // The amber count (La máquina's warnings) shows only when there is one, and the link then says it aloud.
+  const enlace = tarjeta.slice(tarjeta.indexOf("export function EnlaceVer"));
+  assert.match(enlace, /\{cuenta > 0 \? \(/);
+  assert.match(enlace, /aria-label=\{etiqueta\}/);
+  assert.match(enlace, /bg-status-now/);
+  // Neither card's header links anywhere on its own.
+  const cabecera = bloque.slice(bloque.indexOf("<header"), bloque.indexOf("</header>"));
+  assert.doesNotMatch(cabecera, /<Link/);
 });

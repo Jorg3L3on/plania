@@ -1,7 +1,8 @@
 // Inicio's pieces around the city: the headline with its voice line, what the machine runs, and the
 // projects as a compact rail.
-import { ArrowRightIcon, CalendarIcon } from "lucide-react";
+import { CalendarIcon, CpuIcon } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion, type TargetAndTransition } from "motion/react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
 import { Glyph, Kicker, accentInk, projectAccent, TONE_TEXT, toneVar } from "@/components/plan/visuals";
@@ -9,6 +10,7 @@ import { motionTokens } from "@/components/arc/lib/motion-tokens";
 import { dayText, type DateLine } from "@/lib/due";
 import type { Headline, LiveServer, Tile } from "@/lib/home";
 import type { StationTone } from "@/lib/lanes";
+import { avisosMaquina } from "@/lib/avisos-maquina";
 import { ago } from "@/lib/time";
 import type { Machine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,7 @@ import { LOCALE } from "@/lib/locale";
 import { words } from "@/lib/i18n";
 import { HOME_PARTS } from "@/lib/home-pieces-words";
 import { Cifra } from "./cifra";
+import { EnlaceVer, TituloTarjeta } from "./tarjeta";
 
 // Hover tints only where there is a real pointer, so a tap on a phone does not leave a row lit.
 const HOVER_ROW = "transition-colors [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.05]";
@@ -27,16 +30,41 @@ function tint(tone: StationTone, pct = 12) {
   return { background: `color-mix(in oklab, ${toneVar(tone)} ${pct}%, transparent)` };
 }
 
+/** Text that crossfades when `clave` changes; still on first paint. Reduced motion: no blur. */
+function Cambia({ clave, children }: { clave: string; children: ReactNode }) {
+  const reducido = useReducedMotion() ?? false;
+  return (
+    <AnimatePresence initial={false} mode="popLayout">
+      <motion.span
+        key={clave}
+        className="block"
+        initial={{ opacity: 0, filter: reducido ? "none" : `blur(${motionTokens.blur.subtle}px)` }}
+        animate={{ opacity: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
+        exit={{ opacity: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } }}
+        transition={{ duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }}
+      >
+        {children}
+      </motion.span>
+    </AnimatePresence>
+  );
+}
+
 export function Titular({ headline, nowMs }: { headline: Headline; nowMs: number }) {
   const when = `${DATE.format(nowMs)} · ${TIME.format(nowMs)}`;
   return (
     <div className="grid max-w-[860px] animate-rise gap-3">
       <p className="font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase first-letter:uppercase">{when}</p>
-      <h1 className="font-display text-4xl leading-[0.98] font-extrabold tracking-[-0.03em] sm:text-5xl lg:text-[56px]">{headline.title}</h1>
+      {/* When the state changes the headline crossfades (in 200ms with a 2px blur, out in 140ms) instead of swapping. The
+          h1 and the p stay put for screen readers; only their text is keyed. */}
+      <h1 className="font-display text-4xl leading-[0.98] font-extrabold tracking-[-0.03em] sm:text-5xl lg:text-[56px]">
+        <Cambia clave={headline.title}>{headline.title}</Cambia>
+      </h1>
       <p className="font-voice text-2xl leading-[1.15] text-foreground/75 italic sm:text-[28px]">
-        {headline.voice.map((part, i) => (
-          <span key={i} className={cn(part.tone === "owner" && "text-ink-owner")}>{part.text}</span>
-        ))}
+        <Cambia clave={headline.voice.map((p) => p.text).join("")}>
+          {headline.voice.map((part, i) => (
+            <span key={i} className={cn(part.tone === "owner" && "text-ink-owner")}>{part.text}</span>
+          ))}
+        </Cambia>
       </p>
     </div>
   );
@@ -54,8 +82,9 @@ function Estado({ t }: { t: Tile }) {
     <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-xs font-medium", TONE_TEXT[t.state.tone])} data-estado={t.rank}>
       <Glyph tone={t.state.tone} size={7} pulse={t.state.tone === "now"} />
       {/* The word crossfades when the project changes state, so a project that starts running is noticed. */}
+      {/* Both words share one grid cell, so they crossfade in place; popLayout lifted the old one out of the cell. */}
       <span className="inline-grid">
-        <AnimatePresence initial={false} mode="popLayout">
+        <AnimatePresence initial={false}>
           <motion.span
             key={t.state.word}
             className="col-start-1 row-start-1"
@@ -81,14 +110,18 @@ function TileCard({ t, puertos }: { t: Tile; puertos: LiveServer[] }) {
   const allDone = t.left.initiatives === 0 && t.left.tickets === 0;
   // What needs a look, most urgent first. Decisions carry the owner's colour; the rest are quiet notes.
   const signals = [
-    t.waiting > 0 && { text: w.decisions(t.waiting), cls: "font-medium text-ink-owner" },
-    t.orden > 0 && { text: w.toSort(t.orden), cls: "text-amber-700 dark:text-amber-400", title: w.toSortTitle },
-    t.onHold > 0 && { text: w.onHold(t.onHold), cls: "text-muted-foreground" },
-  ].filter((x): x is { text: string; cls: string; title?: string } => Boolean(x));
+    t.waiting > 0 && { kind: "decisiones", text: w.decisions(t.waiting), cls: "font-medium text-ink-owner" },
+    t.orden > 0 && { kind: "orden", text: w.toSort(t.orden), cls: "text-amber-700 dark:text-amber-400", title: w.toSortTitle },
+    t.onHold > 0 && { kind: "pausa", text: w.onHold(t.onHold), cls: "text-muted-foreground" },
+  ].filter((x): x is { kind: string; text: string; cls: string; title?: string } => Boolean(x));
+  const reducido = useReducedMotion() ?? false;
+  const entra: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0 };
+  const queda: TargetAndTransition = { opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } };
+  const sale: TargetAndTransition = reducido ? { opacity: 0, transition: { duration: 0.1 } } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } };
   return (
     <Link
       to={`/p/${t.slug}`}
-      className="grid h-full content-start gap-4 rounded-2xl border bg-card p-4 transition-[border-color,background-color,scale] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none sm:p-5 [@media(hover:hover)_and_(pointer:fine)]:hover:border-foreground/25"
+      className="grid h-full content-start gap-3 rounded-2xl border bg-card p-4 transition-[border-color,background-color,scale] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:scale-[0.985] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:border-foreground/25"
       data-tile={t.slug}
     >
       <span className="flex items-center justify-between gap-3">
@@ -96,8 +129,8 @@ function TileCard({ t, puertos }: { t: Tile; puertos: LiveServer[] }) {
           <ProjectMark slug={t.slug} className="size-5 shrink-0" />
           <span className="truncate font-display text-lg leading-tight font-bold tracking-tight">{t.title}</span>
         </span>
-        {/* Waiting on the owner says itself below, with the count; the word would only repeat it. */}
-        {t.rank !== 1 ? <Estado t={t} /> : null}
+        {/* Every state shows, «te espera» too: hiding it made the badge vanish the moment a project began to wait. */}
+        <Estado t={t} />
       </span>
 
       {/* The number that matters: initiatives left, then the tasks' bar. Both move only when they change. */}
@@ -125,18 +158,23 @@ function TileCard({ t, puertos }: { t: Tile; puertos: LiveServer[] }) {
         )}
       </span>
 
-      {signals.length > 0 && (
-        <span className="grid gap-1 text-sm leading-snug">
+      {/* What needs a look folds in when it starts (a decision arrives) and out when it is settled, 200ms in and 140ms out;
+          a count that changes crossfades in place. Each line is keyed by its kind, never by its words. */}
+      {/* empty:hidden: with no signal (and none leaving) the span takes no row and adds no gap. */}
+      <span className="grid text-sm leading-snug empty:hidden">
+        <AnimatePresence initial={false}>
           {signals.map((s) => (
-            <span key={s.text} className={s.cls} title={s.title}>
-              {s.text}
-            </span>
+            <motion.span key={s.kind} className="block overflow-hidden" initial={entra} animate={queda} exit={sale}>
+              <span className={cn("block pb-1", s.cls)} title={s.title}>
+                <Cambia clave={s.text}>{s.text}</Cambia>
+              </span>
+            </motion.span>
           ))}
-        </span>
-      )}
+        </AnimatePresence>
+      </span>
 
       {/* Its live ports here on the machine, then prod in plain words: when it last got code and what it still lacks. */}
-      <span className="mt-auto grid gap-0.5 border-t pt-3 text-xs leading-snug text-muted-foreground">
+      <span className="mt-auto grid gap-0.5 border-t pt-2.5 text-xs leading-snug text-muted-foreground">
         <PuertosTile puertos={puertos} />
         <span>{t.deploy.text}</span>
         {t.deploy.lag && <span className="text-amber-700 dark:text-amber-400">{t.deploy.lag}</span>}
@@ -170,29 +208,40 @@ export function LaMaquina({ machine, servers, tiles, cifras, nowMs }: { machine:
   const w = words(HOME_PARTS);
   const reducido = useReducedMotion() ?? false;
   const t = machine?.totals;
-  const warn = machine && t ? t.orphan + t.stale + machine.findings.length : 0;
+  // Each problem once: an orphan or stale row with no project is also a finding, and is not counted twice.
+  const avisos = machine && t ? avisosMaquina(machine) : null;
+  const warn = avisos?.total ?? 0;
   const seen = machine?.items.reduce((m, it) => (it.last_seen_at && it.last_seen_at > m ? it.last_seen_at : m), "") ?? "";
   const porProyecto = new Map<string, LiveServer[]>();
   for (const s of servers) if (s.slug) porProyecto.set(s.slug, [...(porProyecto.get(s.slug) ?? []), s]);
   const sueltos = servers.filter((s) => !s.slug || !tiles.some((x) => x.slug === s.slug));
-  const moving = tiles.filter((x) => x.rank === 0).length;
-  const waiting = tiles.filter((x) => x.rank === 1).length;
-  const still = tiles.length - moving - waiting;
-  const parts = [moving > 0 && w.moving(moving), waiting > 0 && w.waiting(waiting), still > 0 && w.still(still)].filter(Boolean);
+  // One count per state, in the tiles' order, so «al día» and «en pausa» are not folded into «quieto».
+  const porRango = (r: number) => tiles.filter((x) => x.rank === r).length;
+  const parts = [w.moving, w.waiting, w.still, w.paused, w.upToDate].map((f, r) => porRango(r) > 0 && f(porRango(r))).filter(Boolean);
+  // The audit's warning, one quiet chip per kind with its count and its own colour (the machine page's), then the
+  // first finding. The total rides on «Ver la máquina».
+  const tipos =
+    avisos
+      ? [
+          { kind: "hallazgos", n: avisos.hallazgos, label: w.kind.findings, dot: "bg-status-now" },
+          { kind: "orphan", n: avisos.orphan, label: w.kind.orphan, dot: "bg-status-owner" },
+          { kind: "stale", n: avisos.stale, label: w.kind.stale, dot: "bg-status-pending" },
+        ].filter((k) => k.n > 0)
+      : [];
   const sale: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } };
   const entra: TargetAndTransition = reducido ? { opacity: 0 } : { opacity: 0, height: 0 };
   const queda: TargetAndTransition = { opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } };
 
   return (
-    <section id="la-mac" aria-labelledby="proyectos-titulo" className="grid animate-rise gap-4 rounded-2xl border bg-muted/30 p-3 sm:p-4" data-maquina>
-      {/* The machine: small and to one side. */}
+    <section id="la-mac" aria-labelledby="la-mac-titulo" className="grid animate-rise gap-3 rounded-2xl border bg-muted/30 p-3 sm:p-4" data-maquina>
+      {/* The machine's title, as Metas has it beside: the green kicker, a heading only (the way in is at the foot). */}
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1">
-        <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
-          <Link to="/machine" className="font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <TituloTarjeta id="la-mac-titulo" icon={CpuIcon}>
             {w.machine}
-          </Link>
+          </TituloTarjeta>
           {seen && <span className="text-xs text-muted-foreground">{w.seen(ago(seen, nowMs))}</span>}
-        </p>
+        </div>
         {cifras && t ? (
           <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <div className="flex items-baseline gap-1">
@@ -226,16 +275,21 @@ export function LaMaquina({ machine, servers, tiles, cifras, nowMs }: { machine:
         )}
       </AnimatePresence>
 
-      {/* The audit's warning: only when it found something. */}
+      {/* What the audit found: a chip per kind, then the first finding cut to the rest of the line (whole on hover). The
+          row folds in when the audit finds something and out when it clears; a count that changes rolls in place. */}
       <AnimatePresence initial={false}>
-        {machine && t && warn > 0 && (
+        {avisos && tipos.length > 0 && (
           <motion.div key="aviso" className="overflow-hidden" initial={entra} animate={queda} exit={sale}>
-            <Link to="/machine" className="grid gap-1 rounded-lg border border-status-now/40 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none" style={tint("now", 8)} role="status">
-              <span className="text-sm font-medium text-ink-now">
-                {[machine.findings.length > 0 && w.findings(machine.findings.length), t.orphan > 0 && w.orphan(t.orphan), t.stale > 0 && w.stale(t.stale)].filter(Boolean).join(" · ")}
-              </span>
-              {machine.findings[0] && <span className="text-xs leading-snug wrap-anywhere text-muted-foreground">{machine.findings[0].detail}</span>}
-            </Link>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-1 text-xs" role="status" title={avisos.primero?.detail} data-aviso-maquina>
+              {tipos.map((k) => (
+                <span key={k.kind} className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2 py-0.5 whitespace-nowrap">
+                  <span aria-hidden className={cn("size-[7px] rounded-[2px]", k.dot)} />
+                  <Cifra value={k.n} className="font-semibold" />
+                  {k.label(k.n)}
+                </span>
+              ))}
+              {avisos.primero && <span className="min-w-0 flex-[1_1_180px] truncate text-muted-foreground">{avisos.primero.detail}</span>}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -243,9 +297,9 @@ export function LaMaquina({ machine, servers, tiles, cifras, nowMs }: { machine:
       {/* The projects: what the owner looks at every day, so the largest heading and most of the room. */}
       <div className="grid gap-3">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1">
-          <h2 id="proyectos-titulo" className="font-display text-xl font-bold tracking-tight">
+          <h3 id="proyectos-titulo" className="font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground">
             {w.projects}
-          </h2>
+          </h3>
           <span className="text-sm text-muted-foreground">{parts.join(" · ")}</span>
         </div>
         {/* auto-fill, not auto-fit: one project keeps a tile's width instead of stretching across the page. */}
@@ -268,13 +322,10 @@ export function LaMaquina({ machine, servers, tiles, cifras, nowMs }: { machine:
         </ul>
       </div>
 
-      <Link
-        to="/machine"
-        className="group inline-flex min-h-11 w-fit items-center gap-1.5 px-1 text-sm font-medium text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-8 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground"
-      >
-        {w.seeMachine}
-        <ArrowRightIcon className="size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:translate-x-0.5" aria-hidden />
-      </Link>
+      {/* The way in, at the foot's right edge: the eye ends there after the last tile. */}
+      <span className="flex justify-end px-1">
+        <EnlaceVer to="/machine" cuenta={warn} etiqueta={warn > 0 ? w.seeMachineWarnings(warn) : undefined}>{w.seeMachine}</EnlaceVer>
+      </span>
     </section>
   );
 }

@@ -104,6 +104,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
 
 function HoyStrip({ d, seenAt, names, onSeen, pending }: { d: Digest; seenAt: number | undefined; names: (slug: string) => string; onSeen: () => void; pending: boolean }) {
   const w = words(HOME_HOY);
+  const reducido = useReducedMotion() ?? false;
   const waiting = waitingSince(d, seenAt);
   const active = d.projects.filter((p) => chipsOf(p.highlights).length > 0);
 
@@ -141,19 +142,30 @@ function HoyStrip({ d, seenAt, names, onSeen, pending }: { d: Digest; seenAt: nu
       {waiting.length > 0 && (
         <div className="grid grid-cols-1 gap-1.5">
           <p className="text-xs font-semibold tracking-wide text-ink-owner uppercase">{w.waitsOnYou}</p>
-          <ul className="grid grid-cols-1 gap-1">
-            {waiting.slice(0, 6).map((i, n) => (
-              <li key={`${i.project}-${i.kind}-${i.key ?? n}-${n}`}>
+          {/* A decision that arrives while the page is open folds in (200ms) instead of pushing the rows; one that is
+              settled folds out (140ms). Opening the page plays nothing. Keys are the decision's, never its position, so a
+              new one at the top does not replay the others. */}
+          <ul className="grid grid-cols-1">
+            <AnimatePresence initial={false}>
+              {waiting.slice(0, 6).map((i) => (
+              <motion.li
+                key={`${i.project}-${i.kind}-${i.key ?? i.title}`}
+                className="overflow-hidden"
+                initial={reducido ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } }}
+                exit={reducido ? { opacity: 0, transition: { duration: 0.1 } } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } }}
+              >
                 <Link
                   to={`/inbox?tab=${i.group}#${i.project}`}
-                  className="flex min-h-11 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-10 sm:flex-row sm:items-baseline sm:gap-2 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.05]"
+                  className="mb-1 flex min-h-11 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none sm:min-h-10 sm:flex-row sm:items-baseline sm:gap-2 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.05]"
                 >
                   {/* On a phone the project and key sit over the reason, so the reason keeps the whole width. */}
                   <span className="shrink-0 text-xs text-muted-foreground">{names(i.project)}{i.key ? ` · ${i.key}` : ""}</span>
                   <span className="min-w-0 truncate max-sm:line-clamp-2 max-sm:whitespace-normal">{i.why || i.title}</span>
                 </Link>
-              </li>
-            ))}
+              </motion.li>
+              ))}
+            </AnimatePresence>
           </ul>
           {waiting.length > 6 && (
             <Link to="/inbox" className="px-2 text-xs text-muted-foreground underline underline-offset-4">

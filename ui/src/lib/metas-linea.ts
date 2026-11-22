@@ -10,6 +10,12 @@ export const METAS_LINEA_WORDS = defineWords({
     sinMetas: "Sin metas todavía",
     sinActivas: "Ninguna activa",
     nueva: "Nueva",
+    // The main goal (D) and its initiatives as segments (E).
+    tareasDe: (done: number, total: number) => `${done} de ${total} ${total === 1 ? "tarea" : "tareas"}`,
+    para: (dia: string) => `para el ${dia}`,
+    segmento: { hecha: (n: number) => `${n} ${n === 1 ? "hecha" : "hechas"}`, enCurso: (n: number) => `${n} en curso`, porEmpezar: (n: number) => `${n} por empezar` },
+    iniciativas: (hechas: number, total: number) => `${hechas} de ${total} ${total === 1 ? "iniciativa hecha" : "iniciativas hechas"}`,
+    yMas: (n: number) => `y ${n} más`,
   },
   en: {
     activas: (n: number) => `${n} active`,
@@ -17,6 +23,11 @@ export const METAS_LINEA_WORDS = defineWords({
     sinMetas: "No goals yet",
     sinActivas: "None active",
     nueva: "New",
+    tareasDe: (done: number, total: number) => `${done} of ${total} ${total === 1 ? "task" : "tasks"}`,
+    para: (dia: string) => `by ${dia}`,
+    segmento: { hecha: (n: number) => `${n} done`, enCurso: (n: number) => `${n} in progress`, porEmpezar: (n: number) => `${n} not started` },
+    iniciativas: (hechas: number, total: number) => `${hechas} of ${total} ${total === 1 ? "initiative done" : "initiatives done"}`,
+    yMas: (n: number) => `and ${n} more`,
   },
 });
 
@@ -59,4 +70,35 @@ export function metasPrincipales<T extends MetaConTitulo>(goals: readonly T[], n
     .filter((g) => g.project === null && g.status === "active")
     .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title));
   return { lista: activas.slice(0, n), mas: Math.max(0, activas.length - n) };
+}
+
+/** A goal's share done, whole percent; never 100 while a task is left, never 0 once one is done. */
+export function porcentaje(done: number, total: number): number {
+  if (total <= 0) return 0;
+  const p = Math.round((done / total) * 100);
+  return done < total ? Math.min(99, Math.max(done > 0 ? 1 : 0, p)) : 100;
+}
+
+export type Segmento = "hecha" | "enCurso" | "porEmpezar";
+
+type MetaConIniciativas = { initiatives: readonly { key: string; status: string }[]; children?: readonly MetaConIniciativas[] };
+
+const SEGMENTO: Record<string, Segmento> = { Done: "hecha", Active: "enCurso", Shipping: "enCurso", Planning: "porEmpezar", "On hold": "porEmpezar" };
+const ORDEN: Segmento[] = ["hecha", "enCurso", "porEmpezar"];
+
+/**
+ * One segment per initiative under the goal and its sub-goals (the board rolls their progress up the same way), each
+ * once, done first, then in progress, then not started, so the bar fills from the left. Won't do is left out.
+ */
+export function segmentosMeta(goal: MetaConIniciativas): Segmento[] {
+  const vistos = new Map<string, Segmento>();
+  const recorrer = (g: MetaConIniciativas) => {
+    for (const i of g.initiatives) {
+      const s = SEGMENTO[i.status];
+      if (s && !vistos.has(i.key)) vistos.set(i.key, s);
+    }
+    for (const c of g.children ?? []) recorrer(c);
+  };
+  recorrer(goal);
+  return [...vistos.values()].sort((a, b) => ORDEN.indexOf(a) - ORDEN.indexOf(b));
 }
