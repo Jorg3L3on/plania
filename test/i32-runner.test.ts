@@ -190,6 +190,11 @@ test("I32-5 #2: a PO's ticket In review that Jorge asked for, with its checks do
   // Not yet: a check is open.
   assert.equal(await asistente.routineAccept(db, new Date()), 0);
   await raw.query(`update checks set done = true, done_at = now() where task_id = (select id from tasks where key = $1)`, [key]);
+  // PLA-156: not while it carries a PR: code goes through the owner's card and merge.
+  await raw.query(`update tasks set pr_url = 'https://github.com/o/r/pull/71' where key = $1`, [key]);
+  assert.equal(await asistente.routineAccept(db, new Date()), 0, "a ticket with a PR is never auto-accepted");
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "In review");
+  await raw.query(`update tasks set pr_url = null where key = $1`, [key]);
   // A PO line about it, which loses its buttons once accepted.
   await raw.query(
     `insert into thread_messages (thread_id, author_agent, author_role, body, links) select t.id, 'po-micasa', 'product-owner', 'Listo', $1::jsonb from threads t join projects p on p.id = t.project_id where p.slug = 'micasa'`,
