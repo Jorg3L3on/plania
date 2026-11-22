@@ -31,6 +31,7 @@ import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 import { OWNER_LINE_PREFIX } from "../owner.js";
 import { defineWords, say } from "../words.js";
+import { ST } from "../state/status.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
 // Released (SYSTEM_MOVES in src/mcp/lifecycle.ts), and Ready → Blocked is an ordinary ticket move.
@@ -68,11 +69,11 @@ async function free(tx: Q, emit: Emit, row: Held, reason: string): Promise<Task 
   const [before] = await tx.select({ owner: tasks.owner }).from(tasks).where(eq(tasks.id, row.task_id)).limit(1);
   const [u] = await tx
     .update(tasks)
-    .set({ owner: null, claimedAt: null, leaseUntil: null, expiringWarnedAt: null, status: "Ready", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-    .where(and(eq(tasks.id, row.task_id), eq(tasks.status, "In progress"), sql`${tasks.owner}->>'session_id' in (${sql.join(sessions.map((x) => sql`${x}`), sql`, `)})`))
+    .set({ owner: null, claimedAt: null, leaseUntil: null, expiringWarnedAt: null, status: ST.ready, statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+    .where(and(eq(tasks.id, row.task_id), eq(tasks.status, ST.inProgress), sql`${tasks.owner}->>'session_id' in (${sql.join(sessions.map((x) => sql`${x}`), sql`, `)})`))
     .returning();
   if (!u) return null;
-  await emit("claim.released", u, { owner: before?.owner ?? null, from: "In progress", to: "Ready", reason });
+  await emit("claim.released", u, { owner: before?.owner ?? null, from: ST.inProgress, to: ST.ready, reason });
   return u;
 }
 
@@ -80,7 +81,7 @@ async function retry(db: Db, p: Project, agent: Agent, row: Held): Promise<boole
   return writeTx(db, p, ctx(), async (tx, emit) => {
     const [t] = await tx.select({ status: tasks.status, owner: tasks.owner }).from(tasks).where(eq(tasks.id, row.task_id)).limit(1);
     // The lease may have run out inside this write: the reaper already freed the ticket and woke its role.
-    if (!t || t.status !== "In progress") return false;
+    if (!t || t.status !== ST.inProgress) return false;
     const task = { id: row.task_id, key: row.key };
     const out = await queueWake(tx, p, task, { agent, taskKey: row.key, reason: "retry after a failed run" }, "run.failed");
     if (out.kind !== "queued") return false;
@@ -100,7 +101,7 @@ async function hold(db: Db, p: Project, agent: Agent, row: Held): Promise<boolea
       {
         project: p.slug,
         key: row.key,
-        status: "Blocked",
+        status: ST.blocked,
         version: freed.version,
         note: `${OWNER_LINE_PREFIX} ${say(FAILED_WORDS).twice(agent.name, failureWords(row.summary))}`,
       } as never,
@@ -123,7 +124,7 @@ export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: 
     select t.id as task_id, t.key, t.project_id, r.id as run_id, r.agent_id, r.summary
     from tasks t
     join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and t.owner->>'session_id' in ('run-' || left(replace(r.id::text, '-', ''), 16), 'run-' || left(r.id::text, 8))
-    where t.kind = 'ticket' and t.status = 'In progress' and r.status = 'fail'
+    where t.kind = 'ticket' and t.status = ${ST.inProgress} and r.status = 'fail'
     order by r.ended_at, r.id`);
   const out = { retried: 0, held: 0 };
   for (const row of found.rows) {
@@ -181,7 +182,7 @@ export async function sweepStoppedRuns(db: Db): Promise<{ freed: number }> {
     select t.id as task_id, t.key, t.project_id, r.id as run_id, r.agent_id, r.summary, r.stop_reason
     from tasks t
     join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and t.owner->>'session_id' in ('run-' || left(replace(r.id::text, '-', ''), 16), 'run-' || left(r.id::text, 8))
-    where t.kind = 'ticket' and t.status = 'In progress' and r.status = 'stopped'
+    where t.kind = 'ticket' and t.status = ${ST.inProgress} and r.status = 'stopped'
     order by r.ended_at, r.id`);
   let freed = 0;
   for (const row of found.rows) {
@@ -217,8 +218,8 @@ export async function requeueHeld(db: Db, now = new Date(), deps: RunnerDeps = {
       from ${tasks}
       join agent_runs r on r.project_id = ${tasks.projectId} and r.task_key = ${tasks.key}
       where ${tasks.owner} is null and not ${hasUnsatisfiedBlocker(tasks.id)}
-        and ((${tasks.kind} = 'ticket' and ${tasks.status} = 'Ready')
-          or (${tasks.kind} = 'idea' and ${tasks.status} = 'Open' and ${tasks.promotedTo} is null))
+        and ((${tasks.kind} = 'ticket' and ${tasks.status} = ${ST.ready})
+          or (${tasks.kind} = 'idea' and ${tasks.status} = ${ST.open} and ${tasks.promotedTo} is null))
       order by ${tasks.id}, coalesce(r.ended_at, r.queued_at) desc, r.queued_at desc
     ) newest
     where newest.status in ('stopped', 'skipped') and newest.at > now() - interval '8 days'

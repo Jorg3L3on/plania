@@ -14,10 +14,10 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 import { stopRun } from "../runner/runner.js";
-import { isRunSession, isSessionOf, sessionsOf } from "../runner/run-session.js";
-import { queueWake, serviceAgent } from "../runner/events.js";
-import { kickQueue } from "../runner/queue.js";
+import { isSessionOf, sessionsOf } from "../runner/run-session.js";
 import { defineWords, say } from "../words.js";
+import { healStep } from "../runner/heal.js";
+import { ST } from "../state/status.js";
 
 // PLA-I2-10: what a run did and the run errors in the install's language; the Spanish is unchanged.
 export const COMPANY_RUNS_WORDS = defineWords({
@@ -143,7 +143,7 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
       .innerJoin(projects, eq(projects.id, tasks.projectId))
       .where(and(eq(projects.slug, r.project), eq(tasks.key, r.taskKey)))
       .limit(1);
-    if (t?.status === "In progress" && isSessionOf(t.owner?.session_id, r.id)) {
+    if (t?.status === ST.inProgress && isSessionOf(t.owner?.session_id, r.id)) {
       await claim(db, { project: r.project, key: r.taskKey, action: "release" } as never, { ...webCtx, tool: "screen.run_resume" });
     }
   }
@@ -166,30 +166,10 @@ export async function noteForAgent(db: Db, slug: string, key: string, text: stri
 // ended runner run is released, and the agent that works the ticket (its owner, else Taller) is woken with the note as
 // the reason its prompt reads. A live run gets the note at its next step, as before; a person's lease is left alone.
 async function wakeForNote(db: Db, p: { id: string; slug: string }, key: string, text: string): Promise<{ woke: boolean }> {
-  const [t] = await db
-    .select({ id: tasks.id, key: tasks.key, kind: tasks.kind, status: tasks.status, owner: tasks.owner, ownerAgent: tasks.ownerAgent })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.key, key)))
-    .limit(1);
-  if (!t || t.kind !== "ticket") return { woke: false };
-  const [live] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.projectId, p.id), eq(agentRuns.taskKey, key), inArray(agentRuns.status, ["queued", "starting", "running"])));
-  if ((live?.n ?? 0) > 0) return { woke: false };
-  if (t.status === "In progress") {
-    if (!isRunSession(t.owner?.session_id)) return { woke: false };
-    try {
-      await claim(db, { project: p.slug, key, action: "release" } as never, { ...webCtx, tool: "screen.run_note" });
-    } catch (e) {
-      if (!(e instanceof ToolError)) throw e;
-      return { woke: false };
-    }
-  } else if (t.status !== "Ready") return { woke: false };
-  const owner = t.ownerAgent ? (await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1))[0] : undefined;
-  const agent = owner && owner.kind !== "human" && owner.slug !== "ceo" ? owner : await serviceAgent(db, "taller", p);
-  if (!agent) return { woke: false };
-  const out = await queueWake(db, p, { id: t.id, key: t.key }, { agent, taskKey: t.key, reason: `note from the owner: ${text}` }, "screen.run_note");
-  kickQueue();
-  return { woke: out.kind === "queued" };
+  const [t] = await db.select({ kind: tasks.kind, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  // A note wakes a step someone should be working (Ready, or held); one in review or waiting stays as it is.
+  if (!t || t.kind !== "ticket" || (t.status !== ST.inProgress && t.status !== ST.ready)) return { woke: false };
+  // PLA-I74-5: the watchdog's heal, with the note as the reason.
+  const out = await healStep(db, p, key, { reason: `note from the owner: ${text}`, release: true, from: "screen.run_note" });
+  return { woke: out.woke };
 }

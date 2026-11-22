@@ -10,15 +10,15 @@
 // done_pct how much of the plan's tickets are done. weeks_behind = max(0, round((today_pct - done_pct) * weeks));
 // 0 ok, 1 late, 2 or more bad; forecast_on = delivery + weeks_behind weeks. Without a delivery date there is no
 // bar and no pace: only the active initiative and its tickets done of total.
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, events, taskBlockers, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
+import { CLOSED, DONE_LIKE as DONE, OPEN_INITIATIVE, ST, isIn, sqlIn, sqlNotIn } from "../state/status.js";
+import { notPersonOwned, parentNotOnHold, queueable } from "../state/workable.js";
 
 const DAY = 86_400_000;
-const CLOSED = ["Done", "Merged", "Released", "Won't do"];
-const DONE = ["Done", "Merged", "Released"];
 
 export type Pace = "ok" | "late" | "bad";
 export type PlanLine = {
@@ -44,7 +44,6 @@ export type WorkLine = { open: number; in_progress: number };
 // MIA-I2 before MIA-I10: the number at the end of the key, then creation.
 const keyNumber = (key: string) => Number(/(\d+)$/.exec(key)?.[1] ?? Number.MAX_SAFE_INTEGER);
 export const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
-const OPEN_INITIATIVE = ["Planning", "Active", "Shipping", "On hold"];
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const atNoon = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
 
@@ -76,21 +75,21 @@ export function calendarOf(input: { startOn: string; dueOn: string; today: Date;
 export const forecastOf = (dueOn: string, weeksBehind: number) => day(new Date(atNoon(dueOn) + weeksBehind * 7 * DAY));
 
 export async function planOf(db: Db, p: Project, today = new Date(), goalTarget: string | null = null): Promise<PlanLine | null> {
-  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
-  const active = open.filter((t) => t.status === "Active").at(-1);
+  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => isIn(OPEN_INITIATIVE, t.status)).sort(byKey);
+  const active = open.filter((t) => t.status === ST.active).at(-1);
   if (!active) return null;
   const tickets = await db
     .select({ status: tasks.status, parentId: tasks.parentId })
     .from(tasks)
     .where(and(inArray(tasks.parentId, open.map((t) => t.id)), eq(tasks.kind, "ticket")));
-  const counted = tickets.filter((c) => c.status !== "Won't do");
+  const counted = tickets.filter((c) => c.status !== ST.wontDo);
   const mine = counted.filter((c) => c.parentId === active.id);
   const dueOn = goalTarget ?? open.map((t) => t.dueOn).filter((d): d is string => !!d).sort().at(-1) ?? null;
   const startOn = day(new Date(Math.min(...open.map((t) => t.createdAt.getTime()))));
-  const cal = dueOn ? calendarOf({ startOn, dueOn, today, done: counted.filter((c) => DONE.includes(c.status)).length, total: counted.length }) : null;
+  const cal = dueOn ? calendarOf({ startOn, dueOn, today, done: counted.filter((c) => isIn(DONE, c.status)).length, total: counted.length }) : null;
   return {
     initiative: { key: active.key, title: active.title },
-    done: mine.filter((c) => DONE.includes(c.status)).length,
+    done: mine.filter((c) => isIn(DONE, c.status)).length,
     total: mine.length,
     start_on: dueOn ? startOn : null,
     due_on: dueOn,
@@ -122,16 +121,16 @@ const MAX_LEGS = 8;
 const MAX_STEPS = 12;
 
 export async function routeOf(db: Db, p: Project): Promise<Route | null> {
-  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
+  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => isIn(OPEN_INITIATIVE, t.status)).sort(byKey);
   if (open.length === 0) return null;
-  const here = open.filter((t) => t.status === "Active").at(-1) ?? null;
-  const tickets = (await db.select().from(tasks).where(and(inArray(tasks.parentId, open.map((t) => t.id)), eq(tasks.kind, "ticket")))).filter((t) => t.status !== "Won't do");
+  const here = open.filter((t) => t.status === ST.active).at(-1) ?? null;
+  const tickets = (await db.select().from(tasks).where(and(inArray(tasks.parentId, open.map((t) => t.id)), eq(tasks.kind, "ticket")))).filter((t) => t.status !== ST.wontDo);
 
   const legs: RouteLeg[] = open.map((i) => {
     const mine = tickets.filter((t) => t.parentId === i.id);
-    const done = mine.filter((t) => DONE.includes(t.status)).length;
-    const left = mine.filter((t) => !DONE.includes(t.status));
-    const off = left.length > 0 && left.every((t) => t.status === "Backlog");
+    const done = mine.filter((t) => isIn(DONE, t.status)).length;
+    const left = mine.filter((t) => !isIn(DONE, t.status));
+    const off = left.length > 0 && left.every((t) => t.status === ST.backlog);
     const state: LegState = i.id === here?.id ? "here" : mine.length === 0 ? "unplanned" : done === mine.length ? "done" : "planned";
     return { key: i.key, title: i.title, done, total: mine.length, state, note: off ? (left.length === 1 ? `Pospuesto: ${left[0]!.title}` : `${left.length} pasos pospuestos`) : null, postponed: off };
   });
@@ -143,21 +142,21 @@ export async function routeOf(db: Db, p: Project): Promise<Route | null> {
       for (const k of (e.payload.tickets as unknown[] | undefined) ?? []) if (typeof k === "string") shipped.add(k);
     }
     // A Ready step is free when nothing holds it and every step before it has landed (the rule that wakes Taller).
-    const ready = mine.filter((t) => t.status === "Ready");
+    const ready = mine.filter((t) => t.status === ST.ready);
     const held = new Set<string>();
     if (ready.length) {
       const rows = await db.execute<{ id: string }>(sql`
         select t.id from ${tasks} t where t.id in (${sql.join(ready.map((t) => sql`${t.id}::uuid`), sql`, `)})
           and (${hasUnsatisfiedBlocker(sql`t.id`)} or exists (
             select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-            where tb.task_id = t.id and b.status not in ('Merged', 'Released', 'Done')))`);
+            where tb.task_id = t.id and ${sqlNotIn(sql`b.status`, DONE)}))`);
       for (const r of rows.rows) held.add(String(r.id));
     }
     const waits = new Map<string, string>();
     if (held.size) {
       const by = await db.execute<{ task_id: string; title: string }>(sql`
         select tb.task_id, b.title from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-        where tb.task_id in (${sql.join([...held].map((id) => sql`${id}::uuid`), sql`, `)}) and b.status not in ('Merged', 'Released', 'Done')
+        where tb.task_id in (${sql.join([...held].map((id) => sql`${id}::uuid`), sql`, `)}) and ${sqlNotIn(sql`b.status`, DONE)}
         order by b.phase nulls last, b.key`);
       for (const r of by.rows) if (!waits.has(String(r.task_id))) waits.set(String(r.task_id), String(r.title));
     }
@@ -167,20 +166,20 @@ export async function routeOf(db: Db, p: Project): Promise<Route | null> {
     if (owners.length) for (const a of await db.select().from(agents).where(inArray(agents.id, owners))) roles.set(a.id, roleOf(a) ?? a.role);
     const steps: RouteStep[] = mine.map((t) => {
       const state: StepState =
-        t.status === "Released" || (DONE.includes(t.status) && shipped.has(t.key))
+        t.status === ST.released || (isIn(DONE, t.status) && shipped.has(t.key))
           ? "published"
-          : DONE.includes(t.status)
+          : isIn(DONE, t.status)
             ? "done"
-            : t.status === "In review"
+            : t.status === ST.inReview
               ? "delivered"
-              : t.status === "In progress"
+              : t.status === ST.inProgress
                 ? "working"
                 : t.id === next
                   ? "next"
                   : "later";
       const who = (t.ownerAgent && roles.get(t.ownerAgent)) || ((t.workType ?? "code") === "code" ? "taller" : "product-owner");
       const step: RouteStep = { key: t.key, title: t.title, state, who, at: t.statusChangedAt?.toISOString() ?? null };
-      if (state === "later" && t.status === "Backlog") step.postponed = true;
+      if (state === "later" && t.status === ST.backlog) step.postponed = true;
       const w = waits.get(t.id);
       if (state === "later" && w) step.waits = w;
       return step;
@@ -200,7 +199,7 @@ export async function thisWeekOf(db: Db, p: Project, now = new Date()): Promise<
   const r = await db.execute<{ done: number; docs: number; prs: number; last_at: Date | string | null }>(sql`
     select
       (select count(distinct e.task_id)::int from events e join tasks t on t.id = e.task_id
-        where e.project_id = ${p.id} and e.type = 'task.status' and e.payload->>'to' in ('Done', 'Merged', 'Released')
+        where e.project_id = ${p.id} and e.type = 'task.status' and ${sqlIn(sql`e.payload->>'to'`, DONE)}
           and t.kind = 'ticket' and e.created_at >= ${since}::timestamptz) as done,
       (select count(distinct e.payload->>'doc_id')::int from events e
         where e.project_id = ${p.id} and e.type = 'doc.put' and e.task_id is not null and e.created_at >= ${since}::timestamptz) as docs,
@@ -229,31 +228,32 @@ export async function nextOf(db: Db, p: Project, ceoId: string | null, activeKey
 }
 
 export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKey: string | null): Promise<{ next: NextLine | null; ready: ReadyLine[]; queued: QueuedTicket[] }> {
-  const open = await db
-    .select()
+  // PLA-I74-4: the queues are the queueable steps (src/state/workable.ts: Ready, not under an On hold initiative
+  // (PLA-163), no person's own step; a step still behind a blocker stays so its card says «Espera a un paso»). The
+  // owner's own items (Needs owner, or a Ready step a person owns) lead Siguiente, never under an On hold initiative.
+  const rows = await db
+    .select({ task: tasks, personOwned: sql<boolean>`not ${notPersonOwned}` })
     .from(tasks)
-    // PLA-163: a step of an initiative the owner put On hold is postponed on purpose (as get_next, PLA-161): it joins
-    // nobody's queue, so the board never offers «Arrancar» / «Que empiece ya» for it.
     .where(
       and(
         eq(tasks.projectId, p.id),
-        eq(tasks.kind, "ticket"),
-        inArray(tasks.status, ["Ready", "Needs owner"]),
-        sql`not exists (select 1 from tasks par where par.id = ${tasks.parentId} and par.status = 'On hold')`,
+        or(queueable, and(eq(tasks.kind, "ticket"), parentNotOnHold, or(eq(tasks.status, ST.needsOwner), and(eq(tasks.status, ST.ready), sql`not ${notPersonOwned}`)))),
       ),
     )
     .orderBy(asc(tasks.phase), asc(tasks.createdAt));
+  const open = rows.map((r) => r.task);
   if (open.length === 0) return { next: null, ready: [], queued: [] };
+  const personal = new Set(rows.filter((r) => r.personOwned).map((r) => r.task.id));
   const parents = new Map<string, string>();
   const parentIds = [...new Set(open.map((t) => t.parentId).filter((x): x is string => !!x))];
   if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
-  const isOwners = (t: Task) => t.status === "Needs owner" || (!!ceoId && t.ownerAgent === ceoId);
+  const isOwners = (t: Task) => t.status === ST.needsOwner || personal.has(t.id) || (!!ceoId && t.ownerAgent === ceoId);
   // PLA-I36-6: the ticket the owner picked goes first after his own.
   const first = (t: Task) => (p.settings.next_first === t.key ? 0 : 1);
   const sorted = [...open].sort((a, b) => Number(!isOwners(a)) - Number(!isOwners(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
   const t = sorted[0]!;
-  const theirs = sorted.filter((x) => x.status === "Ready" && !isOwners(x));
+  const theirs = sorted.filter((x) => x.status === ST.ready && !isOwners(x));
   const ready = theirs.slice(0, 5).map((x) => ({ key: x.key, title: x.title }));
   const queued = theirs.map((x) => ({ key: x.key, title: x.title, owner: x.ownerAgent ?? null, work_type: x.workType ?? "code" }));
   let owner: NextOwner = isOwners(t) ? "owner" : (t.workType ?? "code") === "code" ? "taller" : "po";
@@ -274,8 +274,8 @@ export async function workOf(db: Db, p: Project): Promise<WorkLine> {
   let open = 0;
   let inProgress = 0;
   for (const r of rows) {
-    if (!CLOSED.includes(r.status)) open += Number(r.n);
-    if (r.status === "In progress") inProgress += Number(r.n);
+    if (!isIn(CLOSED, r.status)) open += Number(r.n);
+    if (r.status === ST.inProgress) inProgress += Number(r.n);
   }
   return { open, in_progress: inProgress };
 }
