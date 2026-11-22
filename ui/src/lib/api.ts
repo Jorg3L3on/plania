@@ -95,6 +95,8 @@ export const api = {
   // 2.13: the owner ships the release step (merge mode): a PR from → into, merged with a merge commit.
   // PLA-I36-11: publishing carries the owner's code.
   shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, {}),
+  // PLA-160: one throttled GitHub poll of the project, before the Publicar sheet says there is nothing to publish.
+  releaseRecheck: (slug: string) => request<{ checked: boolean }>("POST", `/projects/${encodeURIComponent(slug)}/release/recheck`, {}),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   // Screen only. The bot cannot read or flip this.

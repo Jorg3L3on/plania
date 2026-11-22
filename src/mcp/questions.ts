@@ -1,7 +1,9 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { LEGACY_ASK_FIELD } from "../db/legacy-names.js";
-import { decisions, delegatedAnswers, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { agentRuns, decisions, delegatedAnswers, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { LIVE } from "../runner/admission.js";
+import { runPrefixOf } from "../runner/run-session.js";
 import { decisionShape } from "./decisions.js";
 import { ToolError } from "./errors.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
@@ -230,7 +232,17 @@ export async function answerInTx(
   const changed = ["questions"];
   if (t.status === "Needs owner" && !stillOpen) {
     let to = first?.statusBefore ?? "Ready";
-    if (to === "In progress" && !liveOwner(t)) to = "Ready";
+    // PLA-160 (F-33): the run that asked has usually ended, but its lease runs on for ~25 minutes, and the run the
+    // answer wakes writes under a new session: it could not claim the ticket and waited. A runner run that is no
+    // longer live gives its claim back here, so the woken run claims at once. A live run, or a person, keeps it.
+    let owner = liveOwner(t);
+    if (owner && (await deadRunOwner(tx, owner))) {
+      await tx.update(tasks).set({ owner: null, claimedAt: null, leaseUntil: null }).where(eq(tasks.id, t.id));
+      await emit("claim.released", t, { owner: t.owner, reason: "answered" });
+      owner = null;
+      changed.push("claim");
+    }
+    if (to === "In progress" && !owner) to = "Ready";
     assertTransition(t.kind, t.status, to, { via: "answer" });
     await tx
       .update(tasks)
@@ -244,4 +256,17 @@ export async function answerInTx(
     question: questionShape(answered!, t.key, stamp),
     decision: d ? decisionShape(d, t.key) : null,
   });
+}
+
+// PLA-160: a claim held by a runner session whose run is no longer starting or running. Unknown runs stay held.
+async function deadRunOwner(tx: Q, owner: Actor): Promise<boolean> {
+  const prefix = runPrefixOf(owner.session_id);
+  if (!prefix) return false;
+  const [run] = await tx
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(sql`replace(${agentRuns.id}::text, '-', '') like ${`${prefix}%`}`)
+    .orderBy(sql`${agentRuns.queuedAt} desc`)
+    .limit(1);
+  return !!run && !(LIVE as readonly string[]).includes(run.status);
 }

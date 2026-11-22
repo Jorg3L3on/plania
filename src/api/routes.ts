@@ -16,6 +16,7 @@ import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
 import { backupFindings, backupStatus } from "../jobs/backup.js";
+import { recheckGithubProject } from "../jobs/github.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { delegationEnabled, markDelegatedReviewed, setDelegationEnabled } from "../mcp/delegate.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
@@ -582,6 +583,15 @@ api.post("/projects/:slug/release/ship", async (c) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the release ships from the screen only" }, 403);
   try {
     return c.json(await withDb((db) => shipRelease(db, c.req.param("slug"), webCtx)));
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// PLA-160 (F-35): the Publicar sheet asks GitHub again before it says there is nothing to publish (throttled).
+api.post("/projects/:slug/release/recheck", async (c) => {
+  try {
+    return c.json(await withDb((db) => recheckGithubProject(db, c.req.param("slug"), { fetch: (url, init) => fetch(url, init) })));
   } catch (e) {
     return errorResponse(c, e);
   }

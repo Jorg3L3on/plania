@@ -8,7 +8,7 @@ import { branches, checks, pollState, projects, pullRequests, questions, tasks, 
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
-import { findTask, prRowOf } from "../mcp/queries.js";
+import { findProject, findTask, prRowOf } from "../mcp/queries.js";
 import { compareKey, migrationFiles, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
@@ -714,6 +714,33 @@ export async function pollGithub(db: Db, deps: GithubDeps): Promise<Record<strin
     }
   }
   return total;
+}
+
+// PLA-160 (F-35): the Publicar sheet asks for this before it says «nada por publicar». Accepting a delivery merges on
+// GitHub, and the release plan only knows what the last poll saw (up to a minute late), so the sheet said the
+// project had nothing to publish with the start branch already ahead. One poll of that project, at most once per
+// RECHECK_MS per project; a second call inside that window, or while one runs, waits for the same poll.
+export const RECHECK_MS = 15_000;
+const rechecks = new Map<string, { at: number; run: Promise<void> }>();
+export function resetRechecksForTests(): void {
+  rechecks.clear();
+}
+
+export async function recheckGithubProject(db: Db, slug: string, deps: GithubDeps, nowMs = Date.now()): Promise<{ checked: boolean }> {
+  const p = await findProject(db, slug);
+  if (!p.settings.github?.repo) return { checked: false };
+  const last = rechecks.get(p.id);
+  if (last && nowMs - last.at < RECHECK_MS) {
+    await last.run;
+    return { checked: false };
+  }
+  const run = pollGithubProject(db, p, deps).then(
+    () => undefined,
+    (e: unknown) => console.error(`[jobs] github recheck ${p.slug}: ${e instanceof Error ? e.message : String(e)}`),
+  );
+  rechecks.set(p.id, { at: nowMs, run });
+  await run;
+  return { checked: true };
 }
 
 export const githubJob: Job = {

@@ -131,14 +131,14 @@ const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; 
 };
 
 /** PLA-157 (b): «Reabrir» on a closed step. The lifecycle's reopen is the owner's and needs a reason; it goes back to In review. */
-const Reabrir = ({ slug, k, version }: { slug: string; k: string; version: number }) => {
+const Reabrir = ({ slug, k, version, hasMuestra }: { slug: string; k: string; version: number; hasMuestra: boolean }) => {
   const client = useQueryClient();
   const w = words(TABLERO_WORDS);
   const [reason, setReason] = useState("");
   const m = useMutation({
     mutationFn: (patch: { status: string; reason: string; version: number }) => api.patchTask(slug, k, patch),
     onSuccess: () => {
-      toast(w.reopened);
+      toast(hasMuestra ? w.reopened : w.reopenedRedo);
       setReason("");
     },
     onError: (e) => toast.error((e instanceof ApiError && words(TASK_PATCH_WORDS).refused[e.code]) || w.reopenFailed),
@@ -149,7 +149,7 @@ const Reabrir = ({ slug, k, version }: { slug: string; k: string; version: numbe
   });
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const patch = reopenPatch(reason, version);
+    const patch = reopenPatch(reason, version, hasMuestra);
     if (patch) m.mutate(patch);
   };
   return (
@@ -162,7 +162,7 @@ const Reabrir = ({ slug, k, version }: { slug: string; k: string; version: numbe
             {m.isPending ? w.reopening : w.reopen}
           </Btn>
         </span>
-        <span className="cor-cap">{w.reopenHint}</span>
+        <span className="cor-cap">{hasMuestra ? w.reopenHint : w.reopenRedoHint}</span>
       </form>
     </section>
   );
@@ -276,7 +276,7 @@ export const Paso = ({ p, k, links, back, backLabel = words(TABLERO_WORDS).back,
               </section>
             </div>
             {acts && here && <PasoActs p={p} t={here} acts={acts} decisions={decisions} />}
-            {canReopen(t) && <Reabrir slug={p.slug} k={k} version={t.version} />}
+            {canReopen(t) && <Reabrir slug={p.slug} k={k} version={t.version} hasMuestra={!!t.muestra} />}
             {/* PLA-I71-1: «Dile algo» and «Reanudar corrida», moved here from Equipo. */}
             {acts && t.kind !== "initiative" && <Trabajo p={p} k={k} acts={acts} />}
           </>
