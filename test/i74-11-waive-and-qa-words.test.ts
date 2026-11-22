@@ -89,7 +89,7 @@ describe("waive rights (check 1)", () => {
 });
 
 describe("QA words from the result (check 2)", () => {
-  const ok = (name: string, pass: number | null = null) => ({ name, command: name, exit_code: 0, ok: true, pass, fail: pass === null ? null : 0, duration_s: 1, tail: null });
+  const ok = (name: string, pass: number | null = null) => ({ name, command: name, exit_code: 0, ok: true, pass, fail: pass === null ? null : 0, duration_s: 1, tail: "" });
   const bad = (name: string) => ({ name, command: name, exit_code: 1, ok: false, pass: 12, fail: 2, duration_s: 1, tail: "x" });
   const base = { attempt: 1, checklist: { ok: 0, total: 0 }, captures: null };
   test("pass: a checks-only lane says why there is no review, never «fallaron las pruebas»", () => {
