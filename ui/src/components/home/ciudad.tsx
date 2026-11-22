@@ -163,7 +163,7 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
             {loose.length > 0 && (
               <Link
                 to="/inbox"
-                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-owner/45 bg-status-owner/12 px-3 text-xs font-semibold text-ink-owner transition hover:bg-status-owner/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="inline-flex min-h-9 items-center gap-2 rounded-full border border-status-owner/45 bg-status-owner/12 px-3 text-xs font-semibold text-ink-owner transition-[background-color,scale] active:scale-[0.97] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-status-owner/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 {w.loose(loose.length)}
               </Link>
