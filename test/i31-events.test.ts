@@ -197,7 +197,7 @@ test("PLA-164: after «Constrúyelo» the idea's promotion wakes Taller on step 
   await writes.setTask(db, { project: "micasa", key: ideaKey, promoted_to: "EV-BUILT", version } as never, ctx);
   const w = await wakes();
   assert.deepEqual(w.map((x) => [x.agent, x.task_key]), [["taller", "EV-B1"]]);
-  assert.match(w[0]!.summary, /Constrúyelo/);
+  assert.match(w[0]!.summary, /built from/);
   await raw.query(`delete from agent_runs`);
   await backlog("EV-B2", { parent_key: "EV-BUILT", phase: 2, status: "Ready" });
   assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "EV-B2"]], "a later step born Ready under it wakes Taller too");

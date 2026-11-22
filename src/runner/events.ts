@@ -244,7 +244,7 @@ async function targetOf(
       if (ini && ini.status !== "On hold") {
         const taller = await serviceAgent(tx, "taller", project);
         const first = await firstStepFor(tx, project, ini.id, taller);
-        return first ? { agent: taller, taskKey: first, reason: `«Constrúyelo» on ${task.key}` } : null;
+        return first ? { agent: taller, taskKey: first, reason: `built from ${task.key}` } : null;
       }
     }
     return null;

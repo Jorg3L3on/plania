@@ -144,7 +144,7 @@ export const loadReady = async (db: Db): Promise<ReadyWork[]> => {
     .from(tasks)
     .innerJoin(projects, eq(projects.id, tasks.projectId))
     // PLA-165: ready means startable: no blocker that does not hold, not a step of an initiative the owner put On hold,
-    // and not a ticket a person owns (the owner's own steps, e.g. «Post-deploy (Jorge)»). A Taller start on one of those
+    // and not a ticket a person owns (the owner's own steps, such as a post-deploy step). A Taller start on one of those
     // was picked here and refused by claim (NOT_CLAIMABLE), twice in a row, while the owner's step waited.
     .where(
       and(
