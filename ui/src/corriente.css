@@ -1291,6 +1291,9 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ajustes-sec[data-ajustes="contexto"] { grid-column: 1 / -1; }
 .cor-ajustes-h { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .cor-ajustes-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* PLA-I74-9: the production build QA runs by default. */
+.cor-ajustes-build { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--cor-line); min-width: 0; }
+.cor-ajustes-build code { overflow-wrap: anywhere; }
 .cor-ajustes-form > label { display: flex; flex-direction: column; gap: 6px; }
 .cor-ajustes-form .cor-input, .cor-ajustes-area { width: 100%; min-width: 0; }
 .cor-ajustes-three > label { min-width: 0; }
@@ -3012,5 +3015,3 @@ button.cq-bar:hover { background: rgba(255, 255, 255, 0.03); }
   .cor-paso:hover i:not([class]), .cor-paso.on i:not([class]) { background: rgba(255, 255, 255, 0.2); }
   .cor-lado-sg:not(.open):hover i { height: 8px; }
 }
-.cor-ajustes-build { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--cor-line); min-width: 0; }
-.cor-ajustes-build code { overflow-wrap: anywhere; }
