@@ -131,16 +131,16 @@ describe("goals", () => {
     const root = tree.goals.find((g: Json) => g.id === company.id);
     const childA = root.children.find((g: Json) => g.id === workia.id);
     const childB = root.children.find((g: Json) => g.id === micasa.id);
-    assert.deepEqual(childA.progress, { done: 2, total: 4 }, "Won't do counts in the total and not in done");
+    assert.deepEqual(childA.progress, { done: 2, total: 3 }, "a Won't do ticket counts in neither done nor the total");
     assert.deepEqual(childA.initiatives.map((i: Json) => i.key).sort(), [initA.key, initA2.key].sort());
     assert.deepEqual(childB.progress, { done: 0, total: 1 });
-    assert.deepEqual(root.progress, { done: 3, total: 6 });
+    assert.deepEqual(root.progress, { done: 3, total: 5 });
     assert.equal(root.initiatives.length, 1);
     assert.equal(root.initiatives[0].key, initC.key);
 
     const onlyWorkia = await tool("list_goals", { project: "workia" });
     assert.deepEqual(onlyWorkia.goals.map((g: Json) => g.id), [workia.id]);
-    assert.deepEqual(onlyWorkia.goals[0].progress, { done: 2, total: 4 });
+    assert.deepEqual(onlyWorkia.goals[0].progress, { done: 2, total: 3 });
 
     const [linked] = await db.select().from(tasks).where(eq(tasks.key, initA.key));
     const chain = await whyChainOf(db, linked!);
@@ -153,7 +153,7 @@ describe("goals", () => {
     assert.equal(cleared.__error, undefined, JSON.stringify(cleared));
     assert.ok(cleared.changed.includes("goal_id"));
     const after = await tool("list_goals", { project: "workia" });
-    assert.deepEqual(after.goals[0].progress, { done: 1, total: 3 });
+    assert.deepEqual(after.goals[0].progress, { done: 1, total: 2 });
   });
 
   test("goal_id is refused on a ticket, an unknown goal, and another project's goal", async () => {
