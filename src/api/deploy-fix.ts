@@ -4,13 +4,20 @@
 //                 Null once released, and when nothing of the initiative is waiting on a deploy.
 //   pedirArreglo  a failed deploy becomes a Taller step under the initiative that carries the build log. One step
 //                 per failed deploy: asking again returns the same key.
+//   arregloDePaso PLA-170: the same, asked from one step: its initiative's when it has one, else a standalone step.
+//                 The turn watchdog (src/jobs/turns.ts) asks it for a merged step whose production build failed, so a
+//                 failed deploy reaches Taller with no click and no vague «waits on something outside» card.
+// PLA-170: a step counts as waiting on the deploy while it is merged and not yet published, whatever its status
+// (the watchdog or an agent may have moved a Merged step to Needs owner meanwhile); before, only Merged counted, so
+// the card vanished and «Pedir arreglo» refused once a step left Merged.
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import type { Project } from "../db/schema.js";
 import type { Db } from "../db/client.js";
 import { pullRequests, tasks, type Task } from "../db/schema.js";
 import { readDeployTruth, setDeployFix, type DeployState, type DeployTruth } from "../jobs/deploy-truth.js";
 import { findProject } from "../mcp/queries.js";
 import { ST } from "../state/status.js";
-import { webCtx } from "../mcp/tx.js";
+import { SYSTEM_ACTOR, webCtx, type Ctx } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { serviceAgent } from "../runner/events.js";
 import { defineWords, say } from "../words.js";
@@ -70,11 +77,12 @@ export const DEPLOY_FIX_WORDS = defineWords({
 });
 
 type Refusal = { error: string; status: 400 | 404 | 409; hint: string };
-const LANDED_NOT_OUT: string[] = [ST.merged];
+// Published, or never going to be: nothing of these waits on a deploy.
+const OUT: string[] = [ST.released, ST.done, ST.wontDo];
 
-/** The merges of the initiative's steps that wait on a deploy: Merged, with a merge commit. */
-async function waitingMerges(db: Db, kids: Pick<Task, "id" | "status">[]): Promise<{ sha: string; at: Date }[]> {
-  const ids = kids.filter((k) => LANDED_NOT_OUT.includes(k.status)).map((k) => k.id);
+/** The merges of the steps that wait on a deploy: not yet published, with a merged PR and its merge commit. */
+export async function waitingMerges(db: Db, kids: Pick<Task, "id" | "status">[]): Promise<{ sha: string; at: Date }[]> {
+  const ids = kids.filter((k) => !OUT.includes(k.status)).map((k) => k.id);
   if (!ids.length) return [];
   const rows = await db
     .select({ sha: pullRequests.mergeSha, at: pullRequests.mergedAt })
@@ -106,8 +114,29 @@ export async function pedirArreglo(db: Db, slug: string, key: string): Promise<{
   const [init] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (!init || init.kind !== "initiative") return { error: "TASK_NOT_FOUND", status: 404, hint: "no such initiative" };
   const kids = await db.select({ id: tasks.id, status: tasks.status }).from(tasks).where(and(eq(tasks.parentId, init.id), eq(tasks.kind, "ticket")));
+  return askFix(db, p, init.key, kids, { ...webCtx, tool: "company.deploy_fix" });
+}
+
+/** PLA-170: «Pedir arreglo» for one step: under its initiative when it has one, else a standalone Taller step. The
+ * watchdog asks it as Plania (system: true); the screen as the owner. */
+export async function arregloDePaso(db: Db, slug: string, key: string, o: { system?: boolean } = {}): Promise<{ key: string; existing: boolean } | Refusal> {
+  const ctx: Ctx = o.system ? { actor: SYSTEM_ACTOR, system: true, tool: "turn.watchdog" } : { ...webCtx, tool: "company.deploy_fix" };
+  const p = await findProject(db, slug);
+  const [step] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  if (!step || step.kind !== "ticket") return { error: "TASK_NOT_FOUND", status: 404, hint: "no such step" };
+  if (step.parentId) {
+    const [init] = await db.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, step.parentId)).limit(1);
+    if (init) {
+      const kids = await db.select({ id: tasks.id, status: tasks.status }).from(tasks).where(and(eq(tasks.parentId, step.parentId), eq(tasks.kind, "ticket")));
+      return askFix(db, p, init.key, kids, ctx);
+    }
+  }
+  return askFix(db, p, null, [{ id: step.id, status: step.status }], ctx, step.key);
+}
+
+async function askFix(db: Db, p: Project, parentKey: string | null, kids: Pick<Task, "id" | "status">[], ctx: Ctx, label = parentKey ?? ""): Promise<{ key: string; existing: boolean } | Refusal> {
   const t = await readDeployTruth(db, p.id);
-  if (!t || t.state !== "error" || !carries(t, await waitingMerges(db, kids))) return { error: "DEPLOY_NOT_FAILED", status: 409, hint: "the production deploy of this initiative has not failed" };
+  if (!t || t.state !== "error" || !carries(t, await waitingMerges(db, kids))) return { error: "DEPLOY_NOT_FAILED", status: 409, hint: "the production deploy of this work has not failed" };
   if (t.fix_key) return { key: t.fix_key, existing: true };
   const w = say(DEPLOY_FIX_WORDS);
   const taller = await serviceAgent(db, "taller", p);
@@ -115,11 +144,11 @@ export async function pedirArreglo(db: Db, slug: string, key: string): Promise<{
     db,
     {
       project: p.slug,
-      parent_key: init.key,
+      ...(parentKey ? { parent_key: parentKey } : {}),
       ...(taller ? { owner_agent: taller.slug } : {}),
       title: w.title,
       summary: w.summary,
-      scope: w.scope(init.key, t.sha, t.url, t.log ?? w.noLog),
+      scope: w.scope(label, t.sha, t.url, t.log ?? w.noLog),
       checks: w.checks,
       status: ST.ready,
       work_type: "bug",
@@ -128,7 +157,7 @@ export async function pedirArreglo(db: Db, slug: string, key: string): Promise<{
       found_in: "prod",
       priority: "P1",
     } as never,
-    { ...webCtx, tool: "company.deploy_fix", requestId: `deploy-fix:${p.id}:${t.deployment_id}` },
+    { ...ctx, requestId: `deploy-fix:${p.id}:${t.deployment_id}` },
   )) as { key: string };
   await setDeployFix(db, p.id, t.deployment_id, made.key);
   return { key: made.key, existing: false };

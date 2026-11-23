@@ -495,6 +495,40 @@ describe("PLA-I74-3: scenario rows", () => {
     });
   });
 
+  test("PLA-170: a project with no deploy setting and no key ships: the host's GitHub status says READY, the step is «En producción»", async () => {
+    await row("npm", { host: "none" }, async (w) => {
+      await walk(w);
+      await settled(w);
+      const p = await m.queries.findProject(db, w.slug);
+      assert.equal(p.settings.vercel, undefined, "nothing about the host was set");
+    });
+  });
+
+  test("PLA-170: no deploy setting and no key, the host answers ERROR after Publicar; the red card comes from GitHub and the watchdog asks Taller for the fix with no click", async () => {
+    await row("npm", { host: "none" }, async (w) => {
+      w.host.outcome = "ERROR";
+      await pedir(w);
+      await asiEs(w);
+      await meGusta(w);
+      await construir(w);
+      await aceptar(w);
+      await publicar(w);
+      const ficha = async () => (await w.read(`/api/company/projects/${w.slug}/ideas/${w.ideaKey}`)).json;
+      await w.until("the red deploy card on the ficha", async () => (await ficha()).built?.deploy?.state === "error", 4);
+      assert.ok(!["Released", "Done"].includes((await w.task(w.stepKey!))!.status), "a failed deploy is not «En producción»");
+      // The watchdog: two minutes of grace, then the fix step, made by Plania, under the initiative.
+      await w.until("the fix step, asked by the watchdog", async () => !!(await ficha()).built?.deploy?.fix_key, 6);
+      const fixKey = (await ficha()).built.deploy.fix_key as string;
+      const fix = (await w.task(fixKey))!;
+      assert.match(fix.scope ?? "", /Vercel: failure/, "the fix carries what the host said");
+      await w.until("Taller woken on the fix", async () => w.spawned.some((x) => x.role === "taller" && x.key === fixKey), 4);
+      assert.deepEqual(w.clicks.map((c) => c.what), [...DECISIONS], "no click after Publicar");
+      const vague = (await raw.query("select question from questions where project_id = $1 and question like '%algo de fuera%'", [w.pid])).rows;
+      assert.deepEqual(vague, [], "no «waits on something outside» card");
+      assert.deepEqual(w.fakeErrors, []);
+    });
+  });
+
   test("an agent asks the owner a question; his answer on the screen reaches the agent and the request goes on", async () => {
     let asked = false;
     const po = async (run: Run, w: World) => {

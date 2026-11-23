@@ -13,6 +13,7 @@ import { compareKey, migrationFiles, releaseCompareOf, releasePlan, type Release
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { setEnv } from "../mcp/env.js";
+import { vercelTargetOf } from "./deploy-host.js";
 import { probeLive, productionUrlOf, readDeployTruth, writeDeployTruth } from "./deploy-truth.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
 import type { Job } from "./index.js";
@@ -597,30 +598,45 @@ export const mayReleaseByBranch = (p: Pick<Project, "settings">): boolean => p.s
 // Plania has no token for it. The release branch's head is the production commit: a red status is a failed
 // production build (its description is the excerpt; GitHub carries no log), a green one counts once the production
 // URL answers, and then the head becomes the release target's commit so Merged tickets move to Released.
+// PLA-170: read for every project with a repo, with no setting: a project that publishes through a host it never
+// configured in Plania still gets its failed build as a red card. It stands aside only while the Vercel poller reads
+// that project's host fine (or has not run yet): with no key, or a key the host refuses, it reads the statuses.
 export const HOST_CONTEXT = /vercel|netlify|render|railway|cloudflare|deploy|fly\.io|heroku/i;
+// A host posts its status within minutes of a push. A head with no host status for this long is a project with no
+// host (a library, a local app): its statuses are not asked again until the head moves. In memory: a restart asks once.
+export const HOST_QUIET_MS = 30 * 60_000;
+const noHostSince = new Map<string, { sha: string; at: number }>();
 export async function pollHostStatuses(db: Db, p: Project, deps: GithubDeps, token: string, repo: string): Promise<number> {
-  const host = p.settings.vercel;
-  if (!host?.project_id || (deps.env ?? process.env)[host.token_env ?? "VERCEL_TOKEN"]) return 0;
-  // Only once the Vercel poller has said it has no token (its job runs every minute): while it reads the host itself,
-  // or before it has run, there is nothing to fall back from. Its env may differ from this poller's.
-  const [vercelPoll] = await db.select({ error: pollState.error }).from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel"))).limit(1);
-  if (!vercelPoll?.error?.startsWith("no token")) return 0;
+  if (await vercelTargetOf(db, p)) {
+    const [vercelPoll] = await db.select({ error: pollState.error }).from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel"))).limit(1);
+    if (!vercelPoll?.error) return 0;
+  }
   const branch = releaseBranchOf(p);
   const head = await gh(deps, token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
   const sha = head.status === 200 ? (head.data as Branch).commit?.sha?.toLowerCase() : undefined;
   if (!sha) return 0;
+  // A settled answer for this very commit is not asked again (no status call per minute for a quiet branch).
+  const settled = await readDeployTruth(db, p.id);
+  if (settled?.provider === "github" && settled.sha === sha && settled.state === "live") return 0;
+  const nowMs = (deps.now ?? new Date()).getTime();
+  const quiet = noHostSince.get(p.id);
+  if (quiet?.sha === sha && nowMs - quiet.at > HOST_QUIET_MS) return 0;
   const combined = await gh(deps, token, `/repos/${repo}/commits/${sha}/status?per_page=100`);
   type HostStatus = { context: string; state: string; target_url: string | null; description?: string | null; created_at?: string; updated_at?: string };
   const list = combined.status === 200 && Array.isArray((combined.data as CombinedStatus).statuses) ? ((combined.data as CombinedStatus).statuses as HostStatus[]) : [];
   const hosts = list.filter((x) => HOST_CONTEXT.test(x.context) && !/preview/i.test(x.context));
-  if (!hosts.length) return 0;
+  if (!hosts.length) {
+    if (quiet?.sha !== sha) noHostSince.set(p.id, { sha, at: nowMs });
+    return 0;
+  }
+  noHostSince.delete(p.id);
   const failed = hosts.find((x) => x.state === "failure" || x.state === "error");
   const green = hosts.every((x) => x.state === "success");
   const main = failed ?? hosts.find((x) => x.state !== "success") ?? hosts[0]!;
   const id = `${main.context}@${sha}`;
   const before = await readDeployTruth(db, p.id);
-  // A settled answer for this very commit is not asked again.
-  if (before?.deployment_id === id && (before.state === "live" || before.state === "error")) return 0;
+  // A settled answer for this very commit is not written again (a failed one keeps the fix step it got).
+  if (before?.deployment_id === id && (before.state === "live" || (before.state === "error" && !!failed))) return 0;
   const now = deps.now ?? new Date();
   const base = { provider: "github" as const, deployment_id: id, sha, url: main.target_url, created_at: main.updated_at ?? main.created_at ?? now.toISOString() };
   if (failed) {
@@ -650,7 +666,9 @@ export async function pollHostStatuses(db: Db, p: Project, deps: GithubDeps, tok
 export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, targetSha: string) => Promise<boolean>): Promise<number> {
   const env = p.settings.release_target ?? "prod";
   const [state] = await db.execute<{ commit: string | null }>(sql`select commit from env_states where project_id = ${p.id} and env = ${env}`).then((r) => r.rows);
-  const byBranch = p.settings.release_on === "branch" || (mayReleaseByBranch(p) && !state?.commit);
+  // PLA-170: once a host has said anything about production (deploy truth), the branch alone no longer counts: a red
+  // build on the release branch must not read as «En producción».
+  const byBranch = p.settings.release_on === "branch" || (mayReleaseByBranch(p) && !state?.commit && !(await readDeployTruth(db, p.id)));
   let target: { label: string; commit: string };
   if (byBranch) {
     const name = releaseBranchOf(p);

@@ -7,6 +7,8 @@
 // and «nobody» is the gap the watchdog heals (src/jobs/turns.ts): a Ready step no wake reached, a step held by a run
 // that ended (PLA-167), a lapsed lease, a sent-back delivery or a red CI nobody picked up, an outside wait past its
 // limit. The board's working/queued/waiting text reads the turn, so «Taller trabaja» never shows without a live run.
+// PLA-170: a merged step whose production build failed is not «waiting on the deploy» (that wait would only run out
+// into a vague owner card): it is nobody's until its fix step exists (the watchdog asks for it), then it waits on it.
 // Pure: turnFacts (src/state/turn-facts.ts) reads the facts.
 import { ST } from "./status.js";
 
@@ -17,10 +19,11 @@ export const OUTSIDE_LIMIT_MIN = { ci: 30, photos: 20, review: 30, merge: 15, de
 export type QueueReason = "run_queued" | "agent_busy" | "waits_step" | "qa_queued";
 export type OwnerCard = "question" | "delivery" | "own_step" | "action" | "postponed" | "backlog" | "blocked" | "paused";
 export type OutsideOn = keyof typeof OUTSIDE_LIMIT_MIN | "time";
-export type NobodyWhy = "not_woken" | "held_by_ended_run" | "lease_lapsed" | "sent_back" | "ci_red" | "overdue";
+export type NobodyWhy = "not_woken" | "held_by_ended_run" | "lease_lapsed" | "sent_back" | "ci_red" | "overdue" | "deploy_failed";
 // What one heal does: wake the agent that works the step (after releasing a hold an ended run left), or nothing
 // (an overdue outside wait has no agent to wake: it goes straight to the owner's card).
-export type Heal = { kind: "wake"; release: boolean; reason: string } | { kind: "none" };
+// deploy_fix (PLA-170): ask Taller for the fix of the failed production build (src/api/deploy-fix.ts arregloDePaso).
+export type Heal = { kind: "wake"; release: boolean; reason: string } | { kind: "deploy_fix" } | { kind: "none" };
 
 export type Turn =
   | { turn: "agent_working"; agent: string | null; run_id: string | null; since: string | null }
@@ -65,6 +68,8 @@ export type TurnInput = {
   // something else now.
   worker: string | null;
   workerBusy: boolean;
+  // PLA-170: the production build that carries this step's merge failed; fix: the Taller step asked for it, if any.
+  deployFailed?: { fix: string | null } | null;
 };
 
 const plus = (d: Date | null, minutes: number, now: Date) => new Date((d ?? now).getTime() + minutes * MIN);
@@ -124,6 +129,7 @@ export function turnOf(f: TurnInput, now: Date): TurnOrNobody | null {
       if (f.ci === "pending") return wait("ci");
       return wait("review");
     case ST.merged:
+      if (f.deployFailed) return f.deployFailed.fix ? { turn: "agent_queued", agent: f.worker, reason: "waits_step", detail: f.deployFailed.fix } : nobody("deploy_failed", { kind: "deploy_fix" });
       return wait("deploy");
     case ST.released:
       return wait("close");

@@ -1,6 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import type { CaminoKeyStore } from "../camino/keys.js";
 import { pollState, projects, type Project } from "../db/schema.js";
+import { NO_TOKEN, vercelTargetOf, vercelTokenOf } from "./deploy-host.js";
 import { setEnv } from "../mcp/env.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
 import { closeReleased, releaseMerged, type Fetch } from "./github.js";
@@ -17,6 +19,11 @@ import type { Job } from "./index.js";
 // holds the cursor so it is read again. The newest READY production deploy is recorded only once the production
 // URL answers, so «En producción» never shows before the site does. Without a token the GitHub poller reads the
 // commit statuses the host posts instead.
+//
+// PLA-170: which Vercel project is read, and with which key, is one rule (vercelTargetOf, vercelTokenOf): the project in
+// settings.vercel, else the Vercel project picked as Camino's production server; the key saved in Camino › Conexiones,
+// else the env var. Before, only settings.vercel and the env var counted, so a project set up through the screen was
+// never read. A key the host refuses is stored as an error that is not «no token»: the GitHub poller falls back on it too.
 
 type Deployment = {
   uid: string;
@@ -32,7 +39,7 @@ type Deployment = {
 };
 type BuildEvent = { type?: string; text?: string; payload?: { text?: string } };
 
-export type VercelDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined> };
+export type VercelDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined>; keys?: CaminoKeyStore };
 
 const FAILED = ["ERROR"];
 const ENDED = ["ERROR", "CANCELED"];
@@ -59,9 +66,14 @@ async function buildLog(deps: VercelDeps, token: string, d: Deployment, teamId?:
 }
 
 export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): Promise<Record<string, number>> {
-  const cfg = p.settings.vercel;
-  if (!cfg?.project_id) return {};
-  const token = (deps.env ?? process.env)[cfg.token_env ?? "VERCEL_TOKEN"];
+  const cfg = await vercelTargetOf(db, p);
+  if (!cfg) {
+    // No Vercel project any more: an old error must not keep saying deploys cannot be read.
+    await db.delete(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel")));
+    return {};
+  }
+  const key = await vercelTokenOf(p, cfg, deps);
+  const token = key?.token;
   const summary: Record<string, number> = { deployments: 0, released: 0, failed: 0 };
   const [row] = await db.select().from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel")));
   const cursor = row?.cursor ?? {};
@@ -71,7 +83,7 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
       .values({ projectId: p.id, source: "vercel", cursor, polledAt: sql`now()`, error })
       .onConflictDoUpdate({ target: [pollState.projectId, pollState.source], set: { cursor, polledAt: sql`now()`, error } });
   if (!token) {
-    await save(`no token in ${cfg.token_env ?? "VERCEL_TOKEN"}`);
+    await save(`${NO_TOKEN}: none saved in Camino, none in ${cfg.token_env ?? "VERCEL_TOKEN"}`);
     return summary;
   }
   const now = deps.now ?? new Date();
@@ -143,7 +155,6 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
 export async function pollVercel(db: Db, deps: VercelDeps): Promise<Record<string, number>> {
   const total: Record<string, number> = {};
   for (const p of await db.select().from(projects)) {
-    if (!p.settings.vercel?.project_id) continue;
     try {
       for (const [k, v] of Object.entries(await pollVercelProject(db, p, deps))) total[k] = (total[k] ?? 0) + v;
     } catch (e) {

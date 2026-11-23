@@ -5,6 +5,7 @@ import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
+import { MemoryCaminoKeyStore, useCaminoKeyStore } from "../src/camino/keys.js";
 import { migrate } from "../src/db/migrate.js";
 
 // PLANIA_TEST_PGUSER: the Postgres role the tests connect as, when it is not the OS user (a Windows machine whose
@@ -37,6 +38,8 @@ export function useTestEnv(): void {
   process.env.PLANIA_MACHINE_CHECK = "0";
   // PLA-I2-4: machine-bound parts (test copy, stills, base lever) count as available; i2-4 tests decide per case.
   process.env.PLANIA_TEST_SYSTEM_SUPPORT = "all";
+  // PLA-170: Camino's keys live in a memory store, never this machine's keychain (the Vercel poller reads it now).
+  useCaminoKeyStore(new MemoryCaminoKeyStore());
   // AUDIT-2: tests never read the repo's own kit (its skills and default kits would join every run). A test that
   // wants a kit points PLANIA_KIT_DIR at its own folder.
   process.env.PLANIA_KIT_DIR ??= path.join(REPO_ROOT, "test", "fixtures", "no-kit");

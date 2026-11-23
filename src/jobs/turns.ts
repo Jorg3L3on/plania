@@ -3,11 +3,16 @@
 // releasing a hold an ended run left. Each heal is logged as turn.healed with its reason, and feeds the run report;
 // the bar is zero. A step still nobody's two minutes after its heal raises one owner card: a question only he answers.
 // One heal and one card per step within HEAL_WINDOW, so a step that keeps falling back never loops.
+// PLA-170: a merged step whose production build failed is healed by asking Taller for the fix (the same step «Pedir
+// arreglo» makes, one per failed deploy); its card, if that could not be asked, says the build failed.
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, events, projects, tasks, type Project } from "../db/schema.js";
 import { projectEtapas } from "../api/etapa.js";
+import { arregloDePaso } from "../api/deploy-fix.js";
 import { ask } from "../mcp/questions.js";
+import { readDeployTruth } from "./deploy-truth.js";
+import { ST } from "../state/status.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { eventWakesEnabled } from "../runner/events.js";
@@ -31,6 +36,8 @@ export const TURN_WORDS = defineWords({
       sent_back: "lo devolviste y nadie lo retomó",
       ci_red: "las pruebas fallan y nadie las arregla",
       overdue: "espera algo de fuera que no llega",
+      deploy_failed: "la construcción de producción falló y no se pudo pedir el arreglo",
+      deploy_unseen: "espera publicarse y Plania no ve ningún despliegue; conecta en Camino › Despliegue el servicio que publica",
     } as Record<string, string>,
   },
   en: {
@@ -43,6 +50,8 @@ export const TURN_WORDS = defineWords({
       sent_back: "you sent it back and nobody picked it up",
       ci_red: "the checks fail and nobody fixes them",
       overdue: "it waits on something outside that does not come",
+      deploy_failed: "the production build failed and the fix could not be asked for",
+      deploy_unseen: "it waits to be published and Plania sees no deploy; connect the service that publishes in Camino › Despliegue",
     } as Record<string, string>,
   },
 });
@@ -82,7 +91,7 @@ export async function sweepTurns(db: Db, now = new Date(), env: NodeJS.ProcessEn
       const first = firstSeen.get(mark) ?? now.getTime();
       firstSeen.set(mark, first);
       if (now.getTime() - first < NOBODY_GRACE_MS) continue;
-      const done = await healOrCard(db, p, row.key, row.title, row.turn, now);
+      const done = await healOrCard(db, p, row.key, row.title, row.turn, now, row.status);
       if (done === "healed") out.healed += 1;
       if (done === "card") out.cards += 1;
     }
@@ -91,20 +100,30 @@ export async function sweepTurns(db: Db, now = new Date(), env: NodeJS.ProcessEn
   return out;
 }
 
-async function healOrCard(db: Db, p: Project, key: string, title: string, turn: Nobody, now: Date): Promise<"healed" | "card" | "waiting" | null> {
+async function healOrCard(db: Db, p: Project, key: string, title: string, turn: Nobody, now: Date, status?: string): Promise<"healed" | "card" | "waiting" | null> {
   const [t] = await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (!t) return null;
   const since = new Date(now.getTime() - HEAL_WINDOW_MS);
   const healed = await lastOf(db, t.id, "turn.healed", since);
   if (!healed) {
     const heal = turn.heal.kind === "wake" ? await healStep(db, p, key, { reason: `${turn.heal.reason} (watchdog)`, release: turn.heal.release, from: "turn.watchdog", now }) : null;
+    const fix = turn.heal.kind === "deploy_fix" ? await arregloDePaso(db, p.slug, key, { system: true }) : null;
     await db.insert(events).values({
       projectId: p.id,
       taskId: t.id,
       taskKey: t.key,
       type: "turn.healed",
       actor: SYSTEM_ACTOR,
-      payload: { reason: turn.why, heal: turn.heal.kind === "wake" ? (turn.heal.release ? "release+wake" : "wake") : "none", agent: heal?.agent ?? turn.agent, released: heal?.released ?? false, woke: heal?.woke ?? false, run_id: heal?.run_id ?? null, skipped: heal?.skipped ?? null },
+      payload: {
+        reason: turn.why,
+        heal: turn.heal.kind === "wake" ? (turn.heal.release ? "release+wake" : "wake") : turn.heal.kind,
+        agent: heal?.agent ?? turn.agent,
+        released: heal?.released ?? false,
+        woke: heal?.woke ?? false,
+        run_id: heal?.run_id ?? null,
+        skipped: heal?.skipped ?? (fix && "error" in fix ? fix.error : null),
+        ...(fix && "key" in fix ? { fix_key: fix.key } : {}),
+      },
     });
     return "healed";
   }
@@ -121,7 +140,9 @@ async function healOrCard(db: Db, p: Project, key: string, title: string, turn: 
   const slug = typeof last?.payload?.agent === "string" ? last.payload.agent : null;
   const who = slug ? ((await db.select({ name: agents.name }).from(agents).where(eq(agents.slug, slug)).limit(1))[0]?.name ?? null) : null;
   try {
-    await ask(db, { project: p.slug, key, question: w.card(title, who, w.why[turn.why] ?? w.why.not_woken!), human_only: true, urgency: "soon" }, { actor: SYSTEM_ACTOR, tool: "turn.watchdog" });
+    // PLA-170: a merged step past its deploy wait, with no host answer at all, says what is missing instead of «outside».
+    const why = turn.why === "overdue" && status === ST.merged && !(await readDeployTruth(db, p.id)) ? "deploy_unseen" : turn.why;
+    await ask(db, { project: p.slug, key, question: w.card(title, who, w.why[why] ?? w.why.not_woken!), human_only: true, urgency: "soon" }, { actor: SYSTEM_ACTOR, tool: "turn.watchdog" });
   } catch (e) {
     if (!(e instanceof ToolError)) throw e;
     return null;
