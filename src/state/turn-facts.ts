@@ -3,7 +3,9 @@
 // questions, blockers, and the board's stage of each ticket (projectEtapas, passed in).
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, blockers, envStates, questions, taskBlockers, tasks, type Actor, type Agent, type Project } from "../db/schema.js";
+import { agentRuns, agents, blockers, envStates, pullRequests, questions, taskBlockers, tasks, type Actor, type Agent, type Project } from "../db/schema.js";
+import { carries } from "../api/deploy-fix.js";
+import { readDeployTruth } from "../jobs/deploy-truth.js";
 import { typedBlockerOpen } from "../mcp/blockers.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { isRunSession, sessionsOf } from "../runner/run-session.js";
@@ -76,6 +78,21 @@ export async function projectTurns(db: Db, p: Pick<Project, "id" | "slug" | "run
   const taller = await serviceAgent(db, "taller", p);
   const po = await serviceAgent(db, "product-owner", p);
   const paused = p.runsPaused || (await loadSettings(db)).companyPaused;
+  // PLA-170: the failed production build each Merged step's merge rides on, and the title of its fix step.
+  const failedOf = new Map<string, { fix: string | null }>();
+  const merged = rows.filter((r) => r.status === ST.merged);
+  const truth = merged.length ? await readDeployTruth(db, p.id) : null;
+  if (truth?.state === "error") {
+    const prs = await db
+      .select({ taskId: pullRequests.taskId, sha: pullRequests.mergeSha, at: pullRequests.mergedAt })
+      .from(pullRequests)
+      .where(and(inArray(pullRequests.taskId, merged.map((r) => r.id)), sql`${pullRequests.mergedAt} is not null`));
+    const [fix] = truth.fix_key ? await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, truth.fix_key))).limit(1) : [];
+    for (const r of merged) {
+      const mine = prs.filter((x) => x.taskId === r.id && x.sha && x.at).map((x) => ({ sha: x.sha!.toLowerCase(), at: x.at! }));
+      if (carries(truth, mine)) failedOf.set(r.id, { fix: truth.fix_key ? (fix?.title ?? truth.fix_key) : null });
+    }
+  }
 
   const live = new Map<string, (typeof runs)[number]>();
   const queued = new Map<string, (typeof runs)[number]>();
@@ -120,6 +137,7 @@ export async function projectTurns(db: Db, p: Pick<Project, "id" | "slug" | "run
       ci: b?.etapa.ci ?? null,
       worker: worker?.slug ?? null,
       workerBusy: !!worker && busy.has(worker.id),
+      deployFailed: failedOf.get(t.id) ?? null,
     };
     const turn = turnOf(input, now);
     return turn ? [{ key: t.key, id: t.id, title: t.title, status: t.status, statusChangedAt: input.statusChangedAt, turn, worker }] : [];

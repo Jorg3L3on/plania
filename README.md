@@ -979,7 +979,7 @@ Advanced settings, which can be left alone:
 | `claim_from` | backlog | The PO decides what is Ready; the default suits a team the PO leads. |
 | `resources` | none: leases with the server's limits | Leases work without it; it only caps how long one may be held. |
 | `quotas` | none | Only for a project that calls an outside service with a daily cap. |
-| `vercel` | none: deploys are not read | Only for a project deployed on Vercel. |
+| `vercel` | none: host statuses on GitHub, and Camino's Vercel project with the saved key | Only to read a Vercel project or key other than the one Camino names. |
 | `maquinas` | found in the repo: the env file, the migrate and seed scripts, the migrations folder | Plania finds them in package.json and the repo; set them only when it cannot. |
 | `identity` | by slug, alphabetically | Alphabetical order works until there are enough projects to care. |
 | `team` | idle after 120 minutes | Two hours suits runs of any length the runner starts. |

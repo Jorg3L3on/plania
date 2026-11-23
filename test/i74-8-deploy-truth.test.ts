@@ -232,19 +232,17 @@ describe("github statuses without a Vercel token", () => {
     }
   });
 
-  test("with a Vercel token the GitHub poller leaves the host to the Vercel poller", async () => {
+  test("while the Vercel poller reads the host fine (or has not run) the GitHub poller leaves the host to it, whatever its own env holds", async () => {
     const { db, close } = makeDb();
     try {
       const { fetch, calls } = fakeFetch({});
       const p = await findProject(db, "zigzag");
       const { pollHostStatuses } = await import("../src/jobs/github.js");
-      assert.equal(await pollHostStatuses(db, p, { fetch, env: { VERCEL_TOKEN: "vc" } }, "ghp", "o/zig"), 0);
-      assert.equal(calls.length, 0);
-      // PLA-169: nor when the Vercel poller reads the host fine (or has not run), even if this poller's env lacks its token.
+      // PLA-169/170: only the Vercel poller's own record counts, not this poller's env.
       await raw.query("update poll_state set error = null where source = 'vercel' and project_id = $1", [p.id]);
       assert.equal(await pollHostStatuses(db, p, { fetch, env: {} }, "ghp", "o/zig"), 0);
       await raw.query("delete from poll_state where source = 'vercel' and project_id = $1", [p.id]);
-      assert.equal(await pollHostStatuses(db, p, { fetch, env: {} }, "ghp", "o/zig"), 0);
+      assert.equal(await pollHostStatuses(db, p, { fetch, env: { VERCEL_TOKEN: "vc" } }, "ghp", "o/zig"), 0);
       assert.equal(calls.length, 0);
     } finally {
       await close();

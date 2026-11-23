@@ -40,6 +40,7 @@ export const READY_WORDS = defineWords({
     deployFailed: (k: string) => `${k}: el deploy falló.`,
     envBehind: (k: string) => `${k}: el entorno va detrás de la rama de integración.`,
     envUnknown: (k: string) => `${k}: no se sabe si el entorno está al día.`,
+    deployUnread: (k: string) => `${k}: no se pueden leer los despliegues; no se sabe si llegó a producción.`,
     overlap: (a: string, b: string) => `${a} y ${b} trabajan en las mismas áreas.`,
     decision: (k: string) => `${k}: espera una decisión humana.`,
     decisionElsewhere: (k: string) => `${k}: hay una decisión pendiente en otro ticket.`,
@@ -69,6 +70,7 @@ export const READY_WORDS = defineWords({
     deployFailed: (k: string) => `${k}: the deploy failed.`,
     envBehind: (k: string) => `${k}: the environment is behind the integration branch.`,
     envUnknown: (k: string) => `${k}: it is not known whether the environment is up to date.`,
+    deployUnread: (k: string) => `${k}: deploys cannot be read; it is not known whether it reached production.`,
     overlap: (a: string, b: string) => `${a} and ${b} work in the same areas.`,
     decision: (k: string) => `${k}: waits on a human decision.`,
     decisionElsewhere: (k: string) => `${k}: a decision is pending on another ticket.`,
@@ -159,8 +161,11 @@ export type ReadinessInput = {
   lastEventAt: Date | null;
   headlineStale: boolean;
   nextClaimableKey: string | null;
-  /** The Vercel poller stored an error for this project. */
+  /** The host said the production build failed (the deploy row, src/jobs/deploy-truth.ts). */
   deployFailed: boolean;
+  /** PLA-170: the Vercel poller cannot read the host (no key, a refused key) and no host status said anything either:
+   * nobody knows how the deploy went. Caution, never «the deploy failed». Optional: older callers pass nothing. */
+  deployUnread?: boolean;
   /** Some environment is behind an open initiative's integration branch (status drift). */
   envBehind: boolean;
   /**
@@ -315,6 +320,8 @@ export function readinessOf(input: ReadinessInput): Readiness {
     for (const t of [...review].sort(byKey)) {
       caution.push(reason("ENV_UNKNOWN", "caution", t.key, w.envUnknown(t.key)));
     }
+  } else if (review.length && input.deployUnread && !input.deployFailed) {
+    for (const t of [...review].sort(byKey)) caution.push(reason("ENV_UNKNOWN", "caution", t.key, w.deployUnread(t.key)));
   }
 
   const claimed = [...live].sort(byKey);
@@ -564,7 +571,10 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
     headlineStale: p.headlineNoteStale,
     nextClaimableKey: nextKey,
     // PLA-I74-8: a failed production build (the deploy row src/jobs/deploy-truth.ts keeps) counts too.
-    deployFailed: polls.some((row) => (row.source === "vercel" || row.source === "deploy") && !!row.error),
+    // PLA-170: only the deploy row says a build failed. A Vercel poll error (no key, a refused key) means the host
+    // could not be read: unknown, unless the GitHub fallback has since written what the host said.
+    deployFailed: polls.some((row) => row.source === "deploy" && !!row.error),
+    deployUnread: polls.some((row) => row.source === "vercel" && !!row.error) && !polls.some((row) => row.source === "deploy"),
     envBehind: behind.behind,
     envUnknown: behind.unknown,
     initiatives,

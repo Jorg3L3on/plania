@@ -115,6 +115,9 @@ export type Options = {
   /** How deliveries are reviewed: "por_paso" (the owner's Aceptar on each step, the canary's default) or the
    * product's default "por_modulo" (Plania accepts a step on its photos; the owner sees them all at Publicar). */
   revision?: "por_paso" | "por_modulo";
+  /** PLA-170: how Plania learns about the host. "settings" (default): settings.vercel and VERCEL_TOKEN. "none": no
+   * Vercel setting and no key at all, as a project set up without them; only the host's GitHub statuses tell. */
+  host?: "settings" | "none";
 };
 
 export type World = Awaited<ReturnType<typeof makeWorld>>;
@@ -140,7 +143,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
   const settings = {
     local: { repo_path: fx.repo },
     github: { repo: repoName },
-    vercel: { project_id: host.projectId },
+    ...(opts.host === "none" ? {} : { vercel: { project_id: host.projectId } }),
     release: { from: "sandbox", into: "main", env: "prod", mode: "merge" },
     release_target: "prod",
     capture: { start_command: "node server.mjs {port}", port: 4100 + n * 10, pages: [{ key: "inicio", path: "/", label: "Inicio" }, { key: "clientes", path: "/clientes", label: "Clientes" }] },
@@ -433,7 +436,7 @@ export async function makeWorld(m: Mods, raw: pg.Client, db: Db, scratch: string
     await m.probador.waitForProbador();
     const p = await m.queries.findProject(db, slug);
     await m.github.pollGithubProject(db, p, { fetch: net as never, env: { GITHUB_TOKEN: "canary-token" }, now });
-    await m.vercel.pollVercelProject(db, p, { fetch: net as never, env: { VERCEL_TOKEN: "canary-token" }, now });
+    await m.vercel.pollVercelProject(db, p, { fetch: net as never, env: opts.host === "none" ? {} : { VERCEL_TOKEN: "canary-token" }, now });
     for (const job of m.jobs.JOBS.filter((j: { name: string }) => ["blockers", "leases", "revision"].includes(j.name))) await job.runOnce(db, now);
     // PLA-I74-5: the turn watchdog, on the fast clock: one minute per tick, so its two minutes of grace are two ticks.
     const fast = new Date(Math.max(Date.now(), born + ticks * 60_000));
