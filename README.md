@@ -86,6 +86,7 @@ same report as a button. More in [Getting help](#getting-help).
 
 ## For developers
 
+- [CONTRIBUTING.md](CONTRIBUTING.md): what a pull request needs before it can be merged (start here if you are not the owner).
 - [docs/developers.md](docs/developers.md): the stack, dev commands, test databases, scanning a diff.
 - [docs/releasing.md](docs/releasing.md): packing a release, the installers, the manifest.
 - [docs/upgrading.md](docs/upgrading.md): upgrade notes for 2.1 to 2.18, the agents' kit and the migration record.
