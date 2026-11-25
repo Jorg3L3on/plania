@@ -107,6 +107,18 @@ export const LISTO_WORDS = defineWords({
     groups: { falta: "Falta", listo: "Listo", no_hace_falta: "No hace falta" },
     goFix: "Arreglarlo en Ajustes",
     goFixCamino: "Arreglarlo en Despliegue",
+    // Where missing items are fixed, named in a sentence (PLA-132: the code's folder and repository are in Despliegue).
+    lugar: { ajustes: "Ajustes", camino: "Despliegue" } as Record<ListoLugar, string>,
+    o: (head: string, last: string) => `${head} o ${last}`,
+    // The sheet after adding a project, in three sections (ListoSecciones in components/listo.tsx).
+    secciones: { resumen: "Resumen", falta: "Falta", listo: "Listo" } as Record<ListoSeccion, string>,
+    resumenFalta: (n: number) => (n === 1 ? "Le falta 1 cosa para trabajar a gusto." : `Le faltan ${n} cosas para trabajar a gusto.`),
+    resumenNoPara: (donde: string | null) => (donde ? `Ninguna impide empezar: puedes arreglarlas después, desde ${donde}.` : "Ninguna impide empezar."),
+    resumenNada: "No le falta nada: el equipo trabaja en cuanto lo reanudes.",
+    resumenListo: (n: number) => (n === 1 ? "1 cosa ya está lista." : `${n} cosas ya están listas.`),
+    verFalta: "Ver qué falta",
+    verListo: "Ver qué está listo",
+    arreglar: "Arreglar",
     and: (head: string, last: string) => `${head} y ${last}`,
     aviso: (n: number) => (n === 1 ? "Falta 1 cosa para que el equipo pueda trabajar." : `Faltan ${n} cosas para que el equipo pueda trabajar.`),
     created: (name: string) => `${name} está creado`,
@@ -202,6 +214,16 @@ export const LISTO_WORDS = defineWords({
     groups: { falta: "Missing", listo: "Ready", no_hace_falta: "Not needed" },
     goFix: "Fix it in Settings",
     goFixCamino: "Fix it in Deploy",
+    lugar: { ajustes: "Settings", camino: "Deploy" },
+    o: (head: string, last: string) => `${head} or ${last}`,
+    secciones: { resumen: "Summary", falta: "Missing", listo: "Ready" },
+    resumenFalta: (n: number) => (n === 1 ? "1 thing is missing for the team to work at ease." : `${n} things are missing for the team to work at ease.`),
+    resumenNoPara: (donde: string | null) => (donde ? `None of them stops a start: you can fix them later, from ${donde}.` : "None of them stops a start."),
+    resumenNada: "Nothing is missing: the team works as soon as you resume it.",
+    resumenListo: (n: number) => (n === 1 ? "1 thing is already ready." : `${n} things are already ready.`),
+    verFalta: "See what's missing",
+    verListo: "See what's ready",
+    arreglar: "Fix it",
     and: (head: string, last: string) => `${head} and ${last}`,
     aviso: (n: number) => (n === 1 ? "1 thing is missing before the team can work." : `${n} things are missing before the team can work.`),
     created: (name: string) => `${name} is created`,
@@ -289,6 +311,18 @@ export const LISTO_CAMINO: Record<string, "codigo"> = { code: "codigo", github: 
 /** Where a missing item is set: an Ajustes section or a Despliegue section, or null when the screen has no control. */
 export const listoIrA = (id: string): { tab: "ajustes" | "camino"; sec: string } | null =>
   LISTO_CAMINO[id] ? { tab: "camino", sec: LISTO_CAMINO[id] } : LISTO_AJUSTE[id] ? { tab: "ajustes", sec: LISTO_AJUSTE[id] } : null;
+export type ListoLugar = "ajustes" | "camino";
+/** The places the missing items are fixed in, Ajustes first, each once; items with no control on the screen add none. */
+export function listoLugares(items: ListoItem[]): ListoLugar[] {
+  const tabs = new Set(items.filter((i) => i.state === "missing").map((i) => listoIrA(i.id)?.tab).filter((t): t is ListoLugar => !!t));
+  return (["ajustes", "camino"] as const).filter((t) => tabs.has(t));
+}
+/** Those places as words for a sentence: «Ajustes», «Despliegue», «Ajustes o Despliegue», or null when there is none. */
+export function listoDonde(items: ListoItem[], language: Language = getLanguage()): string | null {
+  const w = words(LISTO_WORDS, language);
+  const lugares = listoLugares(items).map((l) => w.lugar[l]);
+  return lugares.length === 0 ? null : lugares.length === 1 ? lugares[0]! : w.o(lugares[0]!, lugares[1]!);
+}
 export const LISTO_IR = LISTO_WORDS.es.goFix;
 export const listoIr = (language: Language = getLanguage(), tab: "ajustes" | "camino" = "ajustes"): string => (tab === "camino" ? words(LISTO_WORDS, language).goFixCamino : words(LISTO_WORDS, language).goFix);
 
@@ -303,6 +337,20 @@ export function listoLinea(i: ListoItem, language: Language = getLanguage()): Li
   const texto = i.state === "ready" ? p.listo(i) : i.state === "missing" ? p.falta(i) : (p.noHaceFalta ?? w.notNeeded);
   return { id: i.id, key, estado: i.state, para: i.state === "missing" && i.blocks, titulo: p.titulo(i), nombre: p.nombre(i), texto };
 }
+
+export type ListoSeccion = "resumen" | "falta" | "listo";
+
+/** The sheet's three sections, counted: what is missing (and how much of it stops a run), and what is done or not
+ * needed. «Falta» is left out when nothing is missing. */
+export function listoSecciones(r: Listo): { falta: number; para: number; listo: number; secciones: ListoSeccion[] } {
+  const falta = r.items.filter((i) => i.state === "missing").length;
+  const para = r.items.filter((i) => i.state === "missing" && i.blocks).length;
+  const listo = r.items.length - falta;
+  return { falta, para, listo, secciones: falta > 0 ? ["resumen", "falta", "listo"] : ["resumen", "listo"] };
+}
+
+/** The section's words (tab label, summary lines) in the screen's language. */
+export const listoSeccionWords = (language: Language = getLanguage()) => words(LISTO_WORDS, language);
 
 export type ListoGrupo = { key: "falta" | "listo" | "no_hace_falta"; titulo: string; lineas: ListoLinea[] };
 

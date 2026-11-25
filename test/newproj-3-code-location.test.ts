@@ -212,11 +212,11 @@ test("NEWPROJ-3: set_project takes settings.local (a folder or no_code), validat
 
 test("NEWPROJ-3: the sheet says what to fix for each folder check, in Spanish, with no code in capitals", () => {
   const d = { path: "/repos/viajia", branch: "sandbox" };
-  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta, o elige «Todavía no hay código» y prepáralo después desde Despliegue.");
+  assert.equal(nuevoProyectoError("REPO_FOLDER_MISSING", d), "No se creó nada: la carpeta /repos/viajia no existe en esta máquina. Revisa la ruta, o elige «Sin código» y prepáralo después desde Despliegue.");
   assert.match(nuevoProyectoError("REPO_NOT_GIT", d), /tiene archivos pero no es un repositorio/);
-  assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no está conectada a GitHub\. Elige «Todavía no hay código»/);
+  assert.match(nuevoProyectoError("REPO_NO_ORIGIN", d), /no está conectada a GitHub\. Elige «Sin código»/);
   assert.match(nuevoProyectoError("REPO_ORIGIN_UNREACHABLE", d), /no pude leer el repositorio en GitHub/);
-  assert.match(nuevoProyectoError("REPO_NO_START_BRANCH", d), /no tiene la rama de trabajo. Elige «Todavía no hay código»/);
+  assert.match(nuevoProyectoError("REPO_NO_START_BRANCH", d), /no tiene la rama de trabajo. Elige «Sin código»/);
   assert.match(nuevoProyectoError("INVALID_BODY", { field: "github_repo" }), /dueño\/nombre/);
   assert.match(nuevoProyectoError("INVALID_BODY", { field: "repo_path" }), /ruta completa/);
   const lines = ["REPO_FOLDER_MISSING", "REPO_NOT_GIT", "REPO_NO_ORIGIN", "REPO_ORIGIN_UNREACHABLE", "REPO_NO_START_BRANCH"].map((c) => nuevoProyectoError(c, d));
@@ -227,13 +227,15 @@ test("NEWPROJ-3: the sheet says what to fix for each folder check, in Spanish, w
   }
 });
 
+// «Agregar un proyecto»: Local and Nube name their way in (origen), so the route checks and clones them
+// (src/runner/open-project.ts); Sin código keeps the old body. test/agregar-proyecto.test.ts covers SSH.
 test("NEWPROJ-3: the sheet sends one choice, and only when its field has the right shape", () => {
   assert.equal(codigoBody(null, "/repos/x", "o/r"), null);
   assert.deepEqual(codigoBody("ninguno", "/repos/x", "o/r"), { no_code: true });
-  assert.deepEqual(codigoBody("github", "/repos/x", " jorge/viajia "), { github_repo: "jorge/viajia" });
+  assert.deepEqual(codigoBody("github", "/repos/x", " jorge/viajia "), { origen: "nube", repo: "jorge/viajia" });
   assert.equal(codigoBody("github", "", "viajia"), null);
-  assert.deepEqual(codigoBody("carpeta", "~/Developer/Projects/viajia", ""), { repo_path: "~/Developer/Projects/viajia" });
-  assert.deepEqual(codigoBody("carpeta", "/repos/viajia", "jorge/viajia"), { repo_path: "/repos/viajia", github_repo: "jorge/viajia" });
+  assert.deepEqual(codigoBody("carpeta", "~/Developer/Projects/viajia", ""), { origen: "local", repo_path: "~/Developer/Projects/viajia" });
+  // Local reads its GitHub repository from the folder's origin; a typed one is no longer asked.
+  assert.deepEqual(codigoBody("carpeta", "/repos/viajia", "jorge/viajia"), { origen: "local", repo_path: "/repos/viajia" });
   assert.equal(codigoBody("carpeta", "repos/viajia", ""), null);
-  assert.equal(codigoBody("carpeta", "/repos/viajia", "no es repo"), null);
 });

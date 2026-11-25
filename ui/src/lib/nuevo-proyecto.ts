@@ -1,9 +1,12 @@
-// NEWPROJ-2: what the sheet «Nuevo proyecto» says when the server refuses (POST /company/projects).
+// NEWPROJ-2: what the sheet «Agregar un proyecto» (once «Nuevo proyecto») says when the server refuses (POST /company/projects).
+// It also holds the sheet's four ways in (Local, Nube, SSH, Sin código), the repository spellings each one takes and
+// the words of the folder window; the server imports this file for the shapes (src/runner/open-project.ts).
 // Plain words, never the error code. Pure, so the tests call it directly.
 // PLA-I2-10: the words are in NUEVO_PROYECTO_WORDS, in both languages; CODIGO_OPCIONES stays the Spanish one (tests
 // read it) and the sheets read codigoOpciones(). Each function takes the language last.
 import { seatName } from "./corriente.js";
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";
+import { PREPARAR_CODIGO_WORDS } from "./preparar-codigo.js";
 
 /** How a GitHub refusal starts: the Ajustes view did not save, the sheet did not make the project. */
 export type GithubLead = "save" | "create";
@@ -20,7 +23,7 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     esaCarpeta: "esa carpeta",
     // PLA-I2-5: no terminal and no branch name: what has no button here is done after creating, from Despliegue (PLA-132)
     // («Preparar el código», «Crear la rama de trabajo»), choosing «Todavía no hay código» for now.
-    despues: "Elige «Todavía no hay código» y prepáralo después desde Despliegue.",
+    despues: "Elige «Sin código» y prepáralo después desde Despliegue.",
     folderMissing: (folder: string, despues: string) => `No se creó nada: ${folder} no existe en esta máquina. Revisa la ruta, o ${despues}`,
     notGit: (folder: string, despues: string) => `No se creó nada: ${folder} tiene archivos pero no es un repositorio. Elige la carpeta del código, o ${despues}`,
     noOrigin: (folder: string, despues: string) => `No se creó nada: ${folder} no está conectada a GitHub. ${despues}`,
@@ -40,10 +43,37 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     invalid: "No se creó nada: revisa el nombre y la meta.",
     other: "No se pudo crear el proyecto.",
     opciones: [
-      { key: "carpeta", label: "Ya está en esta máquina", hint: "Su carpeta, con git y conectada a GitHub. La reviso antes de crear nada." },
-      { key: "github", label: "Está en GitHub", hint: "Se guarda el repositorio; la carpeta se busca en la de proyectos con el nombre del proyecto." },
-      { key: "ninguno", label: "Todavía no hay código", hint: "Se crea el proyecto sin código. Máquinas lo dirá hasta que tenga carpeta." },
+      { key: "carpeta", label: "Local", hint: "Una carpeta de esta máquina, con git y conectada a GitHub. La reviso antes de crear nada." },
+      { key: "github", label: "Nube", hint: "Un repositorio de GitHub. Lo clono con tu cuenta de GitHub en la carpeta de proyectos, con el nombre del proyecto." },
+      { key: "ssh", label: "SSH", hint: "Cualquier repositorio por su URL SSH. Lo clono con tus llaves SSH en la carpeta de proyectos, con el nombre del proyecto." },
+      { key: "ninguno", label: "Sin código", hint: "Se crea el proyecto sin código. Máquinas lo dirá hasta que tenga carpeta." },
     ] as { key: CodigoOpcion; label: string; hint: string }[],
+    agregar: {
+      // The folder window: the server asks the machine for it (Finder, the Windows folder window, zenity or kdialog).
+      elegir: "Elegir carpeta…",
+      eligiendo: "Mira la ventana para elegir carpeta…",
+      ventanaTitulo: "Elige la carpeta del proyecto",
+      sinVentana: "Desde aquí no puedo abrir la ventana para elegir carpeta: escribe la ruta completa.",
+      nubePlaceholder: "dueño/nombre o https://github.com/dueño/nombre",
+      sshPlaceholder: "git@github.com:dueño/nombre.git",
+      sshLabel: "URL SSH del repositorio",
+      repoMal: "Escribe el repositorio como dueño/nombre o pega su dirección de GitHub.",
+      sshMal: "Pega la URL SSH del repositorio, por ejemplo git@github.com:dueño/nombre.git.",
+      metaOpcional: "Meta, en una oración (opcional)",
+      clonando: "Clonando…",
+      revisando: "Revisando la carpeta…",
+      // PLA-180 (the PLA-I2-5 rule): the working branch is made only when the owner says so: it is one push to his repository.
+      sinRama: "El repositorio no tiene la rama de trabajo, donde el equipo deja lo que hace. Puedo crearla en el repositorio desde la rama principal; no cambia ningún archivo.",
+      crearRama: "Crear la rama y agregar",
+      // A screen newer than the server it talks to: the route is not there until the server restarts.
+      servidorViejo: "El servidor de Plania todavía no tiene esta opción. Reinícialo y vuelve a intentarlo.",
+      ssh: {
+        REPO_SSH_DENIED: "No se creó nada: el servidor del repositorio no aceptó tus llaves SSH. Revisa que tu llave esté agregada a tu cuenta (en GitHub: Settings › SSH keys) y cargada en esta máquina.",
+        REPO_SSH_HOST_UNKNOWN: "No se creó nada: esta máquina todavía no conoce al servidor del repositorio. Conéctate una vez desde la Terminal (por ejemplo ssh -T git@github.com), acepta su huella y vuelve a intentarlo.",
+        REPO_SSH_NOT_FOUND: "No se creó nada: ese repositorio no existe, o tu llave SSH no tiene acceso a él. Revisa la URL.",
+        REPO_ORIGIN_UNREACHABLE: "No se creó nada: no pude conectarme al servidor del repositorio. Revisa la URL y la conexión.",
+      } as Record<string, string>,
+    },
   },
   en: {
     and: "and",
@@ -54,7 +84,7 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     keyTaken: "Nothing was made: that key already belongs to another project.",
     carpeta: (path: string) => `the folder ${path}`,
     esaCarpeta: "that folder",
-    despues: "Choose «There is no code yet» and prepare it later from Deploy.",
+    despues: "Choose «No code» and prepare it later from Deploy.",
     folderMissing: (folder: string, despues: string) => `Nothing was made: ${folder} doesn't exist on this machine. Check the path, or ${despues}`,
     notGit: (folder: string, despues: string) => `Nothing was made: ${folder} has files but is not a repository. Choose the code's folder, or ${despues}`,
     noOrigin: (folder: string, despues: string) => `Nothing was made: ${folder} is not connected to GitHub. ${despues}`,
@@ -74,10 +104,34 @@ export const NUEVO_PROYECTO_WORDS = defineWords({
     invalid: "Nothing was made: check the name and the goal.",
     other: "The project could not be made.",
     opciones: [
-      { key: "carpeta", label: "It's already on this machine", hint: "Its folder, with git and connected to GitHub. I check it before making anything." },
-      { key: "github", label: "It's on GitHub", hint: "The repository is saved; the folder is looked for in the projects folder, by the project's name." },
-      { key: "ninguno", label: "There is no code yet", hint: "The project is made with no code. Machines will say so until it has a folder." },
+      { key: "carpeta", label: "Local", hint: "A folder on this machine, with git and connected to GitHub. I check it before making anything." },
+      { key: "github", label: "Cloud", hint: "A GitHub repository. I clone it with your GitHub account into the projects folder, under the project's name." },
+      { key: "ssh", label: "SSH", hint: "Any repository by its SSH URL. I clone it with your SSH keys into the projects folder, under the project's name." },
+      { key: "ninguno", label: "No code", hint: "The project is made with no code. Machines will say so until it has a folder." },
     ],
+    agregar: {
+      elegir: "Choose folder…",
+      eligiendo: "Look for the folder window…",
+      ventanaTitulo: "Choose the project's folder",
+      sinVentana: "I can't open the folder window from here: type the full path.",
+      nubePlaceholder: "owner/name or https://github.com/owner/name",
+      sshPlaceholder: "git@github.com:owner/name.git",
+      sshLabel: "Repository SSH URL",
+      repoMal: "Write the repository as owner/name or paste its GitHub address.",
+      sshMal: "Paste the repository's SSH URL, for example git@github.com:owner/name.git.",
+      metaOpcional: "Goal, in one sentence (optional)",
+      clonando: "Cloning…",
+      revisando: "Checking the folder…",
+      sinRama: "The repository doesn't have the working branch, where the team leaves its work. I can make it in the repository from the main branch; no file changes.",
+      crearRama: "Make the branch and add",
+      servidorViejo: "The Plania server doesn't have this option yet. Restart it and try again.",
+      ssh: {
+        REPO_SSH_DENIED: "Nothing was made: the repository's server didn't accept your SSH keys. Check that your key is added to your account (on GitHub: Settings › SSH keys) and loaded on this machine.",
+        REPO_SSH_HOST_UNKNOWN: "Nothing was made: this machine doesn't know the repository's server yet. Connect once from Terminal (for example ssh -T git@github.com), accept its fingerprint and try again.",
+        REPO_SSH_NOT_FOUND: "Nothing was made: that repository doesn't exist, or your SSH key has no access to it. Check the URL.",
+        REPO_ORIGIN_UNREACHABLE: "Nothing was made: I couldn't reach the repository's server. Check the URL and the connection.",
+      },
+    },
   },
 });
 
@@ -136,12 +190,14 @@ export const fondoMouseDown =
     if (closes && e.target === e.currentTarget) onClose();
   };
 
-// NEWPROJ-3: where the project's code is. A folder on this machine (with its GitHub repo if there is one), only a GitHub
-// repo, or no code yet. The same shapes the server checks (src/runner/repo-check.ts); GitHub is never called.
-export type CodigoOpcion = "carpeta" | "github" | "ninguno";
+// NEWPROJ-3: where the project's code is. Local: a folder on this machine (its GitHub repository read from origin). Nube: a
+// GitHub repository cloned with gh. SSH: any repository cloned with git over SSH. Sin código: none yet. The same shapes
+// the server checks (src/runner/open-project.ts, src/runner/repo-check.ts).
+export type CodigoOpcion = "carpeta" | "github" | "ssh" | "ninguno";
 export const CODIGO_OPCIONES: { key: CodigoOpcion; label: string; hint: string }[] = NUEVO_PROYECTO_WORDS.es.opciones;
-/** The three choices in the screen's language (or the one given). */
+/** The four choices in the screen's language (or the one given). */
 export const codigoOpciones = (language: Language = getLanguage()): { key: CodigoOpcion; label: string; hint: string }[] => words(NUEVO_PROYECTO_WORDS, language).opciones;
+export const agregarWords = (language: Language = getLanguage()) => words(NUEVO_PROYECTO_WORDS, language).agregar;
 const GITHUB_REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 export const githubRepoOk = (v: string): boolean => GITHUB_REPO.test(v.trim());
 export const carpetaOk = (v: string): boolean => {
@@ -149,15 +205,82 @@ export const carpetaOk = (v: string): boolean => {
   return t.length > 0 && t.length <= 500 && (t.startsWith("/") || t.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(t));
 };
 
-export type CodigoBody = { repo_path?: string; github_repo?: string; no_code?: true };
-/** What the sheet sends for the choice, or null while the choice is missing or its field is not right yet. */
-export function codigoBody(opcion: CodigoOpcion | null, carpeta: string, repo: string): CodigoBody | null {
-  if (opcion === "ninguno") return { no_code: true };
-  if (opcion === "github") return githubRepoOk(repo) ? { github_repo: repo.trim() } : null;
-  if (opcion === "carpeta") {
-    if (!carpetaOk(carpeta)) return null;
-    if (repo.trim() && !githubRepoOk(repo)) return null;
-    return { repo_path: carpeta.trim(), ...(repo.trim() ? { github_repo: repo.trim() } : {}) };
+const OWNER = "[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})";
+const NAME = "[A-Za-z0-9._-]{1,100}";
+const SPELLINGS = [
+  new RegExp(`^(${OWNER})/(${NAME})$`),
+  new RegExp(`^(?:https?://)?(?:www\\.)?github\\.com/(${OWNER})/(${NAME})/?$`, "i"),
+  new RegExp(`^(?:ssh://)?git@github\\.com[:/](${OWNER})/(${NAME})/?$`, "i"),
+];
+
+/** owner/name from the ways a GitHub repository is written or pasted (owner/name, https, ssh); null for anything else. */
+export function githubRepoDe(text: string): string | null {
+  const t = text.trim();
+  for (const re of SPELLINGS) {
+    const m = re.exec(t);
+    if (!m) continue;
+    const name = m[2]!.replace(/\.git$/i, "");
+    if (!name || name === "." || name === "..") return null;
+    return `${m[1]}/${name}`;
   }
   return null;
+}
+
+// SSH: scp-like user@host:path or ssh://[user@]host[:port]/path. No part may start with "-" (never read as an option).
+const SCP = /^([A-Za-z0-9._][A-Za-z0-9._-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):(?!\/)([A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
+const SSH_URL = /^ssh:\/\/(?:([A-Za-z0-9._][A-Za-z0-9._-]*)@)?([A-Za-z0-9][A-Za-z0-9.-]*)(?::(\d{1,5}))?\/([A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
+
+/** The SSH URL as typed (trimmed, no trailing slash) when it is one git can clone over SSH; null for anything else. */
+export function sshUrlDe(text: string): string | null {
+  const t = text.trim().replace(/\/+$/, "");
+  if (t.length > 300) return null;
+  const m = SCP.exec(t) ?? SSH_URL.exec(t);
+  if (!m) return null;
+  if (m.at(-1)!.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return null;
+  return t;
+}
+
+/** The name the sheet suggests: the folder's last part, or the repository's name. Capped at NOMBRE_MAX. */
+export function nombreSugerido(opcion: CodigoOpcion | null, valor: string): string {
+  const t = valor.trim();
+  if (!t || !opcion || opcion === "ninguno") return "";
+  const base =
+    opcion === "github" ? (githubRepoDe(t)?.split("/")[1] ?? "") : opcion === "ssh" ? (sshUrlDe(t)?.split(/[:/]/).at(-1) ?? "") : (t.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) ?? "");
+  return base.replace(/\.git$/i, "").slice(0, NOMBRE_MAX);
+}
+
+/** What the sheet sends besides name and goal. Sin código keeps the old shape; the other three name their way in. */
+export type CodigoBody = { no_code: true } | { origen: "local"; repo_path: string; crear_rama?: boolean } | { origen: "nube" | "ssh"; repo: string; crear_rama?: boolean };
+
+/** What the sheet sends for the choice, or null while the choice is missing or its field is not right yet. */
+export function codigoBody(opcion: CodigoOpcion | null, carpeta: string, repo: string, ssh = ""): CodigoBody | null {
+  if (opcion === "ninguno") return { no_code: true };
+  if (opcion === "carpeta") return carpetaOk(carpeta) ? { origen: "local", repo_path: carpeta.trim() } : null;
+  if (opcion === "github") {
+    const r = githubRepoDe(repo);
+    return r ? { origen: "nube", repo: r } : null;
+  }
+  if (opcion === "ssh") {
+    const u = sshUrlDe(ssh);
+    return u ? { origen: "ssh", repo: u } : null;
+  }
+  return null;
+}
+
+/** A goal is asked for a project with no code (it says what to build); with code it is optional. */
+export const metaObligatoria = (opcion: CodigoOpcion | null): boolean => opcion === "ninguno";
+
+/**
+ * The sheet's refusal line for the four ways in. The working branch is offered, not blamed (the sheet shows
+ * «Crear la rama y agregar»); the clone's steps say what Despliegue says (PLA-132); SSH says which of its failures.
+ */
+export function agregarError(code: string | null, detail: Record<string, unknown> = {}, language: Language = getLanguage()): string {
+  const w = words(NUEVO_PROYECTO_WORDS, language);
+  if (code === "REPO_NO_START_BRANCH") return w.agregar.sinRama;
+  if (code === "HTTP_404" || code === "HTTP_405") return w.agregar.servidorViejo;
+  if (code === "INVALID_BODY" && detail.field === "repo") return detail.origen === "ssh" ? w.agregar.sshMal : w.agregar.repoMal;
+  if (code && detail.field === "ssh" && Object.hasOwn(w.agregar.ssh, code)) return w.agregar.ssh[code]!;
+  const setup = words(PREPARAR_CODIGO_WORDS, language).why;
+  if (code && detail.field === "setup" && Object.hasOwn(setup, code)) return `${w.lead.create}. ${setup[code]!}`;
+  return nuevoProyectoError(code, detail, language);
 }

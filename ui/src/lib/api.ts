@@ -1,6 +1,7 @@
 import type { Cronometro } from "./cronometro";
 import type { RunReport } from "./informe";
 import type { Oficio } from "./oficio";
+import type { CodigoBody } from "./nuevo-proyecto";
 import type { CaminoRead } from "./camino-types";
 import type { Puesto, SkillCard, SkillDraft, SkillScope } from "./oficio-skills";
 import type { ImportPreview, TrialStarted, TrialView, TrialsRead, UpdateCheck } from "./oficio-trials";
@@ -464,7 +465,9 @@ export const api = {
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
-  createCompanyProject: (input: { name: string; goal: string; repo_path?: string; github_repo?: string; no_code?: true }) => request<NewProjectResult>("POST", "/company/projects", input),
+  createCompanyProject: (input: { name: string; goal?: string } & CodigoBody) => request<NewProjectResult>("POST", "/company/projects", input),
+  // «Agregar un proyecto»: the machine's own folder window (only for a browser on the machine the server runs on).
+  elegirCarpeta: () => request<{ available: boolean; path: string | null }>("POST", "/company/carpeta", {}),
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves

@@ -100,16 +100,19 @@ export function FaltaPage({ firstStart = false }: { firstStart?: boolean } = {})
 }
 
 /** The reading, apart from the query, so a test renders it from the same items the install command prints. */
-export function FaltaView({ reading, checking = false, onAgain }: { reading: MachineCheckReading; checking?: boolean; onAgain?: () => void }) {
+// againButton false: the caller draws its own (the first-delivery wizard's «Reintentar», under the list).
+export function FaltaView({ reading, checking = false, onAgain, againButton = true }: { reading: MachineCheckReading; checking?: boolean; onAgain?: () => void; againButton?: boolean }) {
   const w = words(FALTA);
   return (
     <section className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-lg font-semibold">{machineHeadline(reading.items)}</p>
-        <Button variant="outline" size="sm" onClick={onAgain} disabled={checking}>
-          <RefreshCwIcon className={cn("size-4", checking && "animate-spin")} />
-          {w.again}
-        </Button>
+        {againButton ? (
+          <Button variant="outline" size="sm" onClick={onAgain} disabled={checking}>
+            <RefreshCwIcon className={cn("size-4", checking && "animate-spin")} />
+            {w.again}
+          </Button>
+        ) : null}
       </div>
       <Card className="p-0">
         <ul className="divide-y">
