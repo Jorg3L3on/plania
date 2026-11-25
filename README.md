@@ -538,6 +538,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `thread_post` | Write a message in a thread the owner reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from them. |
 | `answer_consulta` | Answer a question the owner asked about a project with Pedir's Preguntar mode. |
 | `propose_seat` | Propose one more seat for a project's team, with the reason, for the owner to accept or decline on the screen. |
+| `request_connection` | Ask the owner for one more tool for your own seat, with the reason, from Plania's reviewed catalog; the owner accepts or declines it on your sheet. |
 | `deliver_marks` | Artist: answer a logo-marks request (a run whose reason says [marcas <id>]). |
 | `propose` | Post a proposal as data in your project's thread; the owner decides it in Te toca. |
 | `deliver_stage` | Deliver an idea's stage as data. |
@@ -655,6 +656,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CAMINO_KEY_INVALID` | 400 | camino: the pasted key has spaces, quotes or a label in it, or is shorter than 8 characters; nothing was saved |
 | `CAMINO_KEY_REJECTED` | 400 | camino: the service refused the key on its read-only test; nothing was saved (detail: status, message: the service's own words) |
 | `CAMINO_PROVIDER_UNKNOWN` | 400 | camino: no key can be saved for that service; it is Detected or Manual, or not a service Camino knows (detail: provider) |
+| `CONNECTION_INVALID` | 400 | a connection field is wrong: a key name (A-Z, digits, _), a write tool the entry does not have, a reason of 3-600 characters, or a custom server that is not an npm package at an exact version (detail: field) |
 | `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_owner.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FETCH_ADDRESS_REFUSED` | 400 | safe fetch: the host is or resolves to a loopback, private, link-local, metadata or reserved address; nothing was sent (detail: address, reason) |
@@ -729,6 +731,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TRIAL_NO_DELIVERY` | 400 | a trial needs one finished delivery of this agent on a ticket whose work can still be read: the run is not one, or its branch is gone (detail: reason) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
+| `CONNECTION_REQUEST_NO_SEAT` | 403 | request_connection: only a run of a seat on that project asks for a connection, for itself; runs never connect, accept or turn on a tool |
+| `CONNECTION_TOOL_NEVER` | 403 | that tool is never allowed on a connection (merging, shipping, deleting what the agent did not make) |
 | `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
@@ -741,6 +745,9 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CAMINO_KEY_MISSING` | 404 | camino: no key is saved for that service on this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
+| `CONNECTION_NOT_FOUND` | 404 | this seat has no connection to that server |
+| `CONNECTION_REQUEST_NOT_FOUND` | 404 | no connection request with that id for this seat |
+| `CONNECTION_UNKNOWN` | 404 | no catalog entry with that name (detail: known) |
 | `CONSULTA_NOT_FOUND` | 404 | answer_consulta on an id that is not a question of this project |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
@@ -773,6 +780,9 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CAMINO_SQL_REVIEW` | 409 | Publicar: squawk found errors in a migration the release carries, and the production environment asks for the SQL review (detail: files [{path, issues}]) |
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
+| `CONNECTION_EXISTS` | 409 | this seat already has a connection with that name |
+| `CONNECTION_NEEDS_LOGIN` | 409 | that server needs an interactive sign-in, so an unattended run cannot use it |
+| `CONNECTION_REQUEST_DECIDED` | 409 | the connection request was already accepted or declined |
 | `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |
 | `DELEGATION_LIMIT` | 409 | delegated answers and Won't do or reopen moves are limited to 10 per hour, and one answer per question |
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |

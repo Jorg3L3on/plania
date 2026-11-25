@@ -1,7 +1,8 @@
 // PLA-I71-2: one seat managed in place, beside the org chart (PLA-IDEA34 boards Main and Ancho). Four tabs: Perfil
 // (who it reports to, who reports to it, its post and your manner, its work), Motor (model, effort, steps at once,
 // this week's share; PUT /company/motores), Habilidades (what its next run carries, a switch per skill, the store),
-// Aprendizaje (the proposed lesson, its lessons, references, what changed, first-time deliveries). The teach bar sits
+// Aprendizaje (the proposed lesson, its lessons, references, what changed, first-time deliveries), Conexiones (PLA-I75:
+// its tools beyond Plania, what it did with them, an agent's request; the catalog widens). The teach bar sits
 // at the foot on every tab. Reading or writing long text (the post and your manner, a skill, a version, a reference,
 // a trial) widens the panel over the chart; Esc narrows it first, then closes the panel. It replaces the separate
 // agent page (PLA-I67-1), whose panels it reuses.
@@ -30,8 +31,10 @@ import { refsApi } from "@/lib/references-api";
 import { RefCard, RefPanel, useRefUpload } from "./oficio-refs";
 import { cardLine } from "./organigrama";
 import { SUMAR_PAGE_WORDS } from "@/lib/sumar-page-words";
+import { CatalogPanel, ConexionesTab } from "./conexiones";
+import { conexionesApi } from "@/lib/conexiones-api";
 
-export const FICHA_TABS = ["perfil", "motor", "habilidades", "aprendizaje"] as const;
+export const FICHA_TABS = ["perfil", "motor", "habilidades", "aprendizaje", "conexiones"] as const;
 export type FichaTab = (typeof FICHA_TABS)[number];
 export const fichaTabOf = (raw: string | null | undefined): FichaTab => ((FICHA_TABS as readonly string[]).includes(raw ?? "") ? (raw as FichaTab) : "perfil");
 
@@ -45,7 +48,8 @@ export type Wide =
   | { kind: "lessons" }
   | { kind: "historia" }
   | { kind: "refs" }
-  | { kind: "ref"; id: string };
+  | { kind: "ref"; id: string }
+  | { kind: "catalogo" };
 
 export type AgenteLinks = { equipo: string; tab: (t: FichaTab) => string; work: string; store?: string };
 
@@ -328,6 +332,8 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
   const lq = useQuery({ queryKey: ["lessons", p.slug, m.agent], queryFn: () => api.lessons(p.slug, m.agent), refetchInterval: 30_000 });
   const refsQ = useQuery({ queryKey: ["refs", p.slug, m.agent], queryFn: () => refsApi.list(p.slug, m.agent) });
   const puesto = useQuery({ queryKey: ["puesto", p.slug, m.agent], queryFn: () => api.puesto(p.slug, m.agent) });
+  // PLA-I75: the same read as the Conexiones tab (its amber dot: an agent's request waits).
+  const cnx = useQuery({ queryKey: ["conexiones", p.slug, m.agent], queryFn: () => conexionesApi.read(p.slug, m.agent), refetchInterval: 30_000 });
   // PLA-I71-4: «Probarla» from the store opens that skill's card here, wide (&skill=<slug>).
   const [wide, setWide] = useState<Wide | null>(openSkill ? { kind: "skill", slug: openSkill } : null);
   const upload = useRefUpload(p.slug, m.agent, (r) => setWide({ kind: "ref", id: r.id }));
@@ -354,7 +360,8 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
   const manner = puesto.data?.manner?.trim();
   const onTabKey = (e: React.KeyboardEvent) => {
     const i = FICHA_TABS.indexOf(tab);
-    const to = e.key === "ArrowRight" ? FICHA_TABS[(i + 1) % 4] : e.key === "ArrowLeft" ? FICHA_TABS[(i + 3) % 4] : e.key === "Home" ? FICHA_TABS[0] : e.key === "End" ? FICHA_TABS[3] : null;
+    const n = FICHA_TABS.length;
+    const to = e.key === "ArrowRight" ? FICHA_TABS[(i + 1) % n] : e.key === "ArrowLeft" ? FICHA_TABS[(i + n - 1) % n] : e.key === "Home" ? FICHA_TABS[0] : e.key === "End" ? FICHA_TABS[n - 1] : null;
     if (!to) return;
     e.preventDefault();
     e.stopPropagation();
@@ -389,6 +396,8 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
         const r = refsQ.data?.find((x) => x.id === wide.id);
         return r ? <RefCard key={r.id} slug={p.slug} agent={m.agent} seat={seat} r={r} now={Date.now()} onClose={() => setWide({ kind: "refs" })} /> : null;
       }
+      case "catalogo":
+        return <CatalogPanel p={p} m={m} seat={seat} onClose={back} />;
     }
   };
   return (
@@ -445,6 +454,7 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
                 {w.tabs[t]}
                 {t === "habilidades" && <span className="cor-cap"> {o.skills.filter((s) => s.on).length}</span>}
                 {t === "aprendizaje" && waiting.length > 0 && <i className="org-dot espera" aria-hidden />}
+                {t === "conexiones" && (cnx.data?.requests.length ?? 0) > 0 && <i className="org-dot espera" aria-hidden />}
               </Link>
             ))}
           </div>
@@ -506,6 +516,7 @@ export const AgentePanel = ({ p, m, paused, tab, links, onTab, motorLink, openSk
                 )}
               </>
             )}
+            {tab === "conexiones" && <ConexionesTab p={p} m={m} onCatalog={() => setWide({ kind: "catalogo" })} />}
             {tab === "aprendizaje" && (
               <>
                 <Reading l={lq.data} />

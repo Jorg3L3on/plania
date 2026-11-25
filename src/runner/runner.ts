@@ -44,6 +44,8 @@ import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { CONSULTA_DENY_RULES, QA_DENY_RULES, TRIAL_DENY_RULES, afterEditHooks, denySettings, selfRules } from "./deny.js";
 import { isSelfProject, liveDatabaseName, selfRunProblem, serverRoot } from "../self/plania-self.js";
+import { RESERVED_SERVERS, catalogEntry, type McpServerConfig } from "./conexiones.js";
+import { runConnections } from "./conexiones-store.js";
 import { kitLines, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { rolePrompt } from "./prompts.js";
 import { mannerBlock, mannerVersion, resolvedKit } from "./skills.js";
@@ -1180,8 +1182,11 @@ export type McpStdio = { command: string; args: string[] };
 // and commit a delivery the run was told had failed. The per-server timeout lifts that for Plania alone.
 // PLA-82 (F-12): X-Plania-Run names the run, so its writes are its roster agent's even when it invents a session_id.
 export const PLANIA_TOOL_TIMEOUT_MS = 30 * 60_000;
-export const mcpConfig = (url: string, browser: McpStdio | null = null, run: string | null = null) => ({
+// PLA-I75: connections are the seat's catalog servers (src/runner/conexiones-store.ts); Plania and the QA browser
+// keep their names whatever a connection is called.
+export const mcpConfig = (url: string, browser: McpStdio | null = null, run: string | null = null, connections: Record<string, McpServerConfig> = {}) => ({
   mcpServers: {
+    ...Object.fromEntries(Object.entries(connections).filter(([name]) => !RESERVED_SERVERS.has(name))),
     plania: {
       type: "http",
       url,
@@ -1193,9 +1198,11 @@ export const mcpConfig = (url: string, browser: McpStdio | null = null, run: str
 });
 
 // The browser tools a QA walk-through uses: Playwright's MCP server, headless, with a profile it throws away.
+// PLA-I75: pinned like every connection (it was @latest and changed version unseen): the catalog's Playwright version.
 // PLANIA_BROWSER_MCP replaces the command (the first word is the program, the rest its arguments).
+export const QA_BROWSER_VERSION = catalogEntry("playwright")!.version;
 export function browserServer(env: NodeJS.ProcessEnv): McpStdio {
-  const words = (env.PLANIA_BROWSER_MCP?.trim() || "npx -y @playwright/mcp@latest --headless --isolated").split(/\s+/);
+  const words = (env.PLANIA_BROWSER_MCP?.trim() || `npx -y @playwright/mcp@${QA_BROWSER_VERSION} --headless --isolated`).split(/\s+/);
   return { command: words[0]!, args: words.slice(1) };
 }
 
@@ -1376,10 +1383,15 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   // PLA-I2-9: a run of Plania itself also may not reach the live database or apply a migration.
   const self = isSelfProject(repoPathOf(project.slug, project.settings, env), deps.serverRoot ?? serverRoot());
   const laneRules = consulta ? CONSULTA_DENY_RULES : trial ? TRIAL_DENY_RULES : marksReq ? QA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [];
-  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
+  // PLA-I75 (Conexiones): the seat's own tools from the catalog, pinned, reading only unless the owner turned a write
+  // tool on (a read-only run gets none). Keys reach the child env only; the config names them as ${NAME}. A trial
+  // carries none.
+  const conn = trial ? null : await runConnections(db, ctx.agent, { project, env, readOnly, planiaDb: liveDatabaseName(env.DATABASE_URL), qaBrowser: !!qa?.browser }).catch(() => null);
+  const connDeny = conn?.deny ?? [];
+  writeFileSync(settingsPath, JSON.stringify({ ...denySettings([...(self ? [...laneRules, ...selfRules(liveDatabaseName(env.DATABASE_URL))] : laneRules), ...connDeny]), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   // PLA-I67-6: a trial reaches no Plania server at all, so it cannot write to the delivery's ticket.
-  writeFileSync(mcpConfigPath, JSON.stringify(trial ? { mcpServers: {} } : mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify(trial ? { mcpServers: {} } : mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id), conn?.servers ?? {})), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
@@ -1482,7 +1494,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   }
   // PLA-I73-5: Taller's heavy commands take turns through the heavy-work queue.
   const heavy = role === "taller" && run.lane === "work" && !trial && !readOnly ? heavyEnv(root, env) : {};
-  const runEnvValue = childEnv(env, { ...tallerEnv, ...heavy, PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
+  const runEnvValue = childEnv(env, { ...tallerEnv, ...heavy, ...(conn?.env ?? {}), PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings));
   // PLA-I2-9: the check behind the deny rules: a run of Plania itself never starts pointed at the live database.
   const selfProblem = self ? selfRunProblem(runEnvValue, cwd, env.DATABASE_URL) : null;
   if (selfProblem) return fail(`fail: ${selfProblem}`);
@@ -1567,6 +1579,13 @@ export async function askHeadCheck(runId: string, cwd: string, git: GitFn): Prom
   return { before, after, moved: !!before && !!after && before !== after };
 }
 export const markAskHead = (runId: string, head: string | null) => askHeads.set(runId, head);
+
+// Plania's own calls are counted elsewhere; null when the run used no other server.
+const mcpCallsOf = (reader: StreamReader) => {
+  const t = reader.mcpTally();
+  delete t.plania;
+  return Object.keys(t).length ? t : null;
+};
 
 export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {}): Promise<void> {
   const { run, agent, project, reader, exit } = input;
@@ -1674,6 +1693,8 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       // AUDIT-2 / AUDIT-7: the skills the stream showed it using, and how much context its last turn carried.
       skillsUsed: [...reader.skillsUsed].sort().slice(0, 40),
       contextTokens: reader.contextTokens,
+      // PLA-I75: each mcp__ call the stream showed, ran, failed or blocked (Conexiones reads it).
+      mcpCalls: mcpCallsOf(reader),
     })
     .where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, ["starting", "running"])))
     .returning({ id: agentRuns.id, absorbed: agentRuns.absorbed });

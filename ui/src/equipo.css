@@ -249,3 +249,33 @@ button.org-card:focus-visible { outline: 2px solid var(--cor-violet-2); outline-
 .agt:not(.wide) .ofi-teach-modes { display: none; }
 .agt .ofi-teach { flex-wrap: wrap; padding: 8px 0 0; border-radius: 0; border-width: 1px 0 0; background: transparent; }
 .agt .ofi-budget > .cor-cap:not(.cor-state) { display: none; }
+
+/* PLA-I75 (Conexiones): a seat's fifth tab and the catalog it widens to. Amber is what waits on the owner. */
+/* Five tabs fit the narrow sheet; on a narrower one the bar scrolls instead of squeezing. */
+.agt-tabs { flex-shrink: 0; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.agt-tab { flex: 1 0 auto; padding: 0 5px; font-size: 12.5px; }
+.cnx { display: flex; flex-direction: column; gap: 12px; }
+.cnx-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cnx-request { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-color: var(--cor-amber); background: rgba(255, 180, 84, 0.06); }
+.cnx-cable { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+.cnx-cable.amber { border-color: rgba(255, 180, 84, 0.55); }
+.cnx-cable > .cor-btn.quiet { align-self: flex-start; }
+.cnx-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.cnx-head > b { color: var(--cor-text); font-size: 14px; }
+.cnx-warn { color: var(--cor-amber); }
+.cnx-change { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 180, 84, 0.06); }
+.cnx-change .cor-btn { align-self: flex-start; }
+.cnx-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cnx-tools li { display: flex; justify-content: space-between; gap: 12px; min-height: 32px; align-items: center; border-bottom: 1px solid var(--cor-line); font-size: 12.5px; }
+.cnx-tools .cor-mono { overflow: hidden; text-overflow: ellipsis; }
+.cnx-did summary, .cnx-expert summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.cnx-writes { display: flex; flex-direction: column; gap: 6px; }
+.cnx-writes .cor-switch { justify-content: flex-start; }
+.cnx-catalog { display: flex; flex-direction: column; gap: 14px; }
+.cnx-section { display: flex; flex-direction: column; gap: 8px; }
+.cnx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.cnx-entry { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--cor-line); background: rgba(255, 255, 255, 0.02); }
+.cnx-entry.off { opacity: 0.72; }
+.cnx-entry > .cor-btn { align-self: flex-start; margin-top: auto; }
+.cnx-expert { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; border: 1px dashed var(--cor-line-strong); }
+.cnx-expert[open] { gap: 8px; }

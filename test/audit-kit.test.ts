@@ -470,7 +470,7 @@ test("AUDIT-6: a QA walk-through adds the browser tools to that run's servers; a
   assert.deepEqual(Object.keys(runner.mcpConfig("http://x/mcp").mcpServers), ["plania"]);
   // A finish that runs the project's checks is silent for minutes; without this Claude Code drops the call at five.
   assert.equal(runner.mcpConfig("http://x/mcp").mcpServers.plania.timeout, 30 * 60_000);
-  assert.deepEqual(runner.browserServer({}), { command: "npx", args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated"] });
+  assert.deepEqual(runner.browserServer({}), { command: "npx", args: ["-y", "@playwright/mcp@0.0.86", "--headless", "--isolated"] });
   const cfg = runner.mcpConfig("http://x/mcp", runner.browserServer({ PLANIA_BROWSER_MCP: "node  /opt/browser.js --headless" }));
   assert.deepEqual(cfg.mcpServers.browser, { command: "node", args: ["/opt/browser.js", "--headless"] });
   const idea = runner.userPrompt({ agent: "Research", role: "research", project: { slug: "micasa", title: "MiCasa" }, goal: null, task: { key: "MIC-IDEA3", title: "Sucursales" }, workspace: null, sessionId: "run-1", verify: [{ name: "test", command: "pnpm test" }] });

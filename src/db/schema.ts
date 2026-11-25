@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { CustomSpec, McpTally, ToolsSnapshot } from "../runner/conexiones.js";
 import {
   bigint,
   boolean,
@@ -1168,6 +1169,8 @@ export const agentRuns = pgTable(
     contextTokens: bigint("context_tokens", { mode: "number" }),
     // PLA-I67-2 (0068): the first 8 of the sha256 of the «tu manera» the run carried (null: none).
     mannerVersion: text("manner_version"),
+    // PLA-I75 (0079): what the stream showed of each mcp__ call, {server: {tool: {ok, failed, blocked}}}; null: none.
+    mcpCalls: jsonb("mcp_calls").$type<McpTally>(),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
@@ -2168,6 +2171,49 @@ export const seatProposals = pgTable(
   (t) => [index("seat_proposals_project_idx").on(t.projectId, t.state)],
 );
 export type SeatProposal = typeof seatProposals.$inferSelect;
+
+// PLA-I75 (0079): Conexiones. A seat's tools beyond Plania (src/runner/conexiones.ts), and an agent's request for one.
+export const agentConnections = pgTable(
+  "agent_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    server: text("server").notNull(),
+    version: text("version").notNull(),
+    // The variable the server reads → the key's name (Llaves). Never a value.
+    keys: jsonb("keys").$type<Record<string, string>>().notNull().default({}),
+    writesOn: text("writes_on").array().notNull().default(sql`'{}'::text[]`),
+    custom: jsonb("custom").$type<CustomSpec | null>(),
+    reviewed: boolean("reviewed").notNull().default(true),
+    toolsSeen: jsonb("tools_seen").$type<ToolsSnapshot | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("agent_connections_agent_server_idx").on(t.agentId, t.server)],
+);
+export type AgentConnection = typeof agentConnections.$inferSelect;
+
+export const connectionRequests = pgTable(
+  "connection_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    server: text("server").notNull(),
+    reason: text("reason").notNull(),
+    state: text("state").$type<"proposed" | "accepted" | "declined">().notNull().default("proposed"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("connection_requests_agent_idx").on(t.agentId, t.state)],
+);
+export type ConnectionRequest = typeof connectionRequests.$inferSelect;
 
 // PLA-I71-6 (0077): the team catalog (saved and brought teams; factory teams are kit/teams/*.json), adoptions, and
 // whole-company transfers (src/runner/teams.ts, src/runner/company-package.ts).

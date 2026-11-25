@@ -3,7 +3,7 @@ import { defineWords } from "./i18n.js";
 
 export const AGENTE_WORDS = defineWords({
   es: {
-    tabs: { perfil: "Perfil", motor: "Motor", habilidades: "Habilidades", aprendizaje: "Aprendizaje" } as Record<string, string>,
+    tabs: { perfil: "Perfil", motor: "Motor", habilidades: "Habilidades", aprendizaje: "Aprendizaje", conexiones: "Conexiones" } as Record<string, string>,
     tabsOf: (seat: string) => `La ficha de ${seat}`,
     close: "Cerrar la ficha",
     loading: "Leyendo su ficha…",
@@ -54,7 +54,7 @@ export const AGENTE_WORDS = defineWords({
     noRoleText: "Este puesto no tiene texto propio todavía.",
   },
   en: {
-    tabs: { perfil: "Profile", motor: "Engine", habilidades: "Skills", aprendizaje: "Learning" },
+    tabs: { perfil: "Profile", motor: "Engine", habilidades: "Skills", aprendizaje: "Learning", conexiones: "Connections" },
     tabsOf: (seat: string) => `${seat}'s panel`,
     close: "Close the panel",
     loading: "Reading its panel…",
