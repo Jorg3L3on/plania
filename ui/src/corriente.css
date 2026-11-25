@@ -907,7 +907,10 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-hoja-two > label { min-width: 0; }
 .cor-hoja-two > label > .cor-input { min-width: 0; width: 100%; }
 @media (max-width: 639px) { .cor-hoja-two { flex-direction: column; } }
-/* NEWPROJ-3: «¿Dónde está su código?» in the sheet Nuevo proyecto. */
+/* NEWPROJ-3: «¿Dónde está su código?» in the sheet Agregar un proyecto (once Nuevo proyecto). */
+.cor-hoja-carpeta { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.cor-hoja-carpeta > .cor-input { flex: 1; min-width: 0; }
+@media (max-width: 639px) { .cor-hoja-carpeta { flex-direction: column; align-items: stretch; } }
 .cor-hoja-codigo { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .cor-hoja-codigo legend { padding: 0; margin-bottom: 6px; }
 .cor-hoja-one { display: flex; flex-direction: column; gap: 6px; }
@@ -927,6 +930,22 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-listo-dot.bad { background: var(--cor-red); opacity: 1; }
 .cor-listo-aviso { font-size: 13.5px; color: var(--cor-amber); }
 .cor-listo-mas > summary { cursor: pointer; margin-bottom: 8px; }
+/* A missing item's way to Ajustes sits under its sentence, at the left, not centred on a row of its own. */
+.cor-listo-body > .cor-btn.link { align-self: flex-start; min-height: 32px; margin-top: 2px; }
+/* The added project's sheet in three sections (components/listo.tsx ListoSecciones). */
+.cor-listo-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.cor-listo-tabs .cor-opt { min-height: 36px; }
+.cor-listo-resumen { display: flex; flex-direction: column; gap: 12px; }
+.cor-listo-veredicto { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--cor-line); }
+.cor-listo-veredicto > .cor-btn.link { min-height: 32px; margin-bottom: 6px; }
+.cor-listo-compacta .cor-listo-item { padding: 6px 0; }
+.cor-listo-compacta .cor-listo-dot { margin-top: 5px; }
+.cor-listo-secciones .cor-listo-body { flex: 1; }
+.cor-listo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cor-listo-head > .cor-btn.link { flex: none; min-height: 28px; font-size: 13px; }
+/* The sheet's actions stay at its foot while a long section scrolls (the sheet is the scroller). */
+.cor-hoja:has(.cor-listo-secciones) > .cor-acts { position: sticky; bottom: -20px; margin: 0 -22px -20px; padding: 12px 22px 16px; background: var(--cor-raised); border-top: 1px solid var(--cor-line); }
+.cor-hoja.abajo:has(.cor-listo-secciones) > .cor-acts { bottom: -12px; margin: 0 -16px -12px; padding: 10px 16px 12px; }
 .cor-hoja-what { padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .cor-hoja-list .cor-row { gap: 14px; font-size: 13.5px; }
 .cor-hoja-list .cor-key { width: 90px; flex: none; }

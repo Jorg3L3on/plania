@@ -53,6 +53,10 @@ import { logoBytes, logosRead, refreshLogos } from "../brand/logos.js";
 import { marcaFile, marcaRead } from "../brand/marca.js";
 import { ToolError } from "../mcp/errors.js";
 import { NEW_PROJECT_GOAL_MAX, NEW_PROJECT_NAME_MAX, createProjectFromTemplate } from "../runner/new-project.js";
+import { defaultOpenProjectDeps, defaultPickFolderDeps, openExistingProject, pickFolder, type OpenProjectDeps, type PickFolderDeps } from "../runner/open-project.js";
+import { agregarWords } from "../../ui/src/lib/nuevo-proyecto.js";
+import { fromLoopback } from "../auth/first-start.js";
+import { installLanguage } from "../language.js";
 import { deleteProject } from "../runner/delete-project.js";
 import { defaultRepoCheckDeps, type RepoCheckDeps } from "../runner/repo-check.js";
 import { projectReadiness, type ReadinessDeps } from "../runner/readiness.js";
@@ -771,7 +775,47 @@ export const setNewProjectRepoCheck = (d: RepoCheckDeps | null): void => {
   newProjectRepoCheck = d ?? defaultRepoCheckDeps;
 };
 
+// «Agregar un proyecto» with code (src/runner/open-project.ts): a folder here, a GitHub repository cloned with gh, or
+// any repository cloned over SSH. The goal is optional there; crear_rama makes the working branch when it is missing.
+const OpenName = z.string().min(1).max(NEW_PROJECT_NAME_MAX);
+const OpenGoal = z.string().max(NEW_PROJECT_GOAL_MAX).optional();
+const OpenProjectBody = z.discriminatedUnion("origen", [
+  z.object({ origen: z.literal("local"), name: OpenName, goal: OpenGoal, repo_path: z.string().max(500), crear_rama: z.boolean().optional() }).strict(),
+  z.object({ origen: z.literal("nube"), name: OpenName, goal: OpenGoal, repo: z.string().max(300), crear_rama: z.boolean().optional() }).strict(),
+  z.object({ origen: z.literal("ssh"), name: OpenName, goal: OpenGoal, repo: z.string().max(300), crear_rama: z.boolean().optional() }).strict(),
+]);
+
+// The open path's git, gh and filesystem; tests swap them (setOpenProjectDeps).
+let openProjectDeps: OpenProjectDeps = defaultOpenProjectDeps;
+export const setOpenProjectDeps = (d: OpenProjectDeps | null): void => {
+  openProjectDeps = d ?? defaultOpenProjectDeps;
+};
+// The folder window; tests swap it (setPickFolderDeps).
+let pickDeps: PickFolderDeps = defaultPickFolderDeps;
+export const setPickFolderDeps = (d: PickFolderDeps | null): void => {
+  pickDeps = d ?? defaultPickFolderDeps;
+};
+
+const peerAddress = (c: Context): string | undefined => (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+
+// The window opens on the machine the server runs on, so only a browser on that same machine may ask (never the phone).
+companyRoutes.post("/carpeta", async (c) => {
+  if (!fromLoopback(peerAddress(c), c.req.raw)) return c.json({ available: false, path: null });
+  return c.json(await pickFolder(agregarWords(installLanguage()).ventanaTitulo, pickDeps));
+});
+
 companyRoutes.post("/projects", async (c) => {
+  const raw = await c.req.raw.clone().json().catch(() => undefined);
+  if (raw && typeof raw === "object" && "origen" in raw) {
+    const open = await body(c, OpenProjectBody);
+    if (open instanceof Response) return open;
+    const out = await withDb((db) => openExistingProject(db, open, openProjectDeps));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out, 201);
+  }
   const input = await body(c, NewProjectBody);
   if (input instanceof Response) return input;
   const out = await withDb((db) => createProjectFromTemplate(db, input, { repoCheck: newProjectRepoCheck, releaseFromScreen: true }));
