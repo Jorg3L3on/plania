@@ -105,10 +105,10 @@ test("I2-16 #2: each step ticks from data as the owner goes, and the guide goes 
   assert.deepEqual(r.proyecto, { slug: "ejemplo", title: "Ejemplo" });
   assert.equal(estados(r).proyecto, "hecho");
   assert.equal(estados(r).reanudar, "ahora");
-  // F6: both paused; the guide's one Reanudar resumes the two, and its words say so.
+  // F6: both paused; the guide's one «Iniciar proyecto» resumes the two, and its words say so.
   const paso = ui.pasosDe(r as never, "es")[2]!;
   assert.equal(paso.accion, "reanudar");
-  assert.equal(paso.texto, "La compañía y Ejemplo empiezan en pausa. Reanudar pone a andar las dos con un solo botón.");
+  assert.equal(paso.texto, "La compañía y Ejemplo empiezan en pausa. «Iniciar proyecto» pone a andar los dos con un solo botón.");
   assert.equal(paso.href, "/ceo?proyecto=ejemplo&hoja=reanudar:ejemplo");
   assert.deepEqual(ui.aReanudar(r as never), { project: "ejemplo", company: true });
 

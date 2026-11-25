@@ -64,7 +64,7 @@ test("I2-12: a machine with everything is ready, item by item, in the shared ord
   assert.equal(blocking(items).length, 0);
   assert.equal(byId(items).get("postgres")!.sentence, "Postgres 16.2 responde.");
   assert.equal(byId(items).get("claude")!.sentence, "Claude Code 2.1.302 está instalado.");
-  assert.equal(machineHeadline(items), "Esta máquina tiene todo lo que Plania necesita.");
+  assert.equal(machineHeadline(items), "El entorno está listo para continuar.");
   assert.ok(items.every((i) => i.fix === null));
 });
 
