@@ -60,7 +60,7 @@ test("the page reads the rules; the city is never gated", () => {
   const src = readFileSync(new URL("../ui/src/pages/home.tsx", import.meta.url), "utf8");
   assert.match(src, /seccionesDe\(\{/);
   assert.match(src, /<Seccion show=\{ver\.metas\} id="metas"/);
-  // Pedir left Inicio for the palette (ADR 0007).
+  // Pedir left Inicio for the palette (ADR 0008).
   assert.doesNotMatch(src, /PedirHome/);
   assert.doesNotMatch(src, /ver\.ciudad/);
   // Same cache as the card: no request of its own.

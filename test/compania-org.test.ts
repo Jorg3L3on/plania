@@ -221,7 +221,7 @@ test("I33-2 the old Pedir box is gone from /p and the page holds the team, the P
   const order = ["<ProjectHeader", "<ProjectOrg slug", "<QuestionsPanel", "<StageBoard", "<InitiativeTable"].map((t) => page.indexOf(t));
   assert.ok(order.every((i) => i > 0), "all blocks present");
   assert.ok(order[1]! < order[3]!, "team and thread above the plan");
-  // ADR 0007: components/pedir.tsx is gone (Inicio's field became the palette); PedirBox must not come back in either.
+  // ADR 0008: components/pedir.tsx is gone (Inicio's field became the palette); PedirBox must not come back in either.
   const { existsSync } = await import("node:fs");
   for (const f of ["../ui/src/components/pedir.tsx", "../ui/src/components/paleta/paleta.tsx"]) {
     const url = new URL(f, import.meta.url);

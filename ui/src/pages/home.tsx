@@ -117,7 +117,7 @@ export function HomePage() {
       {/* PLA-I2-16: the guide to a first delivery, until one is accepted. */}
       <GuiaPrimeraEntrega />
 
-      {/* Pedir is no longer a field here: the palette (⌘K, or the header's button) asks from every screen. ADR 0007. */}
+      {/* Pedir is no longer a field here: the palette (⌘K, or the header's button) asks from every screen. ADR 0008. */}
       {/* 2.12: what changed since "Visto", and what waits on the owner, above the city. */}
       <Hoy names={names} />
 

@@ -33,7 +33,7 @@ after(async () => {
   await raw?.end();
 });
 
-// ADR 0007: Inicio's field became the Pedir palette (⌘K, from every screen); the same rules hold for it.
+// ADR 0008: Inicio's field became the Pedir palette (⌘K, from every screen); the same rules hold for it.
 test("PLA-87 #1: the Pedir palette uses the ask route, its modes and ASK_MAX, never the 200-character ticket route", async () => {
   const src = await readFile(new URL("../ui/src/components/paleta/paleta.tsx", import.meta.url), "utf8");
   assert.match(src, /api\.askProject\(/);

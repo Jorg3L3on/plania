@@ -1,6 +1,6 @@
 // The Pedir palette (ui/src/components/paleta/paleta.tsx): one field, from any screen, to ask a project for something
 // or go to a project or a screen. ⌘K / Ctrl+K opens it; the header's button does the same on a phone. Its keys, which
-// project it starts on and its rows, tested without a browser (test/paleta.test.ts). ADR 0007: La corriente's bar stays
+// project it starts on and its rows, tested without a browser (test/paleta.test.ts). ADR 0008: La corriente's bar stays
 // the Pedir inside a project; this is the Pedir for the whole app.
 // Pure and relative imports only, so the node tests load it.
 import { defineWords, getLanguage, words, type Language } from "./i18n.js";

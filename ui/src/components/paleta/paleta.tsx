@@ -1,4 +1,4 @@
-// The Pedir palette: one field, from any screen, to ask a project for something or go somewhere (ADR 0007). Its keys,
+// The Pedir palette: one field, from any screen, to ask a project for something or go somewhere (ADR 0008). Its keys,
 // rows and starting project are pure and tested in ui/src/lib/paleta.ts; this file draws them and sends.
 //
 // Motion. On a computer it opens with ⌘K many times a day, so it opens and closes with no animation at all, and the

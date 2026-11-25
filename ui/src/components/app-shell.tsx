@@ -151,7 +151,7 @@ export function AppShell() {
   // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
-  // ADR 0007: the Pedir palette, from every screen (⌘K / Ctrl+K, or the header's button). It exists once there is a
+  // ADR 0008: the Pedir palette, from every screen (⌘K / Ctrl+K, or the header's button). It exists once there is a
   // project to ask; its projects are Inicio's (the same cache), its screens Inicio and the main nav.
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const proyectos = useMemo(() => listedProjects(projects.data ?? []).map((p) => ({ slug: p.slug, title: p.title })), [projects.data]);

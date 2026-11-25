@@ -1,4 +1,4 @@
-// The Pedir palette (ui/src/lib/paleta.ts, ui/src/components/paleta/paleta.tsx; ADR 0007): ⌘K / Ctrl+K from every
+// The Pedir palette (ui/src/lib/paleta.ts, ui/src/components/paleta/paleta.tsx; ADR 0008): ⌘K / Ctrl+K from every
 // screen, the project it starts on, its rows, and what the component keeps when a send fails. Pure, no database.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
