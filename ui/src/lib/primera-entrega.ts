@@ -52,10 +52,10 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       boton: "Ver qué falta",
     },
     proyecto: {
-      titulo: "Crea tu primer proyecto",
+      titulo: "Agrega tu primer proyecto",
       existe: (title: string) => `${title} ya existe.`,
-      nuevo: "Ponle nombre y una meta de una frase. Empieza en pausa, con su equipo.",
-      boton: "Nuevo proyecto",
+      nuevo: "Uno nuevo, o uno que ya tiene código: en esta máquina, en GitHub o por SSH. Empieza en pausa, con su equipo.",
+      boton: "Agregar proyecto",
     },
     reanudar: {
       titulo: "Reanúdalo",
@@ -107,10 +107,10 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       boton: "See what's missing",
     },
     proyecto: {
-      titulo: "Make your first project",
+      titulo: "Add your first project",
       existe: (title: string) => `${title} already exists.`,
-      nuevo: "Give it a name and a one-sentence goal. It starts paused, with its team.",
-      boton: "New project",
+      nuevo: "A new one, or one that already has code: on this machine, on GitHub or over SSH. It starts paused, with its team.",
+      boton: "Add project",
     },
     reanudar: {
       titulo: "Resume it",

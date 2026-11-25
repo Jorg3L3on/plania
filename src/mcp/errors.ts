@@ -34,6 +34,10 @@ export const ERRORS = {
   REPO_GITHUB_NOT_FOUND: [400, "GitHub: no repository with that owner/name for this gh login"],
   REPO_GITHUB_NO_WRITE: [400, "GitHub: this gh login cannot write to the repository"],
   REPO_GITHUB_FAILED: [400, "GitHub: gh failed (detail: step)"],
+  // The guide's «Abrir un proyecto existente», SSH choice (src/runner/open-project.ts): git over ssh in batch mode.
+  REPO_SSH_DENIED: [400, "open over SSH: the repository's server refused this machine's SSH keys (or no key is loaded in the agent)"],
+  REPO_SSH_HOST_UNKNOWN: [400, "open over SSH: this machine has never accepted the server's host key (known_hosts); Plania never accepts one for the owner"],
+  REPO_SSH_NOT_FOUND: [400, "open over SSH: no repository at that URL for these keys"],
   // PLA-I67-2: skills the owner writes on screen (src/runner/skills.ts).
   SKILL_INVALID: [400, "a skill does not fit the Agent Skills format: slug, name, description (1-1024, no angle brackets), body (1-500 lines) or a supporting file's path or size (detail: field, hint)"],
   SKILL_NOT_ALLOWED: [400, "a skill carries something other than text: a script or executable file, hooks, an allowed-tools grant, or a command run at load time (detail: field, hint)"],

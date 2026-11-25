@@ -154,9 +154,10 @@ test("F7: the home project stays off the lists while it holds no work, and comes
 });
 
 test("F2: gh is asked before a project with code, with the fix in the owner's words", async () => {
+  // «Agregar un proyecto»: only Nube clones with gh; Local reads its folder and SSH uses git with the owner's keys.
   assert.equal(gh.pideGithub("github", ""), true);
-  assert.equal(gh.pideGithub("carpeta", " owner/repo "), true);
-  assert.equal(gh.pideGithub("carpeta", "  "), false);
+  assert.equal(gh.pideGithub("carpeta", " owner/repo "), false);
+  assert.equal(gh.pideGithub("ssh", "git@github.com:o/r.git"), false);
   assert.equal(gh.pideGithub("ninguno", "owner/repo"), false);
   assert.equal(gh.pideGithub(null, "owner/repo"), false);
   assert.equal(gh.githubAviso("ok"), null);
