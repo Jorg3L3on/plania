@@ -28,9 +28,9 @@ export const CORRIENTE_LIB_WORDS = defineWords({
     tab: { todo: "Todo", hecho: "Hecho", equipo: "Equipo", motores: "Motores", maquinas: "Máquinas", marca: "Marca", camino: "Despliegue", ajustes: "Ajustes" } as Record<Tab, string>,
     // The ask box's three modes (the same words as the building's).
     modes: {
-      forma: { name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
-      ya: { name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
-      pregunta: { name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
+      forma: { name: "Darle forma", line: "El PO evalúa y aclara la idea. El desarrollo inicia con «Constrúyelo»." },
+      ya: { name: "Hacerlo ya", line: "Cambios pequeños y claros que se agregan directamente al tablero." },
+      pregunta: { name: "Preguntar", line: "El PO analiza el código y responde sin generar ideas ni tareas." },
     },
     // PLA-I3-6 «Un solo Pedir»: the bar's words.
     pedir: {
@@ -360,7 +360,8 @@ export const modesOf = (language: Language = getLanguage()): { id: AskMode; name
 /** The Spanish modes, kept for their readers; the screen reads modesOf(). */
 export const MODES: { id: AskMode; name: string; line: string }[] = modesOf("es");
 
-// PLA-I3-6 «Un solo Pedir»: the bar at the foot is the only Pedir. Its words and its keys, tested without a browser.
+// PLA-I3-6 «Un solo Pedir»: the bar at the foot is the Pedir inside a project (ADR 0008: the ⌘K palette, lib/paleta.ts,
+// is the Pedir for the rest of the app). Its words and its keys, tested without a browser.
 /** The input's placeholder: the selected mode's line, short enough to read inside the bar. */
 export const PEDIR_PLACEHOLDER: Record<AskMode, string> = CORRIENTE_LIB_WORDS.es.pedir.placeholder;
 export const pedirPlaceholder = (mode: AskMode, language: Language = getLanguage()): string => words(CORRIENTE_LIB_WORDS, language).pedir.placeholder[mode];

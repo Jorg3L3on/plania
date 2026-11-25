@@ -221,8 +221,12 @@ test("I33-2 the old Pedir box is gone from /p and the page holds the team, the P
   const order = ["<ProjectHeader", "<ProjectOrg slug", "<QuestionsPanel", "<StageBoard", "<InitiativeTable"].map((t) => page.indexOf(t));
   assert.ok(order.every((i) => i > 0), "all blocks present");
   assert.ok(order[1]! < order[3]!, "team and thread above the plan");
-  const pedir = readFileSync(new URL("../ui/src/components/pedir.tsx", import.meta.url), "utf8");
-  assert.equal(pedir.includes("export function PedirBox"), false);
+  // ADR 0008: components/pedir.tsx is gone (Inicio's field became the palette); PedirBox must not come back in either.
+  const { existsSync } = await import("node:fs");
+  for (const f of ["../ui/src/components/pedir.tsx", "../ui/src/components/paleta/paleta.tsx"]) {
+    const url = new URL(f, import.meta.url);
+    if (existsSync(url)) assert.equal(readFileSync(url, "utf8").includes("export function PedirBox"), false, f);
+  }
 });
 
 test("I33-2 → I35: the preview sheet is gone; /ceo?p=x and ?vista=x redirect to /p/x", () => {

@@ -23,7 +23,7 @@ export const STREAM_WORDS = defineWords({
     totals: { revision: "En revisión", open: "Abiertos", done: "Hechos" },
     streamAria: "La corriente: el trabajo de cada proyecto por etapa",
     noProjects: "Todavía no hay proyectos.",
-    newProject: "+ Nuevo proyecto",
+    newProject: "+ Agregar proyecto",
   },
   en: {
     inColumn: (n: number, column: string) => `${n} in ${column}`,
@@ -42,6 +42,6 @@ export const STREAM_WORDS = defineWords({
     totals: { revision: "In review", open: "Open", done: "Done" },
     streamAria: "La corriente: each project's work by stage",
     noProjects: "No projects yet.",
-    newProject: "+ New project",
+    newProject: "+ Add project",
   },
 });

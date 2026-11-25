@@ -1,0 +1,45 @@
+/* PLA-181: the first-delivery wizard's entrances (guia-wizard.tsx). Each runs once, when its element mounts: a reading that
+   arrives, a field the chosen option opens, a warning. Rare, first-time UI, so a little more care than a dialog:
+   opacity and a few pixels of rise, a strong ease-out, under 300ms per element, short uneven stagger between rows.
+   Only opacity and transform, so it stays on the compositor while the page is busy. */
+
+.aparece,
+.paso [data-pendientes] {
+  animation: sube 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+/* The machine reading: the headline, then the rows one after another, then the time it was read. */
+.lectura > section > * {
+  animation: sube 260ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.lectura > section > :nth-child(2) { animation-delay: 40ms; }
+.lectura > section > :nth-child(3) { animation-delay: 260ms; }
+.lectura li,
+.paso [data-filas] > li {
+  animation: sube 260ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.lectura li:nth-child(1), .paso [data-filas] > li:nth-child(1) { animation-delay: 60ms; }
+.lectura li:nth-child(2), .paso [data-filas] > li:nth-child(2) { animation-delay: 105ms; }
+.lectura li:nth-child(3), .paso [data-filas] > li:nth-child(3) { animation-delay: 140ms; }
+.lectura li:nth-child(4), .paso [data-filas] > li:nth-child(4) { animation-delay: 170ms; }
+.lectura li:nth-child(5), .paso [data-filas] > li:nth-child(5) { animation-delay: 195ms; }
+.lectura li:nth-child(n + 6), .paso [data-filas] > li:nth-child(n + 6) { animation-delay: 215ms; }
+
+@keyframes sube {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+/* Reduced motion: no movement, the fade stays so a new reading still reads as new. */
+@keyframes funde {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aparece,
+  .paso [data-pendientes],
+  .lectura > section > *,
+  .lectura li,
+  .paso [data-filas] > li {
+    animation-name: funde;
+    animation-delay: 0ms !important;
+  }
+}

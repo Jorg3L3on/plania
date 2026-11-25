@@ -2,7 +2,10 @@
 // the header; on a phone they move to a bottom tab bar, so the header never overflows at 390 px.
 // Presentational: the counts come in as props (test/compania-ui.test.ts renders it).
 import { BuildingIcon, CpuIcon, FlameIcon, InboxIcon } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Link, NavLink } from "react-router";
+import { motionTokens } from "@/components/arc/lib/motion-tokens";
+import { Cifra } from "@/components/home/cifra";
 import { PlaniaMark } from "@/components/plania-mark";
 import { navItems } from "@/lib/compania";
 import { words } from "@/lib/i18n";
@@ -13,21 +16,33 @@ const ICON: Record<string, typeof InboxIcon> = { "/ceo": BuildingIcon, "/inbox":
 
 export type NavCounts = { inbox: number; chores: number };
 
+// The counts watched all day. A new count rolls in (Cifra, 200ms); the badge grows in from 0.9 in 150ms when the first
+// one arrives and leaves in 120ms when the last one goes. Once, never a loop: a ping on a page open all day wears.
 const Badge = ({ to, counts }: { to: string; counts: NavCounts }) => {
   const w = words(SHELL);
-  if (to === "/inbox" && counts.inbox > 0)
-    return (
-      <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-semibold text-white tabular-nums" aria-label={w.inboxWaiting(counts.inbox)}>
-        {counts.inbox}
-      </span>
-    );
-  if (to === "/machine" && counts.chores > 0)
-    return (
-      <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums" aria-label={w.choresWaiting(counts.chores)}>
-        {counts.chores}
-      </span>
-    );
-  return null;
+  const reducido = useReducedMotion() ?? false;
+  const bandeja = to === "/inbox";
+  const n = bandeja ? counts.inbox : to === "/machine" ? counts.chores : 0;
+  return (
+    <AnimatePresence initial={false}>
+      {n > 0 ? (
+        <motion.span
+          key="badge"
+          className={cn(
+            "inline-flex overflow-hidden rounded-full px-1.5 text-[11px] tabular-nums",
+            bandeja ? "bg-orange-500 font-semibold text-white" : "bg-muted font-medium text-muted-foreground",
+          )}
+          aria-label={bandeja ? w.inboxWaiting(n) : w.choresWaiting(n)}
+          initial={reducido ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1, transition: { duration: 0.15, ease: [...motionTokens.ease.enter] } }}
+          exit={{ opacity: 0, scale: reducido ? 1 : 0.9, transition: { duration: 0.12, ease: [...motionTokens.ease.standard] } }}
+          data-badge={bandeja ? "bandeja" : "limpieza"}
+        >
+          <Cifra value={n} />
+        </motion.span>
+      ) : null}
+    </AnimatePresence>
+  );
 };
 
 export const Logo = () => (

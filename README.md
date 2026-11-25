@@ -716,6 +716,9 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `REPO_NOT_GIT` | 400 | new project: the folder given as repo_path is not a git repository |
 | `REPO_ORIGIN_UNREACHABLE` | 400 | new project: origin could not be read (network, credentials or a wrong address) |
 | `REPO_PUSH_FAILED` | 400 | prepare the code: pushing to origin was refused (access or network) |
+| `REPO_SSH_DENIED` | 400 | open over SSH: the repository's server refused this machine's SSH keys (or no key is loaded in the agent) |
+| `REPO_SSH_HOST_UNKNOWN` | 400 | open over SSH: this machine has never accepted the server's host key (known_hosts); Plania never accepts one for the owner |
+| `REPO_SSH_NOT_FOUND` | 400 | open over SSH: no repository at that URL for these keys |
 | `RESERVED_ACTOR` | 400 | actor.agent is owner: only the screen writes as the owner |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `SKILL_IMPORT_FORMAT` | 400 | the link is not a skill Plania can bring: not a SKILL.md, a GitHub folder or a GitHub file or raw address; no SKILL.md with a name and a description; or more files or folders than a skill holds (detail: reason) |

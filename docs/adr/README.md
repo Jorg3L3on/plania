@@ -50,3 +50,4 @@ The files, rules and tests that hold the decision in place.
 | [0005](0005-the-kit-lives-in-git-and-runs-are-stamped.md) | The agents' kit lives in git, and every run is stamped with its version |
 | [0006](0006-owner-written-knowledge-lives-in-versioned-data.md) | What the owner writes for an agent lives in versioned data, and runs are stamped with it |
 | [0007](0007-teams-are-data-and-travel-in-the-open-layout.md) | Teams are data, and a company travels as text in the open agent-companies layout |
+| [0008](0008-one-pedir-per-project-one-palette-for-the-app.md) | One Pedir bar inside a project, one Pedir palette for the app |

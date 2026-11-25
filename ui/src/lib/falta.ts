@@ -117,7 +117,7 @@ export const FALTA = defineWords({
     memoryLow: (d: MachineDetail): Said => ({ sentence: `La máquina tiene ${gbOf(d)} GB de memoria; Plania necesita al menos ${MIN_MEMORY_GB} GB.`, fix: "Usa una máquina con más memoria." }),
     chromeAbsent: { sentence: "Chrome no está instalado: no habrá fotos de pantalla, todo lo demás funciona.", fix: "Instálalo: https://www.google.com/chrome/ (o escribe su ruta en PLANIA_CHROME_PATH)" } as Said,
     headline: (missing: number) =>
-      missing === 0 ? "Esta máquina tiene todo lo que Plania necesita." : missing === 1 ? "A esta máquina le falta una cosa." : `A esta máquina le faltan ${missing} cosas.`,
+      missing === 0 ? "El entorno está listo para continuar." : missing === 1 ? "A esta máquina le falta una cosa." : `A esta máquina le faltan ${missing} cosas.`,
     /** The install command's mark after an optional item. */
     optionalMark: " (opcional)",
     // The page (/machine/falta).
@@ -192,7 +192,7 @@ export const FALTA = defineWords({
     memoryLow: (d: MachineDetail): Said => ({ sentence: `The machine has ${gbOf(d)} GB of memory; Plania needs at least ${MIN_MEMORY_GB} GB.`, fix: "Use a machine with more memory." }),
     chromeAbsent: { sentence: "Chrome is not installed: there will be no screenshots, everything else works.", fix: "Install it: https://www.google.com/chrome/ (or write its path in PLANIA_CHROME_PATH)" },
     headline: (missing: number) =>
-      missing === 0 ? "This machine has everything Plania needs." : missing === 1 ? "This machine is missing one thing." : `This machine is missing ${missing} things.`,
+      missing === 0 ? "The environment is ready to go on." : missing === 1 ? "This machine is missing one thing." : `This machine is missing ${missing} things.`,
     optionalMark: " (optional)",
     kicker: "This machine",
     title: "What it is missing",

@@ -122,7 +122,7 @@ test("F6: one resume for both pauses, in the guide and on the project page", () 
   const read = { visible: true, proyecto: { slug: "ejemplo", title: "Ejemplo" }, maquina: "lista", company_paused: true, project_paused: true, pedido: false, plan: "nada", entrega: "nada", fallo: null, est_pct_per_run: 3 } as const;
   const paso = guia.pasosDe(read, "en")[2]!;
   assert.equal(paso.accion, "reanudar");
-  assert.equal(paso.texto, "The company and Ejemplo start paused. Resume starts both with one button.");
+  assert.equal(paso.texto, "The company and Ejemplo start paused. «Start the project» starts both with one button.");
   assert.deepEqual(guia.aReanudar(read), { project: "ejemplo", company: true });
   assert.deepEqual(guia.aReanudar({ ...read, project_paused: false }), { project: null, company: true });
   assert.equal(guia.pasosDe({ ...read, proyecto: null }, "es")[2]!.accion, undefined, "no project yet: nothing to resume in place");
@@ -154,9 +154,10 @@ test("F7: the home project stays off the lists while it holds no work, and comes
 });
 
 test("F2: gh is asked before a project with code, with the fix in the owner's words", async () => {
+  // «Agregar un proyecto»: only Nube clones with gh; Local reads its folder and SSH uses git with the owner's keys.
   assert.equal(gh.pideGithub("github", ""), true);
-  assert.equal(gh.pideGithub("carpeta", " owner/repo "), true);
-  assert.equal(gh.pideGithub("carpeta", "  "), false);
+  assert.equal(gh.pideGithub("carpeta", " owner/repo "), false);
+  assert.equal(gh.pideGithub("ssh", "git@github.com:o/r.git"), false);
   assert.equal(gh.pideGithub("ninguno", "owner/repo"), false);
   assert.equal(gh.pideGithub(null, "owner/repo"), false);
   assert.equal(gh.githubAviso("ok"), null);

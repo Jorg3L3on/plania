@@ -115,7 +115,7 @@ describe("tiles", () => {
     assert.deepEqual(deployOf([{ env: "sandbox", commit: null, branch: null, deployed_at: null, flags: {}, behind: 0 }], NOW), { text: "Sin fecha de publicación en sandbox", lag: null });
   });
 
-  test("state and rank: en marcha, te espera, quieto, en pausa", () => {
+  test("state and rank: en marcha, te espera, quieto, en pausa, al día", () => {
     const init = ticket("P-I1", "Active", { kind: "initiative", priority: null });
     const moving = tileOf(project("a", "A", { tasks: [init, { ...claim("P-I1-1", "s1"), parent_key: "P-I1" }], activity: [0, 2, 4, 0, 0, 0, 1] }), 0, NOW);
     assert.deepEqual([moving.state.word, moving.rank], ["en marcha", 0]);
@@ -130,8 +130,14 @@ describe("tiles", () => {
     assert.equal(review.state.word, "en marcha");
     const leftover = tileOf(project("f", "F", { tasks: [init, ticket("P-I1-1", "In progress", { parent_key: "P-I1" }), ticket("P-02", "Merged")] }), 0, NOW);
     assert.equal(leftover.state.word, "quieto");
-    assert.deepEqual([paused.state.word, paused.rank], ["en pausa", 3]);
+    // Nothing open is al día, not paused; en pausa is open work all under initiatives On hold.
+    assert.deepEqual([paused.state, paused.rank], [{ word: "al día", tone: "done" }, 4]);
     assert.deepEqual(paused.left, { initiatives: 0, tickets: 0 });
+    const hold = ticket("P-I9", "On hold", { kind: "initiative", priority: null });
+    const onHold = tileOf(project("i", "I", { tasks: [hold, ticket("P-I9-1", "Ready", { parent_key: "P-I9" }), ticket("P-I8", "Done", { kind: "initiative" })] }), 0, NOW);
+    assert.deepEqual([onHold.state.word, onHold.rank], ["en pausa", 3]);
+    const holdAndLoose = tileOf(project("j", "J", { tasks: [hold, ticket("P-3", "Ready")] }), 0, NOW);
+    assert.equal(holdAndLoose.state.word, "quieto", "a loose ticket is open work outside the pause");
     const mixed = tileOf(project("g", "G", { tasks: [init, ticket("P-I1-1", "Done", { parent_key: "P-I1" }), ticket("P-I1-2", "Ready", { parent_key: "P-I1" }), ticket("P-I2", "Done", { kind: "initiative" }), ticket("P-I3", "Won't do", { kind: "initiative" }), ticket("P-I4", "On hold", { kind: "initiative" })] }), 0, NOW);
     assert.deepEqual([mixed.left, mixed.onHold], [{ initiatives: 1, tickets: 1 }, 1]);
     const withIdea = tileOf(project("h", "H", { tasks: [init, ticket("P-IDEA1", "Open", { kind: "idea", priority: null }), ticket("P-IDEA2", "Done", { kind: "idea", priority: null }), ticket("P-1", "Ready"), ticket("P-2", "Done")] }), 0, NOW);

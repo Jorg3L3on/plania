@@ -46,7 +46,7 @@ export function githubAviso(access: string | null | undefined, language: Languag
   return { por: w.por, arregla: w.arregla, comando: COMANDO[a] };
 }
 
-/** Whether the sheet's choice uses GitHub: a repository to clone, or a folder with its repository named. */
-export function pideGithub(codigo: "carpeta" | "github" | "ninguno" | null, repo: string): boolean {
-  return codigo === "github" || (codigo === "carpeta" && repo.trim().length > 0);
+/** Whether the sheet's choice uses gh: Nube clones with it. Local reads its folder and SSH uses git with the owner's keys. */
+export function pideGithub(codigo: "carpeta" | "github" | "ssh" | "ninguno" | null, _repo = ""): boolean {
+  return codigo === "github";
 }

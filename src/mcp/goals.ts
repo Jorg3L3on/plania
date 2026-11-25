@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { GOAL_STATUSES, goals, projects, tasks, type Goal, type Task } from "../db/schema.js";
 import { bus } from "../events.js";
+import { ST } from "../state/status.js";
 import { ToolError } from "./errors.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -114,6 +115,9 @@ async function loadBoard(db: Q): Promise<GoalView[]> {
   const rows = await db.select().from(goals);
   const slugRows = await db.select({ id: projects.id, slug: projects.slug }).from(projects);
   const slugs = new Map(slugRows.map((p) => [p.id, p.slug]));
+  // Progress is Done over the work still meant to happen: a Won't do ticket, and every ticket of a Won't do initiative,
+  // count in neither. Counted in the total, a goal with one dropped ticket could never reach 100% (Inicio's Metas card
+  // drew the dropped initiative out of its segments while its tickets still held the share down).
   const counts = await db.execute<{ goal_id: string; done: number; total: number }>(sql`
     select i.goal_id as goal_id,
            count(*)::int as total,
@@ -121,6 +125,7 @@ async function loadBoard(db: Q): Promise<GoalView[]> {
     from tasks c
     join tasks i on i.id = c.parent_id
     where c.kind = 'ticket' and i.kind = 'initiative' and i.goal_id is not null
+      and c.status <> ${ST.wontDo} and i.status <> ${ST.wontDo}
     group by i.goal_id`);
   const progress = new Map<string, GoalProgress>();
   for (const row of counts.rows) progress.set(row.goal_id, { done: row.done, total: row.total });
@@ -357,7 +362,7 @@ export function registerGoalTools(server: McpServer, db: Db, hooks: Hooks): void
     {
       description: [
         "Company goals and the project goals under them. Without project: company goals, each with its project goals in children.",
-        "With project: only that project's goals. progress is {done, total} of the linked initiatives' tickets (status Done over every ticket); a company goal adds its children's progress.",
+        "With project: only that project's goals. progress is {done, total} of the linked initiatives' tickets (status Done over every ticket; Won't do tickets, and the tickets of a Won't do initiative, count in neither); a company goal adds its children's progress.",
         "initiatives lists the initiatives whose goal_id is this goal. target_on is stored and never enforced. Dropped goals stay in the list.",
       ].join(" "),
       inputSchema: {

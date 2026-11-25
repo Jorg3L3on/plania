@@ -1,5 +1,6 @@
 // PLA-I62-8: the sheets (board A5). Each opens alone over the dimmed screen and says what happens before the click:
-//   Nuevo proyecto  name and goal; its key, its PO and that it starts paused (POST /company/projects); its ready state
+//   Agregar un proyecto  where its code is (Local, Nube, SSH, Sin código), name and goal; its key, its PO and that it
+//                  starts paused (POST /company/projects); its ready state
 //                   (NEWPROJ-4: the readiness list, and «listo» only when nothing stops a run). F2: with a repository
 //                   given, whether gh can write to GitHub, and the fix.
 //   Pausar          what closes (the runs live now), what does not start, what stays; Pausar <proyecto>.
@@ -19,14 +20,15 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { linkTo, seatName } from "@/lib/corriente";
-import { META_MAX, NOMBRE_MAX, codigoBody, codigoOpciones, fondoMouseDown, nuevoProyectoError, nuevoProyectoSinTexto, type CodigoBody, type CodigoOpcion } from "@/lib/nuevo-proyecto";
+import { META_MAX, NOMBRE_MAX, agregarError, agregarWords, codigoOpciones, fondoMouseDown, nuevoProyectoSinTexto } from "@/lib/nuevo-proyecto";
 import { creadoTitulo, listoAviso, reanudarAlReanudar, reanudarFalla } from "@/lib/listo";
-import { ListoLista } from "@/components/listo";
+import { ListoLista, ListoSecciones } from "@/components/listo";
+import { useAgregarProyecto } from "@/components/agregar/use-agregar-proyecto";
 import type { GoalWrite } from "@/components/goals/model";
 import { words } from "@/lib/i18n";
 import { HOJAS_WORDS } from "@/lib/hojas-words";
 import { pausaDe, pausasWords } from "@/lib/pausas";
-import { githubAviso, githubAvisoWords, pideGithub } from "@/lib/github-aviso";
+import { githubAvisoWords } from "@/lib/github-aviso";
 import { CopyCommand } from "@/components/copy-command";
 import { Btn, Key, Label, You } from "./parts";
 
@@ -93,34 +95,36 @@ const Rows = ({ rows }: { rows: [string, ReactNode][] }) => (
 
 export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen: (slug: string) => void }) => {
   const w = words(HOJAS_WORDS);
-  const client = useQueryClient();
-  const [name, setName] = useState("");
-  const [goal, setGoal] = useState("");
-  // NEWPROJ-3: where the code is. Nothing is sent until one of the three is picked and its field is right.
-  const [codigo, setCodigo] = useState<CodigoOpcion | null>(null);
-  const [carpeta, setCarpeta] = useState("");
-  const [repo, setRepo] = useState("");
-  const code = codigoBody(codigo, carpeta, repo);
-  // F2: gh is needed only for a project with code; asked once a repository is given.
-  const usaGithub = pideGithub(codigo, repo);
-  const github = useQuery({ queryKey: ["onboarding", "github"], queryFn: api.githubAccess, enabled: usaGithub, staleTime: 30_000, retry: false });
-  const aviso = usaGithub ? githubAviso(github.data?.access) : null;
-  const make = useMutation({ mutationFn: (input: { name: string; goal: string } & CodigoBody) => api.createCompanyProject(input), onSuccess: () => void client.invalidateQueries({ queryKey: ["company"] }) });
-  const missing = make.error instanceof ApiError && (make.error.status === 404 || make.error.status === 405);
+  const ag = agregarWords();
+  // The form's state and calls are shared with step 2 of the first-delivery wizard (components/agregar).
+  const { name, setName, setNameTouched, goal, setGoal, codigo, elegir, carpeta, setCarpeta, repo, setRepo, ssh, setSsh, sinVentana, code, pideMeta, follow, usaGithub, github, aviso, ventana, make, err, sinRama, send, busy } =
+    useAgregarProyecto();
   // NEWPROJ-4: what the new project still lacks. Until it answers, the title says only that it was created.
   const listo = useQuery({ queryKey: ["readiness", make.data?.slug], queryFn: () => api.readiness(make.data!.slug), enabled: !!make.data });
   if (make.data) {
     const aviso = listo.data ? listoAviso(listo.data) : null;
-    return (
-      <Hoja label={w.newProject} title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
+    const resumen = (
+      <>
         <Rows rows={[[w.key, <Key key="k">{make.data.key_prefix}</Key>], [w.po, make.data.po], [w.paused, w.pausedRow]]} />
-        <p className="cor-text">{w.quoted(goal.trim())}</p>
+        {goal.trim() ? <p className="cor-text">{w.quoted(goal.trim())}</p> : null}
         {aviso && (
           <p className="cor-listo-aviso" role="status" data-listo-aviso>
             {aviso}
           </p>
         )}
-        {listo.data ? <ListoLista r={listo.data} look="cor" ajustes={<AjustesLink slug={make.data.slug} />} /> : listo.isError ? <p className="cor-cap">{w.readinessFailed}</p> : <div className="cor-skel" style={{ height: 120 }} aria-busy="true" />}
+      </>
+    );
+    return (
+      <Hoja label={w.newProject} title={creadoTitulo(name.trim(), listo.data ?? null)} onClose={onClose}>
+        {/* The added project in three sections (Resumen, Falta, Listo), so the sheet stays short. */}
+        {listo.data ? (
+          <ListoSecciones r={listo.data} resumen={resumen} ajustes={<AjustesLink slug={make.data.slug} />} />
+        ) : (
+          <>
+            {resumen}
+            {listo.isError ? <p className="cor-cap">{w.readinessFailed}</p> : <div className="cor-skel" style={{ height: 80 }} aria-busy="true" />}
+          </>
+        )}
         <div className="cor-acts">
           <Btn kind="primary" onClick={() => onOpen(make.data!.slug)} data-control="abrir-proyecto">
             {w.openProject}
@@ -133,53 +137,108 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
     );
   }
   return (
-    <Hoja label={w.newProject} title={w.whatBuild} onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo])}>
+    <Hoja label={w.newProject} title={w.whatBuild} onClose={onClose} closeOnBack={nuevoProyectoSinTexto([name, goal, carpeta, repo, ssh])}>
       <form
         className="cor-hoja-form cor-hoja-nuevo"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim() && goal.trim() && code) make.mutate({ name: name.trim(), goal: goal.trim(), ...code });
+          send(sinRama);
         }}
       >
-        <span className="cor-hoja-two">
-          <label>
-            <span className="cor-text">{w.name}</span>
-            <input className="cor-input" value={name} maxLength={NOMBRE_MAX} onChange={(e) => setName(e.target.value)} placeholder={w.namePlaceholder} required />
-          </label>
-          <label style={{ flex: 2 }}>
-            <span className="cor-text">{w.goal}</span>
-            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder={w.goalPlaceholder} required />
-          </label>
-        </span>
         <fieldset className="cor-hoja-codigo" data-codigo={codigo ?? "none"}>
           <legend className="cor-text">{w.whereCode}</legend>
           <div className="cor-opts" role="radiogroup" aria-label={w.whereCodeLabel}>
             {codigoOpciones().map((o) => (
-              <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => setCodigo(o.key)} data-codigo-opcion={o.key}>
+              <button key={o.key} type="button" role="radio" aria-checked={codigo === o.key} className="cor-opt" onClick={() => elegir(o.key)} data-codigo-opcion={o.key}>
                 {o.label}
               </button>
             ))}
           </div>
           {codigo && <p className="cor-text">{codigoOpciones().find((o) => o.key === codigo)!.hint}</p>}
           {codigo === "carpeta" && (
-            <span className="cor-hoja-two">
-              <label style={{ flex: 2 }}>
-                <span className="cor-text">{w.folder}</span>
-                <input className="cor-input cor-mono" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} placeholder={w.folderPlaceholder} autoComplete="off" spellCheck={false} required />
-              </label>
-              <label>
-                <span className="cor-text">{w.githubIfAny}</span>
-                <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} />
-              </label>
-            </span>
+            <label className="cor-hoja-one">
+              <span className="cor-text">{w.folder}</span>
+              <span className="cor-hoja-carpeta">
+                <input
+                  className="cor-input cor-mono"
+                  value={carpeta}
+                  onChange={(e) => {
+                    setCarpeta(e.target.value);
+                    follow("carpeta", e.target.value);
+                  }}
+                  placeholder={w.folderPlaceholder}
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                  data-campo="carpeta"
+                />
+                <Btn disabled={ventana.isPending} onClick={() => ventana.mutate()} data-control="elegir-carpeta">
+                  {ventana.isPending ? ag.eligiendo : ag.elegir}
+                </Btn>
+              </span>
+              {sinVentana && <span className="cor-cap">{ag.sinVentana}</span>}
+            </label>
           )}
           {codigo === "github" && (
             <label className="cor-hoja-one">
               <span className="cor-text">{w.githubRepo}</span>
-              <input className="cor-input cor-mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={w.repoPlaceholder} autoComplete="off" spellCheck={false} required />
+              <input
+                className="cor-input cor-mono"
+                value={repo}
+                onChange={(e) => {
+                  setRepo(e.target.value);
+                  follow("github", e.target.value);
+                }}
+                placeholder={ag.nubePlaceholder}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                data-campo="repo"
+              />
+              {repo.trim() && !code && <span className="cor-cap">{ag.repoMal}</span>}
+            </label>
+          )}
+          {codigo === "ssh" && (
+            <label className="cor-hoja-one">
+              <span className="cor-text">{ag.sshLabel}</span>
+              <input
+                className="cor-input cor-mono"
+                value={ssh}
+                onChange={(e) => {
+                  setSsh(e.target.value);
+                  follow("ssh", e.target.value);
+                }}
+                placeholder={ag.sshPlaceholder}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                data-campo="ssh"
+              />
+              {ssh.trim() && !code && <span className="cor-cap">{ag.sshMal}</span>}
             </label>
           )}
         </fieldset>
+        <span className="cor-hoja-two">
+          <label>
+            <span className="cor-text">{w.name}</span>
+            <input
+              className="cor-input"
+              value={name}
+              maxLength={NOMBRE_MAX}
+              onChange={(e) => {
+                setNameTouched(true);
+                setName(e.target.value);
+              }}
+              placeholder={w.namePlaceholder}
+              required
+              data-campo="nombre"
+            />
+          </label>
+          <label style={{ flex: 2 }}>
+            <span className="cor-text">{pideMeta || !codigo ? w.goal : ag.metaOpcional}</span>
+            <input className="cor-input" value={goal} maxLength={META_MAX} onChange={(e) => setGoal(e.target.value)} placeholder={w.goalPlaceholder} required={pideMeta} data-campo="meta" />
+          </label>
+        </span>
         {usaGithub && github.isPending && <p className="cor-cap" aria-busy="true">{githubAvisoWords().revisando}</p>}
         {aviso && (
           <div className="cor-listo-aviso" role="status" data-github-aviso>
@@ -192,12 +251,21 @@ export const NuevoProyecto = ({ onClose, onOpen }: { onClose: () => void; onOpen
           </div>
         )}
         <Rows rows={[[w.key, w.keyRow], [w.po, w.poRow], [w.paused, w.pausedRow]]} />
-        {missing && <p className="cor-state bad">{w.noRoute}</p>}
-        {make.isError && !missing && <p className="cor-state bad cor-hoja-refusal" role="alert">{make.error instanceof ApiError ? nuevoProyectoError(make.error.code, make.error.detail) : nuevoProyectoError(null)}</p>}
+        {make.isError && (
+          <p className={sinRama ? "cor-text cor-hoja-refusal" : "cor-state bad cor-hoja-refusal"} role="alert" data-refusal={err?.code ?? "red"}>
+            {err ? agregarError(err.code, err.detail) : agregarError(null)}
+          </p>
+        )}
         <div className="cor-acts">
-          <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !goal.trim() || !code} data-control="crear-proyecto">
-            {make.isPending ? w.creating : w.create}
-          </Btn>
+          {sinRama ? (
+            <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !code} data-control="crear-rama-y-agregar">
+              {busy ?? ag.crearRama}
+            </Btn>
+          ) : (
+            <Btn kind="primary" type="submit" disabled={make.isPending || !name.trim() || !code || (pideMeta && !goal.trim())} data-control="crear-proyecto">
+              {busy ?? w.create}
+            </Btn>
+          )}
           <Btn kind="quiet" onClick={onClose}>
             {w.cancel}
           </Btn>

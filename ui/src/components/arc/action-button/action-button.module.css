@@ -1,0 +1,21 @@
+/* From UIArc's action button; Arc's spacing, radius and timing variables mapped to Plania's values. */
+/* The button hugs its label: labels crossfade in place and the width follows on a spring with no overshoot, so no state ever snaps the layout. */
+.button { position: relative; display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; overflow: hidden; padding: 0 1rem; border: 1px solid var(--foreground); border-radius: var(--radius-md); background: var(--foreground); color: var(--background); font: inherit; font-size: 0.875rem; font-weight: 500; line-height: 1.25rem; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms cubic-bezier(0.22, 1, 0.36, 1), color 150ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1), opacity 150ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (hover: hover) and (pointer: fine) { .button:hover:not(:disabled) { box-shadow: 0 1px 3px rgb(0 0 0 / 0.18); } }
+.button:disabled { cursor: not-allowed; }
+.button:disabled:not([data-state="pending"]) { opacity: .7; }
+.button[data-state="pending"] { cursor: progress; }
+.content { display: inline-flex; min-height: 1.25rem; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; }
+.morph { position: relative; display: inline-grid; min-width: 0; justify-items: start; }
+.morph[data-morphing] { clip-path: inset(-.6em 0 -.6em -.3em); }
+/* The sizer holds the current label's width; the visible labels stack in the same cell while one fades out. */
+.sizer { grid-area: 1 / 1; visibility: hidden; white-space: pre; }
+.label { grid-area: 1 / 1; white-space: pre; }
+.iconSlot { display: grid; width: 17px; height: 17px; flex: 0 0 17px; place-items: center; }
+.phase { grid-area: 1 / 1; display: grid; width: 17px; height: 17px; place-items: center; }
+.arrow { flex: none; }
+.statusIcon { color: currentColor; }
+.spinner { display: inline-block; width: 1rem; height: 1rem; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; } /* motion: continuous spinner loop */
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .button { transition: none; } .spinner { animation: none; } }

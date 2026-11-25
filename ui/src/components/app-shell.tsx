@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { forgetReads } from "@/lib/last-read";
 import { BellIcon, CloudOffIcon, EllipsisIcon, GaugeIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HeaderNav, Logo, TabBar } from "@/components/main-nav";
+import { Paleta, PaletaBoton, useAtajoPaleta } from "@/components/paleta/paleta";
+import { navItems } from "@/lib/compania";
+import { paletaWords } from "@/lib/paleta";
+import { listedProjects } from "@/lib/proyectos-visibles";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThemeChoices } from "@/components/theme-toggle";
 import { api } from "@/lib/api";
@@ -147,6 +151,15 @@ export function AppShell() {
   // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
+  // ADR 0008: the Pedir palette, from every screen (⌘K / Ctrl+K, or the header's button). It exists once there is a
+  // project to ask; its projects are Inicio's (the same cache), its screens Inicio and the main nav.
+  const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const proyectos = useMemo(() => listedProjects(projects.data ?? []).map((p) => ({ slug: p.slug, title: p.title })), [projects.data]);
+  const pantallas = useMemo(() => [{ to: "/", label: paletaWords().inicio }, ...navItems()], []);
+  const [paleta, setPaleta] = useState(false);
+  const abrirPaleta = useCallback(() => setPaleta(true), []);
+  const hayPaleta = proyectos.length > 0;
+  useAtajoPaleta(paleta, setPaleta, hayPaleta);
 
   async function logout() {
     await api.logout();
@@ -169,6 +182,7 @@ export function AppShell() {
             <Logo />
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <HeaderNav counts={counts} />
+              {hayPaleta ? <PaletaBoton onAbrir={abrirPaleta} /> : null}
               {/* PLA-31: a page may put its own control here (Compañía's Asistente on Oficina). */}
               <div id="shell-actions" className="flex items-center empty:hidden" />
               <LiveIndicator />
@@ -188,6 +202,7 @@ export function AppShell() {
           <Outlet />
         </main>
         <TabBar counts={counts} />
+        {hayPaleta ? <Paleta abierta={paleta} onAbierta={setPaleta} proyectos={proyectos} pantallas={pantallas} /> : null}
       </div>
     </LiveProvider>
   );

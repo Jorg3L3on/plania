@@ -56,7 +56,12 @@ export type CreateRepoInput = {
   github: { name: string; private: boolean } | null;
   /** An existing GitHub repository (owner/name): an empty or missing folder is cloned from it instead of init. */
   clone?: string | null;
+  /** Any git URL (the guide's SSH choice): cloned with git itself, ssh in batch mode, instead of gh. */
+  clone_url?: string | null;
 };
+
+/** ssh that never waits for a prompt (passphrase, unknown host): it fails, and the failure says why. */
+export const BATCH_SSH = "ssh -o BatchMode=yes";
 
 const run = (cmd: string, extraEnv: NodeJS.ProcessEnv) => (args: string[], cwd: string) =>
   new Promise<GitResult>((resolve) => {
@@ -167,7 +172,11 @@ export async function createRepo(input: CreateRepoInput, deps: RepoSetupDeps = d
 
   // git: an existing GitHub repository is cloned into the empty folder; otherwise git init.
   if (repo) set("git", "already");
-  else if (input.clone) {
+  else if (input.clone_url) {
+    const cloned = await deps.git(["-c", `core.sshCommand=${BATCH_SSH}`, "clone", "--", input.clone_url, dir], path.dirname(dir));
+    if (cloned.code !== 0) return stop("git", "REPO_GIT_FAILED");
+    set("git", "done");
+  } else if (input.clone) {
     const cloned = await deps.gh(["repo", "clone", input.clone, dir], path.dirname(dir));
     if (cloned.code !== 0) return stop("git", ghFailure(cloned));
     set("git", "done");

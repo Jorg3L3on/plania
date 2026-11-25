@@ -33,8 +33,9 @@ after(async () => {
   await raw?.end();
 });
 
-test("PLA-87 #1: Inicio's Pedir uses the ask route, its modes and ASK_MAX, never the 200-character ticket route", async () => {
-  const src = await readFile(new URL("../ui/src/components/pedir.tsx", import.meta.url), "utf8");
+// ADR 0008: Inicio's field became the Pedir palette (⌘K, from every screen); the same rules hold for it.
+test("PLA-87 #1: the Pedir palette uses the ask route, its modes and ASK_MAX, never the 200-character ticket route", async () => {
+  const src = await readFile(new URL("../ui/src/components/paleta/paleta.tsx", import.meta.url), "utf8");
   assert.match(src, /api\.askProject\(/);
   assert.doesNotMatch(src, /createTask\(/);
   assert.match(src, /maxLength=\{ASK_MAX\}/);

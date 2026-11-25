@@ -51,7 +51,7 @@ test("NEWPROJ-8: the sheet's input limits are the server's", () => {
   assert.equal(META_MAX, NEW_PROJECT_GOAL_MAX);
   assert.equal(NEW_PROJECT_NAME_MAX, 40);
   assert.equal(NEW_PROJECT_GOAL_MAX, 280);
-  assert.match(nuevo, /value=\{name\} maxLength=\{NOMBRE_MAX\}/);
+  assert.match(nuevo, /value=\{name\}\s+maxLength=\{NOMBRE_MAX\}/);
   assert.match(nuevo, /value=\{goal\} maxLength=\{META_MAX\}/);
 });
 
@@ -93,7 +93,7 @@ test("NEWPROJ-8: a mouse-down on the background keeps typed text in the creation
   // The sheet wires it: the shell's background uses the helper, the creation sheet passes its four fields, and no
   // other sheet passes closeOnBack (they keep closing on the background).
   assert.match(sheet, /className="cor-hoja-back" onMouseDown=\{fondoMouseDown\(closeOnBack, onClose\)\}/);
-  assert.match(nuevo, /closeOnBack=\{nuevoProyectoSinTexto\(\[name, goal, carpeta, repo\]\)\}/);
+  assert.match(nuevo, /closeOnBack=\{nuevoProyectoSinTexto\(\[name, goal, carpeta, repo, ssh\]\)\}/);
   assert.equal(sheet.split("closeOnBack={").length - 1, 1);
 });
 

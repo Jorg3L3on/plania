@@ -4,8 +4,10 @@
 // digest's cursor there and as the server's bookmark for the screen, and clears the strip.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import { Link } from "react-router";
+import { motionTokens } from "@/components/arc/lib/motion-tokens";
 import { Button } from "@/components/ui/button";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
@@ -63,7 +65,6 @@ export function hoyIsEmpty(d: Digest, seenAt?: number, now = Date.now()): boolea
 const sinceWord = (d: Digest) => (d.since_from === "default" ? words(HOME_HOY).last24h : words(HOME_HOY).sinceSeen);
 
 export function Hoy({ names }: { names: (slug: string) => string }) {
-  const w = words(HOME_HOY);
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(() => readNumber(CURSOR_KEY));
   const [seenAt, setSeenAt] = useState(() => readNumber(SEEN_AT_KEY));
@@ -80,18 +81,40 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["digest"] }),
   });
 
+  const reducido = useReducedMotion() ?? false;
   const d = digest.data;
-  if (!d || hoyIsEmpty(d, seenAt)) return null;
+  const show = !!d && !hoyIsEmpty(d, seenAt);
+
+  // «Visto» clears the strip: it fades and folds (180ms) so the city moves up into its place instead of jumping. The
+  // strip that leaves keeps its last content while it goes. On load it rises as before.
+  return (
+    <AnimatePresence initial={false}>
+      {show ? (
+        <motion.div
+          key="hoy"
+          className="min-w-0"
+          exit={reducido ? { opacity: 0, transition: { duration: 0.1 } } : { opacity: 0, height: 0, scale: 0.98, transition: { duration: 0.18, ease: [...motionTokens.ease.standard] } }}
+        >
+          <HoyStrip d={d} seenAt={seenAt} names={names} onSeen={() => seen.mutate(d.cursor)} pending={seen.isPending} />
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function HoyStrip({ d, seenAt, names, onSeen, pending }: { d: Digest; seenAt: number | undefined; names: (slug: string) => string; onSeen: () => void; pending: boolean }) {
+  const w = words(HOME_HOY);
+  const reducido = useReducedMotion() ?? false;
   const waiting = waitingSince(d, seenAt);
   const active = d.projects.filter((p) => chipsOf(p.highlights).length > 0);
 
   return (
     <section aria-labelledby="hoy-title" className="grid animate-rise grid-cols-1 gap-3 rounded-[20px] border bg-card/60 px-4 py-3.5 sm:px-5">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 id="hoy-title" className="font-display text-lg font-bold tracking-tight">
+        <h2 id="hoy-title" className="min-w-0 font-display text-lg font-bold tracking-tight">
           {w.today} <span className="text-sm font-normal text-muted-foreground">{sinceWord(d)}</span>
         </h2>
-        <Button variant="outline" size="sm" disabled={seen.isPending} onClick={() => seen.mutate(d.cursor)} className="shrink-0">
+        <Button variant="outline" size="sm" disabled={pending} onClick={onSeen} className="shrink-0 transition-[background-color,color,scale,translate] active:scale-[0.97] motion-reduce:transition-none">
           <CheckIcon aria-hidden /> {w.seen}
         </Button>
       </div>
@@ -119,18 +142,30 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
       {waiting.length > 0 && (
         <div className="grid grid-cols-1 gap-1.5">
           <p className="text-xs font-semibold tracking-wide text-ink-owner uppercase">{w.waitsOnYou}</p>
-          <ul className="grid grid-cols-1 gap-1">
-            {waiting.slice(0, 6).map((i, n) => (
-              <li key={`${i.project}-${i.kind}-${i.key ?? n}-${n}`}>
+          {/* A decision that arrives while the page is open folds in (200ms) instead of pushing the rows; one that is
+              settled folds out (140ms). Opening the page plays nothing. Keys are the decision's, never its position, so a
+              new one at the top does not replay the others. */}
+          <ul className="grid grid-cols-1">
+            <AnimatePresence initial={false}>
+              {waiting.slice(0, 6).map((i) => (
+              <motion.li
+                key={`${i.project}-${i.kind}-${i.key ?? i.title}`}
+                className="overflow-hidden"
+                initial={reducido ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto", transition: { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] } }}
+                exit={reducido ? { opacity: 0, transition: { duration: 0.1 } } : { opacity: 0, height: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.standard] } }}
+              >
                 <Link
                   to={`/inbox?tab=${i.group}#${i.project}`}
-                  className="flex min-h-10 items-baseline gap-2 rounded-lg px-2 py-1.5 text-sm transition hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  className="mb-1 flex min-h-11 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none sm:min-h-10 sm:flex-row sm:items-baseline sm:gap-2 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.05]"
                 >
+                  {/* On a phone the project and key sit over the reason, so the reason keeps the whole width. */}
                   <span className="shrink-0 text-xs text-muted-foreground">{names(i.project)}{i.key ? ` · ${i.key}` : ""}</span>
-                  <span className="min-w-0 truncate">{i.why || i.title}</span>
+                  <span className="min-w-0 truncate max-sm:line-clamp-2 max-sm:whitespace-normal">{i.why || i.title}</span>
                 </Link>
-              </li>
-            ))}
+              </motion.li>
+              ))}
+            </AnimatePresence>
           </ul>
           {waiting.length > 6 && (
             <Link to="/inbox" className="px-2 text-xs text-muted-foreground underline underline-offset-4">

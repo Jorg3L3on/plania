@@ -35,7 +35,7 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
     ejemploProyecto: { name: "Ejemplo", goal: "Probar Plania con un primer trabajo pequeño que termina en un documento." },
     guia: {
       titulo: "Tu primera entrega",
-      intro: "Seis pasos hasta que el equipo te entregue algo y lo aceptes. Cada uno se marca solo cuando ya está.",
+      intro: "Tres pasos y el equipo se pone a trabajar; luego te toca aprobar su plan y aceptar la entrega. Cada paso se marca solo cuando ya está.",
       ejemplo: "Probar con un ejemplo",
       ejemploTexto: "¿No tienes un repositorio a la mano? El ejemplo es un proyecto sin código: su primer trabajo termina en un documento.",
       pedirSugerido: "Pedir esto",
@@ -45,30 +45,30 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
     },
     consumo: (n: number) => `Una corrida usa más o menos el ${n} % de tu plan de cinco horas, así que este pedido cabe de sobra.`,
     maquina: {
-      titulo: "Revisa la máquina",
+      titulo: "Requisitos del entorno",
       lista: "Tiene todo lo que Plania necesita.",
-      falta: "Le falta algo: ábrela y sigue el arreglo de cada cosa.",
-      sinRevisar: "Mira qué le falta antes de empezar; se marca al revisarla.",
+      falta: "Le falta algo: revísalo y sigue el arreglo de cada cosa.",
+      sinRevisar: "Valida los requisitos necesarios para iniciar el proyecto. Esta revisión no impide continuar con los siguientes pasos.",
       boton: "Ver qué falta",
     },
     proyecto: {
-      titulo: "Crea tu primer proyecto",
+      titulo: "Agrega tu primer proyecto",
       existe: (title: string) => `${title} ya existe.`,
-      nuevo: "Ponle nombre y una meta de una frase. Empieza en pausa, con su equipo.",
-      boton: "Nuevo proyecto",
+      nuevo: "Uno nuevo, o uno que ya tiene código: en esta máquina, en GitHub o por SSH. Empieza en pausa, con su equipo.",
+      boton: "Agregar proyecto",
     },
     reanudar: {
-      titulo: "Reanúdalo",
+      titulo: "Iniciar proyecto",
       compania: "La compañía empieza detenida: reanúdala para que el equipo pueda trabajar.",
       proyecto: "Un proyecto nuevo empieza en pausa: nada corre hasta que lo reanudes.",
       // F6: the company and the first project both start paused; one press resumes the two.
-      ambos: (title: string) => `La compañía y ${title} empiezan en pausa. Reanudar pone a andar las dos con un solo botón.`,
+      ambos: (title: string) => `La compañía y ${title} empiezan en pausa. «Iniciar proyecto» pone a andar los dos con un solo botón.`,
       boton: "Reanudar",
       reanudando: "Reanudando…",
       fallo: "No se pudo reanudar. Intenta de nuevo.",
     },
     pedido: {
-      titulo: "Pide algo pequeño",
+      titulo: "Define una primera tarea",
       texto: (pedido: string, consumo: string) => `Por ejemplo: «${pedido}» ${consumo}`,
       boton: "Pedir",
     },
@@ -84,13 +84,70 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       nada: "Cuando el equipo termine, te toca revisarlo y aceptarlo.",
       boton: "Ver la entrega",
     },
+    // The short card on Inicio and the wizard it opens (steps 1 to 4; 5 and 6 wait for the team).
+    tarjeta: {
+      progreso: (hechos: number, total: number) => `${hechos} de ${total} listos`,
+      paso: (n: number, total: number) => `Paso ${n} de ${total}`,
+      empezar: "Empezar",
+      continuar: "Continuar",
+      esperando: "Ahora le toca al equipo: te avisamos aquí cuando haya algo que ver.",
+      maquina: "Falta revisar los requisitos del entorno.",
+      verMaquina: "Revisarlos",
+    },
+    asistente: {
+      titulo: "Prepara tu primera entrega",
+      intro: "Tres pasos y el equipo se pone a trabajar. Puedes cerrar y seguir después: cada paso queda hecho.",
+      etiquetas: { maquina: "Requisitos", proyecto: "Proyecto", iniciar: "Iniciar" } as Record<PasoAsistente, string>,
+      atras: "Atrás",
+      continuar: "Continuar",
+      cerrar: "Cerrar",
+      // Step 1: the requirements' body is always the same sentence; the list shows under it once checked.
+      maquinaCuerpo: "Valida los requisitos necesarios para iniciar el proyecto. Esta revisión no impide continuar con los siguientes pasos.",
+      revisar: "Revisar",
+      reintentar: "Reintentar",
+      // One line per state of the check: running (first time, or again over the last list) and failed.
+      revisandoPrimera: "Revisando los requisitos… la prueba de Claude tarda unos segundos.",
+      revisandoOtraVez: "Revisando otra vez… la lista aparece al terminar.",
+      revisarFallo: "No se pudo completar la revisión. Pulsa «Reintentar» para intentarlo otra vez.",
+      agregar: "Agregar proyecto",
+      ejemploO: "¿No tienes un repositorio a la mano?",
+      // Step 2 once the project exists: what it is, and what is left to set up (none of it stops a start, or some does).
+      agregadoCuerpo: (title: string, pausado: boolean) =>
+        pausado ? `El proyecto ${title} ya existe y está agregado, pero permanece en pausa junto con su equipo.` : `El proyecto ${title} ya existe y está agregado, con su equipo.`,
+      pendientes: (n: number) => (n === 1 ? "Hay 1 elemento pendiente de configuración." : `Hay ${n} elementos pendientes de configuración.`),
+      pendientesNinguno: "Ninguno impide iniciar el proyecto; pueden completarse posteriormente desde",
+      pendientesAlguno: "Los marcados impiden que el equipo trabaje; complétalos desde",
+      // The places themselves (Ajustes, Despliegue) are links worded in lib/listo.ts; o joins two of them.
+      o: "o",
+      pendientesNingunoSolo: "Ninguno impide iniciar el proyecto.",
+      pendientesAlgunoSolo: "Los marcados impiden que el equipo trabaje.",
+      impide: "impide trabajar",
+      // Step 3, first part: the project's state, and the button that starts it (and the company).
+      iniciarTitulo: "Estado del proyecto",
+      iniciarCuerpo: (title: string) => `El proyecto ${title} y su compañía ya están configurados y listos para iniciar su ejecución.`,
+      iniciar: "Iniciar proyecto",
+      iniciando: "Iniciando",
+      iniciado: "Proyecto iniciado",
+      enPausa: "En pausa",
+      activo: "Activo",
+      // Step 3, second part: the first task.
+      tareaTitulo: "Define una primera tarea",
+      tareaCuerpo: "Establece una tarea sencilla y corta que permita completar una primera ejecución. El ejemplo puede modificarse.",
+      tareaAntes: "Inicia el proyecto para enviarle su primera tarea.",
+      yaPediste: "Ya le pediste algo al equipo. El responsable del proyecto te propondrá un plan.",
+      pedirYTerminar: "Pedir y terminar",
+      pidiendo: "Pidiendo…",
+      pedidoFallo: "No se pudo enviar el pedido. Intenta de nuevo.",
+      terminado: "Listo: el equipo tiene tu pedido. Te avisamos en Inicio cuando haya un plan para aprobar.",
+      terminar: "Terminar",
+    },
   },
   en: {
     pedidoSugerido: "Write a short document that says what this project is, who it is for and what its first three steps would be.",
     ejemploProyecto: { name: "Example", goal: "Try Plania with a small first job that ends in a document." },
     guia: {
       titulo: "Your first delivery",
-      intro: "Six steps until the team delivers something to you and you accept it. Each one ticks itself once it is done.",
+      intro: "Three steps and the team gets to work; then you approve its plan and accept the delivery. Each step ticks itself once it is done.",
       ejemplo: "Try an example",
       ejemploTexto: "No repository at hand? The example is a project with no code: its first job ends in a document.",
       pedirSugerido: "Ask for this",
@@ -100,29 +157,29 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
     },
     consumo: (n: number) => `A run uses about ${n} % of your five-hour plan, so this request fits easily.`,
     maquina: {
-      titulo: "Check the machine",
+      titulo: "Environment requirements",
       lista: "It has everything Plania needs.",
-      falta: "Something is missing: open it and follow the fix for each thing.",
-      sinRevisar: "See what is missing before you start; it ticks once it is checked.",
+      falta: "Something is missing: check it and follow the fix for each thing.",
+      sinRevisar: "Checks what is needed to start the project. This check does not stop you from going on to the next steps.",
       boton: "See what's missing",
     },
     proyecto: {
-      titulo: "Make your first project",
+      titulo: "Add your first project",
       existe: (title: string) => `${title} already exists.`,
-      nuevo: "Give it a name and a one-sentence goal. It starts paused, with its team.",
-      boton: "New project",
+      nuevo: "A new one, or one that already has code: on this machine, on GitHub or over SSH. It starts paused, with its team.",
+      boton: "Add project",
     },
     reanudar: {
-      titulo: "Resume it",
+      titulo: "Start the project",
       compania: "The company starts stopped: resume it so the team can work.",
       proyecto: "A new project starts paused: nothing runs until you resume it.",
-      ambos: (title: string) => `The company and ${title} start paused. Resume starts both with one button.`,
+      ambos: (title: string) => `The company and ${title} start paused. «Start the project» starts both with one button.`,
       boton: "Resume",
       reanudando: "Resuming…",
       fallo: "It could not resume. Try again.",
     },
     pedido: {
-      titulo: "Ask for something small",
+      titulo: "Set a first task",
       texto: (pedido: string, consumo: string) => `For example: «${pedido}» ${consumo}`,
       boton: "Ask",
     },
@@ -137,6 +194,56 @@ export const PRIMERA_ENTREGA_WORDS = defineWords({
       espera: "The team finished: review what it did and press Accept, or ask for changes.",
       nada: "When the team finishes, it's your turn to review it and accept it.",
       boton: "See the delivery",
+    },
+    tarjeta: {
+      progreso: (hechos: number, total: number) => `${hechos} of ${total} done`,
+      paso: (n: number, total: number) => `Step ${n} of ${total}`,
+      empezar: "Start",
+      continuar: "Continue",
+      esperando: "Now it's the team's turn: you'll see it here when there is something to look at.",
+      maquina: "The environment requirements are still to be checked.",
+      verMaquina: "Check them",
+    },
+    asistente: {
+      titulo: "Get your first delivery going",
+      intro: "Three steps and the team gets to work. You can close and come back: each step stays done.",
+      etiquetas: { maquina: "Requirements", proyecto: "Project", iniciar: "Start" },
+      atras: "Back",
+      continuar: "Continue",
+      cerrar: "Close",
+      maquinaCuerpo: "Checks what is needed to start the project. This check does not stop you from going on to the next steps.",
+      revisar: "Check",
+      reintentar: "Try again",
+      revisandoPrimera: "Checking the requirements… the Claude test takes a few seconds.",
+      revisandoOtraVez: "Checking again… the list shows when it's done.",
+      revisarFallo: "The check could not finish. Press «Try again» to run it again.",
+      agregar: "Add project",
+      ejemploO: "No repository at hand?",
+      agregadoCuerpo: (title: string, pausado: boolean) =>
+        pausado ? `The project ${title} already exists and is added, but it stays paused along with its team.` : `The project ${title} already exists and is added, with its team.`,
+      pendientes: (n: number) => (n === 1 ? "There is 1 item left to set up." : `There are ${n} items left to set up.`),
+      pendientesNinguno: "None of them stops the project from starting; they can be done later from",
+      pendientesAlguno: "The marked ones stop the team from working; finish them from",
+      o: "or",
+      pendientesNingunoSolo: "None of them stops the project from starting.",
+      pendientesAlgunoSolo: "The marked ones stop the team from working.",
+      impide: "stops work",
+      iniciarTitulo: "Project status",
+      iniciarCuerpo: (title: string) => `The project ${title} and its company are set up and ready to start running.`,
+      iniciar: "Start the project",
+      iniciando: "Starting",
+      iniciado: "Project started",
+      enPausa: "Paused",
+      activo: "Running",
+      tareaTitulo: "Set a first task",
+      tareaCuerpo: "Set a simple, short task that can finish in a first run. You can change the example.",
+      tareaAntes: "Start the project to send it its first task.",
+      yaPediste: "You already asked the team for something. The project's lead will propose a plan to you.",
+      pedirYTerminar: "Ask and finish",
+      pidiendo: "Asking…",
+      pedidoFallo: "The request could not be sent. Try again.",
+      terminado: "Done: the team has your request. You'll see it on Inicio when there is a plan to approve.",
+      terminar: "Finish",
     },
   },
 });
@@ -227,6 +334,79 @@ export function pasosDe(r: GuiaRead, language: Language = getLanguage()): Paso[]
  * paused. The project goes first, so a failure in between leaves the company stopped and nothing running. */
 export function aReanudar(r: Pick<GuiaRead, "proyecto" | "company_paused" | "project_paused">): { project: string | null; company: boolean } {
   return { project: r.proyecto && r.project_paused ? r.proyecto.slug : null, company: r.company_paused };
+}
+
+// The wizard on Inicio holds the first four steps of the card in three: its third, «Iniciar», starts the project and
+// sends the first task (the card's reanudar and pedido). Plan and delivery wait for the team, so they stay on the card.
+export type PasoAsistente = "maquina" | "proyecto" | "iniciar";
+export const PASOS_ASISTENTE: readonly PasoAsistente[] = ["maquina", "proyecto", "iniciar"];
+export const PASOS_DE_ASISTENTE: Record<PasoAsistente, readonly PasoId[]> = { maquina: ["maquina"], proyecto: ["proyecto"], iniciar: ["reanudar", "pedido"] };
+const asistenteDe = (id: PasoId): number => PASOS_ASISTENTE.findIndex((a) => PASOS_DE_ASISTENTE[a].includes(id));
+/** Whether a wizard step is done: all the card's steps it holds are. */
+export const asistenteHecho = (a: PasoAsistente, pasos: Paso[]): boolean => PASOS_DE_ASISTENTE[a].every((id) => pasos.find((p) => p.id === id)?.estado === "hecho");
+
+/**
+ * The short card, in the wizard's three steps: how many are done, one segment each, and the step to show. Inside a
+ * wizard step the card shows the guide step it is on (iniciar: start the project, then the first task). The machine
+ * never holds the rest back: once a later step is done the card shows the next open one and keeps the machine as a
+ * side note (maquinaPendiente). With the three done the team works: the card shows the plan or the delivery, with no
+ * step number (n null) and outside the wizard.
+ */
+export function tarjetaDe(pasos: Paso[]): {
+  hechos: number;
+  total: number;
+  segmentos: Array<{ id: PasoAsistente; hecho: boolean }>;
+  actual: Paso | null;
+  n: number | null;
+  enAsistente: boolean;
+  maquinaPendiente: boolean;
+} {
+  const segmentos = PASOS_ASISTENTE.map((id) => ({ id, hecho: asistenteHecho(id, pasos) }));
+  const maquinaHecha = segmentos[0]!.hecho;
+  const resto = segmentos.findIndex((s, i) => i > 0 && !s.hecho);
+  const empezado = segmentos.some((s, i) => i > 0 && s.hecho);
+  const i = !maquinaHecha && !empezado ? 0 : resto;
+  const abierto = (ids: readonly PasoId[]) => ids.map((id) => pasos.find((p) => p.id === id)!).find((p) => p.estado !== "hecho") ?? null;
+  const actual = i >= 0 ? abierto(PASOS_DE_ASISTENTE[PASOS_ASISTENTE[i]!]) : abierto(["plan", "entrega"]);
+  return {
+    hechos: segmentos.filter((s) => s.hecho).length,
+    total: PASOS_ASISTENTE.length,
+    segmentos,
+    actual,
+    n: i >= 0 ? i + 1 : null,
+    enAsistente: i >= 0,
+    maquinaPendiente: !maquinaHecha && i !== 0,
+  };
+}
+
+/** The wizard's first step when it opens: the one holding the card's step, else the first of its three not done. */
+export function pasoInicial(pasos: Paso[]): number {
+  const t = tarjetaDe(pasos);
+  const i = t.actual ? asistenteDe(t.actual.id) : -1;
+  if (i >= 0) return i;
+  const abierto = PASOS_ASISTENTE.findIndex((a) => !asistenteHecho(a, pasos));
+  return abierto < 0 ? PASOS_ASISTENTE.length - 1 : abierto;
+}
+
+/** Whether the wizard may go on from a step. The machine never holds the rest back; the others need their step done. */
+export function puedeSeguir(id: PasoAsistente, pasos: Paso[]): boolean {
+  if (id === "maquina") return true;
+  return asistenteHecho(id, pasos);
+}
+
+/** Whether the stepper may jump to a step: every required step before it is done (the machine is optional). */
+export function alcanzable(i: number, pasos: Paso[]): boolean {
+  return PASOS_ASISTENTE.slice(0, i).every((a) => a === "maquina" || asistenteHecho(a, pasos));
+}
+
+/** Step 1's state: never checked, checking (with or without a list already shown), the list, or a real failure. A
+ * failure is only shown when nothing is running, so a check in progress never reads as a failed one. */
+export type RequisitosFase = "sin_revisar" | "revisando" | "revisando_otra_vez" | "listo" | "error";
+export function requisitosFase(s: { pedido: boolean; corriendo: boolean; hayLectura: boolean; fallo: boolean }): RequisitosFase {
+  if (s.corriendo) return s.hayLectura ? "revisando_otra_vez" : "revisando";
+  if (!s.pedido) return "sin_revisar";
+  if (s.fallo) return "error";
+  return s.hayLectura ? "listo" : "sin_revisar";
 }
 
 /** Whether to offer the example project: only while there is no project yet. */
