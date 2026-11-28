@@ -4,6 +4,8 @@
 // Assistant events give live turns and tokens while the run is still going.
 // total_cost_usd is never read: Plania does not show money.
 
+import { addTally, splitMcpName, type McpTally } from "./conexiones.js";
+
 export type ModelTokens = {
   model: string;
   input: number;
@@ -85,6 +87,11 @@ export class StreamReader {
   filesRead = new Set<string>();
   // AUDIT-7: the context the last top-level turn carried (input + cache read + cache create). Null before any turn.
   contextTokens: number | null = null;
+  // PLA-I75: every mcp__ call by its tool_use id (server, tool, and what its result said), and the ids the CLI's result
+  // event lists as permission denials. The run log is the record of what an agent did with a connection, never its own
+  // account of it.
+  private mcpCalls = new Map<string, { server: string; tool: string; outcome: "pending" | "ok" | "failed" | "blocked" }>();
+  private denied = new Set<string>();
   private buffer = "";
   private messages = new Map<string, { input: number; output: number; cacheRead: number; cacheCreate: number }>();
 
@@ -103,6 +110,13 @@ export class StreamReader {
   end(): void {
     if (this.buffer.trim()) this.line(this.buffer);
     this.buffer = "";
+  }
+
+  /** PLA-I75: the run's mcp__ calls by server and tool: ran, failed (or never answered), or blocked by a rule. */
+  mcpTally(): McpTally {
+    const out: McpTally = {};
+    for (const [id, c] of this.mcpCalls) addTally(out, c.server, c.tool, this.denied.has(id) || c.outcome === "blocked" ? "blocked" : c.outcome === "ok" ? "ok" : "failed");
+    return out;
   }
 
   // Live counts while the run goes: one turn per assistant message, its latest usage.
@@ -149,6 +163,8 @@ export class StreamReader {
         const file = part.name === "Read" && typeof input.file_path === "string" ? /[\\/]skills[\\/]([a-z][a-z0-9-]{0,39})[\\/]SKILL\.md$/.exec(input.file_path) : null;
         if (file) this.skillsUsed.add(file[1]!);
         if (part.name === "Read" && typeof input.file_path === "string" && this.filesRead.size < 500) this.filesRead.add(input.file_path.slice(0, 1000));
+        const mcp = typeof part.name === "string" ? splitMcpName(part.name) : null;
+        if (mcp && typeof part.id === "string" && this.mcpCalls.size < 5000) this.mcpCalls.set(part.id, { ...mcp, outcome: "pending" });
       }
       const id = str(message?.id);
       if (!id) return;
@@ -163,7 +179,23 @@ export class StreamReader {
       });
       return;
     }
+    if (event.type === "user") {
+      const message = event.message as { content?: unknown } | undefined;
+      for (const part of Array.isArray(message?.content) ? (message!.content as Record<string, unknown>[]) : []) {
+        if (part?.type !== "tool_result" || typeof part.tool_use_id !== "string") continue;
+        const call = this.mcpCalls.get(part.tool_use_id);
+        if (!call) continue;
+        const text = typeof part.content === "string" ? part.content : Array.isArray(part.content) ? (part.content as { text?: unknown }[]).map((c) => (typeof c?.text === "string" ? c.text : "")).join(" ") : "";
+        call.outcome = part.is_error !== true ? "ok" : DENIED_TEXT.test(text) ? "blocked" : "failed";
+      }
+      return;
+    }
     if (event.type === "result") {
+      for (const d of Array.isArray(event.permission_denials) ? (event.permission_denials as Record<string, unknown>[]) : []) {
+        if (typeof d?.tool_use_id === "string") this.denied.add(d.tool_use_id);
+        const name = typeof d?.tool_name === "string" ? splitMcpName(d.tool_name) : null;
+        if (name && typeof d?.tool_use_id === "string" && !this.mcpCalls.has(d.tool_use_id)) this.mcpCalls.set(d.tool_use_id, { ...name, outcome: "blocked" });
+      }
       const usage = event.modelUsage;
       this.result = {
         subtype: str(event.subtype) ?? "unknown",
@@ -178,6 +210,9 @@ export class StreamReader {
     }
   }
 }
+
+// The CLI's text for a call a permission rule refused (a deny rule, or no one to approve it in an unattended run).
+const DENIED_TEXT = /permission to use .* (has been|was) denied|denied by (a )?permission|requires approval|permission denied/i;
 
 export function parseStream(text: string): StreamReader {
   const reader = new StreamReader();

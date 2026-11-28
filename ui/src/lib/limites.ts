@@ -119,6 +119,10 @@ export const LIMITS_WORDS = defineWords({
         name: "El navegador de revisión",
         sentence: "La primera revisión en navegador descarga sus herramientas y el navegador que usa.",
       },
+      connections: {
+        name: "Las conexiones de cada agente",
+        sentence: "Si le conectaste una herramienta a un agente, sus corridas la descargan con su versión fija y hablan con su servicio (GitHub, Neon, Sentry o Context7).",
+      },
       "agent-wake": {
         name: "Agentes que se despiertan por internet",
         sentence: "Si un agente se despierta por una dirección web, Plania le manda ahí la clave de la tarea.",
@@ -262,6 +266,10 @@ export const LIMITS_WORDS = defineWords({
       "qa-browser": {
         name: "The review browser",
         sentence: "The first review in a browser downloads its tools and the browser it uses.",
+      },
+      connections: {
+        name: "Each agent's connections",
+        sentence: "If you connected a tool to an agent, its runs download it at its pinned version and talk to its service (GitHub, Neon, Sentry or Context7).",
       },
       "agent-wake": {
         name: "Agents woken over the internet",

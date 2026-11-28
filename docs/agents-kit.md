@@ -34,7 +34,7 @@ Runner switches (environment):
 | `PLANIA_DEFAULT_KITS` | `0`: seats without packs carry none. |
 | `PLANIA_RETRY_FRESH` | `1` (default) fresh session after a failure, a QA return or a long session; `0` always resume; `ab` alternates, so the scoreboard can compare both. |
 | `PLANIA_RESUME_MAX_CONTEXT` | Context tokens above which a session is not resumed. Default 120000. |
-| `PLANIA_BROWSER_MCP` | The command for the QA browser tools. Default `npx -y @playwright/mcp@latest --headless --isolated`. |
+| `PLANIA_BROWSER_MCP` | The command for the QA browser tools. Default `npx -y @playwright/mcp@0.0.86 --headless --isolated` (pinned with the Conexiones catalog, `src/runner/conexiones.ts`). |
 | `PLANIA_KIT_DIR` | Another folder for the kit (tests). |
 
 The replay set (`replay/`, [replay/README.md](../replay/README.md)) reruns saved tickets against a prompt, skill or model change: `pnpm replay:capture <project> <key>`, `pnpm replay --trials 3`, `pnpm replay --compare a.json b.json`.

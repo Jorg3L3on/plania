@@ -192,9 +192,9 @@ test("I71-2 #3: the panel's tab lives in the address; the old agent page's addre
   assert.equal(cor.atOf("?proyecto=tienda&ver=oficio:artist-t").tab, "equipo");
 });
 
-test("I71-2 #1: four tabs; Perfil says who it reports to, who reports to it, its post, your manner and its work", () => {
+test("I71-2 #1: five tabs (PLA-I75: Conexiones); Perfil says who it reports to, who reports to it, its post, your manner and its work", () => {
   const out = panel("perfil");
-  assert.equal(out.match(/role="tab"/g)?.length, 4);
+  assert.equal(out.match(/role="tab"/g)?.length, 5);
   assert.match(out, /role="tablist" aria-label="La ficha de Artist"/);
   assert.match(out, /aria-selected="true"[^>]*>Perfil/);
   assert.match(out, /<dt>Reporta a<\/dt><dd>PO <button/);

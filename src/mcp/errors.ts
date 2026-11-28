@@ -73,8 +73,12 @@ export const ERRORS = {
   // PLA-I71-3: seats.
   PUESTO_INVALID: [400, "a role of the owner's own needs a title (1-60 characters), a line (up to 200) and a base role from the catalog (detail: field)"],
   MANAGER_NOT_ON_TEAM: [400, "a seat can report only to the owner or to a seat of the same project's team"],
+  // PLA-I75: Conexiones.
+  CONNECTION_INVALID: [400, "a connection field is wrong: a key name (A-Z, digits, _), a write tool the entry does not have, a reason of 3-600 characters, or a custom server that is not an npm package at an exact version (detail: field)"],
   // 403: only the owner may do this.
   SEAT_PROPOSAL_NOT_PO: [403, "propose_seat: only the project's product owner proposes a seat; runs never create, change or retire seats"],
+  CONNECTION_REQUEST_NO_SEAT: [403, "request_connection: only a run of a seat on that project asks for a connection, for itself; runs never connect, accept or turn on a tool"],
+  CONNECTION_TOOL_NEVER: [403, "that tool is never allowed on a connection (merging, shipping, deleting what the agent did not make)"],
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   HUMAN_ONLY: [403, "Won't do or reopening a closed task: the owner's call, on screen with a reason, or by an agent with a reason and delegated_by_owner {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
   THREAD_FORBIDDEN: [403, "thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent)"],
@@ -86,6 +90,9 @@ export const ERRORS = {
   LESSON_OWNER_ONLY: [403, "only the owner's screen approves, edits, rejects or retires a lesson; the reflector and agents only propose (detail: lesson)"],
   // 404: something named does not exist.
   PROPOSAL_NOT_FOUND: [404, "no seat proposal with that id in this project"],
+  CONNECTION_UNKNOWN: [404, "no catalog entry with that name (detail: known)"],
+  CONNECTION_NOT_FOUND: [404, "this seat has no connection to that server"],
+  CONNECTION_REQUEST_NOT_FOUND: [404, "no connection request with that id for this seat"],
   PUESTO_NOT_FOUND: [404, "no role of the owner's own with that slug (factory roles cannot be deleted)"],
   TEAM_NOT_FOUND: [404, "no team with that slug in the catalog; deleting also needs it to be one the owner saved or brought, not a factory team"],
   MARKS_NOT_FOUND: [404, "deliver_marks on an id that is not an open marks request of this project (detail: id)"],
@@ -112,6 +119,9 @@ export const ERRORS = {
   SEAT_REQUIRED: [409, "the product owner cannot be retired: every project keeps one"],
   SEAT_TAKEN: [409, "that role already has a seat on this team, or a role of the owner's own with that name exists"],
   PROPOSAL_DECIDED: [409, "the seat proposal was already accepted or declined"],
+  CONNECTION_EXISTS: [409, "this seat already has a connection with that name"],
+  CONNECTION_REQUEST_DECIDED: [409, "the connection request was already accepted or declined"],
+  CONNECTION_NEEDS_LOGIN: [409, "that server needs an interactive sign-in, so an unattended run cannot use it"],
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
   BLOCKER_NOT_WITHDRAWABLE: [409, "set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason)"],
   BRANCH_IN_USE: [409, "the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it"],

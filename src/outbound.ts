@@ -10,6 +10,7 @@ export type OutboundId =
   | "vercel-read"
   | "push"
   | "qa-browser"
+  | "connections"
   | "agent-wake"
   | "tailscale"
   | "scanner-download";
@@ -33,6 +34,7 @@ export const OUTBOUND: readonly Outbound[] = [
   { id: "vercel-read", to: "api.vercel.com", when: "the poller reads deployments of projects with a Vercel token", code: "src/jobs/vercel.ts", optional: true },
   { id: "push", to: "the phone's push service (Apple, Google or Mozilla)", when: "a notice to phones that turned on notices, with VAPID keys set", code: "src/push.ts", optional: true },
   { id: "qa-browser", to: "the npm registry and Playwright's download site", when: "the first QA walk-through downloads the browser tools (npx @playwright/mcp)", code: "src/runner/runner.ts", optional: true },
+  { id: "connections", to: "each tool the owner connected to a seat: the npm or PyPI registry that serves it, and its own service (GitHub, Neon, Sentry, Context7)", when: "a run of a seat with connections (Conexiones) starts its tools and uses them", code: "src/runner/conexiones.ts", optional: true },
   { id: "agent-wake", to: "the wake URL of an agent with the http adapter", when: "Plania wakes that agent with the ticket's key", code: "src/adapters/spawn.ts", optional: true },
   { id: "tailscale", to: "the owner's tailnet, through tailscale serve", when: "a test copy is opened on the phone", code: "src/captures/vivo.ts", optional: true },
   { id: "scanner-download", to: "github.com (gitleaks releases)", when: "the diff scanner downloads its pinned tool once, checked by hash", code: "src/lib/scan/gitleaks.ts", optional: true },
