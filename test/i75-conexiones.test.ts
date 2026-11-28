@@ -163,6 +163,9 @@ test("I75 #6: the owner connects from the sheet: reading only, write tools one b
   const gone = await call("DELETE", `${BASE}/taller-tienda/conexiones/github`);
   assert.equal(gone.status, 200);
   assert.deepEqual(gone.json.connections, []);
+  const again = await call("DELETE", `${BASE}/taller-tienda/conexiones/github`);
+  assert.equal(again.status, 404);
+  assert.equal(again.json.error, "CONNECTION_NOT_FOUND");
 });
 
 test("I75 #7: a new catalog version waits for the owner, who reads what it adds, drops or turns into a writer", async () => {
@@ -249,6 +252,10 @@ test("I75 #9: an agent asks with request_connection; only the owner's screen con
   assert.deepEqual(yes.json.connections.map((c: Json) => c.server), ["context7"]);
   assert.equal((await call("POST", `${BASE}/research-tienda/conexiones-pedidos/${made.request.id}`, { accept: false })).json.error, "CONNECTION_REQUEST_DECIDED");
   assert.equal((await ask("research-tienda", "context7")).error, "CONNECTION_EXISTS");
+
+  const unknown = await call("POST", `${BASE}/research-tienda/conexiones-pedidos/00000000-0000-0000-0000-000000000000`, { accept: true });
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.json.error, "CONNECTION_REQUEST_NOT_FOUND");
 
   const no = await ask("research-tienda", "github");
   const declined = await call("POST", `${BASE}/research-tienda/conexiones-pedidos/${no.request.id}`, { accept: false });
